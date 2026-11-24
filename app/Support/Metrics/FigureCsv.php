@@ -91,21 +91,34 @@ final class FigureCsv
     {
         $rows = [];
 
+        /*
+         * EVERY CELL IS PLAINED HERE TOO, AND UNTIL NOW ONLY THE AMOUNT WAS -- which made this
+         * class's own claim above ("The invariant is now total ... NO isolate ever reaches the
+         * file") FALSE for this one builder. Measured by an independent review on the real
+         * download: the platform file's disclosure column carried U+2066/U+2069 around the counts
+         * in "At least 1 paid orders ..." and "Stores left out ...: 1", for the payments block as
+         * well as the new profit one. `rows()` and `breakdownRows()` had both been corrected on
+         * 2026-11-22 and this builder was missed, so the asymmetry the two notes above describe
+         * survived in the third place it could occur.
+         *
+         * `plain()` is a no-op on text that never had an isolate, so no cell that was already
+         * clean changes.
+         */
         foreach ($block['rows'] as $row) {
             $rows[] = [
-                $label . ' — ' . $row['currency'],
+                self::plain($label . ' — ' . (string) $row['currency']),
                 self::plain((string) $row['amount']),
-                (string) ($block['period'] ?? ''),
-                (string) ($block['hint'] ?? ''),
+                self::plain((string) ($block['period'] ?? '')),
+                self::plain((string) ($block['hint'] ?? '')),
             ];
         }
 
         if ($rows === []) {
             $rows[] = [
-                $label,
+                self::plain($label),
                 __('Not available'),
-                (string) ($block['period'] ?? ''),
-                (string) ($block['hint'] ?? ''),
+                self::plain((string) ($block['period'] ?? '')),
+                self::plain((string) ($block['hint'] ?? '')),
             ];
         }
 

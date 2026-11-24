@@ -80,6 +80,33 @@ class PlatformAnalyticsController extends Controller
         ];
     }
 
+    /**
+     * THE SINGLE-VALUE FIGURES THE FILE CARRIES, extracted from `export()` for the same reason
+     * `breakdownLabels()` is: so a TEST can read the map instead of re-declaring it.
+     *
+     * AND IT CLOSES A MEASURED HOLE IN THAT GUARD, found by a mutation run rather than by reading.
+     * `FigureExportTest` derived its expectation from `forPlatform()` and compared it against a
+     * hard-coded list of its own, which catches a figure added to the SCREEN and not to this map.
+     * It did NOT catch the opposite: deleting `'visits' => self::visits(...)` from `forPlatform()`
+     * passed, because `FigureCsv::rows()` iterates this map and SKIPS an entry whose figure has no
+     * `value` key -- an absent figure and a breakdown are indistinguishable to it -- so the cell
+     * simply vanished and the test, deriving its expectation from the now-shorter figure array,
+     * expected nothing. Reading the map from here lets the guard assert BOTH directions, which is
+     * what "the map and the source must not disagree" was always supposed to mean.
+     *
+     * @return array<string, string>
+     */
+    public static function figureLabels(): array
+    {
+        return [
+            'stores' => __('Stores'),
+            'orders' => __('Orders'),
+            'visits' => __('Page views'),
+            'buyers' => __('Buyers'),
+            'retention' => __('Repeat purchase'),
+        ];
+    }
+
     public function export(Request $request)
     {
         $figures = PlatformAnalyticsFigures::forPlatform();
@@ -99,14 +126,20 @@ class PlatformAnalyticsController extends Controller
          * quiet omission. The merchant side has had that guard all along; the operator side did
          * not, which is the whole reason this was missable.
          */
-        $rows = \App\Support\Metrics\FigureCsv::rows($figures, [
-            'stores' => __('Stores'),
-            'orders' => __('Orders'),
-            'buyers' => __('Buyers'),
-            'retention' => __('Repeat purchase'),
-        ]);
+        $rows = \App\Support\Metrics\FigureCsv::rows($figures, self::figureLabels());
 
         foreach (\App\Support\Metrics\FigureCsv::currencyRows($figures['payments'], __('Payments collected')) as $row) {
+            $rows[] = $row;
+        }
+
+        /*
+         * PROFIT IS THE SAME SHAPE AS PAYMENTS -- `{rows: [{currency, amount}], period, hint}` --
+         * so it goes through the same renderer and gets one row per currency with no total, and
+         * every row repeats the sentence saying the rows are not to be added. A spreadsheet is the
+         * one tool that invites a reader to total a column, which is why that disclosure travels
+         * per row rather than once.
+         */
+        foreach (\App\Support\Metrics\FigureCsv::currencyRows($figures['profit'], __('Estimated gross profit')) as $row) {
             $rows[] = $row;
         }
 

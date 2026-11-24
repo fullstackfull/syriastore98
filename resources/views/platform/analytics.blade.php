@@ -52,6 +52,17 @@
                        :period="$figures['orders']['period']"
                        :hint="$figures['orders']['hint']" />
 
+            {{-- GAP-162 / P05-14, the third counterpart. It sits beside Orders because the two
+                 share this screen's 30-day window and are the pair conversion would divide --
+                 which it must not, because `D-N32` leaves conversion's basis unruled. The tile
+                 states its own coverage: page views were not attributed to stores at all until
+                 2026-11-20 and nothing backfills them, so the hint names the latest start among
+                 the stores that have logged one and counts the stores that never have. --}}
+            <x-ss.stat :label="__('Page views')"
+                       :value="$figures['visits']['value']"
+                       :period="$figures['visits']['period']"
+                       :hint="$figures['visits']['hint']" />
+
             <x-ss.stat :label="__('Buyers')"
                        :value="$figures['buyers']['value']"
                        :period="$figures['buyers']['period']"
@@ -107,6 +118,53 @@
         @endif
 
         <p class="ss-stat__hint">{{ $figures['payments']['hint'] }}</p>
+    </div>
+</div>
+
+{{--
+    ESTIMATED GROSS PROFIT, ACROSS TENANTS -- GAP-162 / P05-14.
+
+    ONE ROW PER CURRENCY AND NO TOTAL, exactly as the payments block above. The definition is the
+    merchant screen's own (StoreRevenueMargin, settled only); only the scope is wider. A profit can
+    be NEGATIVE, so each amount keeps the bidi isolate its producer wrapped it in -- an unisolated
+    negative renders as "USD 20.00-" in an Arabic page, which FinanceLedgerFigures records as a
+    measured defect rather than a theory.
+--}}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="h5 mb-1">{{ __('Estimated gross profit') }}</h2>
+
+        <p class="ss-muted mb-3">
+            {{ __('Period') }}: {{ $figures['profit']['period'] }}
+        </p>
+
+        @if ($figures['profit']['rows'] === [])
+            <p>{{ __('Not available') }}</p>
+        @else
+            <div class="table-responsive">
+                <table class="table">
+                    <caption class="ss-visually-hidden">
+                        {{ __('Estimated gross profit across all stores, one row per currency. The rows are not added together.') }}
+                    </caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">{{ __('Currency') }}</th>
+                            <th scope="col">{{ __('Estimated gross profit') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($figures['profit']['rows'] as $row)
+                            <tr>
+                                <th scope="row">{{ $row['currency'] }}</th>
+                                <td>{{ $row['amount'] }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+
+        <p class="ss-stat__hint">{{ $figures['profit']['hint'] }}</p>
     </div>
 </div>
 

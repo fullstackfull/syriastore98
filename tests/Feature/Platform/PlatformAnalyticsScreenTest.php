@@ -903,4 +903,919 @@ final class PlatformAnalyticsScreenTest extends SecurityTestCase
             . 'unreachable" shape this screen has already shipped three times');
         $this->assertStringContainsString('Devices', (string) $html);
     }
+
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * ESTIMATED GROSS PROFIT, ACROSS TENANTS -- GAP-162 / P05-14
+     *
+     * The definition is NOT re-decided here: it is `StoreRevenueMargin(true)`, the same metric and
+     * the same settled-only flag `/finance` and `/analytics` already use. These tests pin the two
+     * things that are new -- the scope is every store, and the figure must still never combine
+     * currencies -- plus the three disclosures that make a cross-tenant money figure honest.
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    /**
+     * A SETTLED ORDER WITH A MARGIN ON RECORD.
+     *
+     * `paidOrder()` above leaves `gross_profit` and `product_cost` at their column defaults of
+     * 0.00, which is a real state -- it is the one the COST_UNKNOWN caveat exists for -- but it
+     * cannot produce a profit to measure. This writes both, so a test can state the margin it
+     * expects. Like `paidOrder()` it UPDATES the observer's row rather than inserting a second.
+     */
+    private function settledProfit(
+        $store,
+        string $currency,
+        float $grossProfit,
+        float $productCost = 10.00,
+        ?CarbonImmutable $paidAt = null
+    ): void {
+        $order = $this->makeOrder($store, ['order_date' => $paidAt ?? CarbonImmutable::now()->subDay()]);
+
+        DB::table('store_order_financials')->where('order_id', $order->id)->update([
+            'payment_status' => 'paid',
+            'currency_code' => $currency,
+            'paid_amount' => $grossProfit + $productCost,
+            'remaining_amount' => 0.00,
+            'product_cost' => $productCost,
+            'gross_profit' => $grossProfit,
+            'paid_at' => $paidAt ?? CarbonImmutable::now()->subDay(),
+        ]);
+    }
+
+    /** The numeric part of a rendered amount, with the bidi isolates and separators removed. */
+    private function bareAmount(string $amount): string
+    {
+        return preg_replace('/[^0-9.\-]/', '', $this->plain($amount));
+    }
+
+    /**
+     * ONE SECTION OF THE PAGE, FROM ITS HEADING TO THE NEXT ONE.
+     *
+     * A WHOLE-PAGE `assertStringContainsString` ANSWERS "DOES THIS APPEAR ANYWHERE", and on this
+     * screen that is almost always yes. Measured: the mutation that deleted profit's "Not
+     * available" line SURVIVED a whole-page assertion, because the `devices` breakdown prints the
+     * same words two sections further down and the fixture leaves it empty too. Every assertion
+     * about one figure's markup is scoped through here.
+     *
+     * GIVE IT AN `<h2>` HEADING'S TEXT AND NOTHING ELSE. The slice runs to the next `<h2`, so for
+     * an anchor that is not a section heading -- a stat tile's LABEL, say -- the span silently
+     * covers everything up to the next real heading, which is far wider than "its section" and was
+     * wide enough to make a tile test pass before its tile existed. Stat tiles are asserted through
+     * `statTiles()`, which pairs each label with its own value; this is for the table sections.
+     */
+    private function section(string $html, string $heading): string
+    {
+        $start = strpos($html, $heading);
+
+        $this->assertNotFalse($start,
+            "premise failed: the page has no section headed '{$heading}', so scoping an assertion "
+            . 'to it would assert against an empty string.');
+
+        $rest = substr($html, $start + strlen($heading));
+        $next = strpos($rest, '<h2');
+
+        return $next === false ? $rest : substr($rest, 0, $next);
+    }
+
+    /**
+     * TWO CURRENCIES ARE TWO ROWS AND NEVER ONE TOTAL -- the same invariant as `payments`, asserted
+     * separately because it is a separate query object and a separate producer. A platform profit
+     * figure is the number an operator most wants and the one this schema cannot support: no
+     * historical exchange rate is recorded anywhere, so the sum of 60 USD and 150 SYP has no
+     * defensible value. `total()` is therefore never called; if it were it would throw, which is
+     * the metric layer doing its job but not an answer a screen can render.
+     */
+    public function test_profit_is_reported_per_currency_and_never_summed(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->settledProfit($storeA, 'USD', 60.00);
+        $this->settledProfit($storeB, 'SYP', 150.00);
+
+        $rows = collect(PlatformAnalyticsFigures::forPlatform()['profit']['rows']);
+
+        $this->assertSame(['SYP', 'USD'], $rows->pluck('currency')->sort()->values()->all(),
+            'both currencies must be reported, each on its own row');
+
+        $amounts = $rows->pluck('amount')->map(fn ($a) => $this->bareAmount((string) $a))->all();
+
+        $this->assertContains('60.00', $amounts);
+        $this->assertContains('150.00', $amounts);
+        $this->assertNotContains('210.00', $amounts,
+            'the two currencies were added together; no exchange rate exists to justify that');
+    }
+
+    /**
+     * A NEGATIVE PROFIT KEEPS ITS BIDI ISOLATE. Measured and recorded in `FinanceLedgerFigures`:
+     * in an Arabic page an unisolated negative renders as "USD 20.00-", with the minus sign after
+     * the number, because the Unicode bidi algorithm reorders a leading `-` in an RTL paragraph.
+     * A loss shown as a gain with a trailing dash is the worst reading a money figure can have, so
+     * the isolate is asserted on the character and not on the rendered page.
+     */
+    public function test_a_loss_is_isolated_so_its_minus_sign_cannot_move(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $this->settledProfit($store, 'USD', -20.00);
+
+        $rows = PlatformAnalyticsFigures::forPlatform()['profit']['rows'];
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('-20.00', $this->bareAmount((string) $rows[0]['amount']),
+            'premise failed: the fixture did not produce a loss, so the isolate assertion below '
+            . 'would hold for a positive number and prove nothing');
+        $this->assertStringStartsWith("\u{2066}", (string) $rows[0]['amount'],
+            'a negative amount must be wrapped in a bidi isolate or its minus sign moves to the '
+            . 'end of the number in an Arabic page');
+        $this->assertStringEndsWith("\u{2069}", (string) $rows[0]['amount']);
+    }
+
+    /**
+     * ONLY PAID ORDERS. `settledOnly` is the flag `/finance` passes and the reason this figure can
+     * be called profit at all: an order nobody has paid for has a margin on paper and no money
+     * behind it. An unsettled row also has no `paid_at`, so it has no date to be placed in a
+     * window by -- counting it would put an undated amount inside a dated period.
+     */
+    public function test_profit_counts_settled_orders_only(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $this->settledProfit($store, 'USD', 40.00);
+
+        $unsettled = $this->makeOrder($store, ['order_date' => CarbonImmutable::now()->subDay()]);
+
+        DB::table('store_order_financials')->where('order_id', $unsettled->id)->update([
+            'payment_status' => 'unpaid',
+            'currency_code' => 'USD',
+            'product_cost' => 10.00,
+            'gross_profit' => 500.00,
+            'paid_at' => null,
+        ]);
+
+        $rows = PlatformAnalyticsFigures::forPlatform()['profit']['rows'];
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('40.00', $this->bareAmount((string) $rows[0]['amount']),
+            'an unpaid order contributed its paper margin to a figure named profit');
+    }
+
+    /**
+     * A CURRENCY WHOSE NET PROFIT ROUNDS TO ZERO IS STILL ITS OWN ROW.
+     *
+     * THIS IS THE ONE PLACE THIS FIGURE DIFFERS FROM ITS MERCHANT TWIN, deliberately. The merchant
+     * tiles run `byCurrency()` through `MoneyText::buckets(..., true)`, which drops any bucket
+     * rounding to zero -- right for a single store, where a currency nothing was paid in should
+     * not make a tile look mixed. Across tenants a currency whose margin nets to approximately
+     * zero is a STATEMENT, not an artefact: that group of stores broke even. Dropping the row
+     * would make the screen silently narrower than the data, and the reader could not tell the
+     * difference between "broke even in SYP" and "no SYP trade at all".
+     */
+    public function test_a_currency_that_broke_even_is_still_its_own_row(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->settledProfit($storeA, 'USD', 100.00);
+        $this->settledProfit($storeB, 'SYP', 25.00);
+        $this->settledProfit($storeB, 'SYP', -25.00);
+
+        $rows = collect(PlatformAnalyticsFigures::forPlatform()['profit']['rows']);
+
+        $this->assertSame(['SYP', 'USD'], $rows->pluck('currency')->sort()->values()->all(),
+            'a currency whose net margin is zero was dropped; across tenants that reads as "no '
+            . 'trade in this currency", which is a different claim');
+
+        $syp = $rows->firstWhere('currency', 'SYP');
+
+        $this->assertSame('0.00', $this->bareAmount((string) $syp['amount']));
+    }
+
+    /**
+     * THE COST CAVEAT IS A SECOND, DIFFERENT COVERAGE QUESTION. `LedgerCoverage` answers "does the
+     * ledger have a row for this order"; it says nothing about whether that row carries a cost.
+     * Where `product_cost` is 0 the column reports the whole sale as profit -- a 100% margin on
+     * goods that cost something -- so the count has to be on the screen. It is a COUNT OF ORDERS
+     * and names no money, because the overstatement's size is exactly what is not known.
+     */
+    public function test_paid_orders_with_no_cost_on_record_are_counted_in_the_hint(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        // Two orders with no cost, in two different stores: the count is scope-wide.
+        $this->settledProfit($storeA, 'USD', 30.00, 0.00);
+        $this->settledProfit($storeB, 'USD', 30.00, 0.00);
+        // And one that does carry a cost, which must not be counted.
+        $this->settledProfit($storeA, 'USD', 30.00, 12.00);
+
+        $hint = $this->plain(PlatformAnalyticsFigures::forPlatform()['profit']['hint']);
+
+        $this->assertStringContainsString('At least 2 paid orders', $hint,
+            'the number of paid orders with no cost on record must be disclosed, and only those '
+            . 'orders counted');
+    }
+
+    /**
+     * NO COST PROBLEM, NO SENTENCE. Attaching a warning to answers that do not have the problem is
+     * how a warning becomes furniture -- `StoreRevenueMargin`'s own docblock says so, which is why
+     * `COST_UNKNOWN` is conditional in the metric. The producer must keep it conditional too.
+     */
+    public function test_no_cost_sentence_is_printed_when_every_paid_order_carries_a_cost(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $this->settledProfit($store, 'USD', 30.00, 12.00);
+
+        $hint = $this->plain(PlatformAnalyticsFigures::forPlatform()['profit']['hint']);
+
+        $this->assertStringNotContainsString('paid orders across all stores have no product cost', $hint,
+            'the cost caveat was printed for a scope where every paid order carries a cost');
+    }
+
+    /**
+     * A STORE THE LEDGER CANNOT VOUCH FOR IS EXCLUDED AND COUNTED, never counted as zero. For
+     * profit the zero reading is worse than for payments: "that tenant made no profit" is a
+     * statement about their business, and the truth is that we cannot say.
+     */
+    public function test_a_store_with_no_readable_ledger_is_excluded_from_profit_and_counted(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->settledProfit($storeA, 'USD', 75.00);
+        $this->orderTheLedgerCannotSee($storeB);
+
+        $figures = PlatformAnalyticsFigures::forPlatform();
+        $hint = $this->plain($figures['profit']['hint']);
+
+        $this->assertStringContainsString('Stores left out', $hint,
+            'a store whose financial record can vouch for no period must be disclosed, not '
+            . 'silently folded in as a zero');
+        $this->assertStringContainsString('1', $hint);
+
+        $rows = collect($figures['profit']['rows']);
+        $this->assertSame(['USD'], $rows->pluck('currency')->all());
+        $this->assertSame('75.00', $this->bareAmount((string) $rows->first()['amount']));
+    }
+
+    /**
+     * A STORE THE COVERAGE INTERSECTION EXCLUDED CONTRIBUTES NO MONEY, and this is the test the
+     * independent review found missing. `profit()` passes `$coverage['included']`; substituting the
+     * full store list survived every other case in this file, because the only excluded store those
+     * fixtures build has its ledger row DELETED and so has no settled row to contribute either way.
+     * The predicate reads as tested and was not.
+     *
+     * THE EXCLUDING STATE USED HERE IS A REAL ONE. `LedgerCoverage::window()` returns null -- which
+     * is what `coverageAcrossStores()` excludes on -- when the verified period
+     * `startsInTheFuture()`, and `verifiedFrom` is the day AFTER the latest DATED order the ledger
+     * cannot see. So a store with one future-dated order outside the ledger is excluded while its
+     * other orders still carry settled rows. `order_date` is writable ahead of the clock in this
+     * product (`LedgerCoverage`'s own notes record stamps up to 5.5 hours out), so the state is not
+     * invented for the test; the fixture only makes the gap large enough to read.
+     */
+    public function test_a_store_the_coverage_intersection_excluded_contributes_no_profit(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->settledProfit($storeA, 'USD', 75.00, 10.00, $now->subDays(3));
+
+        $this->settledProfit($storeB, 'USD', 500.00, 10.00, $now->subDays(3));
+        $this->orderTheLedgerCannotSee($storeB, ['order_date' => $now->addDays(10)]);
+
+        $figures = PlatformAnalyticsFigures::forPlatform($now);
+
+        $this->assertContains((int) $storeB->id, $figures['coverage']['excluded'],
+            'premise failed: store B is not excluded by the coverage intersection, so this test is '
+            . 'not measuring what an excluded store contributes.');
+        $this->assertContains((int) $storeA->id, $figures['coverage']['included'],
+            'premise failed: store A is not included, so there is nothing to compare against.');
+
+        $rows = collect($figures['profit']['rows']);
+        $amounts = $rows->pluck('amount')->map(fn ($a) => $this->bareAmount((string) $a))->all();
+
+        $this->assertSame(['75.00'], $amounts,
+            'the excluded store\'s settled margin was counted into the platform figure anyway, so '
+            . 'the figure claims a period that store\'s financial record cannot vouch for');
+    }
+
+    /**
+     * THE FIGURE IS BOUNDED BY THE VERIFIED PERIOD, which is the second gap the review named: every
+     * other profit fixture here leaves the ledger complete, so `verifiedFrom` is null,
+     * `MetricWindow::allTime()` is always the branch taken, and replacing `since(...)` with
+     * `allTime()` failed nothing.
+     *
+     * WHY THAT MATTERS RATHER THAN BEING TIDINESS: the money before a store's verified start is
+     * money the ledger cannot account for. Counting it would put an unverifiable amount under a
+     * period label that says the figure IS verified from a date -- which is the exact shape D1
+     * exists to prevent, and worse on this screen than on the merchant's, because the operator has
+     * no second source to check it against.
+     */
+    public function test_profit_counts_only_the_period_the_ledger_can_vouch_for(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        // Settled 60 days ago -- BEFORE the verified start the undated gap below creates.
+        $this->settledProfit($store, 'USD', 500.00, 10.00, $now->subDays(60));
+
+        // The order the ledger cannot see, dated 30 days ago: `verifiedFrom` becomes the day after.
+        $this->orderTheLedgerCannotSee($store, ['order_date' => $now->subDays(30)]);
+
+        // And one inside the verified period.
+        $this->settledProfit($store, 'USD', 75.00, 10.00, $now->subDays(10));
+
+        $figures = PlatformAnalyticsFigures::forPlatform($now);
+
+        $this->assertNotNull($figures['coverage']['verifiedFrom'],
+            'premise failed: the fixture produced no verified start, so the window under test is '
+            . 'all-time and this case cannot tell the two branches apart.');
+
+        $amounts = collect($figures['profit']['rows'])
+            ->pluck('amount')->map(fn ($a) => $this->bareAmount((string) $a))->all();
+
+        $this->assertSame(['75.00'], $amounts,
+            'margin settled before the verified start was counted, so the figure reports money the '
+            . 'financial record cannot account for under a period label claiming it can');
+
+        $this->assertStringContainsString('latest start among the stores included',
+            $this->plain($figures['profit']['hint']),
+            'the period is narrowed and the screen does not say why');
+    }
+
+    /**
+     * THE "CURRENCY NOT RECORDED" ROW IS DISCLOSED, because it is the one row that really does add
+     * two different currencies -- which this slice's own docblock denied until an independent
+     * financial review drove it.
+     *
+     * `MetricResult::make()` re-keys every bucket through `CurrencySymbol::code()`, which returns
+     * three uppercase letters or an empty string, so EVERY unparseable value collapses into one
+     * key and is summed. That is ordinary data rather than a corner case: `FIN-SYM` measured
+     * symbols in the per-store currency setting that `store_order_financials.currency_code` is
+     * written from, and owner decision `D-N34` leaves the rows already written alone.
+     *
+     * THE FIXTURE IS THE REVIEW'S OWN: a gain recorded under `$` and a larger loss recorded under
+     * a Syrian-pound symbol. One row, a negative total, and -- before this -- a caption directly
+     * above it saying the rows are not added together.
+     */
+    public function test_the_unrecorded_currency_row_says_it_adds_different_currencies(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->settledProfit($storeA, '$', 1000.00);
+        $this->settledProfit($storeB, 'ل.س', -2000.00);
+
+        $figures = PlatformAnalyticsFigures::forPlatform();
+        $rows = collect($figures['profit']['rows']);
+
+        $this->assertCount(1, $rows,
+            'premise failed: the two unparseable currency values did not collapse into one bucket, '
+            . 'so there is no mixed row for this test to be about.');
+        $this->assertSame('-1000.00', $this->bareAmount((string) $rows->first()['amount']),
+            'premise failed: the fixture did not produce the measured sign-reversing sum.');
+
+        $hint = $this->plain($figures['profit']['hint']);
+
+        $this->assertStringContainsString('not a figure to rely on', $hint,
+            'the row that really does add two currencies is printed with no disclosure at all, '
+            . 'under a caption saying the rows are not added together');
+        $this->assertStringContainsString('can show a loss where one currency gained', $hint,
+            'the sign-reversal a margin can suffer is specific to this figure and must be said');
+    }
+
+    /**
+     * AND THE SAME ROW ON THE PAYMENTS TABLE, which had been silent about it for longer. Money
+     * collected is never negative, so there the row is inflated rather than sign-reversed -- the
+     * base sentence is shared and the extra one is not.
+     */
+    public function test_the_payments_table_discloses_the_unrecorded_currency_row_too(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->paidOrder($storeA, '$', 100.00);
+        $this->paidOrder($storeB, 'ل.س', 250.00);
+
+        $figures = PlatformAnalyticsFigures::forPlatform();
+
+        $this->assertCount(1, $figures['payments']['rows'],
+            'premise failed: the two unparseable values did not collapse into one bucket.');
+
+        $hint = $this->plain($figures['payments']['hint']);
+
+        $this->assertStringContainsString('not a figure to rely on', $hint);
+        $this->assertStringNotContainsString('can show a loss where one currency gained', $hint,
+            'the margin-only sentence was printed on a figure that cannot be negative');
+    }
+
+    /**
+     * NO DISCLOSURE WHEN THERE IS NO SUCH ROW. The same reasoning as the cost caveat: a warning
+     * attached to answers that do not have the problem becomes furniture.
+     */
+    public function test_no_unrecorded_currency_sentence_when_every_record_names_its_currency(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $this->settledProfit($store, 'USD', 60.00);
+
+        $hint = $this->plain(PlatformAnalyticsFigures::forPlatform()['profit']['hint']);
+
+        $this->assertStringNotContainsString('not a figure to rely on', $hint);
+    }
+
+    /**
+     * THE TAX CLAUSE, which the merchant twin carries and the first version of this figure dropped.
+     *
+     * `tests/Support/Security/bin/verify-metric-layer-on-mysql.php` already asserts the merchant
+     * hint carries it, under the check name "and says what it leaves out TRUTHFULLY"; this is the
+     * operator half. It matters MORE here, because `TaxOption` is per store, so a single currency
+     * row can combine a tax-inclusive store's margin with a tax-exclusive one's.
+     */
+    public function test_profit_says_tax_may_be_inside_the_sales_value(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $this->settledProfit($store, 'USD', 60.00);
+
+        $hint = $this->plain(PlatformAnalyticsFigures::forPlatform()['profit']['hint']);
+
+        $this->assertStringContainsString('prices with tax included', $hint,
+            'the merchant tile states that an inclusive-tax store has the tax inside this figure; '
+            . 'the cross-tenant version can mix both kinds in one row and said nothing');
+        $this->assertStringContainsString('Shipping is not included', $hint);
+        $this->assertStringContainsString('exchange rate on each order', $hint,
+            'the reason the rows cannot be converted travels with the payments table and was '
+            . 'missing from this one, so the exported profit rows said less than the payments rows '
+            . 'about the same prohibition');
+    }
+
+    /**
+     * ALPHABETICAL, SO THE TABLE DOES NOT SHUFFLE.
+     *
+     * WHAT THIS TEST CAN AND CANNOT PROVE, stated because the limit is the interesting part.
+     * `byCurrency()`'s order is the order the raw `GROUP BY` result set was iterated in. MySQL
+     * guarantees NO ordering for `GROUP BY`; SQLite, which this suite runs on, happens to return
+     * these sorted. So DELETING the `ksort()` is invisible here and the honest evidence for that
+     * direction is a MySQL harness, not a Feature test. What this does catch is a sort that is
+     * present and wrong -- `krsort`, or a sort by amount -- which is the likelier edit.
+     */
+    public function test_the_currency_rows_are_in_a_fixed_order(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        [, $storeC] = $this->makeTenant();
+
+        // Inserted deliberately out of order, and with amounts whose descending order differs from
+        // the alphabetical one, so a sort by amount cannot masquerade as this.
+        $this->settledProfit($storeA, 'ZAR', 10.00);
+        $this->settledProfit($storeB, 'AED', 900.00);
+        $this->settledProfit($storeC, 'MYR', 500.00);
+
+        $rows = collect(PlatformAnalyticsFigures::forPlatform()['profit']['rows']);
+
+        $this->assertSame(['AED', 'MYR', 'ZAR'], $rows->pluck('currency')->all(),
+            'the currency rows are not in a fixed order, so the table can reorder between loads');
+    }
+
+    /**
+     * THE DISCLOSURE REACHES THE PAGE, and nothing asserted that until a review pointed it out.
+     *
+     * Every other hint assertion in this file reads the PRODUCER's array. The hint is rendered by a
+     * standalone `<p class="ss-stat__hint">` beside the table rather than by `<x-ss.stat>`, so it
+     * is invisible to `StatHintIsVisibleTest`'s census BY CONSTRUCTION -- that file says so in its
+     * own note. Deleting the paragraph from the Blade therefore failed nothing: the amounts
+     * rendered and their caveats silently stopped. For a cross-tenant per-currency margin that is
+     * the whole slice, because the uncaveated number is exactly the one an operator will add up.
+     */
+    public function test_the_profit_disclosure_is_rendered_beside_the_figure(): void
+    {
+        $operator = $this->makePlatformAdmin();
+
+        [, $store] = $this->makeTenant();
+        $this->settledProfit($store, 'USD', 60.00, 0.00);
+
+        $html = $this->plain($this->actingAs($operator->fresh())->get(self::URI)->assertStatus(200)->getContent());
+        $block = $this->section($html, 'Estimated gross profit');
+
+        $this->assertStringContainsString('Shipping is not included', $block,
+            'the profit disclosure is computed and never rendered');
+        $this->assertStringContainsString('prices with tax included', $block);
+        $this->assertStringContainsString('At least 1 paid orders', $block,
+            'the cost caveat reaches the producer and not the page');
+    }
+
+    /**
+     * THE ZERO-STORE BRANCH, which all four mapped proposals for this screen omitted.
+     * `MetricScope`'s constructor THROWS on an empty store list -- "an empty scope would compile
+     * to 0 = 1" -- so a producer that reaches the metric layer with no included store answers
+     * HTTP 500. It must also answer in the BREAKDOWN-ADJACENT shape its template reads, with
+     * `rows`, or the Blade raises an undefined-key error instead.
+     */
+    public function test_profit_answers_safely_when_no_store_has_a_readable_ledger(): void
+    {
+        $figures = PlatformAnalyticsFigures::forPlatform();
+
+        $this->assertArrayHasKey('profit', $figures);
+        $this->assertArrayHasKey('rows', $figures['profit']);
+        $this->assertSame([], $figures['profit']['rows']);
+        $this->assertNotSame('', trim((string) $figures['profit']['hint']),
+            'an empty money figure with no explanation reads as a broken page');
+    }
+
+    /**
+     * AND THE SCREEN HAS TO RENDER IT. "Computed but unreachable" is a shape this page has already
+     * shipped three times: the producer is correct, the figure is in the array, and no template
+     * prints it.
+     */
+    public function test_the_screen_shows_the_profit_rows(): void
+    {
+        $operator = $this->makePlatformAdmin();
+
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->settledProfit($storeA, 'USD', 60.00);
+        $this->settledProfit($storeB, 'SYP', 150.00);
+
+        $html = $this->plain($this->actingAs($operator->fresh())->get(self::URI)->assertStatus(200)->getContent());
+        $block = $this->section($html, 'Estimated gross profit');
+
+        $this->assertStringContainsString('60.00', $block);
+        $this->assertStringContainsString('150.00', $block);
+        $this->assertStringNotContainsString('210.00', $block,
+            'the profit section printed the sum of two currencies');
+        $this->assertStringNotContainsString('210.00', $html,
+            'some section of the screen printed the sum of two currencies');
+    }
+
+    /**
+     * A STORE WITH A READABLE LEDGER AND NO SETTLED ORDER YET gets an empty table and the sentence,
+     * not a blank area. The coverage intersection can include a store while the margin query
+     * answers nothing -- the ledger vouches for the period, there is simply no paid order in it.
+     */
+    public function test_an_included_store_with_no_settled_order_shows_the_empty_table(): void
+    {
+        $operator = $this->makePlatformAdmin();
+
+        [, $store] = $this->makeTenant();
+        $this->paidOrder($store, 'USD', 0.00);
+
+        DB::table('store_order_financials')->update(['payment_status' => 'unpaid', 'paid_at' => null]);
+
+        $figures = PlatformAnalyticsFigures::forPlatform();
+
+        $this->assertSame([], $figures['profit']['rows'],
+            'premise failed: the fixture produced a settled row, so the empty-table branch below '
+            . 'is not the one being rendered');
+
+        $html = $this->plain($this->actingAs($operator->fresh())->get(self::URI)->assertStatus(200)->getContent());
+
+        $this->assertStringContainsString('Not available', $this->section($html, 'Estimated gross profit'),
+            'an included store with nothing settled yet must say so inside the profit section; a '
+            . 'whole-page assertion here is satisfied by the empty devices breakdown below it, '
+            . 'which is how the first version of this test let a mutation through');
+    }
+
+    /**
+     * BILINGUAL, AND DRIVEN THE WAY THE APPLICATION SETS THE LOCALE.
+     *
+     * `app()->setLocale('ar')` in a test does NOT survive the request: `SetLocate` runs inside it
+     * and resolves the locale again from session, cookie, then `auth()->user()->language` -- so the
+     * page comes back in English and a `__()` call AFTER the response reads the English catalogue
+     * too, which makes a bilingual test pass while rendering English on both sides.
+     * `MerchantAnalyticsScreenTest` records a premise assertion catching exactly that. The locale
+     * therefore goes on the operator's `language` column, and the expected strings are the ARABIC
+     * LITERALS rather than `__()` output.
+     *
+     * AND THE NUMBERS MUST KEEP THEIR ISOLATES IN THE PAGE ITSELF. The unit-level assertion above
+     * reads the producer's return value; this reads the rendered HTML, which is where a Blade that
+     * re-formatted or re-wrapped the amount would drop them.
+     */
+    public function test_the_profit_section_renders_in_arabic_with_its_amounts_isolated(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        $operator->language = 'ar';
+        $operator->save();
+
+        [, $store] = $this->makeTenant();
+        $this->settledProfit($store, 'USD', -20.00);
+
+        $html = $this->actingAs($operator->fresh())->get(self::URI)->assertStatus(200)->getContent();
+
+        $this->assertStringContainsString('إجمالي الربح التقديري', $html,
+            'the profit heading rendered in English for an Arabic operator');
+
+        /*
+         * SCOPED, because the payments table two sections above has a `Currency` column of its
+         * own. Measured: a mutation hard-coding THIS table's header in English survived a
+         * whole-page assertion for "العملة", which the payments header satisfied on its behalf.
+         */
+        $block = $this->section($html, 'إجمالي الربح التقديري');
+
+        $this->assertStringContainsString('<th scope="col">العملة</th>', $block,
+            'the currency column header of the profit table rendered in English for an Arabic '
+            . 'operator');
+
+        /*
+         * THE LOSS, STILL WRAPPED, IN THE PAGE. `dir="rtl"` on the document is exactly what makes
+         * the bare form dangerous: in an RTL paragraph the Unicode bidi algorithm moves a leading
+         * `-` to the end, so "-20.00" is painted "20.00-" and a loss reads as a gain.
+         */
+        $this->assertStringContainsString("\u{2066}-20.00\u{2069}", $html,
+            'the amount reached the page without its bidi isolate, so in this RTL document the '
+            . 'minus sign moves to the end of the number and a loss is painted as a gain');
+        $this->assertStringContainsString('dir="rtl"', $html,
+            'premise failed: the page is not in RTL, so the isolate assertion above is not being '
+            . 'checked under the condition it exists for');
+    }
+
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * PAGE VIEWS, ACROSS TENANTS -- GAP-162 / P05-14, the third counterpart.
+     *
+     * A COUNT IS NOT THE CONTESTED RATIO. `conversion` is blocked on `D-N32` because the owner has
+     * never ruled on its basis and withdrawing the tile is a registered option; the page-view
+     * COUNT it would divide by is not in question and is what the merchant screen already shows.
+     * So this builds the count and not the rate.
+     *
+     * TWO COVERAGE QUESTIONS, BOTH OF THEM NEW ON THIS SIDE. Visit rows carried no `store_id` at
+     * all until the attribution fix of 2026-11-20 and nothing backfills them, so each store has
+     * its own start date -- and across tenants the honest start is the LATEST of them, exactly as
+     * `verifiedFrom` is for money. A store that has NEVER logged one has no start at all, and its
+     * zero is indistinguishable from "not recorded", so it is counted and disclosed rather than
+     * folded in.
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    public function test_visits_counts_page_views_from_every_store(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->logVisit((int) $storeA->id, $now->subDays(2), 'Desktop');
+        $this->logVisit((int) $storeA->id, $now->subDays(3), 'Desktop');
+        $this->logVisit((int) $storeB->id, $now->subDays(4), 'iPhone');
+
+        $figures = PlatformAnalyticsFigures::forPlatform($now);
+
+        $this->assertSame('3', $this->plain($figures['visits']['value']),
+            'a per-store read would answer 2 or 1 here and look plausible; this figure is every '
+            . 'store');
+    }
+
+    public function test_visits_excludes_page_views_outside_the_window(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->logVisit((int) $store->id, $now->subDays(2), 'Desktop');
+        $this->logVisit((int) $store->id, $now->subDays(60), 'Desktop');
+
+        $figures = PlatformAnalyticsFigures::forPlatform($now);
+
+        $this->assertSame('1', $this->plain($figures['visits']['value']));
+    }
+
+    /**
+     * A VISIT ROW POINTING AT A STORE THAT NO LONGER EXISTS must not be counted. `Visit` carries no
+     * global scope, `StoreController::destroy()` leaves rows behind, and without an explicit
+     * `whereIn` such a row is counted into a platform figure under a store nobody can open. This is
+     * the mutation that survived the whole suite on the `devices` slice, so it is driven here too.
+     */
+    public function test_visits_ignores_a_page_view_belonging_to_no_existing_store(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $orphan = ((int) \App\Models\Store::query()->max('id')) + 991;
+
+        $this->assertNull(\App\Models\Store::query()->withoutGlobalScopes()->find($orphan),
+            'premise failed: the orphan id exists, so this test is not measuring an orphan row.');
+
+        $this->logVisit((int) $store->id, $now->subDays(2), 'Desktop');
+        $this->logVisit($orphan, $now->subDays(2), 'Desktop');
+
+        $figures = PlatformAnalyticsFigures::forPlatform($now);
+
+        $this->assertSame('1', $this->plain($figures['visits']['value']),
+            'a page view attributed to no existing store was counted into a platform figure');
+    }
+
+    public function test_visits_says_when_attribution_began_later_than_the_window(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->logVisit((int) $store->id, $now->subDays(10), 'Desktop');
+
+        $hint = $this->plain(PlatformAnalyticsFigures::forPlatform($now)['visits']['hint']);
+
+        $this->assertStringContainsString('10 Nov 2026', $hint,
+            'the window reaches back 30 days and attribution began 10 days ago, so the figure is '
+            . 'short by the difference and the screen must say from when it is complete');
+    }
+
+    public function test_no_attribution_sentence_when_every_store_was_recorded_before_the_window(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->logVisit((int) $store->id, $now->subDays(60), 'Desktop');
+        $this->logVisit((int) $store->id, $now->subDays(2), 'Desktop');
+
+        $hint = $this->plain(PlatformAnalyticsFigures::forPlatform($now)['visits']['hint']);
+
+        $this->assertStringNotContainsString('only partly covered', $hint,
+            'a permanent "may be incomplete" note on every render is wallpaper, not a disclosure');
+
+        /*
+         * AND NEITHER CONDITIONAL SENTENCE FIRES. The only store on the platform has logged a page
+         * view, so the never-logged count is zero. Asserted here because without it an off-by-one
+         * in that subtraction -- counting every store rather than the ones with no rows -- prints
+         * "Stores that have never logged a page view: 1" beside a figure that just counted one,
+         * and no other case in this file looks at it.
+         */
+        $this->assertStringNotContainsString('never logged a page view', $hint,
+            'the never-logged sentence fired for a platform where every store has logged one');
+    }
+
+    /**
+     * THE LATEST START AMONG THE STORES THAT HAVE LOGGED ONE, for the same reason `verifiedFrom`
+     * is the latest among the included stores: a total across stores is only as covered as its
+     * least-covered contributor. Taking the EARLIEST would claim coverage the newest store does
+     * not have.
+     */
+    public function test_the_attribution_start_is_the_latest_among_the_stores_that_have_logged_one(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->logVisit((int) $storeA->id, $now->subDays(25), 'Desktop');
+        $this->logVisit((int) $storeB->id, $now->subDays(5), 'iPhone');
+
+        $hint = $this->plain(PlatformAnalyticsFigures::forPlatform($now)['visits']['hint']);
+
+        $this->assertStringContainsString('15 Nov 2026', $hint,
+            'the later of the two starts is the honest one');
+        $this->assertStringNotContainsString('26 Oct 2026', $hint,
+            'the earlier start was used, which claims coverage the newer store does not have');
+    }
+
+    public function test_stores_that_have_never_logged_a_page_view_are_counted_and_disclosed(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $storeA] = $this->makeTenant();
+        $this->makeTenant();
+        $this->makeTenant();
+
+        $this->logVisit((int) $storeA->id, $now->subDays(2), 'Desktop');
+
+        $hint = $this->plain(PlatformAnalyticsFigures::forPlatform($now)['visits']['hint']);
+
+        $this->assertStringContainsString('never logged a page view', $hint);
+        $this->assertStringContainsString('2', $hint,
+            'two of the three stores have never logged one, and a zero from them is '
+            . 'indistinguishable from "not recorded"');
+    }
+
+    public function test_visits_answers_safely_when_no_store_exists(): void
+    {
+        $figures = PlatformAnalyticsFigures::forPlatform(CarbonImmutable::parse('2026-11-20 12:00:00'));
+
+        $this->assertArrayHasKey('visits', $figures);
+        $this->assertNull($figures['visits']['value']);
+        $this->assertNotSame('', trim((string) $figures['visits']['hint']));
+    }
+
+    /**
+     * NO VISIT ROW IS EVER LOADED INTO PHP, which is a standing constraint on this screen rather
+     * than a nicety: `Most Popular Store` used to read the store id of EVERY row of the visit log
+     * into memory and was rewritten for exactly this reason (`P5-R3b`). The guard is on the SQL,
+     * because a bounded-looking `get()` is only bounded by today's data.
+     */
+    public function test_no_query_reads_visit_rows_into_php(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+        $this->logVisit((int) $store->id, $now->subDays(2), 'Desktop');
+
+        $table = config('visitor.table_name');
+        $seen = [];
+
+        DB::listen(function ($query) use (&$seen, $table) {
+            if (str_contains(strtolower($query->sql), strtolower((string) $table))) {
+                $seen[] = strtolower($query->sql);
+            }
+        });
+
+        PlatformAnalyticsFigures::forPlatform($now);
+
+        /*
+         * THE PREMISE NAMES VISITS' OWN TWO STATEMENTS, because "some query touched the visit log"
+         * was satisfied by the `devices` breakdown on its own -- an independent review measured
+         * this method green BEFORE `visits()` existed. The count is a windowed `count(*)`; the
+         * attribution scan is a `min(created_at)` grouped by store. If either disappears the
+         * premise fails rather than the loop passing over a shorter list.
+         */
+        $this->assertNotEmpty($seen,
+            'premise failed: no query touched the visit log at all, so this assertion checks '
+            . 'nothing.');
+
+        $this->assertNotEmpty(array_filter($seen, fn ($sql) => str_contains($sql, 'count(*)') && str_contains($sql, 'between')),
+            'premise failed: no windowed count against the visit log was issued, so the page-view '
+            . 'count is not among the queries this assertion is scanning.');
+
+        $this->assertNotEmpty(array_filter($seen, fn ($sql) => str_contains($sql, 'min(')),
+            'premise failed: no MIN(created_at) scan was issued, so the attribution-start query is '
+            . 'not among the queries this assertion is scanning.');
+
+        foreach ($seen as $sql) {
+            $this->assertTrue(
+                str_contains($sql, 'count(') || str_contains($sql, 'min(') || str_contains($sql, 'max(') || str_contains($sql, 'sum('),
+                'a query against the visit log selects rows rather than an aggregate, so its cost '
+                . "grows with the whole platform's traffic: {$sql}"
+            );
+        }
+    }
+
+    /**
+     * EACH LABEL PAIRED WITH ITS OWN VALUE, not either one found loose on the page.
+     *
+     * THE FIRST VERSION OF THIS TEST PASSED BEFORE THE TILE EXISTED. It asserted that the page
+     * contained "Page views" and a "1" -- and both were already there, the words inside the
+     * `devices` breakdown's own hint and the digit anywhere at all. `<x-ss.stat>` renders the
+     * label span immediately before the value span inside one `ss-stat` div
+     * (`components/ss/stat.blade.php`), so reading them as PAIRS is what makes the assertion about
+     * this tile rather than about the page. The exact-label comparison also catches the rename a
+     * substring check cannot: on the *Repeat purchase* tile a mutation to `Repeat purchaseX`
+     * SURVIVED `assertStringContainsString`, because the old label is a substring of the new one.
+     *
+     * @return array<string, string>
+     */
+    private function statTiles(string $html): array
+    {
+        preg_match_all(
+            '/ss-stat__label">\s*(.*?)\s*<\/span>.*?ss-stat__value"[^>]*>\s*(.*?)\s*<\/span>/s',
+            $html,
+            $matches,
+            PREG_SET_ORDER
+        );
+
+        $tiles = [];
+
+        foreach ($matches as $match) {
+            $tiles[trim(strip_tags($match[1]))] = trim(strip_tags($match[2]));
+        }
+
+        return $tiles;
+    }
+
+    public function test_the_screen_shows_the_visits_tile(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+        $operator = $this->makePlatformAdmin();
+
+        [, $store] = $this->makeTenant();
+
+        // A DISTINCTIVE COUNT. Seventeen is not the value of any other tile on this screen with
+        // this fixture, and it is not a prefix of one either.
+        for ($i = 0; $i < 17; $i++) {
+            $this->logVisit((int) $store->id, $now->subDays(2), 'Desktop');
+        }
+
+        CarbonImmutable::setTestNow($now);
+
+        try {
+            $html = $this->plain($this->actingAs($operator->fresh())->get(self::URI)->assertStatus(200)->getContent());
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+
+        $tiles = $this->statTiles($html);
+
+        $this->assertArrayHasKey('Page views', $tiles,
+            'no stat tile on the operator screen is labelled exactly "Page views", so the figure '
+            . 'is computed and never reaches the page -- the "computed but unreachable" shape this '
+            . 'screen has already shipped three times. Labels found: '
+            . implode(' | ', array_keys($tiles)));
+
+        $this->assertSame('17', $tiles['Page views'],
+            'the Page views tile does not carry the counted figure');
+    }
 }

@@ -197,6 +197,82 @@ final class FigureExportTest extends SecurityTestCase
         }
     }
 
+    /**
+     * EVERY CELL, AND THE PLATFORM FILE, because `FigureCsv`'s docblock claims the invariant is
+     * TOTAL -- "NO isolate ever reaches the file" -- and it was not.
+     *
+     * MEASURED BY AN INDEPENDENT REVIEW on the real download: `currencyRows()` plained only the
+     * amount, so the DISCLOSURE column carried U+2066/U+2069 around the counts in "At least 1 paid
+     * orders ..." and "Stores left out ...: 1" -- for the payments block as well as the new profit
+     * one. `rows()` and `breakdownRows()` were both corrected on 2026-11-22 and the third builder
+     * was missed, which the test above could not see for two reasons at once: it reads column 1
+     * only, and it drives the MERCHANT file, whose rows do not go through that builder at all.
+     *
+     * Both halves are fixed here: every column, and the surface that actually has the builder.
+     */
+    public function test_no_column_of_the_platform_file_holds_a_bidi_isolate(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        // A cost-less paid order gives the cost caveat a count to wrap; a store the ledger cannot
+        // vouch for gives the excluded-store sentence one. Both counts go through `ltr()`.
+        $this->paidOrder($storeA, 'USD', 100.00);
+        \Illuminate\Support\Facades\DB::table('store_order_financials')->update(['product_cost' => 0.00]);
+        $this->makeOrder($storeB, ['order_date' => CarbonImmutable::now()->subDay()]);
+        \Illuminate\Support\Facades\DB::table('store_order_financials')
+            ->where('store_id', $storeB->id)->delete();
+
+        $operator = $this->makePlatformAdmin();
+        $rows = $this->parse($this->actingAs($operator->fresh())->get(self::PLATFORM_URI)->getContent());
+
+        $withIsolates = 0;
+
+        foreach (array_slice($rows, 1) as $row) {
+            foreach ($row as $column => $cell) {
+                if (preg_match('/[\x{2066}-\x{2069}]/u', (string) $cell)) {
+                    $withIsolates++;
+                }
+            }
+        }
+
+        $this->assertSame(0, $withIsolates,
+            'a platform export cell still carries a bidi isolate. They are correct on the rendered '
+            . 'page and wrong in a data file: invisible, and they defeat an exact-match filter or a '
+            . 'lookup against the same text typed by hand.');
+    }
+
+    /**
+     * THE PROFIT ROWS REPEAT THE NOT-ADDED SENTENCE TOO, which the payments-only test above did not
+     * cover although the controller's own comment makes that per-row travel the reason for the
+     * change. A spreadsheet is the one tool that invites a reader to total a column.
+     */
+    public function test_each_profit_row_repeats_that_the_rows_are_not_added(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->paidOrder($storeA, 'USD', 100.00);
+        $this->paidOrder($storeB, 'SYP', 250.00);
+
+        $operator = $this->makePlatformAdmin();
+        $rows = $this->parse($this->actingAs($operator->fresh())->get(self::PLATFORM_URI)->getContent());
+
+        $profit = array_values(array_filter(array_slice($rows, 1),
+            fn ($row) => str_starts_with($row[0], 'Estimated gross profit — ')));
+
+        $this->assertCount(2, $profit,
+            'premise failed: the fixture did not produce one profit row per currency, so there is '
+            . 'nothing per-row to assert.');
+
+        foreach ($profit as $row) {
+            $this->assertStringContainsString('NOT added together', $row[3],
+                'every currency row must repeat that the rows are not to be totalled');
+            $this->assertStringContainsString('prices with tax included', $row[3],
+                'the tax disclosure is on the screen and not in the file');
+        }
+    }
+
     /*
      * ---------------------------------------------------------------------------------------------
      * The platform export
@@ -256,9 +332,34 @@ final class FigureExportTest extends SecurityTestCase
      */
     public function test_the_platform_file_carries_every_figure_the_platform_screen_shows(): void
     {
+        /*
+         * TWO TENANTS PAYING IN TWO CURRENCIES, so the per-currency money figures are on their
+         * populated branch and their cells read "<label> — <CURRENCY>". Without this the whole
+         * platform screen answers from its zero-store branches and every money cell is the bare
+         * label, which makes the prefix limb below unreachable -- see its comment.
+         */
+        [$merchantA, $storeA] = $this->makeTenant();
+        [$merchantB, $storeB] = $this->makeTenant();
+
+        $this->paidOrder($storeA, 'USD', 100.00);
+        $this->paidOrder($storeB, 'SYP', 250.00);
+
         $operator = $this->makePlatformAdmin();
 
         $figures = \App\Support\Metrics\PlatformAnalyticsFigures::forPlatform();
+
+        /*
+         * BOTH money figures, not just one. Found by the independent review: a premise covering
+         * `payments` alone leaves `profit` free to be empty, in which case its cell falls back to
+         * the bare label and the first limb matches again -- the very fallback this premise exists
+         * to close.
+         */
+        foreach (['payments', 'profit'] as $moneyFigure) {
+            $this->assertNotEmpty($figures[$moneyFigure]['rows'],
+                "premise failed: '{$moneyFigure}' produced no per-currency money rows, so the "
+                . 'prefix limb of the match below is unreachable for it and this test is back to '
+                . 'proving only that a bare label exists.');
+        }
 
         // `coverage` is a LedgerCoverage object, not a figure; it is rendered as a sentence and
         // has no row of its own. Anything else in the array IS a figure and must reach the file.
@@ -278,12 +379,15 @@ final class FigureExportTest extends SecurityTestCase
         // The file is keyed by LABEL, not by key, so each figure is looked for by the label the
         // screen gives it. A key with no entry here is a figure nobody has decided how to name --
         // which is itself the bug this test exists to catch.
-        $labelFor = [
-            'stores' => 'Stores',
-            'orders' => 'Orders',
-            'buyers' => 'Buyers',
-            'retention' => 'Repeat purchase',
-            'payments' => 'Payments collected',
+        /*
+         * THE SINGLE-VALUE LABELS ARE NOW READ FROM THE CONTROLLER, not re-declared here. The two
+         * money blocks stay hard-coded because they do not go through `FigureCsv::rows()`'s map at
+         * all -- `export()` calls `currencyRows()` for each -- so there is no source map to read.
+         */
+        $labelFor = \App\Http\Controllers\PlatformAnalyticsController::figureLabels() + [
+            'payments' => __('Payments collected'),
+            // A per-currency money block, so its cells read "<label> — <CURRENCY>".
+            'profit' => __('Estimated gross profit'),
         ];
 
         /*
@@ -318,14 +422,23 @@ final class FigureExportTest extends SecurityTestCase
             $label = $isBreakdown ? $breakdownLabels[$key] : $labelFor[$key];
 
             /*
-             * Exact on the cell, or the money form "<label> (<CURRENCY>)", or -- for a breakdown
-             * -- "<label> — <row>". Never a bare substring: a cell that merely CONTAINS the
-             * expected text is drift, not a match. That distinction already caught one defect
-             * here, where "Repeat purchases" satisfied a containment check for "Repeat purchase".
+             * Exact on the cell, or "<label> — <currency or row>" for the two shapes that emit one
+             * row each. Never a bare substring: a cell that merely CONTAINS the expected text is
+             * drift, not a match. That distinction already caught one defect here, where "Repeat
+             * purchases" satisfied a containment check for "Repeat purchase".
+             *
+             * THE MONEY LIMB USED TO READ `' ('` AND WAS DEAD CODE. Measured while adding
+             * `profit`: `FigureCsv::currencyRows()` writes "<label> — <CURRENCY>", never
+             * "<label> (<CURRENCY>)", so no money cell has ever satisfied that limb. The test
+             * passed anyway because this method seeded NO STORE, so `$coverage['included']` was
+             * empty, every money figure took its zero-store branch and emitted the bare label --
+             * which the first limb matches. A money figure dropped from the export would have been
+             * caught only by its absence, not by its label, and a RENAMED one not at all. The
+             * method now seeds two tenants in two currencies, so the prefix limb is the one that
+             * has to hold.
              */
             $matched = array_filter($cells, fn ($cell) => $cell === $label
-                || str_starts_with($cell, $label . ' (')
-                || ($isBreakdown && str_starts_with($cell, $label . ' — ')));
+                || str_starts_with($cell, $label . ' — '));
 
             $this->assertNotEmpty($matched,
                 "the platform export has no row labelled exactly '{$label}'. Either the figure is "
@@ -333,6 +446,21 @@ final class FigureExportTest extends SecurityTestCase
                 . 'error, because FigureCsv::rows() iterates the map and not the figures, and its '
                 . 'array_key_exists(\'value\') limb skips a breakdown outright -- or the export '
                 . 'labels it differently from the screen.');
+        }
+
+        /*
+         * AND THE OTHER DIRECTION, which this test did not assert until a mutation showed why it
+         * has to. Deleting a figure from `forPlatform()` left its entry in the export's label map,
+         * `FigureCsv::rows()` skipped it silently -- an absent figure looks exactly like a
+         * breakdown to its `array_key_exists('value')` limb -- and the expectation above, being
+         * derived from the now-shorter figure array, expected nothing. The map and the source were
+         * free to disagree in one of the two possible ways.
+         */
+        foreach (array_keys(\App\Http\Controllers\PlatformAnalyticsController::figureLabels()) as $mapped) {
+            $this->assertArrayHasKey($mapped, $figures,
+                "the platform export's label map names the figure '{$mapped}' and "
+                . 'PlatformAnalyticsFigures::forPlatform() does not produce it, so FigureCsv::rows() '
+                . 'skips it and the column disappears from the download with no error anywhere.');
         }
     }
 

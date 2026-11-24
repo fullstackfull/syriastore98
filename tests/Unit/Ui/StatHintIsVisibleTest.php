@@ -406,7 +406,25 @@ class StatHintIsVisibleTest extends TestCase
         // updating it. `customer/timeline.blade.php` was ALREADY on the list: its Total Orders
         // tile has carried `Opens this customer's orders` since P2.5. Three hints were added to a
         // file that had one, not to a file that had none.
-        $this->assertCount(33, $hits,
+        // 33 -> 34 [GAP-162]: `platform/analytics.blade.php` gains `Page views`, the third of the
+        // cross-tenant counterparts. ONLY THIS ONE OF THE THREE MOVES THIS COUNT, and the reason is
+        // worth stating: `devices` and `Estimated gross profit` are TABLES, whose disclosure is a
+        // standalone `<p class="ss-stat__hint">` beside the table rather than a `:hint` on the
+        // component -- so they are invisible to this census by construction. A reader comparing
+        // "three figures shipped" with "one hint added" would otherwise suspect two missing
+        // disclosures.
+        //
+        // Its hint carries three things, two of which exist only on the cross-tenant screen:
+        // what a page view is and is not (the merchant screen's own sentence -- requests, not
+        // people, crawlers included); the LATEST attribution start among the stores that have
+        // logged one, because visit rows carried no `store_id` until 2026-11-20 and nothing
+        // backfills them, so a total across stores is only as covered as its least-covered
+        // contributor; and the count of stores that have never logged one at all, whose zero
+        // cannot be told apart from "never recorded". The last two are conditional, for the reason
+        // `MerchantAnalyticsFigures::visitCoverageNote()` records: a permanent "may be incomplete"
+        // note on every render is wallpaper, not a disclosure.
+        // The file count stays at ten because this file already carried four hints.
+        $this->assertCount(34, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
         $this->assertCount(10, array_unique($hits),

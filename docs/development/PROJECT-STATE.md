@@ -91,7 +91,18 @@ decision quoted as such.
 >    no breakdown loop — `FigureCsv::breakdownRows()` already exists and the merchant file already
 >    uses it, so what is missing is a loop in `PlatformAnalyticsController::export()`, not new
 >    machinery. (Corrected: this line first said `FigureCsv::rows()` was breakdown-blind and the
->    seam had to be built.)
+>    seam had to be built.) **TWO OF THE FOUR ARE NOW BUILT (2026-11-24):** `devices`
+>    (`3e9f9339`, with the breakdown export loop the other breakdowns need) and **estimated gross
+>    profit** -- `StoreRevenueMargin(true)`, the same metric and settled-only flag `/finance`
+>    uses, one row per currency, `total()` never called -- and **page views**, a count and so not
+>    blocked by `D-N32`, carrying the attribution-start and never-recorded-store coverage
+>    statements. So **five** figure groups remain open and the split is **1 / 3 / 1**: buildable
+>    `sources`; owner-decision `conversion`, `channels`, `campaigns`; data-gated `redemptions`.
+>    **The financial review of the profit slice refuted its own central claim** -- the
+>    `UNKNOWN_CURRENCY` row really does add different currencies, and for a margin that can reverse
+>    the sign -- so both money tables now disclose that row; the merchant tile's dropped tax clause
+>    is restored; `FigureCsv::currencyRows()` no longer leaks bidi isolates into the download's
+>    disclosure column (it did for `payments` too); and the currency rows are explicitly sorted.
 > 7. **`P5-R8`…`R12`** — four-combination evidence, the per-slice eight-point record, the Phase 05
 >    final report, the loyalty metric as a MySQL harness script; register the ANA-005 harness.
 > 8. Then Phase 06 on its own branch and Draft PR, without merging the existing phase PRs.

@@ -79,9 +79,11 @@ final class PlatformAnalyticsFigures
         return [
             'stores' => self::stores($storeIds, $coverage),
             'orders' => self::orders($storeIds, $now),
+            'visits' => self::visits($storeIds, $now),
             'buyers' => self::buyers($storeIds, $now),
             'retention' => self::retention($coverage),
             'payments' => self::payments($coverage),
+            'profit' => self::profit($coverage),
             'devices' => self::devices($storeIds, $now),
             'coverage' => $coverage,
         ];
@@ -668,9 +670,14 @@ final class PlatformAnalyticsFigures
 
         $result = (new CollectedCustomerPayments())->for(MetricScope::stores($coverage['included']), $window);
 
+        $byCurrency = $result->byCurrency();
+
+        // Deterministic order, for the reason `profit()` records: `GROUP BY` guarantees none.
+        ksort($byCurrency);
+
         $rows = [];
 
-        foreach ($result->byCurrency() as $currency => $amount) {
+        foreach ($byCurrency as $currency => $amount) {
             $rows[] = [
                 // Through MoneyText, which now holds the one definition of this label (FIN-SYM).
                 'currency' => MoneyText::currencyLabel((string) $currency),
@@ -679,6 +686,11 @@ final class PlatformAnalyticsFigures
         }
 
         $notes = [__('Money actually collected, read from the financial record. Each currency is shown on its own line and the lines are NOT added together: converting them would need the exchange rate on each order\'s own date, and no such record exists.')];
+
+        // The same row, the same silence, fixed in both tables at once -- see the helper.
+        if (array_key_exists(MetricResult::UNKNOWN_CURRENCY, $byCurrency)) {
+            $notes[] = self::unknownCurrencyRowNote();
+        }
 
         if ($coverage['excluded'] !== []) {
             $notes[] = __('Stores left out because their financial record cannot vouch for any period: :count.', [
@@ -703,6 +715,279 @@ final class PlatformAnalyticsFigures
          * cannot be placed inside or outside any window, so it narrows no period and is disclosed
          * nowhere else on this screen. The merchant screen reports its own; this reports the sum.
          */
+        if ($coverage['undatedWithoutRow'] > 0) {
+            $notes[] = __('Orders with no financial record and no date, which no period can include or exclude: :count.', [
+                'count' => self::ltr(number_format($coverage['undatedWithoutRow'])),
+            ]);
+        }
+
+        return [
+            'rows' => $rows,
+            'period' => $coverage['verifiedFrom'] === null
+                ? __('all time')
+                : __('from :date', ['date' => $coverage['verifiedFrom']->isoFormat('D MMM YYYY')]),
+            'hint' => implode(' ', $notes),
+        ];
+    }
+
+    /**
+     * PAGE VIEWS, ACROSS TENANTS -- `GAP-162` / `P05-14`, the third counterpart.
+     *
+     * A COUNT IS NOT THE CONTESTED RATIO, which is why this can ship while `conversion` cannot.
+     * `D-N32` / `GAP-155` is open on conversion's BASIS -- `PHASE-05-METRIC-DEFINITIONS.md` §13
+     * says verbatim that the owner has not ruled, the requirement expects "visitors or sessions
+     * against orders" while the tile divides by page views, and WITHDRAWING the tile is one of the
+     * registered options. None of that is in question for the page-view count itself, which the
+     * merchant screen has shown since P5-4b. So the count is built and the rate is left alone.
+     *
+     * TWO QUERIES, BOTH AGGREGATES, NO ROW EVER LOADED. That is a standing constraint on this
+     * screen rather than a preference: `Most Popular Store` used to read the store id of EVERY row
+     * of the visit log into PHP and was rewritten for exactly this reason (`P5-R3b`). The second
+     * query returns at most one row per store, which is the bound this whole screen already has.
+     * `PlatformAnalyticsScreenTest::test_no_query_reads_visit_rows_into_php` asserts it on the SQL,
+     * because a `get()` that looks bounded is only bounded by today's data.
+     *
+     * THE STORE PREDICATE IS EXPLICIT AND IT DOES WORK. `shetabit_visits` is not in
+     * `config/tenancy.php`'s `scoped_models`, so `StoreScope` adds no predicate for anybody --
+     * operator included. On the `devices` slice the equivalent `whereIn` SURVIVED deletion against
+     * the whole suite, because `$storeIds` IS every store for any ordinary fixture; it earns its
+     * place only for a row pointing at a store that no longer exists, which
+     * `StoreController::destroy()` leaves behind. Pinned here by its own orphan-row test.
+     *
+     * COVERAGE IS TWO DIFFERENT QUESTIONS ON THIS SIDE, AND NEITHER IS THE LEDGER'S.
+     *
+     *   1. WHEN DID ATTRIBUTION BEGIN? Visit rows carried no `store_id` at all until the
+     *      attribution fix of 2026-11-20 (`SanitisedVisitor`'s docblock) and nothing backfills
+     *      them, so each store has its own first attributed view. Across tenants the honest start
+     *      is the LATEST of them, for the same reason `verifiedFrom` is the latest among the
+     *      included stores: a total across stores is only as covered as its least-covered
+     *      contributor. Taking the earliest would claim coverage the newest store does not have.
+     *      It is computed over ALL TIME and not over the window, because the question is when
+     *      recording started, not what happened lately.
+     *   2. WHICH STORES HAVE NEVER LOGGED ONE? Those have no start date at all, and their zero
+     *      cannot be told apart from "their views were never recorded". So they are COUNTED AND
+     *      DISCLOSED rather than folded into the figure -- the same choice `payments()` makes for
+     *      a store whose ledger can vouch for nothing.
+     *
+     * THE SENTENCES ARE CONDITIONAL, and that is deliberate. `visitCoverageNote()` on the merchant
+     * side records the reasoning: a permanent "data may be incomplete" note on every render is not
+     * a disclosure, it is wallpaper -- merchants stop reading it and the real warning loses its
+     * meaning. So the attribution sentence appears only when the window actually reaches back past
+     * the start, and the never-logged sentence only when such a store exists.
+     *
+     * IT DOES NOT RE-SCOPE THE FIGURE. The window stays the screen's own 30 days and the sentence
+     * says which part of it has data. Silently narrowing the period to the covered one would make
+     * this tile disagree with the Orders tile beside it, and which of the two is wanted is a
+     * product question; saying nothing is wrong under either answer, which is why this is the part
+     * that ships without one.
+     *
+     * @param  list<int>  $storeIds
+     * @return array{value: ?string, period: string, hint: string}
+     */
+    private static function visits(array $storeIds, CarbonImmutable $now): array
+    {
+        if ($storeIds === []) {
+            return self::nothingYet(__('No store exists yet, so there is nothing to count.'));
+        }
+
+        [$from, $to] = self::recentBounds($now);
+
+        $visits = (int) Visit::query()
+            ->whereIn('store_id', $storeIds)
+            ->whereBetween('created_at', [$from, $to])
+            ->toBase()
+            ->count();
+
+        $starts = Visit::query()
+            ->whereIn('store_id', $storeIds)
+            ->selectRaw('store_id, MIN(created_at) as first_seen')
+            ->groupBy('store_id')
+            ->toBase()
+            ->get();
+
+        $attributedFrom = null;
+
+        foreach ($starts as $row) {
+            if (($raw = $row->first_seen ?? null) === null) {
+                continue;
+            }
+
+            $seen = CarbonImmutable::parse($raw);
+
+            if ($attributedFrom === null || $seen->greaterThan($attributedFrom)) {
+                $attributedFrom = $seen;
+            }
+        }
+
+        $withoutAnyView = count($storeIds) - $starts->count();
+
+        $notes = [__('Page views of every store\'s storefront, counted once per request. It is not a count of people: the same visitor browsing five pages is five, and automated traffic such as search-engine crawlers and link previews is included.')];
+
+        if ($visits > 0 && $attributedFrom !== null && $attributedFrom->startOfDay()->greaterThan($from->startOfDay())) {
+            $notes[] = __('Page views are attributed to individual stores only from :date, the latest start among the stores that have logged one, so this period is only partly covered. Earlier visits were not attributed to any store and cannot be counted here.', [
+                // `isoFormat` so the month name is translated, with the locale passed explicitly
+                // rather than relying on Carbon's global one; `ltr()` because an unwrapped
+                // Western-digit date reorders itself inside an Arabic sentence.
+                'date' => self::ltr($attributedFrom->locale(app()->getLocale())->isoFormat('D MMM YYYY')),
+            ]);
+        }
+
+        if ($withoutAnyView > 0) {
+            $notes[] = __('Stores that have never logged a page view: :count. A zero from them cannot be told apart from a store whose views were never recorded, so they are counted here rather than folded into the figure.', [
+                'count' => self::ltr(number_format($withoutAnyView)),
+            ]);
+        }
+
+        return [
+            'value' => self::ltr(number_format($visits)),
+            'period' => self::recentPeriod(),
+            'hint' => implode(' ', $notes),
+        ];
+    }
+
+    /**
+     * ESTIMATED GROSS PROFIT, ACROSS TENANTS -- `GAP-162` / `P05-14`, the second counterpart.
+     *
+     * THE DEFINITION IS NOT RE-DECIDED HERE. It is `StoreRevenueMargin(true)`, the same metric and
+     * the same `settledOnly` flag `/finance` and `/analytics` pass through
+     * `FinanceLedgerFigures::forStore()`. Sales value minus product cost for orders that have been
+     * PAID, dated on the day they were paid. Nothing about what profit MEANS changes by being read
+     * across stores -- only the scope does -- which is the whole reason this screen goes through
+     * the metric layer instead of writing its own query.
+     *
+     * AND THE METRIC ALREADY GROUPS BY CURRENCY, so this needed no change to it: `Metric::
+     * sumByCurrency()` emits one row per `store_order_financials.currency_code` for the whole
+     * scope in ONE statement, and `Metric::financials()` takes the whole scope. A mapping pass
+     * measured that and it held.
+     *
+     * NO TWO *NAMED* CURRENCIES ARE EVER ADDED, and the qualifier is a CORRECTION to what this
+     * paragraph said when it was written ("CURRENCIES ARE NEVER ADDED", full stop). An independent
+     * financial review refuted it by execution: the `UNKNOWN_CURRENCY` row really does add amounts
+     * from stores whose currency settings differ, because `MetricResult` collapses every
+     * unparseable value into one key. The row is now disclosed rather than silently trusted -- see
+     * `unknownCurrencyRowNote()`, which carries the measurement.
+     *
+     * `total()` is not called. The stated reason was also imprecise: it throws only on MORE THAN
+     * ONE bucket, so on a single-currency platform it would return happily. It is not called
+     * because the answer it would give on a multi-currency platform does not exist, and a method
+     * whose correctness depends on how many tenants happen to share a currency is not one a screen
+     * should call. Each currency is its own row, exactly as `payments()` does. No historical FX
+     * record exists in this schema (`currency_rates` holds CURRENT rates and nothing stamps a rate
+     * onto an order), so a converted cross-currency profit would be a number with no defensible
+     * basis.
+     *
+     * A PROFIT CAN BE NEGATIVE, and that is why the amount keeps its bidi isolate. Measured and
+     * recorded in `FinanceLedgerFigures`: in an Arabic page an unisolated negative renders as
+     * "USD 20.00-", with the sign after the number.
+     *
+     * NO `realBuckets()` / `MoneyText::buckets(..., true)` HERE, deliberately, and this is the one
+     * place this figure differs from its merchant twin. That helper drops any bucket whose amount
+     * rounds to zero, which is right for a LEDGER tile -- a currency nothing was ever paid in
+     * should not make a figure look mixed. Across many stores a currency whose NET profit is
+     * approximately zero is a MEANINGFUL statement rather than a rounding artefact: it says that
+     * tenant group broke even. `payments()` also iterates `byCurrency()` raw -- CORRECTED: this
+     * paragraph used to say it does so "for the same reason", and `payments()` records no reason at
+     * all, so a motive was being attributed to another function that the other function does not
+     * state. What is true is that both skip the helper, and the half of it that IS needed -- the
+     * `ksort()` -- is now done explicitly in both.
+     *
+     * COVERAGE IS THE SHARED INTERSECTION, unchanged: included stores are those whose ledger can
+     * vouch for some period, the window is dated from the LATEST `verifiedFrom` among them because
+     * a total across stores is only as covered as its least-covered contributor, and a store that
+     * can vouch for nothing is EXCLUDED AND COUNTED rather than contributing a zero that would
+     * read as "that tenant made no profit".
+     *
+     * THE COST CAVEAT IS A SECOND, DIFFERENT COVERAGE QUESTION and is carried separately.
+     * `LedgerCoverage` answers "does the ledger have a row"; it does not answer "does that row
+     * have a cost". `COST_UNKNOWN` / `notes()['rows_without_cost']` is the only signal for the
+     * second, it is scope-wide, and it is a COUNT OF ROWS and not an amount -- so the sentence
+     * says how many orders, names no money, and does not say which stores.
+     *
+     * @param  array{included: list<int>, excluded: list<int>, verifiedFrom: ?CarbonImmutable, allComplete: bool, undatedWithoutRow: int}  $coverage
+     * @return array{rows: list<array{currency: string, amount: string}>, period: string, hint: string}
+     */
+    private static function profit(array $coverage): array
+    {
+        if ($coverage['included'] === []) {
+            return [
+                'rows' => [],
+                'period' => __('not yet available'),
+                'hint' => __('No store has a financial record this view can read, so there is nothing to total. Nothing is reconstructed.'),
+            ];
+        }
+
+        $window = $coverage['verifiedFrom'] === null
+            ? MetricWindow::allTime()
+            : MetricWindow::since($coverage['verifiedFrom']);
+
+        $result = (new StoreRevenueMargin(true))->for(MetricScope::stores($coverage['included']), $window);
+
+        $byCurrency = $result->byCurrency();
+
+        /*
+         * SORTED BY KEY, which is the one thing skipping `MoneyText::buckets()` cost that had to be
+         * put back. `byCurrency()`'s order is the order `Metric::sumByCurrency()` iterated the raw
+         * `GROUP BY` result set in, and MySQL guarantees no `GROUP BY` ordering -- SQLite happens to
+         * return it sorted, which is exactly why a test could not see this. An operator's currency
+         * rows would reorder between page loads and between engines. `buckets()`'s own `ksort()`
+         * carries the same note; this reproduces that half of it without the zero-dropping half.
+         */
+        ksort($byCurrency);
+
+        $rows = [];
+
+        foreach ($byCurrency as $currency => $amount) {
+            $rows[] = [
+                'currency' => MoneyText::currencyLabel((string) $currency),
+                'amount' => self::ltr(number_format($amount, 2)),
+            ];
+        }
+
+        /*
+         * "ACROSS THE STORES INCLUDED", not "across every store". Found by review: the scope is
+         * `$coverage['included']` and the first version of this sentence said "every store", which
+         * the excluded-store sentence further down then contradicted -- a reader who stops at the
+         * figure has been told something the code does not do.
+         *
+         * THE TAX CLAUSE IS THE MERCHANT TILE'S, and dropping it was a disclosure regression the
+         * review caught against a check that already exists:
+         * `tests/Support/Security/bin/verify-metric-layer-on-mysql.php` asserts the merchant hint
+         * carries it, under the name "and says what it leaves out TRUTHFULLY".
+         * `StoreRevenueMargin`'s docblock records why (`GAP-213(d)`): `EXCLUDES_SHIPPING_AND_TAX` is
+         * only half true, because a store whose `TaxOption price_type` is `inclusive` has the tax
+         * inside `product_price` and therefore inside `gross_profit`. `TaxOption` is PER STORE, so
+         * the cross-tenant figure can mix tax-bearing and tax-free margins INSIDE ONE CURRENCY ROW
+         * -- a blend the merchant figure never had to make, and the sentence that warns of it is
+         * the one that had been left out.
+         */
+        $notes = [
+            __('Sales value minus product cost for orders that have been paid, counted on the day they were paid, across the stores included below. Shipping is not included. Each currency is shown on its own line and the lines are NOT added together: converting them would need the exchange rate on each order\'s own date, and no such record exists.'),
+            __('If a store enters its prices with tax included, that tax is part of its sales value, and stores on this screen may be set either way -- so one currency row can combine margins measured with tax and without it.'),
+        ];
+
+        if (array_key_exists(MetricResult::UNKNOWN_CURRENCY, $byCurrency)) {
+            $notes[] = self::unknownCurrencyRowNote();
+            $notes[] = __('For this figure that matters more than for money collected: a margin can be negative, so adding two currencies in that row can show a loss where one currency gained and another lost.');
+        }
+
+        $withoutCost = (int) ($result->notes()['rows_without_cost'] ?? 0);
+
+        if ($withoutCost > 0) {
+            $notes[] = __('At least :count paid orders across all stores have no product cost on record, so their profit may be overstated. Orders that mix products with and without a cost price are not counted here.', [
+                'count' => self::ltr(number_format($withoutCost)),
+            ]);
+        }
+
+        if ($coverage['excluded'] !== []) {
+            $notes[] = __('Stores left out because their financial record cannot vouch for any period: :count.', [
+                'count' => self::ltr(number_format(count($coverage['excluded']))),
+            ]);
+        }
+
+        if (! $coverage['allComplete'] && $coverage['verifiedFrom'] !== null) {
+            $notes[] = __('The period shown is the latest start among the stores included, because a total across stores is only as complete as its least complete contributor.');
+        }
+
         if ($coverage['undatedWithoutRow'] > 0) {
             $notes[] = __('Orders with no financial record and no date, which no period can include or exclude: :count.', [
                 'count' => self::ltr(number_format($coverage['undatedWithoutRow'])),
@@ -859,6 +1144,35 @@ final class PlatformAnalyticsFigures
      * Bidi isolation, as MerchantAnalyticsFigures does: a Western-digit number inside an Arabic
      * sentence otherwise reorders around neighbouring punctuation.
      */
+    /**
+     * THE ONE SENTENCE THE "CURRENCY NOT RECORDED" ROW NEEDS, shared by both money tables because
+     * both have the row and both were silent about it.
+     *
+     * MEASURED BY AN INDEPENDENT FINANCIAL REVIEW, and it refuted this class's own claim that
+     * currencies are never added. `MetricResult::make()` re-keys every bucket through
+     * `CurrencySymbol::code()`, which yields three uppercase letters or an empty string -- so EVERY
+     * unparseable value collapses into the single `UNKNOWN_CURRENCY` key and is summed there. That
+     * is not a rare state: `store_order_financials.currency_code` is written from the per-store
+     * `defult_currancy` setting, which `FIN-SYM` measured to hold SYMBOLS on real rows (owner
+     * decision `D-N34` covers the rows already written). Two stores whose settings hold `$` and
+     * `ل.س` therefore land in one row and are added.
+     *
+     * The review drove it: `+1000.00` from a dollar store and `-2000.00` from a Syrian-pound store
+     * rendered as ONE row reading `-1,000.00`, under a caption saying the rows are not added
+     * together. For payments the row is merely inflated, because money collected is never negative;
+     * for a margin the sum can REVERSE THE SIGN and show a platform-wide loss where the truth is a
+     * gain in one currency and a loss in another.
+     *
+     * WHAT IS NOT DONE HERE, deliberately: the fold itself is not changed. It lives in
+     * `MetricResult`, every money surface in the product shares it, and splitting the bucket by the
+     * raw stored value would change what `/finance` and `/analytics` report as well -- a change to
+     * a shipped financial definition, which is the owner's. So the row stays and says what it is.
+     */
+    private static function unknownCurrencyRowNote(): string
+    {
+        return __('The row labelled "Currency not recorded" holds records whose currency this product never stored. Those amounts are added together even where the stores that produced them use different currencies, so that row is not a figure to rely on; every other row is in the single currency it names.');
+    }
+
     private static function ltr(string $number): string
     {
         return "\u{2066}" . $number . "\u{2069}";
