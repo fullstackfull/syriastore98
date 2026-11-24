@@ -181,18 +181,18 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/ApiController.php:3712` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:4292` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
 | `app/Http/Controllers/Api/ApiController.php:4430` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:10208` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
-| `app/Http/Controllers/Api/ApiController.php:10257` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:9461` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:10352` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
+| `app/Http/Controllers/Api/ApiController.php:10401` | Storefront intake claim could not be released; it will expire on its own. |
+| `app/Http/Controllers/Api/ApiController.php:9605` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/PaymentController.php:2174` | Web checkout intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:135` | Coupon refused: the basket could not be priced |
 | `app/Http/Controllers/Api/ApiController.php:3519` | order: refused, basket holds a non-positive quantity |
 | `app/Http/Controllers/Api/ApiController.php:7584` | order: refused, basket holds a non-positive quantity |
 | `app/Http/Controllers/Api/ApiController.php:7675` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:8507` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:8533` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9147` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9309` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:8651` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:8677` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9291` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9453` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:84` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:356` | Pending partial payment refused: the balance named does not belong to this customer. |

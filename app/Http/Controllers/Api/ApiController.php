@@ -7994,12 +7994,30 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
      * into whichever of the three guards matches its tokenable class, so all three principals can
      * legitimately arrive here and each needs its own relationship to the order:
      *
-     *   Customer      -> they placed it. orders.customer_id must equal their id and be non-zero;
-     *                    a guest order carries customer_id = 0, so 0 can never match.
+     *   Customer      -> orders.customer_id equals their id and is non-zero. READ THAT
+     *                    PRECISELY: it says the order is ATTACHED TO THEIR RECORD, which is not
+     *                    the same claim as "they placed it". An earlier version of this line said
+     *                    "a guest order carries customer_id = 0, so 0 can never match" -- true of
+     *                    the ORDINARY guest shape and false as a test for a guest order. A guest
+     *                    checkout whose billing e-mail matches an existing customer OF THE SAME
+     *                    STORE is written with that customer's REAL id and `is_guest = 1`, because
+     *                    nobody is signed in (App\Services\PaymentService, and the same three
+     *                    lines in each gateway controller). So `customer_id` answers "whose record
+     *                    is this attached to" and `is_guest` answers "was anybody signed in when
+     *                    it was placed"; the non-zero test answers only the first. THIS HELPER
+     *                    DOES NOT NARROW THE SECOND, deliberately -- it serves a pure read as well
+     *                    as the two writes, and the read is not being changed. The two MUTATING
+     *                    callers narrow it, through resolveMutableOrder() below. The e-mail match
+     *                    itself is correct and is not in question: it is the returning-guest flow,
+     *                    it follows from per-store e-mail uniqueness, and
+     *                    UnscopedCustomerEmailLookupTest pins it.
      *   DeliveryBoy   -> it is assigned to them. orders.deliveryboy_id, NOT orders.delivery_id --
-     *                    the latter is a Shipping id (app/Models/Order.php:122-123) and both
-     *                    columns exist, so confusing them would silently admit nobody or
-     *                    everybody.
+     *                    the latter is a Shipping id (see `Order::delivery()`; `deliveryboy_id`
+     *                    is the one in `Order::$fillable`) and both columns exist, so confusing
+     *                    them would silently admit nobody or everybody. Cited by member rather
+     *                    than by line: the `:122-123` this used to name is now inside the
+     *                    `$casts` docblock, which is what a line citation in a 10,000-line file
+     *                    is worth after a few edits.
      *   User          -> the platform operator, or an actor whose own tenant owns the order's
      *                    store. `created_by = creatorId()` is the predicate used by
      *                    DashboardController::resolveOwnedStore() and StoreController, so staff
@@ -8069,6 +8087,102 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
     }
 
     /**
+     * The order a storefront-API caller is entitled to MUTATE, or null.
+     *
+     * SEC-INTAKE #188, the storefront twin of the web door OrderController::status_cancel.
+     * resolveViewableOrder() plus the one limb only the WRITING doors need: a customer may not act
+     * on an order that nobody was signed in to place, even when that order carries their own id.
+     * `orders.customer_id` records whose record an order is attached to; `orders.is_guest` records
+     * whether anybody was signed in. A self-service write wants the second, and both doors tested
+     * the first.
+     *
+     * WHY THE LIMB IS HERE AND NOT IN resolveViewableOrder(). That helper also answers a pure READ
+     * (order_detail), and narrowing a read is a behaviour change nobody has asked for, so the
+     * shared definition of "yours" is left exactly as it was. The extra condition sits on the two
+     * doors that WRITE, and -- MEASURED on this revision rather than assumed -- both of them write
+     * something that matters:
+     *
+     *   - order_status_change: the engine stamps `cancel_date` and `delivered_status = 2`, then
+     *     asks OrderEntitlementReversal for a reversal with a recorded reason, and THIS
+     *     CONTROLLER then restores the cancelled order's stock (P4-F034). Call names are written
+     *     WITHOUT parens on purpose: several tests read this file as raw source and count call
+     *     sites by needle, and CLAUDE.md records four occasions on which a comment satisfied or
+     *     broke such a census. Probed on an adopted guest order before the limb existed: HTTP 200
+     *     "Order status changed.", `delivered_status` 0 -> 2, `cancel_date` stamped, and
+     *     `products.product_stock` 5 -> 7. So this door moves stock as well as entitlement.
+     *   - product_return: HTTP 200 "Product return successfully.", `products.product_stock`
+     *     5 -> 7, and the order line stamped `return` and `stock_restored`.
+     *
+     * `payment_status` is NOT part of either effect, and saying so matters because the docblocks
+     * below said it was. P4-F124 (owner decision Option A) removed the
+     * `payment_status = 'Unpaid'` write from the cancel arm precisely so that a cancellation stops
+     * rewriting what the customer actually paid; the reversal is now asked for explicitly instead
+     * of being provoked through that column. Measured: `payment_status` reads `Paid` before and
+     * after a SUCCESSFUL cancel through this door. Those paragraphs are corrected in this change.
+     *
+     * WHY IT IS SCOPED TO THE CUSTOMER BRANCH, which is a judgement and not an oversight. Only
+     * that branch derives ownership from `orders.customer_id` -- the one column the adoption shape
+     * corrupts. A merchant's claim comes from owning the order's store, a driver's from
+     * `orders.deliveryboy_id`, the operator's from `users.type`; none of the three is affected by
+     * whom a billing e-mail happened to match, so narrowing them would close nothing. It would
+     * also take away the only way a guest order can be cancelled or returned AT ALL: a guest has
+     * no account to sign in to, so the merchant is the whole remedy -- which is what the sibling
+     * web door states in its own disclosure. Both directions are pinned by
+     * tests/Feature/Security/StorefrontOrderMutationAuthorizationTest.php.
+     *
+     * DISCLOSED BEHAVIOUR CHANGE, stated plainly rather than left to be discovered. A returning
+     * shopper who checked out AS A GUEST can no longer cancel or return that order from the
+     * storefront API, even though the order carries their customer id and even though they may
+     * genuinely be the person who placed it. That is the point: nobody proved they own the e-mail
+     * address the checkout matched, so the id is a convenience and not a credential. The merchant
+     * can still do both, and the sibling web door made the same disclosure for the same reason.
+     * The order is still VISIBLE to them -- order_detail is unchanged -- so this narrows
+     * self-service writes only.
+     *
+     * COMPATIBILITY. A refusal returns null and each caller answers with the 'Order not found.'
+     * envelope it already returned for an unknown id -- HTTP 200 with `status: 0`, this API's
+     * denial shape. NOT a 401 (the shipped Flutter client forces a logout on any 401) and not a
+     * 404. No path, method or request body changes. No client in either repository calls the
+     * storefront API, so no shipped screen changes.
+     */
+    private function resolveMutableOrder($orderId, $store = null)
+    {
+        $order = $this->resolveViewableOrder($orderId, $store);
+
+        if (!$order) {
+            return null;
+        }
+
+        /*
+         * Anything other than 0 counts as placed-by-guest. The only non-zero value any writer
+         * stores is the literal 1 -- verified across every writer in the repository, host and
+         * vendored -- so the comparison is the same test either way.
+         *
+         * `?? 0` IS FAIL-OPEN, AND AN EARLIER DRAFT OF THIS COMMENT CALLED IT "fail-closed" IN
+         * THE SENTENCE BEFORE DESCRIBING THE OPPOSITE. An absent or NULL value reads as 0, the
+         * limb does not fire, and the caller is ADMITTED. That is the behaviour this change
+         * wants, and it is chosen rather than inherited: a suite that hand-builds its own
+         * `orders` table has no such column (SecondReturnTotalTest is one), and those orders keep
+         * the behaviour they have today instead of every cancel in that file turning into a
+         * refusal. The production column cannot be absent or NULL -- `integer NOT NULL default 0`
+         * in create_orders_table -- so fail-open costs nothing THERE, which is the true version
+         * of what that sentence was trying to say. Mis-describing which way a security check
+         * fails is the same class of error as #188 itself, found by review and recorded because
+         * of it.
+         *
+         * `auth('customers')->user()` is the same expression resolveViewableOrder() evaluates to
+         * pick its customer branch, and it is checked there before the driver and User branches --
+         * so a truthy answer here means the order was admitted ON the customer_id comparison,
+         * which is exactly the decision this limb narrows.
+         */
+        if ((int) ($order->is_guest ?? 0) !== 0 && auth('customers')->user()) {
+            return null;
+        }
+
+        return $order;
+    }
+
+    /**
      * AUTHZ-3. Change the status of an order THE CALLER OWNS.
      *
      * THE DEFECT. The body was:
@@ -8084,10 +8198,14 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
      * DeliveryBoy token -- so ANY holder of ANY valid token could set the status of ANY order on
      * the platform by iterating integers.
      *
-     * AND IT MOVES MONEY. The cancel branch at app/Models/Order.php:539-554 sets
-     * `delivered_status = 2` AND `payment_status = 'Unpaid'`, then saves -- and the comment beside
-     * it says plainly that the observer then calls the wallet service. So the hole was not a
-     * status field: it was an attacker-triggered refund against any order in any store.
+     * AND IT MOVES MONEY. The cancel branch stamps `delivered_status = 2` and then reverses the
+     * merchant's entitlement, so the hole was not a status field: it was an attacker-triggered
+     * refund against any order in any store. (HOW it reverses was rewritten after this paragraph
+     * was first written, and the old wording -- "sets `payment_status = 'Unpaid'`, then saves, and
+     * the observer calls the wallet service" -- is no longer true. P4-F124, owner decision
+     * Option A, removed that write so a cancellation stops rewriting what the customer actually
+     * paid; `Order::order_status_change()` now calls OrderEntitlementReversal::reverseOrLog()
+     * explicitly. The defect and the fix are unchanged; only the mechanism behind the money is.)
      *
      * THE FIX REUSES THE HELPER THAT ALREADY EXISTS. resolveViewableOrder() was written for S12
      * and already encodes what it means for an order to be yours, separately for each of the three
@@ -8098,6 +8216,15 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
      *
      * The resolved order's id is what goes to the model, not the request's -- so the value that
      * passed the check is the value that is acted on.
+     *
+     * AND IT NOW RESOLVES THROUGH resolveMutableOrder(), which is that same helper plus the one
+     * limb a WRITE needs: a customer is refused on an order nobody was signed in to place, even
+     * when the order carries their own id. A guest checkout whose billing e-mail matched an
+     * existing customer of the store records that customer's REAL `customer_id` together with
+     * `is_guest = 1`, so `customer_id` alone cannot say whether this customer placed the order --
+     * and this door cancels it, reverses the merchant's entitlement and restores the stock. The
+     * READ side is deliberately left as it was; resolveMutableOrder() records why the limb is not
+     * in the shared helper, and why it narrows the customer branch only.
      *
      * WHAT IS STILL OPEN, and is reported rather than guessed at: ownership is now required, but
      * WHICH status each principal may set is not constrained. A customer can still mark their own
@@ -8115,7 +8242,7 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
     {
         $store = getStore($slug);
 
-        $order = $this->resolveViewableOrder($request->order_id, $store);
+        $order = $this->resolveMutableOrder($request->order_id, $store);
 
         if (!$order) {
             return $this->error(['message' => __('Order not found.')], __('Order not found.'));
@@ -8129,10 +8256,17 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         /*
          * THE GOODS.  P4-F034, the doors P4-4 did not reach -- found by the P4-F124 ledger
          * inventory, which noticed the exact inverse of that finding: this door routes through
-         * `Order::order_status_change()`, so it writes `payment_status = 'Unpaid'` and
-         * `OrderObserver` reverses the merchant's wallet credit, and then loses the stock.
-         * P4-F124 restores the stock and loses the money; this one restored the money and lost
-         * the goods.
+         * `Order::order_status_change()`, which reverses the merchant's entitlement, and then
+         * loses the stock. P4-F124 restores the stock and loses the money; this one restored the
+         * money and lost the goods.
+         *
+         * (As first written this paragraph said the engine "writes `payment_status = 'Unpaid'` and
+         * `OrderObserver` reverses the merchant's wallet credit". P4-F124 then removed that write
+         * -- owner decision Option A, so that a cancellation stops rewriting what the customer
+         * actually paid -- and the reversal became an explicit
+         * OrderEntitlementReversal::reverseOrLog() call. Measured on this revision:
+         * `payment_status` reads `Paid` before and after a successful cancel. Corrected with
+         * SEC-INTAKE #188, which is itself a check whose stated premise had gone false.)
          *
          * `=== 'success'` is the replay guard: the engine answers `error` for a cancel from any
          * non-pending state (app/Models/Order.php:702), so a second attempt never reaches here.
@@ -8160,20 +8294,30 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
      * never read, and `$request->order_id` went straight to Order::product_return(), which does a
      * bare Order::find(). Any token holder could mark lines returned on any order in any store.
      *
-     * This one also writes INVENTORY: app/Models/Order.php:657-669 increments
-     * `products.product_stock` or `product_variants.stock` by the returned quantity, so the hole
-     * was a cross-tenant stock write as well as an order write.
+     * This one also writes INVENTORY: `Order::product_return()` increments
+     * `products.product_stock` or `product_variants.stock` by the returned quantity through
+     * ProductStockService, so the hole was a cross-tenant stock write as well as an order write.
+     * (The `:657-669` this used to cite is inside `order_detail()` -- the line numbers moved and
+     * the claim did not, which is why it now names the method.)
      *
-     * Note that Order::product_return() dereferences its find() with no null guard
-     * (app/Models/Order.php:643-644), so a nonexistent id was a 500 rather than a refusal. That
-     * no longer reaches the model from here, because ownership is resolved first -- which also
-     * means a regression test for "an unknown order is refused" measures a denial and not a crash.
+     * Note that Order::product_return() dereferences its find() with no null guard, so a
+     * nonexistent id was a 500 rather than a refusal. That no longer reaches the model from here,
+     * because ownership is resolved first -- which also means a regression test for "an unknown
+     * order is refused" measures a denial and not a crash.
+     *
+     * AND, LIKE ITS SIBLING, IT RESOLVES THROUGH resolveMutableOrder(): a customer is refused on
+     * an order nobody was signed in to place, even when the order carries their own id, because a
+     * guest checkout that matched an existing customer's billing e-mail records that customer's
+     * real `customer_id` with `is_guest = 1`. Probed here before the limb existed: the matched
+     * customer's own token returned HTTP 200 "Product return successfully.", took
+     * `products.product_stock` from 5 to 7 and stamped `return` and `stock_restored` on the line.
+     * See resolveMutableOrder() for why the limb is not in the shared helper.
      */
     public function product_return(Request $request, $slug = '')
     {
         $store = getStore($slug);
 
-        $order = $this->resolveViewableOrder($request->order_id, $store);
+        $order = $this->resolveMutableOrder($request->order_id, $store);
 
         if (!$order) {
             return $this->error(['message' => __('Order not found.')], __('Order not found.'));
