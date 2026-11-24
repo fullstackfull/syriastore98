@@ -64,9 +64,28 @@ F126, F127, F128, F032, F046), and the metric layer exists, so the sweep is now 
 
 ## 5. A number corrected
 
-P5-R13 records that the operator screen carries **4** figures where the merchant screen carries 13.
-Measured here: the operator card census is **SIX**, not four. The P05-05 disposition for those
-cards is unchanged (no money figures), but the count in that row is wrong.
+**TWO SCREENS WERE BEING GIVEN ONE NAME, and this section's own correction was invalid.**
+Re-measured 2026-11-24.
+
+P5-R13's "the operator screen carries **4** figures" is about **`/platform/analytics`**
+(`PlatformAnalyticsFigures::forPlatform()`), and it was correct when written. It is **5** since
+`f87bb160` added *Repeat purchase*.
+
+The **SIX** counted here is a DIFFERENT SCREEN: the operator **dashboard**'s
+`<x-dashboard-card>` tiles (`superadmin/dashboard.blade.php`). Both numbers are true of their
+own screen, so **neither corrects the other**. That dashboard's full census under one
+figure-group rule is **10** -- the six cards plus the Orders chart, Most Popular Store, Top
+Selling Store and Top Customers. It is also not an analytics screen: all six cards are
+SaaS-subscription or platform-admin figures and none is a cross-tenant commerce figure, so
+comparing it with the merchant analytics screen would be meaningless even with consistent units.
+
+Separately, P5-R13's "**13**" for the merchant screen is **wrong by one**: it counts
+`coverage`, a `LedgerCoverage` object that renders nowhere, while excluding that same key on the
+operator side -- one rule on one side and another on the other. The merchant screen carries
+**12**, which is the product's own enumeration: `AnalyticsExportRows::figureLabels()` (8) +
+`::breakdownLabels()` (4), kept in step with the Blade by `FigureExportTest`.
+
+The P05-05 disposition for the dashboard cards is unchanged -- none of the six is a money figure.
 
 ## 6. What a per-bucket collected series would take, and why it is not bounded
 

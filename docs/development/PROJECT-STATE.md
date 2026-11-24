@@ -69,7 +69,11 @@ decision quoted as such.
 > 5. **`P5-R4`…`R7`, financial correctness** — payment-state badges (`GAP-149`), missing caveats
 >    (`GAP-152`), a collected-payments customer figure beside Total Spend (`GAP-156`), Payments
 >    received on the demand-only reports (`GAP-153`).
-> 6. **`P5-R13`** — the nine cross-tenant figures the operator's view lacks.
+> 6. **`P5-R13`** — the **eight** cross-tenant figures `/platform/analytics` lacks. Was nine;
+>    `f87bb160` ("1 of 9") shipped *Repeat purchase*. Remaining: estimated gross profit, visits,
+>    conversion, coupon redemptions, devices, referring pages, orders by channel, campaign
+>    traffic. Measured 2026-11-24: merchant **12** figure groups, operator **5**, four of them
+>    counterparts plus the operator's own store count.
 > 7. **`P5-R8`…`R12`** — four-combination evidence, the per-slice eight-point record, the Phase 05
 >    final report, the loyalty metric as a MySQL harness script; register the ANA-005 harness.
 > 8. Then Phase 06 on its own branch and Draft PR, without merging the existing phase PRs.
