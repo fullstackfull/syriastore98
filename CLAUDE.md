@@ -30,8 +30,8 @@ Each of these has produced a real defect. Do not assume the framework default.
 **Tenancy**
 
 - Shared database, `store_id` discriminator. `config/tenancy.php` allowlists models in
-  `scoped_models` — **not every model is scoped**. `Customer` is; `Store`, `DeliveryBoy` and
-  `Order` are not.
+  `scoped_models` — **not every model is scoped**. **ELEVEN are**, listed in the table below;
+  `Store`, `Order` and `Product` are not.
 - **`null_tenant => 'open'`.** When no tenant resolves, the global scope **adds no predicate**. So
   a handler that relies on the scope for isolation is unprotected for any principal that doesn't
   resolve a tenant. Never let the scope be your only tenant check.
@@ -99,8 +99,12 @@ Each of these has produced a real defect. Do not assume the framework default.
 |---|---|---|---|
 | `Customer` | yes (+ SoftDeletingScope) | yes | **yes** |
 | `Cart` | yes | yes | **yes** |
+| `DeliveryBoy` | yes | yes | **yes** |
+| `Menu`, `SupportTicket`, `SupportConversion`, `FlashSaleCondition`, `ThemeCustomizeOrder`, `NotifyUser`, `OrderRefund`, `OrderNote` | yes | yes | **yes** |
 | `Product` | yes | **no** | **NO** |
-| `Order`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog`, `Testimonial` | no | no | no |
+| `Order`, `Store`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog`, `Testimonial` | no | no | no |
+
+**Wrong about `DeliveryBoy` and silent about eight more until 2026-11-24, when an adversarial verifier refused it; `tests/Unit/Tenancy/ClaudeMdScopedModelClaimTest` now re-measures every row against the booted container, in both directions.**
 
 `StoreScope::isActiveFor()` short-circuits for a model that is not in `config/tenancy.php`'s
 `scoped_models`, so **`Product` adds no predicate for any principal** — not a customer, not a
@@ -108,11 +112,11 @@ merchant, not the operator, not an admin-context request. `Product::find($id)` r
 tenant's catalogue, which produced a live cross-tenant stock drain (S19) that the `customer_id`
 sweep missed because it was looking at the wrong identifier.
 
-The two that *do* filter matter for **assertions**: a plain `Customer::find()` or `Cart::find()` in
-a test answers against whichever tenant happens to be resolved, not against the table, so an "it is
-gone" assertion passes whether or not the fix works. That cost a real false reading — a cart test
-reported a store-B row deleted while the raw table still held it. Assert through
-`withoutGlobalScopes()`.
+The ELEVEN that *do* filter matter for **assertions** (this said "two"): a plain
+`Customer::find()`, `Cart::find()` or `SupportTicket::find()` in a test answers against whichever
+tenant happens to be resolved, not against the table, so an "it is gone" assertion passes whether
+or not the fix works. That cost a real false reading — a cart test reported a store-B row deleted
+while the raw table still held it. Assert through `withoutGlobalScopes()`.
 
 **Schema**
 
