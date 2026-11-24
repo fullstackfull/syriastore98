@@ -32,11 +32,19 @@ use Illuminate\Http\Request;
  *      zero `AuditLog` references under `app/Services/Theme/` and `app/Support/Theme/`. A refusal is
  *      the interesting event for an operator acting on a merchant's store, so it is written here.
  *
- *      IT DOES NOT USE `AuditLog::record()`, and that is not a style choice. That helper sets
- *      `'store_id' => getCurrentStore()` (`AuditLog.php:36`), the literal-store-1 fallback M4-1 and
- *      M4-2 spent two slices removing -- so a refusal by an operator who named no store would be
- *      audited against a merchant's store. The row is written directly with the store the gate
- *      actually resolved, or null.
+ *      IT DOES NOT USE `AuditLog::record()`, and that is not a style choice. That helper USED TO
+ *      SET `'store_id' => getCurrentStore()`, the literal-store-1 fallback M4-1 and M4-2 spent two
+ *      slices removing -- so a refusal by an operator who named no store would be audited against a
+ *      merchant's store. The row is written directly with the store the gate actually resolved, or
+ *      null.
+ *
+ *      UPDATED 2026-11-24: `record()` no longer does that. Phase 06 fixed it at the source --
+ *      `App\Support\Audit\AuditAttribution::storeFor()` prefers the subject's own `store_id` and
+ *      gives the operator `null` rather than store 1. THE BYPASS HERE STAYS ANYWAY, and the reason
+ *      is now a better one than avoidance: this caller knows the store THE GATE RESOLVED for this
+ *      specific request, which is more precise than anything `record()` can infer from a subject
+ *      and a session. Phase 03 reaching the same conclusion independently is corroboration that
+ *      the helper was wrong, not a duplication to be collapsed.
  *
  *   2. THE RETRY DECISION. The service converts a deadlock, a lock-wait timeout and a duplicate key
  *      into a REFUSAL and deliberately does not retry (`ThemePublishingService:479-483`), because a
