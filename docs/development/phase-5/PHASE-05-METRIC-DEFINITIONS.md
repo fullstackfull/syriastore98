@@ -67,6 +67,8 @@ exclusions.
 
 ## 1. Gross merchandise value (GMV)
 
+**Computed by.** `App\Support\Metrics\GrossMerchandiseValue`.
+
 **Definition.** The total customer-facing value of orders *placed* in the period, before any
 settlement, cancellation or refund is considered. A demand measure, not a money measure.
 
@@ -84,6 +86,8 @@ counted or not according to the stated flag, and the label asserted to match.
 ---
 
 ## 2. Collected customer payments
+
+**Computed by.** `App\Support\Metrics\CollectedCustomerPayments`.
 
 **Definition.** Money the customer actually settled. The answer to *"what did shoppers pay us?"*
 
@@ -107,6 +111,8 @@ receipts (§6).
 
 ## 3. Unpaid orders
 
+**Computed by.** `App\Support\Metrics\UnpaidOrders`.
+
 **Definition.** Orders awaiting money, split by *why*.
 
 **Source.** `store_order_financials.payment_status` with `orders.payment_type`.
@@ -119,6 +125,15 @@ receipts (§6).
 | awaiting manual settlement | `payment_status = 'pending'` and `payment_type = 'bank_transfer'` |
 | genuinely unpaid | `payment_status = 'unpaid'` |
 
+**What "the COD set" is, and why matching it is not a plain `IN`.** The set is
+`PaymentVerificationService::COD_PAYMENT_TYPES` — `['cod', 'cash_on_delivery', 'cash']` — and
+`UnpaidOrders` compares against it through `Metric::normalisedPaymentTypeSql()`, which wraps the
+column in `LOWER(TRIM(...))`. Both halves carry weight: `payment_type` is free text and this database
+holds `COD` and `Cash On Delivery`, so a raw `IN` against a lowercase list would silently reclassify
+those orders as *genuinely unpaid* — a COD book reported as bad debt, which is the precise failure
+this section's three-way split exists to prevent. The SQL reproduces
+`PaymentVerificationService::isCashOnDelivery()` rather than re-inventing it.
+
 **Excludes.** Cancelled orders — a cancelled unpaid order is not awaiting anything, which is exactly
 why P4-F124 moves such rows to `cancelled` rather than leaving them at `unpaid`.
 
@@ -127,6 +142,8 @@ why P4-F124 moves such rows to `cancelled` rather than leaving them at `unpaid`.
 ---
 
 ## 4. Cancelled orders
+
+**Computed by.** `App\Support\Metrics\CancelledOrders`.
 
 **Definition.** Orders cancelled in the period, with the value involved.
 
@@ -143,6 +160,8 @@ than silently worked around.**
 ---
 
 ## 5. Completed refunds
+
+**Computed by.** `App\Support\Metrics\CompletedRefunds`.
 
 **Definition.** Money actually returned to customers. **A refund request is not a refund.**
 
@@ -167,6 +186,8 @@ a replayed refund contributes once.
 
 ## 6. Net financial receipts
 
+**Computed by.** `App\Support\Metrics\NetFinancialReceipts`.
+
 **Definition.** Collected payments minus completed refunds minus cancellations of captured
 payments. The closest thing to *"money we kept"* at the order level.
 
@@ -183,13 +204,41 @@ SUM(CASE WHEN direction = 'credit' THEN amount ELSE -amount END)
 every movement is typed, reasoned, and written exactly once by a locked, idempotent path. The
 status-based computation has to re-derive what the transactions already record.
 
+**THE EQUIVALENCE IS CONDITIONAL, AND THIS SECTION CLAIMED IT UNCONDITIONALLY.** The two
+computations are comparable only when the wallet's currency is the store's display currency. The
+movement leg is stamped in the **wallet's** currency carrying a **converted** amount; the status leg
+is stamped in the store's display currency. Measured with a USD wallet and `defult_currancy` SYP at
+10,000/USD:
+
+```
+movement {"USD":200}   status {"SYP":2900000,"USD":-90}   agrees: false
+```
+
+§11 rule 3 forbids conversion inside a metric, so **no shared rule can reconcile those two legs** —
+the difference is real and neither leg is wrong. A second, narrower case has the same shape: the
+legs read different columns (`store_wallet_transactions.currency_code` for refunds,
+`store_order_financials.currency_code` for collected payments), so re-spelling one column's currency
+splits them by construction.
+
+**So "NOT COMPARABLE" is not "DIVERGES", and `reconcile()` does not yet tell the two apart.** It
+reports a per-currency difference either way, which is investigable but labels a currency mismatch
+as a reconciliation defect. Separating the two states is **proposed and not implemented**; the
+underlying wallet-versus-display misalignment is held pending an owner decision.
+
+**No shipped surface calls this metric today.** `NetFinancialReceipts` has no caller anywhere in
+`app/` — the only repository references outside the class are prose in docblocks. The
+`RECONCILIATION_DIVERGENCE` caveat it attaches is a capability, not something a merchant is
+currently shown, and the paragraphs above must not be read as describing live behaviour.
+
 **Verification test.** The two computations agree on a dataset containing a paid order, a cancelled
-paid order, a refunded order and an unpaid order. **Disagreement is a reconciliation defect and must
-fail the build, not be averaged.**
+paid order, a refunded order and an unpaid order, **in one currency**. **Disagreement there is a
+reconciliation defect and must fail the build, not be averaged.**
 
 ---
 
 ## 7. Merchant wallet entitlement
+
+**Computed by.** `App\Support\Metrics\MerchantWalletEntitlement`.
 
 **Definition.** What the merchant may withdraw. `store_wallets.available_balance`.
 
@@ -197,23 +246,67 @@ fail the build, not be averaged.**
 (`total_withdrawn`) and by reversals, and it is denominated in the **wallet's** currency, which can
 differ from the order's.
 
-**Verification test.** `available_balance` equals the signed transaction sum for the store. This is
-the drift check from `P4-F032-WALLET-RECONCILIATION-PROCEDURE.md` §Q-F032-5, run as a test rather
-than a query.
+**Verification test.** `available_balance` agrees with the signed sum of the ledger rows **that
+actually moved it**, within `MerchantWalletEntitlement::EPSILON` (0.005, one unit of
+`DECIMAL(15,2)`). This is the **corrected** form of the drift check in
+`P4-F032-WALLET-RECONCILIATION-PROCEDURE.md` §Q-F032-5, not a copy of it. That check — and
+`GateFReconciliation` R1 — sums every transaction, which produces two structural false positives:
+
+- **The withdrawal lifecycle double-counts.** `available_balance` is reserved when a withdrawal is
+  *requested*, so the later `withdrawal_paid` row carries `balance_after = balance_before` by
+  design. Summing it debits the wallet a second time. `drift()` therefore joins only rows where
+  `balance_after <> balance_before`.
+- **A currency change rewrites balances with no ledger row at all**, so no sum over the ledger can
+  reproduce the result. A wallet whose ledger spans more than one currency is reported as its own
+  fact (`ledger_currencies`) rather than folded into a difference that would mean nothing.
+
+The invariant is therefore **not** "equals the transaction sum". Implementing that literal sentence
+yields a false drift report for every wallet that has ever paid out a withdrawal.
 
 ---
 
 ## 8. Actual store revenue (margin)
+
+**Computed by.** `App\Support\Metrics\StoreRevenueMargin`.
 
 **Definition.** What the merchant earned, net of the cost of goods.
 
 **Source.** `store_order_financials.gross_profit`, which is
 `(product_amount − discount_amount) − product_cost`.
 
-**Carries a stated caveat and must display it.** `product_cost` is a snapshot of
-`products.cost_price` **at order time**, and for any order whose financial row predates the P1-SEC-44
-fix it may be 0 or, historically, another store's cost. It also excludes shipping and tax by
-construction.
+**Which orders count is a stated choice, as in §1.** The definition names no status predicate, and
+§0 is explicit that counting orders nobody paid for is the error this document exists to prevent —
+so the default is **settled orders only** (`StoreRevenueMargin::__construct(settledOnly: true)`),
+meaning `payment_status = 'paid'` and **not** §2's wider eligibility. §2 counts a
+cancelled-but-captured order because the *shopper* really paid it; margin must not, because the
+*merchant* did not keep it. Whichever way the flag falls, `notes()['basis']` records which was used.
+Never silently pick one.
+
+**The date column swaps with the basis.** Settled margin is dated by
+`store_order_financials.paid_at`, all-orders margin by `store_order_financials.created_at`, because
+an unsettled row has no `paid_at` to be dated by at all. A report that mixes the two bases is
+comparing two clocks.
+
+**THREE CAVEATS, AND THEY DO NOT BEHAVE ALIKE.**
+
+- **`COST_UNKNOWN` is conditional.** `product_cost` is a snapshot of `products.cost_price` **at
+  order time**; for any financial row written before the P1-SEC-44 fix it may be 0 or, historically,
+  another store's cost. Where it is 0 the column reports the whole sale as profit — not an
+  approximation, a 100% margin on goods that cost something. The flag is attached **only** when rows
+  in the answer actually carry `product_cost = 0`, with `notes()['rows_without_cost']` giving the
+  count, because attaching a warning to answers that do not have the problem is how a warning
+  becomes furniture.
+- **`EXCLUDES_SHIPPING_AND_TAX` is unconditional and only half true.** Shipping is excluded for
+  every store — it is its own column. **Tax is excluded only when the merchant enters prices without
+  it.** A store set to `TaxOption price_type = inclusive` carries tax inside `product_price`, which
+  `Cart::cart_list*` passes into `PaymentService` as `$product_price`, so for that store this figure
+  **includes** the tax and the caveat's claim is false. Found by independent review of P5-16; the
+  `/finance` tile no longer makes the claim, but `MetricCaveat::MESSAGES` still does. Tracked as
+  **GAP-213(d)**.
+- **`EXCLUDES_PAYMENT_FEES` is unconditional and was disclosed on no surface at all** until
+  ANA-006(c). `store_order_financials` has no fee column, so the arithmetic omits processing fees as
+  completely as it omits shipping. Both are unconditional because the absence is total: there is no
+  per-order signal that would let either be shown "only when it applies".
 
 **Verification test.** An order whose product has no `cost_price` reports margin equal to
 `product_amount − discount_amount` and is flagged cost-unknown, not silently treated as 100% margin.
@@ -221,6 +314,8 @@ construction.
 ---
 
 ## 9. Coupon redemption
+
+**Computed by.** `App\Support\Metrics\CouponRedemption`.
 
 **Definition.** Coupons actually consumed.
 
@@ -261,6 +356,8 @@ number. **Campaign-redemption reporting over historical windows is still not sup
 ---
 
 ## 10. Shipping and tax
+
+**Computed by.** `App\Support\Metrics\ShippingAndTax`.
 
 **Definition.** Amounts collected on the merchant's behalf and largely passed through.
 
@@ -338,6 +435,8 @@ shipping on the financial row.
 
 ## 12. Customer retention and repeat purchase
 
+**Computed by.** `App\Support\Metrics\CustomerRetention`.
+
 **Definition.** Of the customers who can be recognised again, the share who ordered more than once.
 `repeat_customers / identified_customers`. A **customer**, not an order: two orders from one person
 is one repeat buyer, not two.
@@ -376,6 +475,9 @@ new-vs-returning *trend*. The first three need either a subscription record or a
 what counts as churned; the plan invents neither.
 
 ## 13. Storefront conversion
+
+**Computed by.** `App\Support\Metrics\MerchantAnalyticsFigures::conversion()` — a presenter figure, not a
+`Metric` subclass, declared as such in `MetricDefinitionsAreDocumentedTest::PRESENTER_FIGURE_SECTIONS`.
 
 > **Written from the shipped code on 2026-11-22, not ahead of it.** The `Conversion` tile reached
 > `/analytics` with P5-5 and had no entry here: the definition lived only in the docblocks and
@@ -447,6 +549,9 @@ campaign; a paid-orders rate; attribution of any order to any visit.
 
 ## 14. Campaign arrivals
 
+**Computed by.** `App\Support\Metrics\MerchantAnalyticsFigures::campaigns()` — a presenter figure, not a
+`Metric` subclass, declared as such in `MetricDefinitionsAreDocumentedTest::PRESENTER_FIGURE_SECTIONS`.
+
 > **Written from the shipped code on 2026-11-22.** `GAP-161` recorded marketing performance as
 > having "no slice and no metric definition". Half of that was overtaken — the arrivals panel
 > shipped under P5-5 — and half is a limit of the data. This section specifies the half that
@@ -497,6 +602,8 @@ session-based count; multi-touch or last-touch attribution; spend, cost per arri
 ad spend — no campaign cost is recorded anywhere in this product.
 
 ## 15. What one customer is worth: collected, and retained
+
+**Computed by.** `App\Support\Metrics\CustomerLedgerMoney`.
 
 **Why this section exists.** `GAP-156` states the defect in one line: *every money-bearing customer
 figure counts cancelled, unpaid and refunded orders, and no customer metric is defined in this

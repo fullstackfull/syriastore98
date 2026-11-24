@@ -11,6 +11,7 @@ use App\Support\Metrics\CustomerRetention;
 use App\Support\Metrics\GrossMerchandiseValue;
 use App\Support\Metrics\MerchantWalletEntitlement;
 use App\Support\Metrics\MetricCaveat;
+use App\Support\Metrics\MetricResult;
 use App\Support\Metrics\MetricScope;
 use App\Support\Metrics\MetricWindow;
 use App\Support\Metrics\MixedCurrencyException;
@@ -709,6 +710,187 @@ class MetricLayerTest extends TestCase
             $result->total(),
             0.001,
             'the reported figure must be the movement record, not an average of the two'
+        );
+    }
+
+    /**
+     * P5-R9 / FIN-SYM-3. A DIFFERENCE OF LETTER CASE IS NOT A RECONCILIATION DEFECT.
+     *
+     * §6:187 says "Disagreement is a reconciliation defect and must fail the build, not be
+     * averaged", and §11 rule 3 (doc:292-294) says "`usd`, `USD` and ` USD ` are the same currency
+     * and are summed". Both cannot be true while the two legs are compared on their RAW keys.
+     *
+     * Measured before the fix, on exactly this dataset:
+     *   reconcile() = {"movement":{"usd":200},"status":{"USD":200},
+     *                  "divergence":{"usd":200,"USD":-200},"agrees":false}
+     * and `for()` attached RECONCILIATION_DIVERGENCE. Only the spelling differed.
+     *
+     * WHAT THAT DID NOT DO IS WARN ANYONE. `NetFinancialReceipts` has no caller in `app/` -- the
+     * only repository hits outside the class are prose in docblocks. The defect is that the
+     * cross-check §6 MANDATES contradicted §11's own currency rule; no shipped surface read it.
+     * An independent review caught an earlier version of this comment claiming the
+     * merchant-visible version, which is not established.
+     *
+     * WHY THE SUITE NEVER SAW IT: `seedReconcilableDataset()` writes `'USD'` into both tables, so
+     * the existing §6 test cannot vary what this one varies.
+     */
+    public function test_letter_case_in_the_wallet_currency_is_not_a_reconciliation_defect(): void
+    {
+        $this->seedReconcilableDataset();
+
+        // The live writers really can produce this: OrderFinancialService takes the raw
+        // `defult_currancy` setting value, and `store_wallets.currency_code` falls back to the
+        // same setting, so one leg can carry a spelling the other does not.
+        // SCOPED: setUp() creates a store-B wallet, and the file seeds two stores precisely so a
+        // missing tenant predicate is visible. An unscoped update here would silently rewrite
+        // store B the moment a fixture gains a movement for it.
+        DB::table('store_wallet_transactions')
+            ->where('store_id', self::STORE_A)
+            ->update(['currency_code' => 'usd']);
+
+        $metric = new NetFinancialReceipts();
+        $reconciliation = $metric->reconcile($this->scopeA(), $this->allTime());
+
+        $this->assertSame(
+            [],
+            $reconciliation['divergence'],
+            'a spelling difference was reported as a divergence: ' . json_encode($reconciliation)
+        );
+        $this->assertTrue($reconciliation['agrees']);
+        $this->assertEqualsWithDelta(200.0, $reconciliation['movement']['USD'], 0.001);
+        $this->assertEqualsWithDelta(200.0, $reconciliation['status']['USD'], 0.001);
+
+        $this->assertFalse(
+            $metric->for($this->scopeA(), $this->allTime())
+                ->hasCaveat(MetricCaveat::RECONCILIATION_DIVERGENCE),
+            'the cross-check reported a defect when only the spelling differed (note: no shipped '
+            .'surface consumes this class, so this is a broken check, not a wrong merchant figure)'
+        );
+    }
+
+    /**
+     * The same defect on the other leg, and the one that PUBLISHES a wrong number.
+     *
+     * `statusBased()` adds three terms: `CollectedCustomerPayments` and `CompletedRefunds` return
+     * `MetricResult` objects, so their keys are already normalised, while
+     * `cancelledCapturedPayments()` keeps the raw `store_order_financials.currency_code`. Spell the
+     * financials in lower case and the status leg splits AGAINST ITSELF -- one currency, two
+     * buckets, one of them negative -- and that array is published verbatim as the
+     * `status_based_by_currency` note (NetFinancialReceipts.php:75).
+     *
+     * MEASURED before the fix (by restoring the old inline rule and reading the failure):
+     * {"USD":350,"usd":-150}. Not 260 -- a first draft of this docblock computed 200+150-90 and
+     * stated it as a reading. §2 admits `cancelled`, `refunded` and `partially_paid` rows with
+     * `paid_amount > 0`, so its collected term is 440 on this dataset, and 440-90 = 350.
+     */
+    public function test_the_published_status_subtotals_are_one_bucket_per_currency(): void
+    {
+        $this->seedReconcilableDataset();
+
+        DB::table('store_order_financials')
+            ->where('store_id', self::STORE_A)
+            ->update(['currency_code' => 'usd']);
+
+        $notes = (new NetFinancialReceipts())
+            ->for($this->scopeA(), $this->allTime())
+            ->notes();
+
+        $this->assertSame(
+            ['USD'],
+            array_keys($notes['status_based_by_currency']),
+            'one currency was published as more than one subtotal: '
+            . json_encode($notes['status_based_by_currency'])
+        );
+        $this->assertEqualsWithDelta(
+            200.0,
+            $notes['status_based_by_currency']['USD'],
+            0.001
+        );
+    }
+
+    /**
+     * THE NEGATIVE CONTROL, without which the fix above could simply have disabled the check.
+     *
+     * A real divergence must still be reported when the spellings differ, because folding the
+     * spellings must not fold away the arithmetic.
+     */
+    public function test_a_real_divergence_is_still_reported_when_the_spellings_also_differ(): void
+    {
+        $this->seedReconcilableDataset();
+
+        // A credit the order records know nothing about -- and in a different spelling again.
+        $this->recordMovement([
+            'type' => 'order_paid', 'direction' => 'credit', 'amount' => 75.0,
+            'currency_code' => 'usd',
+            'reference_id' => 999999, 'balance_before' => 0.0, 'balance_after' => 75.0,
+        ]);
+
+        $reconciliation = (new NetFinancialReceipts())->reconcile($this->scopeA(), $this->allTime());
+
+        // NOTE: `agrees` is false BEFORE and AFTER the fix on this dataset, so this assertion
+        // controls nothing on its own -- the keyed assertion below is the one that discriminates
+        // (the old code keyed the divergence under `usd`, so `['USD']` was absent entirely).
+        $this->assertFalse(
+            $reconciliation['agrees'],
+            'a genuine 75.00 divergence vanished once the spellings were folded'
+        );
+        $this->assertEqualsWithDelta(75.0, $reconciliation['divergence']['USD'], 0.001);
+    }
+
+    /**
+     * A value that is not a currency code must still reach `unknown` rather than becoming its own
+     * currency -- the FIN-SYM rule, on the raw path.
+     *
+     * `CurrencySymbol::code()` accepts three ASCII letters or nothing, so a stored symbol is not a
+     * code. Before the fix the symbol was its own bucket key and the two legs diverged by
+     * construction.
+     */
+    public function test_a_stored_symbol_is_the_unknown_bucket_and_not_a_currency(): void
+    {
+        $this->seedReconcilableDataset();
+
+        DB::table('store_wallet_transactions')
+            ->where('store_id', self::STORE_A)
+            ->update(['currency_code' => '$']);
+
+        $reconciliation = (new NetFinancialReceipts())->reconcile($this->scopeA(), $this->allTime());
+
+        $this->assertArrayHasKey(
+            MetricResult::UNKNOWN_CURRENCY,
+            $reconciliation['movement'],
+            'a stored symbol became its own currency: ' . json_encode($reconciliation['movement'])
+        );
+        $this->assertArrayNotHasKey('$', $reconciliation['movement']);
+
+        /*
+         * THE POSITIVE CONTROL, without which this test passes against a helper that destroys
+         * every currency. `return UNKNOWN_CURRENCY;` satisfies both assertions above, because this
+         * dataset's movement leg is one group. The status leg still carries a REAL code through
+         * the same normalisation pass, so asserting it here is what distinguishes "non-codes go to
+         * unknown" from "everything goes to unknown".
+         */
+        $this->assertArrayHasKey(
+            'USD',
+            $reconciliation['status'],
+            'a real currency code did not survive the same call: '
+            . json_encode($reconciliation['status'])
+        );
+
+        /*
+         * AND THE RESIDUAL, STATED RATHER THAN HIDDEN. This dataset still reports `agrees: false`
+         * after the fix, and that is NOT what this change addresses. `CompletedRefunds` buckets on
+         * `store_wallet_transactions.currency_code` (CompletedRefunds.php:54) while
+         * `CollectedCustomerPayments` buckets on `store_order_financials.currency_code`
+         * (CollectedCustomerPayments.php:58), so re-spelling only the wallet column puts the refund
+         * term in a different bucket from the other two terms BY CONSTRUCTION -- a different
+         * defect, recorded in task #197 as survivor 3 and turning on the wallet-vs-display currency
+         * misalignment that is held pending an owner decision. Asserted so that this test's name
+         * cannot be read as "§6's verdict is now right for a symbol".
+         */
+        $this->assertFalse(
+            $reconciliation['agrees'],
+            'the residual divergence this test documents has gone -- if that is intended, survivor 3 '
+            .'in task #197 has been fixed and this assertion and its comment must be rewritten'
         );
     }
 

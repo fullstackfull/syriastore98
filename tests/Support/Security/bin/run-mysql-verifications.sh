@@ -472,6 +472,32 @@ run_one verify-gap223-lastmonth-window-on-mysql \
 run_one verify-ana009-alert-key-on-mysql \
   "ANA009_MYSQL_SOCKET=${SOCK}" "ANA009_MYSQL_USERNAME=${USER_NAME}" "ANA009_MYSQL_PASSWORD=${PASS}"
 
+# P5-2. THE WHOLE METRIC LAYER, and it was NOT registered here until 2026-11-24 -- so a green run of
+# this runner never covered Phase 05's financial evidence at all. Every metric aggregates with a
+# GROUP BY over a currency column written through selectRaw, which ONLY_FULL_GROUP_BY can reject and
+# SQLite cannot; and the net-receipts agreement in its §6 is between two DECIMAL(15,2) computations
+# that SQLite turns into floats, so on SQLite they agree for the wrong reason. 65 checks.
+run_one verify-metric-layer-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=metriclayer_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# P5-R12 / ANA-RED. The loyalty figure ACROSS CURRENCIES, which the script above cannot answer
+# because every order in its fixture is USD or NULL -- it has no two-currency case anywhere. The one
+# that matters: a merchant whose redemptions span currencies must get two separate buckets and a
+# REFUSAL from total(), not 15 USD added to 2000 SYP under one symbol. Also that `usd` and `USD` fold
+# into one bucket under the server's collation and not into a false "mixed currency", which PHP's own
+# comparison would get wrong. 12 checks.
+#
+# BOTH SCRIPTS ARE CAUGHT BY CRITERION 1 ONLY, and that was measured rather than assumed: they print
+# `  FAIL  <what>` where run_one's criterion 2 greps for `[FAIL]`, so that grep finds nothing in
+# their logs. A deliberately broken assertion was driven through one of them -- exit status 1, zero
+# `[FAIL]` matches -- so the exit code is the live detector here. The grep was NOT broadened to
+# `^\s*FAIL\s`: forty-three existing scripts write to these logs and none of their passing output
+# has been read, so a wider pattern could fail a passing script for a word in its prose.
+run_one verify-loyalty-redemption-currency-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=loyaltyredemption_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

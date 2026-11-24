@@ -115,8 +115,22 @@ decision quoted as such.
 >    opposite of what the code does -- guest orders are excluded from the cross-tenant Buyers
 >    headcount and the sentence said they "are counted here at all". A dead near-duplicate key in
 >    both files went with it. `AnalyticsMessagesAreDeclaredTest` holds the rule, with the
->    metric-class scope derived by glob. What remains of `R8` is the RENDERING: four combinations
->    per screen plus a contrast check, which no test can stand in for.
+>    metric-class scope derived by glob.
+>    **AND `R8`'s RENDERING HALF IS NOW DONE TOO** (2026-11-24): both analytics screens captured in
+>    all four AR/EN x light/dark combinations, each shot carrying its own HTTP status, rendered
+>    `dir` and computed `body` background, 8 distinct contents by the capture-integrity checker --
+>    `docs/development/phase-5/evidence/p5-r8-four-combinations-2026-11-24/`. The audit over the
+>    same four reports **zero** contrast failures, zero overflow, zero broken images and zero
+>    nameless controls on either screen. The only findings are three SHARED-CHROME tap targets
+>    under the floor (sidebar search, rail toggle, breadcrumb), left to the owner because they are
+>    in the layout Phase 2.5's accepted surfaces all render.
+>    **THE FIRST CAPTURE RUN WAS WRONG AND ITS OWN PREMISE LINE CAUGHT IT:** the operator's four
+>    images came out byte-identical in light/dark pairs. `getSuperAdminAllSetting()` reads
+>    `created_by = <operator> AND store_id IS NULL`, and the state tool wrote
+>    `(store_id = 1, created_by = <first admin>)` -- a row the operator's layout cannot see. NOT a
+>    product defect: an operator-owned row was inserted by hand first and both screens went dark,
+>    so the tool now derives the row's owner from the principal. The dev fixture was also 12
+>    migrations behind, which is why these screens had never been captured at all.
 >    **Three matrix rows were stale in the pessimistic direction and are re-measured** -- `P05-05`
 >    (its `wc -l` 3660 is 4489, its `grep -c payment_status` 0 is 2 AND BOTH ARE IN COMMENTS, and
 >    five report surfaces have been re-pointed since), `P05-16` and `P05-24` (`phase-5/` holds 17

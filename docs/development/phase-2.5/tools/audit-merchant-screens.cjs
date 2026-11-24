@@ -14,6 +14,7 @@
  *     link with `alt=""` has NO name even though every attribute looks fine.
  *
  * usage: node audit-merchant-screens.cjs --paths /product-list,/customer --themes light,dark
+ *        [--email operator@example.test]   -- the principal; defaults to the merchant
  */
 const { chromium } = require('playwright');
 const { execFileSync } = require('child_process');
@@ -25,6 +26,11 @@ const TOOL = REPO + '/docs/development/phase-2/tools/set-admin-preview-state.php
 const env = { ...process.env, DB_CONNECTION: 'sqlite', DB_DATABASE: REPO + '/database/p2dev.sqlite', CACHE_STORE: 'file' };
 const BASE = arg('base', 'http://127.0.0.1:8899');
 const PATHS = arg('paths', '/dashboard').split(',').map(s => s.trim()).filter(Boolean);
+/* THE PRINCIPAL IS A FLAG NOW, defaulting to the merchant this harness was written for, because
+   the operator's own screens (/platform/analytics, the operator dashboard) cannot be audited as a
+   merchant -- `PlatformOperatorOnly` 403s one. `set-admin-preview-state.php` already took an email;
+   only the Playwright login was hard-coded. Every existing caller keeps its behaviour. */
+const EMAIL = arg('email', 'merchant@example.test');
 const COMBOS = arg('themes', 'light,dark').split(',').map(t => t.trim())
   .flatMap(t => arg('dirs', 'ltr,rtl').split(',').map(d => d.trim())
     .map(d => ({ theme: t, dir: d, lang: d === 'rtl' ? 'ar' : 'en' })));
@@ -138,11 +144,11 @@ const AUDIT = () => {
 (async () => {
   const b = await chromium.launch({ args: ['--no-sandbox'] });
   for (const c of COMBOS) {
-    execFileSync('php', [TOOL, '1', c.theme, c.dir, c.lang, 'merchant@example.test'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    execFileSync('php', [TOOL, '1', c.theme, c.dir, c.lang, EMAIL], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
     const p = await ctx.newPage();
     await p.goto(BASE + '/login', { waitUntil: 'domcontentloaded' });
-    await p.fill('input[name="email"]', 'merchant@example.test');
+    await p.fill('input[name="email"]', EMAIL);
     await p.fill('input[name="password"]', 'password');
     await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle' }), p.click('button[type="submit"]')]);
     for (const path of PATHS) {
@@ -163,13 +169,25 @@ const AUDIT = () => {
       if (a.smallTargets.length) flags.push(`${a.smallTargets.length} small targets`);
       console.log(`${tag.padEnd(42)} ${flags.length ? flags.join(' | ') : 'clean'}   (${a.counts.controls} controls, ${a.counts.textNodes} text nodes)`);
       a.brokenImages.slice(0, 3).forEach(i => console.log(`      broken img  ${i.src}  class="${i.cls}"`));
-      a.namelessControls.slice(0, 4).forEach(n => console.log(`      nameless    <${n.tag} class="${n.cls}"> ${n.box.join('x')}`));
+      a.namelessControls.slice(0, 12).forEach(n => console.log(`      nameless    <${n.tag} class="${n.cls}"> ${n.box.join('x')}`));
       a.lowContrast.slice(0, 5).forEach(l => console.log(`      contrast    ${l.ratio}:1 (needs ${l.floor}) ${l.fg} on ${l.bg} ${l.size} "${l.text}" .${l.cls}`));
+      /* SMALL TARGETS WERE THE ONE CATEGORY THIS HARNESS COUNTED AND NEVER NAMED, so a run told
+         you there were sixteen and nothing about which sixteen -- which is a number you cannot act
+         on. Tallied by (tag, class, size) because the same control repeats down a list and sixteen
+         identical lines would bury the distinct ones. The floor is the rule above: 44px for a
+         non-anchor control, 24px for an <a>, since an inline text link is not a tap target. */
+      const tally = new Map();
+      a.smallTargets.forEach(t => {
+        const k = `<${t.tag} class="${t.cls}"> ${t.box.join('x')}  "${t.name}"`;
+        tally.set(k, (tally.get(k) || 0) + 1);
+      });
+      [...tally.entries()].forEach(([k, n]) => console.log(`      small x${String(n).padEnd(2)}   ${k}`));
       const unique4xx = [...new Set(bad)];
       if (unique4xx.length) console.log(`      4xx/5xx     ${unique4xx.slice(0, 4).join(' | ')}`);
     }
     await ctx.close();
   }
-  execFileSync('php', [TOOL, '1', 'light', 'ltr', 'en', 'merchant@example.test'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Restore the fixture to a known state for the next harness, for the principal this run drove.
+  execFileSync('php', [TOOL, '1', 'light', 'ltr', 'en', EMAIL], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   await b.close();
 })();
