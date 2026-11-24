@@ -460,6 +460,26 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
             \App\Http\Middleware\SuspendedAccountGuard::class
         );
+
+        /*
+         * PHASE 06, item 2(B). A SWITCHED-OFF APPLICATION'S AUTHENTICATED ROUTES ARE REFUSED.
+         *
+         * Measured: `PackageServiceProvider:47` loads every module regardless of `is_enable`, so
+         * disabling an application removed nothing -- 1,464 of the 3,058 routes in the table are
+         * owned by a module, across 68 modules, and all of them stayed mounted. The guard's own
+         * docblock has the counts, why this is a request guard rather than a filter at the loader,
+         * and which part of the boundary is an owner decision rather than engineering's.
+         *
+         * BOTH GROUPS, and that was measured rather than assumed: 18 of the 1,464 module routes sit
+         * OUTSIDE `web` -- LynomiaChat's 8 commerce endpoints, CartQuantityControl's 8, and one each
+         * from LandingPage and ProductsPDF. A `web`-only registration would have missed them.
+         *
+         * No priority entry: unlike the suspension guard this one does not log anybody out, so it
+         * does not matter whether it runs before or after `Authenticate`. It reads the ROUTE, not the
+         * session.
+         */
+        $middleware->appendToGroup('web', \App\Http\Middleware\DisabledModuleRouteGuard::class);
+        $middleware->appendToGroup('api', \App\Http\Middleware\DisabledModuleRouteGuard::class);
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and
