@@ -514,7 +514,12 @@ now quotable.
 ### 4.3 Requirements the 350-row matrix never tracked at all
 
 Measured by searching the matrix for each recovered obligation's own vocabulary. **Fifteen recovered
-requirements have no coverage of any kind** — not a row, not a gap, not a mention:
+requirements have no coverage of any kind** — not a row, not a gap, not a mention — and a
+**SIXTEENTH and SEVENTEENTH were found on 2026-11-24**, after this section was written: `ADM-001`
+and `ADM-002` (the platform command dashboard and Store 360°), Phase 06, now `GAP-231`/`GAP-232`.
+They were missed by the matrix, by the gap register, AND by this census, because `P06-02`…`P06-06`
+were derived from CLAUDE.md and PROJECT-STATE summaries that contain neither *dashboard* nor *360*.
+So the figures below read **seventeen** untracked and **twenty** never-carried:
 
 | recovered requirement | phase |
 |---|---|
@@ -533,6 +538,8 @@ requirements have no coverage of any kind** — not a row, not a gap, not a ment
 | `SUPPORT-004` temporary scoped support access with merchant consent and an audit log | 06 |
 | `IAM-003` two-person approval for dangerous actions | 06 |
 | `CTRL-001`…`CTRL-004` feature flags, gradual rollout, safe disable | 06 |
+| `ADM-001` comprehensive platform command dashboard *(added 2026-11-24)* | 06 |
+| `ADM-002` Store 360° — review and manage each store from its own systems *(added 2026-11-24)* | 06 |
 
 **And three more are tracked only in part**, where the matrix carries one half of a recovered
 requirement and not the other:
@@ -543,7 +550,7 @@ requirement and not the other:
 | `MKT-005` loyalty points, VIP and referrals | `loyalty` appears 14× | **`VIP` and `referral` appear 0×** |
 | `CUST-005` verified reviews, questions, wishlists | product questions appear once | **verified reviews appear 0×** |
 
-Counting the fifteen untracked plus the three half-tracked gives **eighteen recovered requirements
+Counting the seventeen untracked plus the three half-tracked gives **twenty recovered requirements
 that the matrix did not carry**, and they fall the wrong way round:
 
 | phase | recovered requirements never tracked | state of that phase |
@@ -551,11 +558,11 @@ that the matrix did not carry**, and they fall the wrong way round:
 | **03 Storefront** | 2 (`CUST-003`, `CUST-005`) | **declared engineering-complete** |
 | **04 Commerce** | **8** (`INV-006`, `PRD-002`, `PRD-005`, `ORD-008`, `PRICE-002`, `PRICE-004/005`, `PRICE-006`, `CHAN-*`) | **declared engineering-complete** |
 | 05 Marketing & Analytics | 1 (`MKT-005` VIP/referrals half) | active |
-| 06 SaaS & Super Admin | 7 (`KYC`, `OPS-002`, `MARKET`, `SUPPORT-004`, `IAM-003`, `CTRL`, `SAAS-007` MRR/ARR half) | not started |
+| 06 SaaS & Super Admin | **9** (`KYC`, `OPS-002`, `MARKET`, `SUPPORT-004`, `IAM-003`, `CTRL`, `SAAS-007` MRR/ARR half, **`ADM-001`**, **`ADM-002`**) | not started |
 
-**Ten of the eighteen sit in phases that are already declared engineering-complete**, and eight of
+**Ten of the twenty sit in phases that are already declared engineering-complete**, and eight of
 those ten are Phase 04 Commerce. That is the finding: a closed phase whose owner-approved scope
-included requirements nobody in this repository could read. The seven Phase 06 rows are an expected
+included requirements nobody in this repository could read. The nine Phase 06 rows are an expected
 absence — that phase has not started — but they were absent as *requirements*, not merely as
 unimplemented work, which is the difference this register exists to close.
 

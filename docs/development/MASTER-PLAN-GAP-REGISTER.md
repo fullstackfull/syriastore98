@@ -10,11 +10,12 @@ and traces back to its requirement row in `MASTER-PLAN-REQUIREMENT-TRACEABILITY.
 
 > **THE REGISTER HAS TWO TABLE SHAPES AND ONLY ONE OF THEM HAS A STATUS COLUMN.** The original
 > **181** rows are `| gap | requirement | phase | status | what remains | next action |`. The
-> **49** rows added since — the 18 recovered on 2026-11-16 (`GAP-182`…`GAP-199`) and the 31 raised
-> by later work (`GAP-200`…`GAP-230`) — are
+> **51** rows added since — the 18 recovered on 2026-11-16 (`GAP-182`…`GAP-199`), the 31 raised
+> by later work (`GAP-200`…`GAP-230`), and 2 more untracked requirements found on 2026-11-24
+> (`GAP-231`…`GAP-232`) — are
 > `| gap | decision id(s) | phase | measured | next action |`: they record what was MEASURED in
-> this container, and carry no status term. **230 rows in total.** The status counts below
-> therefore describe the 181, and say nothing about the other 49. That is a real limitation, not a
+> this container, and carry no status term. **232 rows in total.** The status counts below
+> therefore describe the 181, and say nothing about the other 51. That is a real limitation, not a
 > rounding: progress against the later rows cannot be counted mechanically, only read.
 
 > **A category-A gap must never be silently downgraded to C.** If one moves, the move needs
@@ -291,6 +292,9 @@ there. None is marked NOT IMPLEMENTED, and none is marked complete.
 **No category A/B/C/D/E is assigned.** Six of the eighteen fall in Phases 03 and 04, which are
 already declared engineering-complete; that is a disposition only the owner can make.
 
+**AND THIS BLOCK IS NOT THE WHOLE CENSUS.** Two more were found on 2026-11-24 and are recorded
+below as `GAP-231`/`GAP-232`; the never-carried total is **twenty**, not eighteen.
+
 | gap | decision id(s) | phase | measured in this container | next action |
 |---|---|---|---|---|
 | `GAP-182` | `INV-006` | 04 | **Partly present.** `ORDER_STATUS_PRE_ORDER` is a real `delivered_status` value, referenced at `app/Models/Order.php:505` and carried by `OrderDataTable`. Whether it is *optional and explicit* in the INV-006 sense — a merchant choosing to accept orders beyond available stock — is not assessed. | Assess the existing pre-order status against INV-006's 'optional and explicit' wording before building anything new. |
@@ -313,6 +317,39 @@ already declared engineering-complete; that is a disposition only the owner can 
 | `GAP-199` | `CTRL-001 … CTRL-004` | 06 | **Not located.** No feature-flag, pilot-group or gradual-rollout mechanism. | Phase 06 scope, not started. Expected absence. |
 
 **By phase: 03 → 2 · 04 → 8 · 05 → 1 · 06 → 7.**
+
+---
+
+## The NINETEENTH and TWENTIETH untracked requirements — `ADM-001`, `ADM-002` (found 2026-11-24)
+
+**The census above was itself incomplete, and this is the finding.** `DECISION-ID-REGISTER.md` §4.3
+measured which recovered requirements the 350-row matrix never carried, found fifteen plus three
+half-tracked, and those eighteen became `GAP-182`…`GAP-199`. **`ADM-001` and `ADM-002` are not among
+them and are not in the matrix or this register either** — so Store 360° and the platform command
+dashboard were missed by the matrix, missed by this register, and missed by the audit whose entire
+purpose was finding what the matrix had missed.
+
+**How it stayed hidden, which is the part worth keeping.** `P06-02`…`P06-06` were derived from
+CLAUDE.md §4 and `PROJECT-STATE.md`'s one-line Phase 06 summaries, and neither summary contains the
+word *dashboard* or *360*. A requirement absent from the summary a derived row is written from
+cannot appear in that row. Found by an adversarial verifier re-measuring a Phase 06 inventory brief.
+
+**Measured, by grep, in this container:** `ADM-00` returns 5 hits in 3 files, every one of them
+under `docs/development/master-plan/` — the recovered plan itself. **Zero** in
+`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`, **zero** here. Seven vocabulary variants (*Store 360*,
+*360°*, *store-360*, *command dashboard*, *platform command*, *platform dashboard*, and the Arabic
+*مساحة*) each return 0/0 against both documents, so this is not a vocabulary miss by the searcher.
+
+**Status for both is `COVERAGE NOT ASSESSED`,** for the same `ARCH-009` reason as the block above:
+absence of evidence in this repository is not absence in production.
+
+| gap | decision id(s) | phase | measured in this container | next action |
+|---|---|---|---|---|
+| `GAP-231` | `ADM-001` — *لوحة قيادة شاملة للمنصة* / a comprehensive platform command dashboard | 06 | **Partly present, and the word doing the work is *comprehensive*.** An operator dashboard exists (`HomeController`) and `/platform/analytics` exists with eight cross-tenant figures, nine routes carry `PlatformOperatorOnly`. Whether that constitutes the plan's *comprehensive command* dashboard is a product judgement, not a measurement. What IS measured and recorded against the existing one: *Popular Plan* reads every `plan_orders` row into PHP, three cards carry no `payment_status` predicate, *Total Store* counts MERCHANTS not stores, and one request path holds two definitions of the operator. | Owner: does `ADM-001` describe the dashboard that exists, a superset of it, or a replacement? Engineering cannot tell from the recovered one-line text. |
+| `GAP-232` | `ADM-002` — *مساحة Store 360° لمراجعة حالة كل متجر وإدارته من أنظمته الأصلية* / a Store 360° space to review and manage each store from its own systems | 06 | **Not located.** `Store 360`, `store-360` and `360°` return **zero** hits across `app/`, `resources/`, `routes/` and `packages/workdo/`. The only per-store operator route is `stores/{id}/plan` (`routes/web.php:1134`); `StoreController@show` — the natural home of a per-store 360 view — is routed by `Route::resource('stores', …)` and its body is an **empty stub** (`app/Http/Controllers/StoreController.php:436-439`, literally `//`). | Phase 06 scope, not started. Expected absence as WORK; NOT an expected absence as a tracked requirement, which is why this row exists. |
+
+**By phase: 06 → 2.** Both are Phase 06, which has not started, so neither is late work — the
+defect is that neither was a *tracked requirement*.
 
 ---
 

@@ -214,8 +214,8 @@ completeness. Never silently reduce the approved scope.**
 `DECISION-ID-REGISTER.md` with all **181** decision IDs (25 families, 19 previously unknown) and the
 12 `EX-*` exclusions. **Three texts are still missing (1 GOV, 2 ARCH) and must not be invented**; 64
 ids have family-level content only; the source calls itself a *reorganization*, not the unedited
-original — so a figure is alignment with the RECOVERED plan and must say which. **18 recovered
-requirements were never tracked at all** — `GAP-182`…`GAP-199`, ten in Phases 03/04, both closed.
+original — so a figure is alignment with the RECOVERED plan and must say which. **20 recovered
+requirements were never tracked at all** — `GAP-182`…`GAP-199` plus `GAP-231`/`GAP-232` (2026-11-24; missed by the census that found the first eighteen).
 
 **Four states, never one label:** engineering complete · original requirement coverage · human
 acceptance · production readiness. An engineering-complete phase may still have incomplete original
@@ -237,7 +237,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
-| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **170 verified complete, 180 not, +18 recovered and untracked = 198 open** |
+| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **170 verified complete, 180 not, +20 recovered and untracked = 200 open** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |
