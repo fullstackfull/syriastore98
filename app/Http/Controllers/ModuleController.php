@@ -15,6 +15,9 @@ use Illuminate\Support\Facades\File;
 use ZipArchive;
 use App\Models\Addon;
 use App\Models\Utility;
+use App\Support\Modules\ModuleNotRemovable;
+use App\Support\Modules\RemovableModule;
+use Illuminate\Support\Facades\DB;
 
 class ModuleController extends Controller
 {
@@ -193,19 +196,71 @@ class ModuleController extends Controller
     public function remove($moduleName)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Module remove')) {
-            $module = Module::find($moduleName);
-            if($module) {
-                $module->disable();
-                Permission::where('module',$moduleName)->delete();
-                AddOnManager::where('name',$moduleName)->delete();
-                // Remove the temporary directory
-                $this->deleteDirectory('packages/workdo/' . $moduleName);
-                // Sidebar Performance Changes
-                sideMenuCacheForget('all');
-                return redirect()->back()->with('success', __('Module delete successfully!'));
-            } else {
+            /*
+             * THE WHOLE CONTRACT BEFORE THE FIRST WRITE.
+             *
+             * This replaced `$module = Module::find($moduleName); if ($module) { ... }`, which was
+             * not a guard: `find()`'s final `else` returns a populated object for ANY string, so
+             * every destructive line below ran for every input the router could deliver. The two
+             * reachable losses, and why they are not equally live, are set out in
+             * `RemovableModule`'s docblock; the short version is that `Base` is not a module but IS
+             * the core permission set, and `permission_role` cascades.
+             *
+             * `RemovableModule::resolve()` throws unless the identifier is a verified, installed,
+             * non-protected module whose directory canonically resolves inside
+             * `packages/workdo`. Nothing below it touches the database or the filesystem until it
+             * has returned.
+             */
+            try {
+                $removable = RemovableModule::resolve($moduleName);
+            } catch (ModuleNotRemovable $refusal) {
+                /*
+                 * The SAME message the old `else` branch returned, deliberately: a refusal must not
+                 * tell the caller which check they tripped. The reason travels in the exception for
+                 * a future operator-facing log -- not added here, because this file is covered by
+                 * the line-keyed observability inventory and a NEW `Log::` call needs a stated
+                 * destination and reader that only a person can give.
+                 */
                 return redirect()->back()->with('error', __('Oops something went wrong!'));
             }
+
+            Module::find($removable->name)->disable();
+
+            /*
+             * The two row deletes together, so a failure in the second cannot leave the first
+             * applied. The directory delete stays OUTSIDE and AFTER: a filesystem unlink cannot
+             * join a database transaction, and doing it last means a rolled-back delete never
+             * leaves a module whose files are gone but whose rows remain.
+             *
+             * THE SECOND DELETE READ THE WRONG COLUMN AND SO DELETED ALMOST NOTHING. It was
+             * `where('name', $moduleName)`, and `add_on_managers` keeps the two apart:
+             * `ModuleController` itself writes `$addon->module = $data['name']` and
+             * `$addon->name = $data['alias']` at :142-143, :173-174 and :414-415. MEASURED over all
+             * 70 vendored manifests: `name` equals the directory for 70/70, while `alias` DIFFERS
+             * from it for 62 of 70 ("ProductReview" -> "Product Review", "LandingPage" -> "CMS").
+             * So the old predicate matched 8 modules at most, and left an orphan row for the other
+             * 62 -- which then blocks re-installation, because :411 finds the module by `module`
+             * and skips creation, leaving the re-installed module disabled.
+             *
+             * THIS IS A BEHAVIOUR CHANGE AND IS MEANT TO BE: the row now really goes. It is in the
+             * same direction as the rest of the method (the module's files are being deleted on the
+             * next line, so a surviving row describes a module that no longer exists), and
+             * `module` is the canonical identifier in this very file -- :423 passes it to
+             * `Module::moduleCacheForget()`. Pre-existing, not introduced by the security fix, and
+             * found by review rather than by me.
+             */
+            DB::transaction(function () use ($removable) {
+                Permission::where('module', $removable->name)->delete();
+                AddOnManager::where('module', $removable->name)->delete();
+            });
+
+            // An absolute, canonical, root-confined path -- never a relative string built from input.
+            $this->deleteDirectory($removable->directory);
+
+            // Sidebar Performance Changes
+            sideMenuCacheForget('all');
+
+            return redirect()->back()->with('success', __('Module delete successfully!'));
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
@@ -448,6 +503,45 @@ class ModuleController extends Controller
      */
     private function deleteDirectory($dirPath)
     {
+        /*
+         * A SYMLINK IS UNLINKED, NEVER RECURSED INTO. Found by independent review of the Phase 06
+         * removal fix, and it is the one thing that fix did NOT close.
+         *
+         * `RemovableModule::confineWithin()` canonicalises the MODULE directory and proves it sits
+         * inside `packages/workdo`, which closes the case where the module directory itself is a link
+         * pointing out of the tree. It says nothing about a link NESTED inside an accepted module --
+         * and this recursion decided with `is_dir($path)`, which FOLLOWS links. So
+         * `packages/workdo/Api/x -> /elsewhere` would have had every file under the target `unlink`ed
+         * through the link and every directory `rmdir`ed. The link itself then survives, because
+         * `rmdir` on a symlink fails ENOTDIR, so the only symptom is a removal that "did not finish".
+         *
+         * NOT LIVE ON THIS CHECKOUT, AND MEASURED RATHER THAN ASSUMED: `find packages/workdo -type l`
+         * returns ZERO across all 70 modules; no first-party code calls `symlink()`; and neither way a
+         * module arrives can plant one -- `ZipArchive::extractTo()` writes a symlink entry as a
+         * regular FILE containing the target path, and `moveExtractedFiles()` moves with `rename()`,
+         * which preserves that. This is hardening against a future vendored tree, not a reachable
+         * hole today. It is here because the requirement names "unsafe symlink resolution" by name,
+         * because it also covers the three install-path callers, and because it costs two branches.
+         *
+         * ONE GUARD, AT THE SINGLE ENTRY POINT, AND THAT IS ENOUGH -- which I only know because a
+         * mutation said so. The first version of this fix ALSO tested `is_link` on each scanned
+         * child, and dropping that second test broke nothing: `is_dir($path)` follows the link, so
+         * the recursion re-enters this method with the link itself as `$dirPath` and the check below
+         * fires there instead. A link to a FILE never recurses at all -- `is_dir` is false, so
+         * `unlink` removes the link and not its target. The child check was therefore code that no
+         * test could distinguish from its absence, which is the exact shape this slice was already
+         * bitten by once, so it is gone rather than left to rot.
+         *
+         * THE SAME GUARD CLOSES THE TOCTOU between `confineWithin()`'s `realpath()` and this call,
+         * in which the module directory is replaced by a link AFTER it has been proven to be a real
+         * directory inside the root. `realpath()` returning false mid-race needs nothing --
+         * `confineWithin` throws before any write, and a later disappearance just returns false at
+         * the `is_dir` check below.
+         */
+        if (is_link($dirPath)) {
+            return unlink($dirPath);
+        }
+
         if (!is_dir($dirPath)) {
             return false;
         }
