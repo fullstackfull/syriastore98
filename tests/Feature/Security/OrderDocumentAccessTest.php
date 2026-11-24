@@ -32,6 +32,95 @@ class OrderDocumentAccessTest extends SecurityTestCase
     use RefreshDatabase;
 
     /** Exactly what production does: the row, then the provider's own loader. */
+    // =============================================================================================
+    // WHY THE is_guest SELECT IS CONDITIONAL -- the mutation that survived until this test existed
+    // =============================================================================================
+
+    /**
+     * The guard's TARGETS table names two tables: `orders`, and the AuctionProduct module's
+     * `auction_product_orders`. Only the first has `is_guest`, and the second does not exist at
+     * all in a test run -- so a mutation that made the `is_guest` select UNCONDITIONAL passed
+     * every test in this file. It would still have been a live regression: the select would throw
+     * on that table, `handle()`'s `catch (\Throwable)` turns a throw into `deny()`, and every
+     * auction order view would fail closed. Fail-closed is not a security hole, but it is a
+     * module surface going dark for a reason no log explains.
+     *
+     * This test is what makes that mutation fail. It pins the two halves of the guard's decision
+     * directly, because the module path itself cannot be driven here.
+     */
+    public function test_the_guest_flag_is_only_selected_from_tables_that_have_it(): void
+    {
+        $method = new \ReflectionMethod(\App\Http\Middleware\OrderDocumentAccessGuard::class, 'tableHasGuestFlag');
+        $method->setAccessible(true);
+
+        $columnsFor = new \ReflectionMethod(\App\Http\Middleware\OrderDocumentAccessGuard::class, 'columnsFor');
+        $columnsFor->setAccessible(true);
+
+        // THE DECISION ITSELF, which is what a mutation making the select unconditional changes.
+        $this->assertSame(['store_id', 'customer_id', 'is_guest'], $columnsFor->invoke(null, 'orders'),
+            'the guard stopped reading `is_guest` from `orders`, so its shopper limb has nothing '
+            . 'to refuse an adopted guest order with.');
+
+        $this->assertTrue($method->invoke(null, 'orders'),
+            'premise failed: `orders` must carry `is_guest`, or the whole fix is inert.');
+
+        \Illuminate\Support\Facades\Schema::create('ss_guardless_orders', function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('store_id')->nullable();
+            $table->integer('customer_id')->default(0);
+        });
+
+        try {
+            $this->assertFalse($method->invoke(null, 'ss_guardless_orders'),
+                'a table with no `is_guest` column was reported as having one, so the guard would '
+                . 'add it to the select and the query would throw.');
+
+            /*
+             * AND THE CONSEQUENCE, MEASURED ON THIS DRIVER -- which is not what I first asserted.
+             *
+             * I wrote this test expecting the select to THROW, because that is what MySQL does
+             * (error 1054) and it is why the production path would fail closed. On SQLite it does
+             * not throw at all: the double-quoted-identifier fallback treats the unknown
+             * `"is_guest"` as a STRING LITERAL, and the row comes back with a property named
+             * `"is_guest"` -- quotes included -- whose value is the string `is_guest`.
+             *
+             * That makes the divergence the point of this assertion rather than a footnote. An
+             * unconditional select would break MySQL and pass every test in this suite, so the
+             * conditional cannot be justified by anything this suite can observe directly. What
+             * IS observable here is the fallback, and that it does not produce a usable
+             * `is_guest` property -- which is exactly why `shopperOwns()` asks
+             * `property_exists($row, 'is_guest')` instead of reading a value that would have
+             * cast to 0 and admitted silently.
+             */
+            \Illuminate\Support\Facades\DB::table('ss_guardless_orders')->insert(['customer_id' => 7]);
+
+            $row = \Illuminate\Support\Facades\DB::table('ss_guardless_orders')
+                ->where('id', 1)
+                ->first(['customer_id', 'is_guest']);
+
+            $this->assertNotNull($row, 'premise failed: the probe row was not inserted.');
+            $this->assertFalse(property_exists($row, 'is_guest'),
+                'the absent column came back as a usable `is_guest` property. If a driver ever '
+                . 'does that, `shopperOwns()` would read its value -- and under SQLite\'s string '
+                . 'fallback that value casts to 0, which ADMITS a guest order.');
+
+            $this->assertFalse($method->invoke(null, 'a_table_that_does_not_exist_at_all'),
+                'a missing table must answer false rather than propagate, or the guard denies '
+                . 'every request for a module that is not installed.');
+
+            $this->assertSame(['store_id', 'customer_id'], $columnsFor->invoke(null, 'ss_guardless_orders'),
+                'the guard would select `is_guest` from a table that lacks it. On MySQL that is '
+                . 'error 1054, which `handle()`\'s catch turns into deny() -- so every auction '
+                . 'order view would go dark. This assertion exists because the behavioural '
+                . 'version of it cannot fail on SQLite.');
+
+            $this->assertSame(['store_id', 'customer_id'], $columnsFor->invoke(null, 'a_table_that_does_not_exist_at_all'),
+                'an uninstalled module\'s table must not gain the column either.');
+        } finally {
+            \Illuminate\Support\Facades\Schema::dropIfExists('ss_guardless_orders');
+        }
+    }
+
     private function enableAddon(): void
     {
         AddOnManager::create([
@@ -407,11 +496,19 @@ class OrderDocumentAccessTest extends SecurityTestCase
     }
 
     /**
-     * DISCLOSED BEHAVIOUR CHANGE, asserted rather than left to be discovered: a guest order
-     * (customer_id defaults to 0) cannot be self-served, because there is nothing to prove
-     * ownership with. See the guard docblock and the sprint report's owner decision.
+     * An ORDINARY guest order -- `customer_id = 0` -- cannot be self-served.
+     *
+     * THIS TEST DID NOT PIN ITS OWN CLAIM, and the correction matters more than the test.
+     * Its docblock used to say "a guest order (customer_id defaults to 0) cannot be self-served",
+     * stating the rule via a mechanism that is false for a whole class of guest orders. The
+     * fixture below is refused by the `$customerId <= 0` limb of
+     * `OrderDocumentAccessGuard::shopperOwns()`'s `$customerId <= 0` limb, so it passes IDENTICALLY whether or not
+     * an `is_guest` predicate exists -- a refusal test whose fixture is also refused by a second
+     * predicate, which is the vacuity shape this project keeps re-learning.
+     *
+     * The case it could not see is the next test.
      */
-    public function test_a_guest_order_cannot_be_self_served(): void
+    public function test_an_ordinary_guest_order_cannot_be_self_served(): void
     {
         $this->enableAddon();
         [, $store] = $this->makeTenant();
@@ -420,6 +517,41 @@ class OrderDocumentAccessTest extends SecurityTestCase
 
         $this->actingAs($customer, 'customers')
             ->get('/shippinglabel/' . Crypt::encrypt($guestOrder->id))
+            ->assertForbidden();
+    }
+
+    /**
+     * THE SHAPE THE INTAKE ACTUALLY PRODUCES, and the one the test above cannot reach: a real
+     * `customer_id` with `is_guest = 1`.
+     *
+     * `app/Services/PaymentService.php:3019-3033` writes exactly that when a guest checkout's
+     * billing e-mail matches an existing customer of the store. `shopperOwns()` asks
+     * `orders.customer_id`, and before this fix the guard's DB read did not even SELECT `is_guest`,
+     * so the matched customer satisfies every limb and the document opens for them.
+     *
+     * The guard's own prose stated the falsified premise twice -- in the class docblock ("A GUEST
+     * order cannot be self-served at all, because orders.customer_id defaults to 0") and above
+     * `shopperOwns()` ("customer_id defaults to 0 on a guest order, so 0 can never match") -- so
+     * the rule was INTENDED and only its mechanism was wrong, exactly as at
+     * `OrderController::status_cancel`. Both are corrected; cited by name rather than by line,
+     * because a line citation in a test is stale the next time the file is edited -- which it was,
+     * by this very change.
+     */
+    public function test_an_adopted_guest_order_cannot_be_self_served_either(): void
+    {
+        $this->enableAddon();
+        [, $store] = $this->makeTenant();
+        $customer = $this->makeCustomer($store->id);
+        $adopted = $this->makeOrder($store, ['customer_id' => $customer->id, 'is_guest' => 1]);
+
+        $row = \Illuminate\Support\Facades\DB::table('orders')
+            ->where('id', $adopted->id)->first(['customer_id', 'is_guest']);
+        $this->assertSame(1, (int) $row->is_guest, 'premise failed: not a guest order.');
+        $this->assertSame((int) $customer->id, (int) $row->customer_id,
+            'premise failed: this is an ordinary guest order, refused by a different limb.');
+
+        $this->actingAs($customer, 'customers')
+            ->get('/shippinglabel/' . Crypt::encrypt($adopted->id))
             ->assertForbidden();
     }
 

@@ -404,11 +404,26 @@ if (!function_exists('paid_download_url')) {
              * It posts to `AccountProfileController::downloadable_prodcut()`, which resolves the
              * order through `ownedOrder()`'s `customer_id` predicate and MAILS the grant to the
              * address on the order — a stronger proof of entitlement than a page anyone can open.
+             *
+             * SEC-INTAKE #188 CORRECTION. That button is not reachable for an ORDINARY guest
+             * either, so "what a guest gets instead" overstates it. `ownedOrder()` requires a
+             * signed-in customer whose id matches, so a `customer_id = 0` order has no path to a
+             * grant at all -- which
+             * `PaidDownloadLinkInPagesTest::test_the_guest_limb_of_the_controller_is_now_recorded_as_unreachable`
+             * already measures. The button's behaviour for other order shapes is tracked in the
+             * intake record rather than here.
              */
             $signedInCustomerId = auth('customers')->id();
 
+            /*
+             * SEC-INTAKE #188: `is_guest`, not just `customer_id`. An adopted guest order carries
+             * a real customer id with `is_guest = 1` (`app/Services/PaymentService.php:3019-3033`),
+             * so the matched customer passed the id test and had a capability MINTED for them --
+             * `DownloadGrant::issue()` below is a cache WRITE, not a read.
+             */
             if (empty($signedInCustomerId)
-                || (int) $signedInCustomerId !== (int) ($orderModel->customer_id ?? 0)) {
+                || (int) $signedInCustomerId !== (int) ($orderModel->customer_id ?? 0)
+                || (int) ($orderModel->is_guest ?? 0) !== 0) {
                 return null;
             }
 

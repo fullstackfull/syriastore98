@@ -87,9 +87,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentService.php:3368` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:139` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:250` | Stock decremented below zero on an order path that cannot refuse |
-| `app/Helper/helper.php:429` | paid download url not issued |
-| `app/Http/Controllers/PaidDownloadController.php:329` | paid download refused: resolved path escapes the uploads root |
-| `app/Http/Controllers/PaidDownloadController.php:349` | paid download refused |
+| `app/Helper/helper.php:444` | paid download url not issued |
+| `app/Http/Controllers/PaidDownloadController.php:353` | paid download refused: resolved path escapes the uploads root |
+| `app/Http/Controllers/PaidDownloadController.php:373` | paid download refused |
 | `app/Services/GatewayReference.php:156` | gateway reference not recorded: the table is absent |
 | `app/Services/GatewayReference.php:174` | gateway reference not recorded: the store id or reference is unusable |
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
@@ -138,7 +138,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 
 | line | message |
 |---|---|
-| `app/Helper/helper.php:672` | an image upload was refused |
+| `app/Helper/helper.php:687` | an image upload was refused |
 | `app/Services/PlatformUploadPolicy.php:314` | a platform upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
