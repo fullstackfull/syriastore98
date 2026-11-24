@@ -7,6 +7,16 @@
 # uploads"; this makes it hold for the symlink as well.
 /public/uploads
 
+# `/public/storage` for the SAME reason, and because it was TRACKED until 2026-11-24 -- at mode
+# 100755, holding 62 bytes of the vendor's own build path (`/var/www/html/Product/EcommerceGo/...`).
+# A symlink serialised as text by the WorkDo release packaging. So in every checkout `public/storage`
+# was a FILE, nothing under `/storage/...` resolved (30 views and 24 PHP files use `Storage::url`),
+# and `php artisan storage:link` printed "The [public/storage] link already exists." and changed
+# nothing -- the documented remedy defeated by the committed file. Laravel's own shipped .gitignore
+# ignores this path; so does the `/public/uploads` rule above, for the same per-environment reason.
+# Each environment runs `php artisan storage:link` once.
+/public/storage
+
 # The DEV FIXTURE's own uploads. `database/seed-p2dev.php` creates store 1 and writes its images
 # to the repo-root `uploads/` where the application's `theme` disk really writes, and a browser
 # test that uploads a cover image lands there too. Store 1 exists only in a developer's local
