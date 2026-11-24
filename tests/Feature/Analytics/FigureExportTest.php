@@ -225,6 +225,88 @@ final class FigureExportTest extends SecurityTestCase
     }
 
     /**
+     * THE PLATFORM FILE'S ROWS MUST BE THE PLATFORM SCREEN'S FIGURES — the twin of
+     * `test_the_file_carries_every_figure_the_screen_shows`, which this file had only for the
+     * MERCHANT side.
+     *
+     * THAT ASYMMETRY IS WHY A FIGURE WENT MISSING, and it has now happened twice in this
+     * codebase. `AnalyticsExportRows::breakdownLabels()`'s own comment records the first:
+     * "ADDED after shipping the campaign breakdown to the SCREEN and not to the FILE." The second
+     * is *Repeat purchase*, which `PlatformAnalyticsFigures::forPlatform()` returns and
+     * `platform/analytics.blade.php` renders, but which never reached the CSV — because
+     * `PlatformAnalyticsController::export()` hands `FigureCsv::rows()` a hard-coded label map and
+     * `FigureCsv::rows()` iterates the LABELS, not the figures. A figure with no label is dropped
+     * in silence.
+     *
+     * So the gap was never that anyone forgot; it is that the merchant side has a test which
+     * fails when the two drift and the operator side had none. This is that test.
+     *
+     * WHAT IS DERIVED AND WHAT IS NOT, stated exactly, because an earlier draft of this docblock
+     * overclaimed. The KEYS are derived from `forPlatform()`, so a figure added to the screen and
+     * not to the export's map fails this test without anyone remembering to update it. The
+     * LABELS are not derived -- they are listed below. They cannot be taken from the controller's
+     * map, which is the thing under test, and taking them from the Blade would be brittle. So the
+     * key set is a real ratchet and the label text is a second record that a reader must keep
+     * honest; the `assertArrayHasKey` below is what makes a new key impossible to ignore.
+     *
+     * AND THE LABEL MATCH IS EXACT ON THE CELL, not a substring. A mutation changing the export's
+     * label from "Repeat purchase" to "Repeat purchases" SURVIVED the first version of this test,
+     * because the longer string contains the shorter one. The money figure is the one exception:
+     * its rows carry the label plus a currency, so it matches as a prefix.
+     */
+    public function test_the_platform_file_carries_every_figure_the_platform_screen_shows(): void
+    {
+        $operator = $this->makePlatformAdmin();
+
+        $figures = \App\Support\Metrics\PlatformAnalyticsFigures::forPlatform();
+
+        // `coverage` is a LedgerCoverage object, not a figure; it is rendered as a sentence and
+        // has no row of its own. Anything else in the array IS a figure and must reach the file.
+        $notFigures = ['coverage'];
+        $expected = array_diff(array_keys($figures), $notFigures);
+
+        $this->assertNotEmpty(array_intersect(array_keys($figures), $notFigures),
+            'premise failed: the excluded keys are not in the figure array, so this test is '
+            . 'excluding nothing and its expectation is not what it claims.');
+        $this->assertGreaterThan(3, count($expected),
+            'premise failed: fewer figures than the three the export has always carried, so the '
+            . 'figure source itself has changed shape and this test needs re-reading.');
+
+        $rows = $this->parse($this->actingAs($operator->fresh())->get(self::PLATFORM_URI)->getContent());
+        $cells = array_column(array_slice($rows, 1), 0);
+
+        // The file is keyed by LABEL, not by key, so each figure is looked for by the label the
+        // screen gives it. A key with no entry here is a figure nobody has decided how to name --
+        // which is itself the bug this test exists to catch.
+        $labelFor = [
+            'stores' => 'Stores',
+            'orders' => 'Orders',
+            'buyers' => 'Buyers',
+            'retention' => 'Repeat purchase',
+            'payments' => 'Payments collected',
+        ];
+
+        foreach ($expected as $key) {
+            $this->assertArrayHasKey($key, $labelFor,
+                "the platform screen gained the figure '{$key}' and this test does not know what "
+                . 'the file should call it. Name it here AND in '
+                . 'PlatformAnalyticsController::export(), or the download silently omits it.');
+
+            $label = $labelFor[$key];
+
+            // Exact on the cell, or the money form "<label> (<CURRENCY>)". Not a substring: a
+            // label that merely CONTAINS the expected text is a drift, not a match.
+            $matched = array_filter($cells, fn ($cell) => $cell === $label || str_starts_with($cell, $label . ' ('));
+
+            $this->assertNotEmpty($matched,
+                "the platform export has no row labelled exactly '{$label}'. Either the figure is "
+                . 'missing from export()\'s label map -- which drops it from the download with no '
+                . 'error, because FigureCsv::rows() iterates the map and not the figures -- or the '
+                . 'export labels it differently from the screen.');
+        }
+    }
+
+    /**
      * EACH CURRENCY IS ITS OWN ROW, THE SUM IS ABSENT, AND EVERY ROW REPEATS THE SENTENCE SAYING
      * SO. A spreadsheet is the tool that invites someone to total a column, so the disclosure has
      * to travel on each row rather than once.

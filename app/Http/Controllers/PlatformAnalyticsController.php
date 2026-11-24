@@ -69,10 +69,26 @@ class PlatformAnalyticsController extends Controller
     {
         $figures = PlatformAnalyticsFigures::forPlatform();
 
+        /*
+         * THIS MAP IS THE FILE'S FIGURE SET, and `FigureCsv::rows()` iterates IT rather than
+         * `$figures` -- so a figure the screen renders and this map omits is dropped from the
+         * download in silence, with no error anywhere. That has now happened twice in this
+         * codebase: `AnalyticsExportRows::breakdownLabels()`'s own comment records the campaign
+         * breakdown shipping to the SCREEN and not to the FILE, and `retention` repeated it here,
+         * added by the commit that put *Repeat purchase* on the operator screen.
+         *
+         * `FigureExportTest::test_the_platform_file_carries_every_figure_the_platform_screen_shows`
+         * now fails when this map and `PlatformAnalyticsFigures::forPlatform()` disagree. It
+         * derives its expectation from the figure source rather than from a second hard-coded
+         * list, so adding a figure to the screen and not to this map is a red test rather than a
+         * quiet omission. The merchant side has had that guard all along; the operator side did
+         * not, which is the whole reason this was missable.
+         */
         $rows = \App\Support\Metrics\FigureCsv::rows($figures, [
             'stores' => __('Stores'),
             'orders' => __('Orders'),
             'buyers' => __('Buyers'),
+            'retention' => __('Repeat purchase'),
         ]);
 
         foreach (\App\Support\Metrics\FigureCsv::currencyRows($figures['payments'], __('Payments collected')) as $row) {
