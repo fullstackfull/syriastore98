@@ -76,25 +76,77 @@ class MetricDefinitionsAreDocumentedTest extends TestCase
 
     private const DOC = 'docs/development/phase-5/PHASE-05-METRIC-DEFINITIONS.md';
 
-    /** @return array<string, string> metric class short name => cited section number */
+    /**
+     * CALLS `definition()` RATHER THAN READING THE SOURCE FOR IT.
+     *
+     * This scan used to regex each file for `public function definition(): string { return '...' }`
+     * and take the captured literal. That pattern is a declaration shape rather than a bare
+     * mention, so it was not trivially satisfiable -- but it read the source with COMMENTS INTACT,
+     * which is the census failure CLAUDE.md section 3 records hitting four times in one day. A
+     * docblock carrying that shape would have supplied a citation for a class declaring none, or
+     * masked the real one, since the match is unanchored and only the FIRST is taken. The same flaw
+     * sat inside R9's own drift guard, which is what prompted replacing it here too.
+     *
+     * Reflection asks the class instead. `newInstanceWithoutConstructor()` because
+     * `StoreRevenueMargin` and `CustomerLedgerMoney` take constructor arguments; `getDeclaringClass()`
+     * because the question is which class DECLARES a citation, not which inherits one.
+     *
+     * @return array<string, string> metric class short name => cited section number
+     */
     private function citations(): array
     {
         $found = [];
 
         foreach (glob(base_path('app/Support/Metrics/*.php')) as $file) {
-            $source = file_get_contents($file);
+            $class = 'App\\Support\\Metrics\\' . basename($file, '.php');
 
-            // Only a class that declares definition() is a metric for this purpose. Metric.php is
-            // the base class and declares none; the value objects (MetricResult, MetricWindow, ...)
-            // declare none either.
-            if (! preg_match('/public function definition\(\): string\s*\{\s*return\s*\'([^\']+)\'/', $source, $m)) {
+            if (! class_exists($class)) {
                 continue;
             }
 
-            $found[basename($file, '.php')] = $m[1];
+            $reflection = new \ReflectionClass($class);
+
+            // Only a class that DECLARES definition() is a metric for this purpose. Metric.php is
+            // the abstract base; the value objects (MetricResult, MetricWindow, ...) declare none.
+            if ($reflection->isAbstract() || ! $reflection->hasMethod('definition')) {
+                continue;
+            }
+
+            $method = $reflection->getMethod('definition');
+
+            if ($method->getDeclaringClass()->getName() !== $class) {
+                continue;
+            }
+
+            $found[basename($file, '.php')] = $method->invoke(
+                $reflection->newInstanceWithoutConstructor()
+            );
         }
 
         return $found;
+    }
+
+    /**
+     * The body of each numbered section, keyed by its number.
+     *
+     * SCOPED ON PURPOSE. An assertion run over the whole document answers "does this string appear
+     * anywhere in 740 lines", which is how a mutation dropping one section's class name survives
+     * because another section mentions it -- the same mis-scoping that let a 44px tap-target
+     * regression through (CLAUDE.md section 3).
+     *
+     * @return array<string, string> section number => the text under its heading
+     */
+    private function sectionBodies(string $doc): array
+    {
+        $parts = preg_split('/^## (\d+a?)\. /m', $doc, -1, PREG_SPLIT_DELIM_CAPTURE);
+        $bodies = [];
+
+        // $parts[0] is the preamble before the first heading; pairs follow.
+        for ($i = 1; $i < count($parts) - 1; $i += 2) {
+            $bodies[$parts[$i]] = $parts[$i + 1];
+        }
+
+        return $bodies;
     }
 
     public function test_the_premise_that_metrics_declare_a_definition_at_all(): void
@@ -124,6 +176,55 @@ class MetricDefinitionsAreDocumentedTest extends TestCase
                 '/^## ' . $section . '\. /m',
                 $doc,
                 "{$class} cites §{$section}, but " . self::DOC . " has no '## {$section}.' heading."
+            );
+        }
+    }
+
+    /**
+     * THE DOCUMENT MUST NAME ITS IMPLEMENTING CLASS, and until R9 not one section did.
+     *
+     * Every other assertion in this file runs CODE -> DOC: a class cites a section, and every
+     * section is claimed by exactly one class. Nothing ran DOC -> CODE. A reader holding the
+     * document therefore had no way to reach the code that computes a figure, and R9's census of
+     * all ten money metrics measured the consequence: no section cited its class, which is the
+     * concrete reason nothing checked this document against the code until a dedicated workflow did
+     * it by hand. The pairing was enforced; the NAME was written at only one end.
+     *
+     * So each section carries a `**Computed by.**` line, and this asserts it names the class whose
+     * own `definition()` claims that section -- scoped to the section's own body, so a line deleted
+     * from section 8 cannot be satisfied by section 7 mentioning the same class.
+     */
+    public function test_every_metric_section_names_its_implementing_class(): void
+    {
+        $bodies = $this->sectionBodies(file_get_contents(base_path(self::DOC)));
+        $citations = $this->citations();
+
+        $this->assertGreaterThanOrEqual(11, count($citations),
+            'The citation scan found ' . count($citations) . ' metrics; it has gone stale and the loop below would be vacuous.');
+
+        foreach ($citations as $class => $citation) {
+            $section = substr($citation, strpos($citation, '§') + strlen('§'));
+
+            $this->assertArrayHasKey($section, $bodies,
+                "{$class} cites section {$section}, which " . self::DOC . ' has no body for.');
+
+            $this->assertStringContainsString(
+                '**Computed by.** `App\\Support\\Metrics\\' . $class . '`',
+                $bodies[$section],
+                "Section {$section} of " . self::DOC . " must carry a '**Computed by.**' line naming "
+                . "App\\Support\\Metrics\\{$class}, the class whose definition() claims it. Without it the "
+                . 'document cannot be navigated to the code, which is what R9 found.'
+            );
+        }
+
+        // The two presenter-figure sections name a METHOD, since they are not Metric subclasses.
+        foreach (self::PRESENTER_FIGURE_SECTIONS as $section => [$class, $method]) {
+            $this->assertArrayHasKey($section, $bodies);
+
+            $this->assertStringContainsString(
+                '**Computed by.** `' . $class . '::' . $method . '()`',
+                $bodies[$section],
+                "Section {$section} must name {$class}::{$method}() as the presenter figure that computes it."
             );
         }
     }
