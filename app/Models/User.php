@@ -348,7 +348,24 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
                 }
 
                 foreach ($modulesToRemove as $moduleName) {
-                    userActiveModule::where('user_id', $user->id)->where('module', $moduleName)->delete();
+                    /*
+                     * `$this->id`, NOT `$user->id`. `$user` is `\Auth::user()` (read at the top of
+                     * this method) -- the principal performing the change, which is NOT always the
+                     * subject of it. `$modulesToRemove` was computed from `$this`'s own rows and the
+                     * `create()` above already writes `$this->id`, so the delete reading a different
+                     * user was a plain inconsistency inside one loop body, not a design.
+                     *
+                     * MEASURED on the operator-driven path, which is the one that diverges:
+                     * `BankTransferController::orderapprove()` loads the buyer explicitly
+                     * (`$user = User::find($order->user_id)`) and calls `assignPlan()` on them while
+                     * the OPERATOR is signed in. Approving a downgrade therefore did both halves to
+                     * the wrong people -- the merchant kept modules the new plan does not grant, so
+                     * the downgrade did not downgrade, and the operator lost those modules from
+                     * their own account. Both are pinned by
+                     * `tests/Feature/Saas/PlanAssignmentTargetsTheRightUserTest.php`, in both
+                     * directions, with the self-service path asserted byte-identical.
+                     */
+                    userActiveModule::where('user_id', $this->id)->where('module', $moduleName)->delete();
                 }
 
                 $this->active_module = implode(',',$user_module);
