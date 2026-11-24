@@ -89,8 +89,8 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **170** |
-| PARTIALLY IMPLEMENTED | **83** |
-| NOT IMPLEMENTED | **38** |
+| PARTIALLY IMPLEMENTED | **85** |
+| NOT IMPLEMENTED | **36** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **19** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -4603,16 +4603,19 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P05-05` — P5-3 ReportController predicate replacement
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED** *(re-measured 2026-11-24; every figure in the previous text was stale)*
 
 - **Requirement (original wording / faithful reference):** "Point the existing report surfaces at the P5-2 metric layer, one surface at a time, with a before/after figure recorded for each. This changes numbers merchants currently see — every surface needs its delta stated, not just its code changed."
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2, slice P5-3; §1 "REUSE THE SURFACE, REPLACE THE PREDICATES"`
 - **Owner decisions:** None found. The owner instruction 'Do not reuse SUM(orders.final_price) as settled revenue merely because existing reports do' is quoted in PHASE-05-METRIC-DEFINITIONS.md and is not yet honoured in code.
 - **Expected behaviour:** Each report surface reads a defined metric instead of an unfiltered SUM, and the change in the figure a merchant sees is recorded per surface.
-- **Actual behaviour:** Unchanged. Measured in this pass: `wc -l app/Http/Controllers/ReportController.php` = 3660 and `grep -c payment_status` = 0 — exactly the numbers the 2026-11-16 inventory recorded. Every money figure in the merchant reporting suite is still computed over every order in the window whatever its payment state. HomeController's dashboard `$total_revenues` (:319) still filters on fulfilment only.
-- **Gap:** All 53 of the 70 inventoried surfaces that depend on an unresolved ledger question, and the before/after delta record for each.
+- **Actual behaviour (re-measured 2026-11-24 — the text here said "Unchanged" and carried three figures that are no longer true):**
+  **Begun, not finished.** `ReportController` reads a defined metric for money on the sales report: `FinanceLedgerFigures::forStore($storeId, $currencyCode, $window, $periodLabel)['payments']` at :644, over the window the report is answering, and again at :800 for the figures block. `MetricWindow` builds the chart period at :530-572 and `WalletEntitlementFigure` the wallet figure at :814. `HomeController`'s `$total_revenues` is no longer an unfiltered fulfilment-only sum either: at :426-435 it reads a metric result, folds the unrecorded-currency bucket with `assumingUnknownCurrencyIs()` and takes `totalIn($storeCurrencyCode)`. The cited line `:319` no longer exists.
+  **AND THE OLD MEASUREMENT METHOD IS NOW SATISFIED BY PROSE, which is worth more than the figure it produced.** `wc -l` is **4489**, not 3660. `grep -c payment_status` is **2**, not 0 — and BOTH occurrences are inside comments (:738, :745), prose about the very row that counted them. CLAUDE.md §3 names this failure mode: "a census that reads comments can be satisfied — or broken — by prose about the thing it measures". A future re-trace of this row must strip comments (`Tests\Support\StripsSourceComments`) before counting anything.
+  Surfaces re-pointed since the previous text, each with its own commit and tests: `Payments received` on the sales report (ANA-005); the sales-by-product report, which was adding foreign currencies together (P5-R7-A); Top Category and Top Brand (ANA-TOP); period filters on the five genuinely unfiltered report screens (ANA-002 / `GAP-221`); and the six export handlers, matched to their on-screen twins.
+- **Gap:** The **before/after figure record per surface**, which the requirement asks for explicitly and which no surface has; and the surfaces still computing money over every order in the window whatever its payment state — the 53 of 70 inventoried surfaces that depend on an unresolved ledger question are unchanged in number, because none of the work above touched one of them.
 - **Responsible:** Phase 05 (P5-3), gated on P5-2
-- **Next action:** After P5-2 exists, replace predicates surface by surface, recording the figure before and after.
+- **Next action:** Record the before/after delta for the five surfaces already re-pointed — that record is missing for work that is otherwise done — then continue surface by surface. P5-2 exists; `app/Support/Metrics/` holds 29 classes.
 
 ### `P05-06` — P5-4 Merchant analytics dashboard
 
@@ -4761,17 +4764,19 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P05-16` — Bilingual interfaces
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED** *(re-measured 2026-11-24; the previous text predated both analytics screens)*
 
 - **Requirement (original wording / faithful reference):** "bilingual (AR RTL / EN LTR)" for the merchant analytics dashboard; "bilingual premium dashboards" in the scope statement. CLAUDE.md: "Any UI change must be checked in both directions, and contrast-checked."
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2 (P5-4) and §5; CLAUDE.md §6`
 - **Owner decisions:** None found.
 - **Expected behaviour:** Every Phase 05 surface renders correctly in Arabic RTL and English LTR.
-- **Actual behaviour:** No Phase 05 surface exists to be bilingual. For the pre-existing reporting surfaces, localisation work landed earlier: CSV export headers are localised and pinned by a test, and resources/lang/ar.json carries ~2,848 keys. Whether the Arabic coverage of the existing report screens is complete was not established in this pass.
-- **Evidence:** tests/Unit/Reports/ReportCsvHeaderLocalisationTest.php (pre-existing, export headers only)
-- **Gap:** Applies to work not yet begun. Carry it as a standing acceptance condition for every Phase 05 surface rather than a separate task.
+- **Actual behaviour (re-measured 2026-11-24):** Two Phase 05 surfaces exist — `resources/views/analytics/index.blade.php` (`/analytics`) and `resources/views/platform/analytics.blade.php` (`/platform/analytics`) — and both print every string through `__()`: zero bare text spans in either, measured. Direction comes from the layout's own `dir`, with no hard-coded ltr/rtl and no directional margin in either file.
+  **The Arabic coverage question the previous text left open is now answered, and the answer was no.** A census of all 33 sources behind the two screens (the views, the two controllers and every class in `app/Support/Metrics/`) found 183 distinct `__()` keys, of which **7 were declared in NEITHER `en.json` nor `ar.json`** — so they rendered correctly in English by accident and rendered IN ENGLISH on the Arabic page. Six are now declared in both files; the seventh was removed, because reading it in order to translate it showed it said the OPPOSITE of what the code does (it told the operator that guest orders "are counted here at all" when they are excluded). A dead near-duplicate of one of the six was found in both files at the same time and removed.
+  `AnalyticsMessagesAreDeclaredTest` now holds it: every key either screen prints must be declared in both files, with the metric-class scope derived by glob so a class added tomorrow is covered the day it is added.
+- **Evidence:** `tests/Unit/Localisation/AnalyticsMessagesAreDeclaredTest.php` (2 tests, 143 assertions; 5 of 6 mutations caught, the sixth uncatchable by construction); `tests/Unit/Localisation/TranslationFileIntegrityTest.php` (key parity and the Arabic-only orphan ceiling, held at 31); `tests/Unit/Reports/ReportCsvHeaderLocalisationTest.php` (pre-existing, export headers only)
+- **Gap:** The **four-combination visual evidence** — Arabic RTL and English LTR, light and dark, for both screens — which is `P5-R8` and has not been captured. Strings are covered by a test; rendering is not. Contrast in dark mode is likewise unmeasured for these two screens, and CLAUDE.md records option names rendering at 1.00:1 white-on-white when that check was skipped elsewhere.
 - **Responsible:** Phase 05
-- **Next action:** Make AR/EN plus light/dark a per-slice acceptance condition at P5-4, as Phase 03 M7 did for the storefront.
+- **Next action:** Capture the four combinations for both screens and contrast-check them (`P5-R8`). The string half of this condition is now enforced by a test rather than by habit, which is what the previous next action asked for.
 
 ### `P05-17` — Responsive premium dashboards
 
@@ -4881,7 +4886,7 @@ carries a caveat today", and as of P5-10 two do.)*
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §0 and §5`
 - **Owner decisions:** None found.
 - **Expected behaviour:** The Phase 05 final report states per slice whether it was completed or not started, with evidence, and never conflates engineering completion with release readiness.
-- **Actual behaviour:** No Phase 05 final report exists; docs/development/phase-5/ holds three files only (execution plan, metric definitions, reporting-surface inventory). The project task ledger carries P5-Z ('Phase 05 final report + PROJECT-STATE') as pending. PROJECT-STATE.md §2 still records Phase 05 as 'not started'.
+- **Actual behaviour (figure re-measured 2026-11-24):** No Phase 05 final report exists — that part is unchanged and is the whole of this row. The count beside it was stale: `docs/development/phase-5/` holds **17 files and an `evidence/` directory**, not "three files only" — among them the metric layer, the D6 wiring measurement, the MKT/ANA measurement and dispositions, the owner decision package and register, the P5-3 prerequisites, the R7 demand-vs-collected map and the four-figure labelling proposal. None of them is the per-slice completed/not-started report this row asks for. The project task ledger carries P5-Z as pending.
 - **Gap:** The report, and with it the per-slice completed/not-started statement this matrix is currently standing in for.
 - **Responsible:** Phase 05 (P5-Z)
 - **Next action:** When the report is written, give each of P5-1…P5-9 (P5-9 — Loyalty was added 2026-11-17) an explicit verdict, and carry the loyalty, conversion and marketing-performance requirements that have no slice.

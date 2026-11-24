@@ -546,7 +546,24 @@ final class PlatformAnalyticsFigures
         $hint = __('People who can be recognised again, counted once each across the whole platform. Every order is counted whatever its payment status. One person with accounts in two stores is counted in each, because nothing links the two accounts.');
 
         if (($unattributed = (int) ($figures->notes()['orders_without_identifiable_customer'] ?? 0)) > 0) {
-            $hint .= ' '.__('Orders with no customer account, which cannot be attributed to a person and are counted here at all: :count.', [
+            /*
+             * P05-16. THE SENTENCE HERE USED TO SAY THE OPPOSITE OF WHAT THE CODE DOES, and it was
+             * found by `AnalyticsMessagesAreDeclaredTest` looking for something else entirely: it
+             * was declared in neither language file, and reading it in order to translate it showed
+             * what it actually said. What stood here was
+             *
+             *     __('Orders with no customer account, which cannot be attributed to a person and are counted here at all: :count.')
+             *
+             * Guest orders are EXCLUDED -- the docblock above says they are "in neither the
+             * numerator nor the denominator of anything" -- so the disclosure beside the number told
+             * the operator the reverse of the truth.
+             *
+             * It is now the sentence the merchant tile already uses, which is what the docblock
+             * above claims ("as the merchant tile does") and was not true until now. Reusing the
+             * declared key rather than fixing the wording of a new one also means the two tiles
+             * cannot drift apart again.
+             */
+            $hint .= ' '.__('Orders with no customer account, excluded: :count.', [
                 'count' => self::ltr(number_format($unattributed)),
             ]);
         }

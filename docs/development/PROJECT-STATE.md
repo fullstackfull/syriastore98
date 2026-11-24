@@ -108,6 +108,20 @@ decision quoted as such.
 >    disclosure column (it did for `payments` too); and the currency rows are explicitly sorted.
 > 7. **`P5-R8`…`R12`** — four-combination evidence, the per-slice eight-point record, the Phase 05
 >    final report, the loyalty metric as a MySQL harness script; register the ANA-005 harness.
+>    **The STRING half of `R8` is now a test rather than a habit** (`P05-16`): a census of the 33
+>    sources behind the two analytics screens found **7 of 183** `__()` keys declared in NEITHER
+>    language file, so they rendered in English on the Arabic page. Six are declared; the seventh
+>    was REMOVED, because reading it in order to translate it showed it told the operator the
+>    opposite of what the code does -- guest orders are excluded from the cross-tenant Buyers
+>    headcount and the sentence said they "are counted here at all". A dead near-duplicate key in
+>    both files went with it. `AnalyticsMessagesAreDeclaredTest` holds the rule, with the
+>    metric-class scope derived by glob. What remains of `R8` is the RENDERING: four combinations
+>    per screen plus a contrast check, which no test can stand in for.
+>    **Three matrix rows were stale in the pessimistic direction and are re-measured** -- `P05-05`
+>    (its `wc -l` 3660 is 4489, its `grep -c payment_status` 0 is 2 AND BOTH ARE IN COMMENTS, and
+>    five report surfaces have been re-pointed since), `P05-16` and `P05-24` (`phase-5/` holds 17
+>    files and an `evidence/` directory, not three). `P05-05` and `P05-16` move NOT IMPLEMENTED ->
+>    PARTIALLY IMPLEMENTED; the project-wide 350 / 170 verified is unchanged.
 > 8. Then Phase 06 on its own branch and Draft PR, without merging the existing phase PRs.
 >
 > **THE RULE THAT GOVERNS EVERY PUSH:** a push CANCELS a running required run (`ci.yml` sets
