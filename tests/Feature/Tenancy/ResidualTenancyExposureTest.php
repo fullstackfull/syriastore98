@@ -525,7 +525,13 @@ class ResidualTenancyExposureTest extends TestCase
             // come from the slug-resolved store, which is plumbing in app/Http/** and themes/**.
             // SHIFTED (+1 here, +2 below) on 2026-11-19: P1-SEC-73 added the remote-write checks to the uploader functions above these sites.
             // THE SITES ARE UNCHANGED -- each was verified to be the same construct it named before.
-            'app/Models/Utility.php:912',
+            // SHIFTED BY +22 on 2026-11-24 (P06-MOD-2: the symlink guard and its docblock in
+            // `Utility::delete_directory()`). MEASURED, not assumed: the previous revision was read
+            // back out of git and every line below compared against its new position -- all are
+            // byte-identical statements, the shift is uniform, and no raw-query site was added or
+            // removed. `EloquentScopeBypassInventoryTest` records the same shift for the three
+            // truncate sites interleaved with these.
+            'app/Models/Utility.php:934',
 
             // ------------------------------------------------------------------------------
             // FOREIGN_KEY_CHECKS toggles around the country/state/city reference-data import.
@@ -539,12 +545,12 @@ class ResidualTenancyExposureTest extends TestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3410',
-            'app/Models/Utility.php:3412',
-            'app/Models/Utility.php:3435',
-            'app/Models/Utility.php:3437',
-            'app/Models/Utility.php:3451',
-            'app/Models/Utility.php:3453',
+            'app/Models/Utility.php:3432',
+            'app/Models/Utility.php:3434',
+            'app/Models/Utility.php:3457',
+            'app/Models/Utility.php:3459',
+            'app/Models/Utility.php:3473',
+            'app/Models/Utility.php:3475',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '
