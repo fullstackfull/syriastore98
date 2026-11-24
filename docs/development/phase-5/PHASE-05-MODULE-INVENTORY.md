@@ -96,12 +96,61 @@ Every Phase 05 module security finding to date came from **reading** the code, n
 
 The regression tests that now pin those five exist **because** the fix work created the loader
 fixture for them. Before that work, Marketing and Campaigns had 53 routes and no test that could
-reach any of them. The six unreached modules are in that same state today.
+reach any of them. The six unreached modules are in that same state **as to testing** — but not as
+to guarding, which §4.1 measures and which is the part that would otherwise be read into this
+table.
+
+## 4.1 BUT THEY ARE NOT UNGUARDED, and §4 read as if they were
+
+**Added the same day, after §4 was written.** §4's table invites the inference that the six
+unreached modules sit where `Marketing` and `Campaigns` sat before their fixes. **They do not, and
+the difference is the whole point.** Those two were unguarded AND untested. These six are untested
+but **guarded**, by a first-party mechanism that needs no test to work.
+
+`ModuleAdministrativeRouteGuard` is appended to the `web` group globally
+(`bootstrap/app.php:290`) and looks each request up in `ModuleRouteManifest` by **(method, uri)**.
+The manifest carries **340 `ADMINISTRATIVE` rules** (which the guard enforces: `auth('web')` or a
+denial, then an ownership rule) and **243 `ANONYMOUS_BY_DESIGN` rules** (a classification the guard
+never consults, because anonymous is intended there).
+
+Measured over the six unreached modules' route declarations: **21 of 29 are classified.** The other
+eight are not holes:
+
+- **four are `Route::resource(...)` bases**, which expand to seven URIs each; the census could not
+  expand them, so they are counted as unclassified rather than assumed covered. All four sit inside
+  `['auth', 'web', 'PlanModuleCheck:<Module>']` groups in their own route files.
+- **four are ordinary routes already inside those same `auth` groups** — `affiliate/transactions`,
+  `affiliate/pay-requests`, `get-couponemail-fields`, `coupon-email-setting-form`. They are absent
+  from the manifest because the vendored route file already supplies authentication; the manifest
+  exists for the routes that do not.
+
+**TWO CANDIDATE FINDINGS WERE CHASED HERE AND BOTH WERE REFUTED BY READING THE CODE**, which is why
+this section exists rather than a security report:
+
+1. `SpinToWinReward`'s second route group carries **only `['web']`** — no `auth`, no
+   `PlanModuleCheck` — and `manageCustomerEmailLang` writes `EmailTemplateLang` rows keyed on the
+   route `{id}` *before* it touches `Auth`. That reads exactly like an unauthenticated cross-tenant
+   write. It is not: both URIs are in `ADMINISTRATIVE` (`ModuleRouteManifest.php:296-297`,
+   `owner:email-template`), and they are declared by no other module, so the global guard supplies
+   the authentication and the ownership check the route group omits.
+2. `ProductAffiliate` declares `request-amount-sent/{id}`, `request-amount-cancel/{id}` and
+   `request-amount-store/{id}` in a bare `['web']` group, classified `'storefront'` — three names
+   that read like affiliate **payout** state changes open to anyone. Also not: every handler body is
+   wrapped in `if (auth()->guard('customers')->user())` and derives the affiliate from
+   `auth()->guard('customers')->user()->id`, never from the route `{id}`, which is only
+   `Crypt::decrypt`ed into a view. The audience is the `customers` guard, so `'storefront'` is the
+   correct classification — the route needs no `auth` middleware because `auth` is the *merchant*
+   guard and this is a shopper screen.
+
+So the gap in §4 is **verification, not enforcement**. No test can reach those 29 handlers, so
+nothing would catch a regression inside one; but a missing guard is not among the things currently
+wrong with them.
 
 ## 5. What this means for the Phase 05 report, stated as limits
 
 - **Green CI says nothing about the six unreached modules.** Any Phase 05 completion figure must say
-  so rather than let 10,000 passing tests imply coverage they do not have.
+  so rather than let 10,000 passing tests imply coverage they do not have. What it must NOT say is
+  that they are exposed: §4.1 measured the guard coverage and they are not.
 - **The fix is per-module and not free.** Reaching one costs the three-part fixture in §1 plus its
   own migrations. It is ordinary work, needs no owner decision, and is the natural next slice for any
   of the six — `SpinToWinReward` (8 routes) and `ProductAffiliate` (7) are the largest.
