@@ -234,6 +234,133 @@ class LanguageDeletionIsConfinedTest extends SecurityTestCase
     }
 
     // ---------------------------------------------------------------------------------------------
+    // the LIKE wildcard, which the first version of this fix only half closed
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * `_` IS A SQL LIKE WILDCARD AND IT SURVIVES THE ALLOWLIST.
+     *
+     * FOUND BY INDEPENDENT ADVERSARIAL REVIEW OF `9a486500`, AFTER THAT COMMIT WAS ALREADY PUSHED,
+     * and it survived three refuters at "certain" confidence. The first version of this fix claimed
+     * -- in its own commit message, in `PHASE-06-RECURSIVE-DELETE-CONFINEMENT.md` and in the
+     * handler's comment -- that validating the segment "closes the LIKE wildcard incidentally". That
+     * is HALF TRUE and therefore false: `safeSegment()` accepts `^[A-Za-z0-9_-]+$`, which refuses `%`
+     * and ADMITS `_`.
+     *
+     * MEASURED, not inferred: `safeSegment('__')` returns `'__'` unchanged, `safeSegment('e_')`
+     * returns `'e_'`, and only `%` throws. The query builds as `where "language" LIKE ?` with the
+     * binding `__` -- parameterisation binds the VALUE and does not neutralise LIKE metacharacters,
+     * so the engine still expands it.
+     *
+     * WHAT THAT COSTS. 15 of the 16 shipped `resources/lang` directories are exactly two characters
+     * (ar, da, de, en, es, fr, he, it, ja, nl, pl, pt, ru, th, zh), so `LIKE '__'` matches every one
+     * of them. `User` has ZERO global scopes and is absent from `config/tenancy.php`'s
+     * `scoped_models` (both measured), so the write crosses EVERY TENANT. And the update sits outside
+     * the `is_dir($langDir . $lang)` block, so for `__` nothing is deleted, no confinement check ever
+     * runs, and the handler still reassigns every matching user and answers
+     * "Language Deleted Successfully."
+     *
+     * `e_` is the sharper variant: it matches `en`, so the default-and-fallback refusal does not
+     * protect the default language's users either.
+     *
+     * THE FIX IS THE OPERATOR, NOT THE VALUE. `=` is what the intent always was, and nothing is lost:
+     * MySQL's default collation is already case-insensitive. This test pins the OPERATOR and the
+     * OUTCOME, because the only assertion that previously touched this line was a source-position
+     * census that encoded neither -- a `'LIKE'` to `'='` mutation would not have been caught, which
+     * is exactly why the gap survived 11 of 11 mutations.
+     */
+    #[Test]
+    public function test_a_single_character_wildcard_cannot_reassign_every_users_language(): void
+    {
+        $speakers = [];
+
+        foreach (['ar', 'de', 'fr', 'zh'] as $language) {
+            $speakers[$language] = $this->makeMerchant(['language' => $language]);
+        }
+
+        $operator = $this->operatorWhoMayDeleteLanguages();
+
+        // `__` matches every two-character code under LIKE, and names no real language.
+        $this->actingAs($operator)->delete('/lang/__');
+
+        foreach ($speakers as $language => $user) {
+            $this->assertSame(
+                $language,
+                User::withoutGlobalScopes()->find($user->id)->language,
+                'DELETE /lang/__ reassigned a user whose language was ' . $language . '. `_` is a SQL '
+                . 'LIKE wildcard and survives the identifier allowlist, so the mass update matched '
+                . 'every two-character language code -- across every tenant, with nothing deleted.'
+            );
+        }
+    }
+
+    /**
+     * THE SHARPER VARIANT, AND THE FIRST VERSION OF THIS TEST WAS VACUOUS.
+     *
+     * It asserted that `DELETE /lang/e_` left an `en` user on `en`. That PASSED before the fix, and
+     * proved nothing: the handler reassigns matched users TO the default language, which IS `en`, so
+     * `en` to `en` is a no-op and the assertion held whether the wildcard expanded or not. Probed
+     * rather than adjusted when it passed on unfixed code, which is this project's rule.
+     *
+     * `es` is the value that discriminates. It is a SHIPPED language (`resources/lang/es` exists), it
+     * LIKE-matches `e_`, and it is not the default -- so if the wildcard expands, an `es` user is
+     * moved to `en` and the assertion fails. The `en` assertion is kept alongside it because the
+     * interesting fact is that `e_` reaches the PROTECTED language's own bucket at all: the
+     * default-and-fallback refusal compares the segment to `['en']` with `in_array(..., true)`, and
+     * `'e_' !== 'en'`, so nothing stops it being accepted.
+     */
+    #[Test]
+    public function test_a_wildcard_cannot_reach_the_users_of_a_language_it_did_not_name(): void
+    {
+        $this->assertDirectoryExists(base_path('resources/lang/es'),
+            'premise: `es` is a shipped language, so a user may legitimately be on it');
+
+        $spanishSpeaker = $this->makeMerchant(['language' => 'es']);
+        $arabicSpeaker = $this->makeMerchant(['language' => 'ar']);
+
+        $operator = $this->operatorWhoMayDeleteLanguages();
+
+        // `e_` names no language. Under LIKE it matches `en` AND `es`.
+        $this->actingAs($operator)->delete('/lang/e_');
+
+        $this->assertSame(
+            'es',
+            User::withoutGlobalScopes()->find($spanishSpeaker->id)->language,
+            '`e_` LIKE-matched `es` and moved a Spanish-speaking user to the default language. The '
+            . 'code named no language at all, and `es` was never mentioned.'
+        );
+        $this->assertSame('ar', User::withoutGlobalScopes()->find($arabicSpeaker->id)->language);
+    }
+
+    /**
+     * THE CONTROL: deleting a REAL language must still move its users to the default, or the fix is
+     * an outage. This is the behaviour the `LIKE` was there to provide, and `=` provides it.
+     */
+    #[Test]
+    public function test_deleting_a_real_language_still_reassigns_exactly_its_own_users(): void
+    {
+        $this->createDisposableLanguage();
+
+        $affected = $this->makeMerchant(['language' => self::DISPOSABLE]);
+        $untouched = $this->makeMerchant(['language' => 'ar']);
+
+        $operator = $this->operatorWhoMayDeleteLanguages();
+
+        $this->actingAs($operator)->delete('/lang/' . self::DISPOSABLE);
+
+        $default = config('platform.default_language') ?? 'en';
+
+        $this->assertSame(
+            $default,
+            User::withoutGlobalScopes()->find($affected->id)->language,
+            'A user of the deleted language was not moved to the default, so the fix broke the '
+            . 'behaviour the LIKE was there to provide.'
+        );
+        $this->assertSame('ar', User::withoutGlobalScopes()->find($untouched->id)->language,
+            'A user of a DIFFERENT language was moved. The predicate must match exactly one code.');
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // the wiring, pinned structurally
     // ---------------------------------------------------------------------------------------------
 
@@ -314,7 +441,21 @@ class LanguageDeletionIsConfinedTest extends SecurityTestCase
         );
     }
 
-    /** And the refusal RETURNS -- a catch that fell through would leave every delete reachable. */
+    /**
+     * And the refusal RETURNS -- a catch that fell through would leave every delete reachable.
+     *
+     * CORRECTED AFTER REVIEW, and the correction is the point. This test used to bound its search
+     * with `substr($body, $firstCatch, strpos($body, 'delete_directory(') - $firstCatch)`: a span
+     * running from the FIRST `catch (PathNotConfined` all the way to the recursive delete. That
+     * span contains THREE `return redirect()` statements -- this catch, the default/fallback
+     * refusal, and the `within()` catch -- so `assertStringContainsString()` passed with the
+     * return deleted from the one branch the test exists to pin, and no other test covered it.
+     * The reviewer's words: "the assertion is satisfied by two unrelated returns further down the
+     * method".
+     *
+     * It now brace-matches the catch BLOCK and requires exactly one return inside it, so deleting
+     * that return fails the test and adding a second one is visible too.
+     */
     #[Test]
     public function test_a_refused_code_returns_instead_of_continuing(): void
     {
@@ -323,13 +464,43 @@ class LanguageDeletionIsConfinedTest extends SecurityTestCase
         $firstCatch = strpos($body, 'catch (PathNotConfined');
         $this->assertNotFalse($firstCatch, 'destroyLang() no longer catches the refusal.');
 
-        $upToFirstWrite = substr($body, $firstCatch, max(0, strpos($body, 'delete_directory(') - $firstCatch));
+        $block = $this->blockAfter($body, $firstCatch);
 
-        $this->assertStringContainsString(
-            'return redirect()',
-            $upToFirstWrite,
-            'The refusal branch does not return. A caught refusal that falls through leaves the '
-            . 'recursive delete reachable with an unvalidated code.'
+        $this->assertSame(
+            1,
+            substr_count($block, 'return redirect()'),
+            'The refusal branch does not return exactly once. A caught refusal that falls through '
+            . "leaves the recursive delete reachable with an unvalidated code. The block read:\n"
+            . $block
         );
+    }
+
+    /**
+     * The brace-matched `{ ... }` block that starts at the first `{` at or after `$from`.
+     *
+     * Deliberately simple and deliberately asserted: the catch blocks it is pointed at contain no
+     * braces in strings and no nested closures, and `assertNotFalse` below fails loudly rather
+     * than silently returning a wrong span if that ever stops being true.
+     */
+    private function blockAfter(string $source, int $from): string
+    {
+        $open = strpos($source, '{', $from);
+        $this->assertNotFalse($open, 'no block follows the refusal.');
+
+        $depth = 0;
+
+        for ($i = $open, $n = strlen($source); $i < $n; $i++) {
+            if ($source[$i] === '{') {
+                $depth++;
+            } elseif ($source[$i] === '}') {
+                $depth--;
+
+                if ($depth === 0) {
+                    return substr($source, $open, $i - $open + 1);
+                }
+            }
+        }
+
+        $this->fail('the refusal block is not brace-balanced, so this assertion cannot be trusted.');
     }
 }

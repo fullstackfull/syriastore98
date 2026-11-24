@@ -13,10 +13,25 @@ same shape it does not reach.* This is that door, plus the census that establish
 
 | Implementation | Called by | Path source |
 |---|---|---|
-| `ModuleController::deleteDirectory()` `:536` | `remove()` (fixed in `c3010288`), and the install path `:333/:351/:361` | a confined canonical path; the install path builds its own temp tree |
-| `Utility::delete_directory()` `:568` | **`LanguageController::destroyLang()` `:607`** | **a raw route segment** |
-| `AddonController::deleteDirectory()` `:238` | `:137` | a temp tree it just created |
+| `ModuleController::deleteDirectory()` `:504` | `remove()` `:258` (fixed in `c3010288`), and the install path `:388/:406/:416` | a confined canonical path; the install path builds its own temp tree |
+| `Utility::delete_directory()` `:568` | **`LanguageController::destroyLang()` `:754`** | **a raw route segment** |
+| `AddonController::deleteDirectory()` `:274` | `:173` (`:283` is its own recursion, not a caller) | a temp tree it just created |
 | `helper.php` global `delete_directory()` `:2325` | **nothing but itself** | — |
+
+> **EVERY NUMBER IN THIS TABLE WAS WRONG, AND THE CORRECTION IS WORTH MORE THAN THE TABLE.**
+> Independent review of this document found the `ModuleController` row citing lines that do not
+> exist: `:536` for a method declared at `:504`, and `:333/:351/:361` for calls at `:388/:406/:416`.
+> Re-measuring the whole table then found two MORE stale rows that the review had passed as correct
+> — `destroyLang()` moved `:607` → `:754` and `AddonController::deleteDirectory()` moved `:238` →
+> `:274`, both because later commits in this same slice added docblocks above them. A line-keyed
+> citation in prose is stale the moment either file is touched, and nothing in CI reads it, so it
+> rots silently. Re-derive rather than trust, and the numbers above are as at **2026-11-24**:
+>
+> ```bash
+> grep -n 'function deleteDirectory\|function delete_directory\|deleteDirectory(\|Utility::delete_directory(' \
+>   app/Http/Controllers/ModuleController.php app/Http/Controllers/AddonController.php \
+>   app/Http/Controllers/LanguageController.php app/Models/Utility.php app/Helper/helper.php
+> ```
 
 So exactly one of them was reachable with caller-supplied input, and `helper.php`'s copy is dead
 code — a third implementation of the same function that no call site uses. Recorded, not deleted:
@@ -79,8 +94,17 @@ tests verify: **65 passed** across both suites immediately after it.
 ### In `destroyLang`, three things changed
 
 1. **The name is validated first**, and `$lang` is reassigned to the validated value, so no later
-   line can reintroduce the raw segment. This also closes the `LIKE` wildcard incidentally — `%` no
-   longer survives.
+   line can reintroduce the raw segment.
+
+   **A CORRECTION, AND IT WAS A REAL DEFECT.** This document originally added "and this closes the
+   `LIKE` wildcard incidentally — `%` no longer survives." That was **wrong**, and independent
+   adversarial review caught it after the commit was pushed. `safeSegment()` accepts
+   `^[A-Za-z0-9_-]+$`: it refuses `%` and **admits `_`**, which is a single-character LIKE wildcard.
+   `DELETE /lang/__` therefore still matched every two-character code — 15 of the 16 shipped language
+   directories — and `User` has **zero** global scopes and is absent from `scoped_models`, so the
+   write crossed **every tenant**, while the statement sits outside the `is_dir()` block so nothing
+   was deleted and the handler reported success. `e_` reached `es` as well as the protected `en`. The
+   predicate is now `=`, which is what the intent always was.
 2. **The recursive delete gets a confined canonical path** — but only when the directory exists.
    That condition is deliberate: `within()` throws for a path that does not exist, so applying it
    unconditionally would make an **orphaned manifest entry impossible to remove**, which the old code
@@ -162,12 +186,10 @@ nor inflate the count — the hazard CLAUDE.md records as having hit four census
 
 - **`helper.php:2325`'s `delete_directory()` is a third copy with no caller.** Inert. Deleting a
   global function is wider than this slice.
-- **`AddonController::deleteDirectory()` `:238` is a fourth copy** and still has the `is_dir`-follows-a-link
+- **`AddonController::deleteDirectory()` `:274` is a fourth copy** and still has the `is_dir`-follows-a-link
   behaviour. Its only caller passes a temp tree it created itself, so no caller input reaches it —
   but it belongs to the theme/addon upload slice, which is where it will be handled rather than
   patched piecemeal here.
-- **Whether the `LIKE` should have been `=` all along.** `User::where('language','LIKE',$lang)` now
-  receives a validated segment, so the wildcard is closed — but `LIKE` without wildcards is still a
-  slower, looser comparison than `=` and the intent was plainly equality. Left alone because changing
-  it alters which rows a legitimate call matches (collation and trailing-space semantics differ), and
-  that is a behaviour question rather than the security fix.
+- ~~Whether the `LIKE` should have been `=` all along.~~ **FIXED, and this entry was the defect.**
+  It was written on the false premise that "the wildcard is closed" and dismissed the operator as a
+  style question. `_` survives the allowlist. See the correction in §3.
