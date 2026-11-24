@@ -95,7 +95,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 217 lines
+### `warning` — 218 lines
+
+> **[2026-11-24] 217 -> 218.** One line added by the P06-2B review follow-up
+> (`ModuleAvailability could not read the enable flag`, with its destination and reader in its own
+> section below). `resync-observability-inventory.py` REFUSED to write it, correctly and for the
+> third time: the line is NEW, not moved.
 
 > **[2026-11-21] 216 -> 217.** One line added by ANA-009 (`Metric threshold alert could not be recorded`, with its destination
 > and reader in its own section below). `resync-observability-inventory.py` REFUSED to write it, correctly: the line is NEW, not
@@ -353,6 +358,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StoredUpload.php:117` | a stored upload path names another tenant |
 | `app/Support/StoreBoundFilesystem.php:170` | a delete outside the current store was refused |
 | `app/Support/Security/ObjectFreeEncrypter.php:59` | a decrypted payload was not plain data and was refused |
+| `app/Support/Modules/ModuleAvailability.php:99` | ModuleAvailability could not read the enable flag; treating the module as available. |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
@@ -363,6 +369,33 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 <!-- counts: error=95 info=22 debug=1 -->
 
 ---
+
+### The row added 2026-11-24 (P06-2B review F9), with its destination and reader
+
+`app/Support/Modules/ModuleAvailability.php:99` —
+*ModuleAvailability could not read the enable flag; treating the module as available.*
+
+**Why it exists at all.** `ModuleAvailability::isDisabled()` is the predicate behind
+`DisabledModuleRouteGuard`: it answers whether an application has been switched off, and the guard
+refuses that application's authenticated routes when it says yes. It is deliberately **fail-open** —
+a database that cannot be read must not make every module's routes refuse — and until this row it
+swallowed its `Throwable` with **no log at all**.
+
+Independent review named the shape: its sibling at `PackageServiceProvider` logs `critical` for the
+same class of failure, and this project's own P1-PLT-04 lesson was that a broken install *did not
+fail, it DISAPPEARED*. An availability control that silently stops controlling is exactly that, so
+it now says so while keeping the open direction.
+
+**Where it lands:** the application log, via `Log::warning`, with `module` and `exception` so the
+reader knows which application stopped being gated and why.
+
+**Who reads it, and what they do.** The platform operator. This line means route-level enforcement
+of the disabled-application boundary is **not happening** for the named module — the module's
+authenticated routes are being served whatever its `add_on_managers.is_enable` says. The action is
+to check that `add_on_managers` is readable (the message carries the database error), not to change
+the module's flag. **It is never expected in normal operation**, so one occurrence is worth
+investigating; it cannot be caused by a module simply having no row, which is a separate, silent and
+correct "not disabled".
 
 ### The row added 2026-11-21 (ANA-009), with its destination and reader
 

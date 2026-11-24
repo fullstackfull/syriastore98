@@ -3,6 +3,7 @@
 namespace App\Support\Modules;
 
 use App\Models\AddOnManager;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -84,7 +85,22 @@ final class ModuleAvailability
              * strict form is not adopted merely because the suite cannot distinguish it.
              */
             return $flag !== null && $flag == 0;
-        } catch (\Throwable) {
+        } catch (\Throwable $failure) {
+            /*
+             * FAIL OPEN, BUT NEVER SILENTLY. Found by independent review: this swallowed the
+             * throwable with no log at all, while its sibling in `PackageServiceProvider` logs
+             * `critical` for the same class of failure -- and this project's own P1-PLT-04 lesson
+             * was that a broken install did not fail, it DISAPPEARED. An availability control that
+             * stops controlling is exactly that shape, so it now says so.
+             *
+             * The direction is still open, deliberately: a database that cannot be read must not
+             * make every module's routes refuse.
+             */
+            Log::warning('ModuleAvailability could not read the enable flag; treating the module as available.', [
+                'module' => $module,
+                'exception' => $failure->getMessage(),
+            ]);
+
             return false;
         }
     }

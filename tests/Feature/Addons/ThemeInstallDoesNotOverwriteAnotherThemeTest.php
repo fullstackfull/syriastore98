@@ -72,6 +72,22 @@ class ThemeInstallDoesNotOverwriteAnotherThemeTest extends SecurityTestCase
 
     protected function tearDown(): void
     {
+        /*
+         * AN EMPTY BASELINE MEANS "I DO NOT KNOW WHAT WAS HERE", NOT "NOTHING WAS HERE".
+         *
+         * Raised by independent review as speculative, and closed because the blast radius is the
+         * three shipped themes. `setUp()` builds the baseline with `scandir(...) ?: []`, so a failed
+         * scan -- or a `setUp()` that died before that line -- leaves it empty, and the loop below
+         * would then treat `stylique`, `greentic` and `techzonix` as this test's own leftovers and
+         * recursively delete all three. Unreachable in practice (same directory, same process), and
+         * one line is cheaper than the argument.
+         */
+        if ($this->baseline === []) {
+            parent::tearDown();
+
+            return;
+        }
+
         foreach (array_diff(scandir($this->themesRoot) ?: [], ['.', '..']) as $entry) {
             if (! in_array($entry, $this->baseline, true)) {
                 $this->rmrf($this->themesRoot . '/' . $entry);
@@ -114,6 +130,31 @@ class ThemeInstallDoesNotOverwriteAnotherThemeTest extends SecurityTestCase
         $this->assertTrue($zip->open($file, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true, 'premise');
         $zip->addEmptyDir(dirname($entryPath));
         $zip->addFromString($entryPath, $contents);
+        $zip->close();
+
+        return $file;
+    }
+
+    /**
+     * An archive with SEVERAL top-level entries, built in the order given.
+     *
+     * `scandir()` sorts, so the order here is not what decides the install's choice -- the byte
+     * values do. That is the whole point of the two cases below.
+     */
+    private function archiveWithEntries(array $entries): string
+    {
+        $file = tempnam(sys_get_temp_dir(), 'ss-theme-multi-') . '.zip';
+
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($file, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true, 'premise');
+
+        foreach ($entries as $path => $contents) {
+            if (str_contains($path, '/')) {
+                $zip->addEmptyDir(dirname($path));
+            }
+            $zip->addFromString($path, $contents);
+        }
+
         $zip->close();
 
         return $file;
@@ -230,5 +271,181 @@ class ThemeInstallDoesNotOverwriteAnotherThemeTest extends SecurityTestCase
 
         $this->assertStringNotContainsString("extractTo(base_path('themes/'))", $body,
             'The extraction into the themes root is back.');
+    }
+    // ---------------------------------------------------------------------------------------------
+    // found by independent review of THIS fix -- two shapes it did not close, and one it broke
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * AN UPLOAD NAME THAT SANITISES TO NOTHING MADE THE ARCHIVE PICK THE THEMES ROOT AGAIN.
+     *
+     * Review finding F11. Deleting the first `extractTo` closed the one-request overwrite, but
+     * `$extractPath = base_path('themes/' . safeDirectoryName($filename))` has no `=== ''` check,
+     * and `safeDirectoryName()` returns the empty string for a name with nothing in
+     * `[A-Za-z0-9_-]`. Measured:
+     *
+     *   '....zip'   -> basename '...'      -> safeDirectoryName ''
+     *   '@@@.zip'   -> basename '@@@'      -> safeDirectoryName ''
+     *   'العربية.zip' -> basename 'العربية' -> safeDirectoryName ''
+     *
+     * THE ARABIC CASE IS WHY THIS IS NOT ONLY AN ATTACK. This product is bilingual; a theme zip
+     * named in Arabic is an ordinary thing for this operator to upload, and it silently took the
+     * themes root as its target.
+     *
+     * With an empty name `$extractPath` is `themes/`, `is_dir()` is true so the mkdir is skipped,
+     * and `moveExtractedFiles()` merges the archive's root folder INTO the themes root -- recursing
+     * into existing directories and overwriting files with `rename()`. Both siblings already have
+     * this check: `ModuleController::install()` ("The uploaded file name is not a valid module
+     * name") and `AddonController::destroy()`.
+     *
+     * SAFE TO RUN FAILING-FIRST, by construction: the archive's root folder is this test's own
+     * disposable theme name, so even the unfixed merge-into-the-root writes only into a directory
+     * this test created and `tearDown()` removes. No shipped theme is named in the archive.
+     */
+    #[Test]
+    public function test_an_upload_name_that_sanitises_to_nothing_is_refused(): void
+    {
+        $victim = $this->themesRoot . '/' . self::VICTIM;
+        mkdir($victim . '/front_end/layouts', 0o777, true);
+        file_put_contents($victim . '/front_end/layouts/app.blade.php', 'ORIGINAL');
+
+        /*
+         * TWO LEVELS, AND THE FIRST DRAFT OF THIS TEST HAD ONE AND PASSED AGAINST THE UNFIXED
+         * HANDLER. `moveExtractedFiles()` moves the CONTENTS of `tmp/<rootFolderName>`, so with a
+         * single-level archive the root folder IS `zz9victim` and its contents land at
+         * `themes/front_end/...` -- missing the victim entirely and proving nothing. The overwrite
+         * needs the shape a real theme zip has: a wrapper directory that CONTAINS the theme
+         * directory. The review said so in one clause -- "one extra nesting level" -- and it is the
+         * difference between a test that fails first and a test that is decoration.
+         */
+        $archive = $this->archiveWithEntries([
+            'wrapper/' . self::VICTIM . '/front_end/layouts/app.blade.php' => 'REPLACED BY THE UPLOAD',
+        ]);
+
+        $this->install($archive, '...');
+
+        $this->assertSame(
+            'ORIGINAL',
+            file_get_contents($victim . '/front_end/layouts/app.blade.php'),
+            'an upload whose name sanitises to the empty string still took the themes ROOT as its '
+            . 'target, so the archive chose which installed theme to overwrite'
+        );
+    }
+
+    /**
+     * AND THE REFUSAL IS THE RESPONSE, NOT A SIDE EFFECT.
+     *
+     * Separate from the assertion above, which would also pass if the handler wrote somewhere else
+     * entirely. This pins that the operator is told, rather than the upload silently doing nothing.
+     */
+    #[Test]
+    public function test_an_upload_name_that_sanitises_to_nothing_says_so(): void
+    {
+        $archive = $this->archiveNaming(self::UPLOAD . '/style.css', 'body{}');
+
+        $response = $this->install($archive, '@@@');
+
+        $response->assertOk();
+        $this->assertSame('error', $response->json('status'),
+            'the handler accepted a name it cannot build a directory from');
+    }
+
+    /**
+     * A MAC-BUILT ARCHIVE LOST THE THEME -- A REGRESSION THIS SLICE INTRODUCED.
+     *
+     * Review finding F10, and it is the one case where deleting the first `extractTo` made things
+     * worse. The final contents of `themes/` used to be the UNION of that extraction and the move.
+     * The move is partial by construction: `$rootFolderName` is
+     * `array_values(array_diff(scandir($tempPath), ['.','..']))[0]` -- scandir's ALPHABETICALLY
+     * FIRST entry. Measured on a directory holding `__MACOSX`, `greentic` and `.DS_Store`:
+     *
+     *   [0] => .DS_Store     [1] => __MACOSX     [2] => greentic
+     *
+     * `.` is 0x2E and `_` is 0x5F, both below lowercase `a` at 0x61 -- and every shipped theme is
+     * named in lowercase. So for any Finder-built zip the move takes the sidecar, and the real
+     * theme, which used to be on disk anyway because of the deleted extraction, is now left in the
+     * temp tree and deleted with it. The result was `themes/<name>` holding the sidecar's contents,
+     * an `Addon` row with `status = 1`, and a broken theme.
+     *
+     * The sibling installer guards the second half of this (`ModuleController::install()` falls
+     * back to the temp root when the first entry is not a directory) and not the first.
+     */
+    #[Test]
+    public function test_an_archive_carrying_a_macos_sidecar_still_installs_the_theme(): void
+    {
+        $archive = $this->archiveWithEntries([
+            '__MACOSX/._' . self::UPLOAD => 'mac sidecar',
+            self::UPLOAD . '/style.css' => 'body{color:red}',
+        ]);
+
+        $this->install($archive, self::UPLOAD);
+
+        $this->assertFileExists(
+            $this->themesRoot . '/' . self::UPLOAD . '/style.css',
+            'the install moved the macOS sidecar instead of the theme, so the theme is gone'
+        );
+        $this->assertSame(
+            'body{color:red}',
+            file_get_contents($this->themesRoot . '/' . self::UPLOAD . '/style.css')
+        );
+    }
+
+    /**
+     * AND AN ARCHIVE WHOSE FIRST ENTRY IS A FILE MUST NOT BE AN HTTP 500.
+     *
+     * The second shape of the same finding. With a leading `.DS_Store`, `moveExtractedFiles()` sets
+     * `$source` to that FILE, and `scandir()` on a file returns `false`, which `array_diff()`
+     * rejects as a TypeError on PHP 8.3 -- leaving `themes/tmp_<uniqid>` behind and an empty target
+     * directory. This happened before the fix too, so it is pre-existing rather than introduced,
+     * but it is the same one-line cause and is closed with it.
+     */
+    #[Test]
+    public function test_an_archive_whose_first_entry_is_a_file_still_installs_the_theme(): void
+    {
+        $archive = $this->archiveWithEntries([
+            '.DS_Store' => 'finder metadata',
+            self::UPLOAD . '/style.css' => 'body{color:blue}',
+        ]);
+
+        $response = $this->install($archive, self::UPLOAD);
+
+        $response->assertOk();
+        $this->assertFileExists(
+            $this->themesRoot . '/' . self::UPLOAD . '/style.css',
+            'a leading dotfile in the archive broke the install'
+        );
+    }
+
+    /**
+     * A FLAT ARCHIVE -- FILES AT THE ROOT, NO WRAPPER DIRECTORY -- MUST STILL INSTALL.
+     *
+     * ADDED BECAUSE A MUTATION SURVIVED, and that is the only reason this test exists. The
+     * `.`-prefix and `__MACOSX` filter above already removes the sidecar cases, so deleting the
+     * `! is_dir(...)` fallback broke nothing and the guard was real but unpinned -- exactly the
+     * shape that cost this project a redundant check in the module door.
+     *
+     * This is the shape that needs it: when every top-level entry is a FILE, there is no directory
+     * to descend into, so `$rootFolderName` must become null and the move must take the temp root
+     * itself. Without the fallback `$source` is a FILE, `scandir()` on a file returns `false`, and
+     * `array_diff(false, ...)` is a TypeError on PHP 8.3 -- an HTTP 500 that leaves
+     * `themes/tmp_<uniqid>` behind. The sibling `ModuleController::install()` guards precisely this
+     * and the theme installer did not.
+     */
+    #[Test]
+    public function test_a_flat_archive_with_no_wrapper_directory_still_installs(): void
+    {
+        $archive = $this->archiveWithEntries([
+            'layout.blade.php' => '<html></html>',
+            'style.css' => 'body{color:green}',
+        ]);
+
+        $response = $this->install($archive, self::UPLOAD);
+
+        $response->assertOk();
+        $this->assertSame(
+            'body{color:green}',
+            @file_get_contents($this->themesRoot . '/' . self::UPLOAD . '/style.css'),
+            'a flat archive, whose first entry is a file rather than a directory, did not install'
+        );
     }
 }

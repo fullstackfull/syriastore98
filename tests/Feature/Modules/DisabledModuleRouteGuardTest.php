@@ -48,6 +48,20 @@ class DisabledModuleRouteGuardTest extends SecurityTestCase
         ]);
     }
 
+    /**
+     * A route authenticated BY THE MANIFEST and not by its own middleware -- the F1 shape.
+     *
+     * `partialpayments` is a real `ModuleRouteManifest::ADMINISTRATIVE` key with rule `'auth'`, and
+     * `['web']` is really all the live declaration carries. See the test below for why.
+     */
+    private function manifestAuthenticatedRoute(string $module): Route
+    {
+        return new Route(['GET'], 'partialpayments', [
+            'controller' => 'Workdo\\' . $module . '\\app\\Http\\Controllers\\PartialPaymentsController@index',
+            'middleware' => ['web'],
+        ]);
+    }
+
     private function drive(Route $route): \Symfony\Component\HttpFoundation\Response
     {
         $request = Request::create('/probe', 'GET');
@@ -279,5 +293,92 @@ class DisabledModuleRouteGuardTest extends SecurityTestCase
                 'The guard is not in the ' . $group . ' group, so module routes in it are unguarded.'
             );
         }
+    }
+    /**
+     * A SWITCHED-OFF MODULE'S ADMIN WRITERS ARE REFUSED EVEN WHEN NOTHING IN THEIR MIDDLEWARE SAYS
+     * "AUTH" -- FOUND BY INDEPENDENT REVIEW, AND IT WAS THE GUARD'S CENTRAL CLAIM THAT WAS WRONG.
+     *
+     * The predicate read `gatherMiddleware()` alone, which is where `route-census.php` looks -- so
+     * the control and the measurement agreed with each other and both missed the 340 routes this
+     * application authenticates through `ModuleRouteManifest` + `ModuleAdministrativeRouteGuard`
+     * instead of through route middleware.
+     *
+     * MEASURED on the real router, replaying PartialPayments' own two declarations in their own
+     * order (`packages/workdo/PartialPayments/src/routes/web.php`: the resource at line 18 inside
+     * `['auth','web','PlanModuleCheck:PartialPayments']`, and THE SAME RESOURCE AGAIN at line 30
+     * inside `['web']`):
+     *
+     *   GET partialpayments              middleware=[web]  gatherMiddleware says auth: NO
+     *   POST payment-status-change/{id}  middleware=[web]  gatherMiddleware says auth: NO
+     *
+     * -- and the manifest says `'auth'` for both. CLAUDE.md's rule is why: a later declaration
+     * REPLACES an earlier one for the same method+URI and silently drops its middleware. So a
+     * signed-in merchant with PartialPayments switched off still reached the whole admin resource
+     * and `POST payment-status-change/{id}`, which is P1-SEC-04's own named effect.
+     */
+    #[Test]
+    public function test_a_route_authenticated_only_by_the_manifest_is_still_refused(): void
+    {
+        $this->assertNotNull(
+            \App\Support\ModuleRouteManifest::administrativeRule('GET', 'partialpayments'),
+            'premise: this test depends on `GET partialpayments` being an ADMINISTRATIVE key. If '
+            . 'the manifest no longer carries it, pick another key rather than deleting the test.'
+        );
+
+        AddOnManager::create(['module' => 'PartialPayments', 'name' => 'PartialPayments', 'is_enable' => 0]);
+
+        $response = $this->drive($this->manifestAuthenticatedRoute('PartialPayments'));
+
+        $this->assertNotSame(
+            200,
+            $response->getStatusCode(),
+            'a disabled module\'s admin route was served because its authentication lives in the '
+            . 'manifest rather than in its middleware array'
+        );
+    }
+
+    /**
+     * And the predicate itself says so, for both verbs -- including a POST, which is the writer.
+     *
+     * Separate from the test above because that one proves the GUARD refuses; this proves the
+     * PREDICATE is what makes it, so a future change to `handle()` cannot quietly re-open it while
+     * the predicate still reads correctly.
+     */
+    #[Test]
+    public function test_the_predicate_counts_manifest_authentication_for_the_requests_own_verb(): void
+    {
+        $get = new Route(['GET'], 'partialpayments', ['controller' => 'Workdo\\PartialPayments\\X@i', 'middleware' => ['web']]);
+        $post = new Route(['POST'], 'payment-status-change/{id}', ['controller' => 'Workdo\\PartialPayments\\X@i', 'middleware' => ['web']]);
+
+        $this->assertTrue(DisabledModuleRouteGuard::requiresAuthentication($get, 'GET'));
+        $this->assertTrue(DisabledModuleRouteGuard::requiresAuthentication($post, 'POST'));
+
+        /*
+         * AND THE VERB IS THE REQUEST'S, NOT THE ROUTE'S FIRST. `Route::any` carries seven methods
+         * and the manifest keys each separately, so reading `$route->methods()[0]` would answer for
+         * a verb the caller never sent. A route with no manifest rule for the verb asked about, and
+         * no auth middleware, must still read as anonymous -- or the guard would refuse the 100
+         * storefront routes that are deliberately out of scope pending the owner's decision.
+         */
+        $any = new Route(['GET', 'POST'], 'zz9-no-such-manifest-key', ['controller' => 'Workdo\\PartialPayments\\X@i', 'middleware' => ['web']]);
+        $this->assertFalse(DisabledModuleRouteGuard::requiresAuthentication($any, 'GET'));
+
+        /*
+         * AND THIS IS THE CASE THAT PINS IT. `payment-status-change/{id}` carries a rule for POST
+         * and NO rule for GET (asserted below, so a manifest change cannot leave this silently
+         * vacuous). A `Route::any`-shaped route therefore answers differently depending on which
+         * verb is asked about -- so reading `$route->methods()[0]` instead of the request's method
+         * would return false for the POST that is the actual writer.
+         */
+        $this->assertNull(\App\Support\ModuleRouteManifest::administrativeRule('GET', 'payment-status-change/{id}'),
+            'premise: GET must have no rule for this to discriminate');
+        $this->assertNotNull(\App\Support\ModuleRouteManifest::administrativeRule('POST', 'payment-status-change/{id}'),
+            'premise: POST must have a rule for this to discriminate');
+
+        $either = new Route(['GET', 'POST'], 'payment-status-change/{id}', ['controller' => 'Workdo\\PartialPayments\\X@i', 'middleware' => ['web']]);
+        $this->assertSame(['GET', 'POST', 'HEAD'], $either->methods(), 'premise: GET is first');
+        $this->assertTrue(DisabledModuleRouteGuard::requiresAuthentication($either, 'POST'),
+            'the predicate read the route\'s first verb instead of the request\'s, so the writer '
+            . 'reads as anonymous');
     }
 }

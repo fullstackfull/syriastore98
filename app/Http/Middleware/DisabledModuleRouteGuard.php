@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\ModuleRouteManifest;
 use App\Support\Modules\ModuleAvailability;
 use Closure;
 use Illuminate\Http\Request;
@@ -81,7 +82,7 @@ class DisabledModuleRouteGuard
             return $next($request);
         }
 
-        if (! self::requiresAuthentication($route)) {
+        if (! self::requiresAuthentication($route, $request->method())) {
             return $next($request);
         }
 
@@ -95,11 +96,35 @@ class DisabledModuleRouteGuard
     /**
      * The module that owns a route, from its action's namespace, or null for a host route.
      *
-     * THE PATTERN IS THE PROJECT'S OWN, not a new convention: `route-census.php` derives the module
-     * exactly this way, and the census MEASURED the mapping as exact in both directions -- every
-     * module route's action matches `Workdo\<Module>\`, every such `<Module>` is a real directory
-     * under `packages/workdo`, and there are no mismatches either way across all 1,464 of them. That
-     * is what makes a host-side guard possible at all.
+     * THE PATTERN IS THE PROJECT'S OWN: `route-census.php:75` derives the module with this exact
+     * regex, so the control and the measurement agree on what "module-owned" means.
+     *
+     * THE CLAIM THIS DOCBLOCK USED TO MAKE WAS CIRCULAR, and independent review said so. It read
+     * "the census MEASURED the mapping as exact in both directions ... no mismatches either way
+     * across all 1,464 of them." But the census DEFINES module-ownership with the same regex, so it
+     * cannot discover a route the regex misses -- such a route is simply counted as first-party.
+     * What is actually measured, and does hold, is the forward direction: every `Workdo\<Module>\`
+     * the regex captures is a real directory under `packages/workdo`, and every module's
+     * `composer.json` PSR-4 key is `Workdo\<Directory>\` for all 70, `Signinwithgithub` included.
+     *
+     * TWO CLASSES ARE THEREFORE UNATTRIBUTABLE, and both fail OPEN -- they read as host routes:
+     *
+     *  1. A CLOSURE ACTION. `Route::getActionName()` returns the literal `'Closure'` when the action
+     *     has no controller. Measured: 11 of the 137 module route files declare one. Most are the
+     *     `auth:api` probe each module's `api.php` ships, and there is no `api` guard in this
+     *     application (CLAUDE.md), so they throw for everybody -- latent rather than live.
+     *  2. A MODULE-DECLARED ROUTE POINTING AT A FIRST-PARTY CONTROLLER. Measured: exactly two files
+     *     import one, `AutomaticOrderPrinting/src/routes/web.php` (live) and
+     *     `CheckoutAttachment/src/routes/web.php` (its route is commented out). The live one
+     *     re-declares `shippinglabel/pdf/{id}` and takes the slot from the host's AUTHENTICATED
+     *     declaration -- the case `bootstrap/app.php` already records -- so switching that module
+     *     off neither un-mounts the route nor restores the host's version. Its ownership half is
+     *     covered by `OrderDocumentAccessGuard`; its availability half is not.
+     *
+     * A REGEX CHANGE CANNOT FIX EITHER, which is why they are recorded rather than patched: the
+     * declaring FILE is not available at request time, only the action. Closing them needs the
+     * route-to-module mapping to come from the manifest rather than from the action name, which is
+     * the same change the storefront widening needs and belongs with it.
      */
     public static function moduleOf(Route $route): ?string
     {
@@ -109,14 +134,51 @@ class DisabledModuleRouteGuard
     }
 
     /**
-     * Does the route carry its own authentication middleware?
+     * Is this route authenticated -- BY ANY OF THE THREE MECHANISMS THIS APPLICATION USES?
      *
-     * The predicate is `route-census.php`'s, so the control and the measurement agree on what
-     * "authenticated" means. `gatherMiddleware()` is the route's OWN list plus its groups' and needs
-     * no router call, so this is array work rather than a resolution pass.
+     * CORRECTED AFTER INDEPENDENT REVIEW, AND THE CORRECTION WAS THE WHOLE POINT OF THE GUARD.
+     * This read `gatherMiddleware()` alone, which is where `route-census.php` looks -- so the
+     * control and the measurement agreed with each other and both were wrong, because this codebase
+     * authenticates module routes in a way that puts nothing in the route's middleware array.
+     *
+     * MEASURED, on the real router, replaying PartialPayments' own two declarations in their own
+     * order (`packages/workdo/PartialPayments/src/routes/web.php`, the resource at line 18 inside
+     * `['auth','web','PlanModuleCheck:PartialPayments']` and THE SAME RESOURCE AGAIN at line 30
+     * inside `['web']`):
+     *
+     *   GET partialpayments               middleware=[web]   gatherMiddleware says auth: NO
+     *                                                        manifest rule:            'auth'
+     *   POST payment-status-change/{id}   middleware=[web]   gatherMiddleware says auth: NO
+     *                                                        manifest rule:            'auth'
+     *
+     * CLAUDE.md's rule is why: "Later route declarations REPLACE earlier ones for the same
+     * method+URI, silently dropping the earlier middleware." So the second declaration wins and
+     * `auth` is gone from the array. Those routes are authenticated -- by
+     * `ModuleAdministrativeRouteGuard`, which is group middleware that resolves `auth('web')->user()`
+     * for any `METHOD uri` carrying a `ModuleRouteManifest::ADMINISTRATIVE` rule (340 keys). That is
+     * authentication; it is simply not route middleware, and the manifest exists precisely BECAUSE
+     * these routes had none of their own.
+     *
+     * Without the second limb below, a merchant with PartialPayments switched off still reached the
+     * whole `partialpayments` admin resource and `POST payment-status-change/{id}` -- which is
+     * P1-SEC-04's own named effect. The guard's docblock claimed it closed "every screen and every
+     * writer"; it closed the ones that say so in their own middleware.
+     *
+     * THE METHOD IS THE REQUEST'S, NOT `$route->methods()[0]`, for the reason
+     * `ModuleAdministrativeRouteGuard` uses the request's: `Route::any` carries seven methods and
+     * the manifest keys each separately, so the first one would answer for a verb the caller did not
+     * send.
+     *
+     * `gatherMiddleware()` is the route's own list plus its groups', needs no router call, and DOES
+     * include a controller's `__construct` middleware -- `Router::gatherRouteMiddleware()` memoises
+     * `computedMiddleware` before the pipeline runs, so this is array work either way.
      */
-    public static function requiresAuthentication(Route $route): bool
+    public static function requiresAuthentication(Route $route, ?string $method = null): bool
     {
+        if (ModuleRouteManifest::administrativeRule($method ?? $route->methods()[0], $route->uri()) !== null) {
+            return true;
+        }
+
         foreach ($route->gatherMiddleware() as $middleware) {
             if (! is_string($middleware)) {
                 continue;

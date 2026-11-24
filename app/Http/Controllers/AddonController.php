@@ -130,8 +130,39 @@ class AddonController extends Controller
             $filenameWithExt = $request->file('file')->getClientOriginalName();
             $filename = pathinfo($filenameWithExt, PATHINFO_FILENAME);
 
+            /*
+             * AN ARCHIVE MUST NOT BE ABLE TO PICK THE THEMES ROOT AS ITS TARGET.
+             *
+             * Found by independent review of the extraction fix in `039d17b4`, which closed the
+             * one-request overwrite and left this. `safeDirectoryName()` strips everything outside
+             * `[A-Za-z0-9_-]` and RETURNS THE EMPTY STRING when nothing is left. Measured:
+             *
+             *   '....zip'     -> basename '...'       -> ''
+             *   '@@@.zip'     -> basename '@@@'       -> ''
+             *   'العربية.zip' -> basename 'العربية'   -> ''
+             *
+             * The Arabic case is why this is not only an attack shape: this product is bilingual
+             * and a theme zip named in Arabic is an ordinary upload. With an empty name
+             * `$extractPath` became `themes/` itself, `is_dir()` was true so the mkdir below was
+             * skipped, and `moveExtractedFiles()` merged the archive's root folder INTO the themes
+             * root -- recursing into existing directories and overwriting files with `rename()`. So
+             * an archive containing `greentic/...` replaced the installed greentic theme.
+             *
+             * BOTH SIBLINGS ALREADY HAD THIS CHECK and this one did not:
+             * `ModuleController::install()` ("The uploaded file name is not a valid module name")
+             * and `AddonController::destroy()` a few lines above.
+             */
+            $themeName = InstallAddonRequest::safeDirectoryName($filename);
+
+            if ($themeName === '') {
+                $return['status'] = 'error';
+                $return['message'] = __('The uploaded file name is not a valid theme name.');
+
+                return response()->json($return);
+            }
+
             // Define the target directory
-            $extractPath = base_path('themes/' . InstallAddonRequest::safeDirectoryName($filename));
+            $extractPath = base_path('themes/' . $themeName);
 
             // Ensure the directory exists (create it if it doesn't)
             if (!is_dir($extractPath)) {
@@ -164,7 +195,41 @@ class AddonController extends Controller
                 return response()->json($return);
             }
 
-            $rootFolderName = array_values($rootFolder)[0]; // Get the first folder name in the zip
+            /*
+             * THE ARCHIVE'S ROOT FOLDER IS A DIRECTORY, NOT WHATEVER SORTS FIRST.
+             *
+             * Also from the review of `039d17b4`, and the one case where that commit made things
+             * WORSE rather than better. The final contents of `themes/` used to be the UNION of the
+             * deleted first extraction and this move; the move alone is partial, because
+             * `$rootFolderName` was `scandir()`'s alphabetically first entry. Measured on a
+             * directory holding `__MACOSX`, `greentic` and `.DS_Store`:
+             *
+             *   [0] => .DS_Store    [1] => __MACOSX    [2] => greentic
+             *
+             * `.` is 0x2E and `_` is 0x5F, both below lowercase `a` at 0x61, and every shipped
+             * theme is named in lowercase. So for any Finder-built zip the move took the sidecar and
+             * the real theme -- previously saved by the extraction that is now gone -- stayed in the
+             * temp tree and was deleted with it: `themes/<name>` held the sidecar's contents, the
+             * `Addon` row was still written with `status = 1`, and the theme was broken.
+             *
+             * And when the first entry is a FILE, `moveExtractedFiles()` pointed `$source` at it;
+             * `scandir()` on a file returns `false`, which `array_diff()` rejects as a TypeError on
+             * PHP 8.3 -- an HTTP 500 leaving `themes/tmp_<uniqid>` behind. That half is
+             * pre-existing, not introduced, and is closed by the same change.
+             *
+             * The fallback mirrors `ModuleController::install()`, which already has the second half
+             * of this and not the first.
+             */
+            $candidates = array_values(array_filter(
+                $rootFolder,
+                static fn ($entry) => $entry !== '__MACOSX' && ! str_starts_with((string) $entry, '.')
+            ));
+
+            $rootFolderName = $candidates[0] ?? array_values($rootFolder)[0];
+
+            if (! is_dir($tempPath . DIRECTORY_SEPARATOR . $rootFolderName)) {
+                $rootFolderName = null;
+            }
 
             // Move files to the target directory
             $this->moveExtractedFiles($tempPath, $extractPath, $rootFolderName);
