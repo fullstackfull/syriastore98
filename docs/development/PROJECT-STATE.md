@@ -15,9 +15,17 @@ decision quoted as such.
 > records, and the priority from here is finishing the code, not producing another measurement
 > report. Long multi-agent investigations are reserved for the final integration candidate.
 >
-> **LAST CI-VERIFIED HEAD: `b4687e0e`** — **ci.yml #618, SUCCESS** (2026-11-23 21:11Z), all seven
-> jobs, including both REQUIRED Tests jobs and the merge-base regression gate. Earlier heads each
-> have their own run (`d60fed3a` #589, `62427391` #584, `306d6a93` #583, `704f1eec` #582).
+> **LAST CI-VERIFIED HEAD: `7086b15a`** — **ci.yml #620 (run 45304308180), SUCCESS**
+> (2026-11-24 02:04:49Z), all seven jobs, read job by job rather than from the run's conclusion:
+> both REQUIRED Tests jobs (the clean install and the PayHere-excluded one, each with its
+> *"The Feature outcome set must match the record"* step green), the merge-base regression gate
+> including its *"Compare failing test identities"* step, static checks including
+> *"Guard - packages/workdo/ is unmodified"*, the secret scan, `composer audit` and the PayHere
+> report. Six commits were verified by that one run.
+>
+> `25339527` **#619, SUCCESS** (2026-11-24 00:47Z) verified the head before it, and `b4687e0e`
+> **#618, SUCCESS** (2026-11-23 21:11Z) the one before that. Earlier heads each have their own run
+> (`d60fed3a` #589, `62427391` #584, `306d6a93` #583, `704f1eec` #582).
 >
 > `6c41ebd6` #617 is NOT a verification of anything: it was **cancelled** by the push that
 > superseded it. A cancelled run is not a green one, and this line names the last run that actually
