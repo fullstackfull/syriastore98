@@ -78,10 +78,17 @@ decision quoted as such.
 >    (`GAP-152`), a collected-payments customer figure beside Total Spend (`GAP-156`), Payments
 >    received on the demand-only reports (`GAP-153`).
 > 6. **`P5-R13`** — the **eight** cross-tenant figures `/platform/analytics` lacks. Was nine;
->    `f87bb160` ("1 of 9") shipped *Repeat purchase*. Remaining: estimated gross profit, visits,
->    conversion, coupon redemptions, devices, referring pages, orders by channel, campaign
->    traffic. Measured 2026-11-24: merchant **12** figure groups, operator **5**, four of them
->    counterparts plus the operator's own store count.
+>    `f87bb160` ("1 of 9") shipped *Repeat purchase*. Measured 2026-11-24: merchant **12** figure
+>    groups, operator **5**, four of them counterparts plus the operator's own store count.
+>    **AND THE EIGHT ARE NOT ALL BUILDABLE, which corrects what this queue and `GAP-162` both
+>    said.** A mapping pass (four readers, four adversarial verifiers, all SOUND_WITH_CORRECTIONS)
+>    measured **4 / 3 / 1**: buildable now — estimated gross profit, visits, devices, orders by
+>    channel; **owner decision first** — conversion (`D-N32`/`GAP-155`: the page-view basis has
+>    never been accepted and withdrawing the tile is a registered option), referring pages and
+>    campaign traffic (what a row cap means across tenants, and aggregated versus attributed,
+>    decide the SQL); **blocked by a data gate** — coupon redemptions. Two facts for the build:
+>    the empty-scope guard is the one omission that would ship red, and `FigureCsv::rows()` is
+>    breakdown-blind, so the four breakdown figures need that seam first.
 > 7. **`P5-R8`…`R12`** — four-combination evidence, the per-slice eight-point record, the Phase 05
 >    final report, the loyalty metric as a MySQL harness script; register the ANA-005 harness.
 > 8. Then Phase 06 on its own branch and Draft PR, without merging the existing phase PRs.
