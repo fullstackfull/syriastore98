@@ -31,7 +31,7 @@
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
 project-wide figure is **370 known requirements, 170 verified complete, 200 not.** It read 368/198
-until 2026-11-24, when `ADM-001` (Store 360°) and `ADM-002` (the platform command dashboard) were
+until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
 
