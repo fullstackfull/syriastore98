@@ -241,9 +241,17 @@ class EloquentScopeBypassInventoryTest extends SecurityTestCase
             // is uniform -- nothing was added to or removed from either inventory. Fourth such
             // shift recorded here (+56, +58, +2, +22), which is the cost of keying a census on line
             // numbers: it moves whenever a comment does.
-            'app/Models/Utility.php:3433',   // City::truncate()
-            'app/Models/Utility.php:3458',   // State::truncate()
-            'app/Models/Utility.php:3474',   // Country::truncate()
+            // [2026-11-24] +24, the FIFTH such note. P06-STORAGE's docblocks in
+            // updateStorageLimit(), changeStorageLimit() and changeproductStorageLimit() moved
+            // these three down. VERIFIED A MOVE, NOT A CHANGE: each line was located in the new
+            // file by its own unique statement (`City::truncate();` and the other two are the only
+            // occurrences of their text, unlike the identical FOREIGN_KEY_CHECKS lines around
+            // them, which is why a nearest-match search gave a non-uniform answer and had to be
+            // redone), and all three moved by exactly +24 with their statements byte-identical.
+            // Nothing was added to or removed from this inventory.
+            'app/Models/Utility.php:3457',   // City::truncate()
+            'app/Models/Utility.php:3482',   // State::truncate()
+            'app/Models/Utility.php:3498',   // Country::truncate()
         ], $hits, 'The truncate inventory changed. `truncate()` is forwarded straight to the base '
             . 'query builder (Builder.php:2123) and so empties the WHOLE TABLE for EVERY tenant. '
             . 'A new site is only acceptable on a model with no tenant discriminator -- verify '

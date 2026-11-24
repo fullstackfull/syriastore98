@@ -882,18 +882,32 @@ class Utility extends Model
 
 
     //for storage limit start
+    /**
+     * THE CHARGE SIDE. Every merchant upload in the application comes through here -- 40 call sites.
+     *
+     * It computed `number_format($image_size / 1048576, 2)` and then used that DISPLAY STRING as a
+     * number, so **every file under 5,243 bytes was charged 0.00** and a merchant had unlimited
+     * free storage in files of that size. The plan check below compared against the same quantised
+     * figure. `App\Support\Storage\StorageUsage` has the full measurement, the latent
+     * thousands-separator half, and why the persisted form is a fixed-point string rather than a
+     * raw float -- this column is a VARCHAR and a raw float stringifies to scientific notation for
+     * a small file.
+     *
+     * THE COMPARISON IS UNCHANGED IN MEANING AND DELIBERATELY SO: still `<=`, still exempting `-1`,
+     * now against exact floats on both sides instead of a rounded string on one. A plan whose limit
+     * equals the new total still refuses; that is shipped policy, not something this fix decides.
+     */
     public static function updateStorageLimit($createdId, $image_size)
     {
-        $image_size = number_format($image_size / 1048576, 2);
         $user   = User::find($createdId);
         if ($user) {
             $plan = Plan::find($user->plan_id);
-            $total_storage = $user->storage_limit + $image_size;
-            if (isset($plan) && $plan->storage_limit <= $total_storage && $plan->storage_limit != -1) {
+            $total_storage = \App\Support\Storage\StorageUsage::plus($user->storage_limit, $image_size);
+            if (isset($plan) && (float) $plan->storage_limit <= $total_storage && (float) $plan->storage_limit != -1) {
                 $error = __('Plan storage limit is over so please upgrade the plan.');
                 return $error;
             } else {
-                $user->storage_limit = $total_storage;
+                $user->storage_limit = \App\Support\Storage\StorageUsage::persist($total_storage);
             }
 
             $user->save();
@@ -911,11 +925,16 @@ class Utility extends Model
             $fileSize += \File::size($file);
         }
 
-        $image_size = number_format($fileSize / 1048576, 2);
+        /*
+         * THE CREDIT-BACK, and it has to use the same arithmetic as the charge or usage drifts on
+         * every upload-delete cycle. Clamped at zero by `StorageUsage::minus()`: a file charged
+         * 0.00 before this fix is credited its real size now, which could otherwise drive the
+         * stored figure negative and hand the merchant free quota on top of the plan limit.
+         */
         $user   = User::find($createdId);
         if ($user) {
-            $total_storage = $user->storage_limit - $image_size;
-            $user->storage_limit = $total_storage;
+            $total_storage = \App\Support\Storage\StorageUsage::minus($user->storage_limit, $fileSize);
+            $user->storage_limit = \App\Support\Storage\StorageUsage::persist($total_storage);
             $user->save();
         }
 
@@ -972,12 +991,17 @@ class Utility extends Model
         foreach ($files as $file) {
             $fileSize += \File::size($file);
         }
-        $image_size = number_format($fileSize / 1048576, 2);
-
+        /*
+         * The product credit-back -- the same arithmetic as `changeStorageLimit()` above, for the
+         * same reason. `$user` is dereferenced unguarded here and that is PRE-EXISTING: this method
+         * has always assumed `$company_id` names a row. Left as it is, because adding a guard would
+         * change which callers silently stop crediting, and that is a separate decision from the
+         * arithmetic this slice was opened for.
+         */
         $user   = User::find($company_id);
-        $total_storage = $user->storage_limit - $image_size;
+        $total_storage = \App\Support\Storage\StorageUsage::minus($user->storage_limit, $fileSize);
 
-        $user->storage_limit = $total_storage;
+        $user->storage_limit = \App\Support\Storage\StorageUsage::persist($total_storage);
         $user->save();
 
         $status = false;

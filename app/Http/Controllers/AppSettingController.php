@@ -1397,7 +1397,10 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
                 // it charged: nothing was stored.
                 $owner = \App\Models\User::find(\Auth::user()->creatorId());
                 if ($owner) {
-                    $owner->storage_limit = $owner->storage_limit - number_format($image_size / 1048576, 2);
+                    // The fourth site of the same arithmetic; see App\Support\Storage\StorageUsage.
+                    $owner->storage_limit = \App\Support\Storage\StorageUsage::persist(
+                        \App\Support\Storage\StorageUsage::minus($owner->storage_limit, $image_size)
+                    );
                     $owner->save();
                 }
 

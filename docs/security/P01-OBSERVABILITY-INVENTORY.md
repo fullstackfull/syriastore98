@@ -147,7 +147,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PlatformUploadPolicy.php:314` | a platform upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
-| `app/Http/Controllers/ThemeVersionController.php:333` | Theme publication refused. |
+| `app/Http/Controllers/ThemeVersionController.php:341` | Theme publication refused. |
 | `app/Http/Middleware/ThemeEditorAccess.php:59` | Theme editor access refused. |
 | `app/Http/Middleware/ThemeDraftAccess.php:56` | Theme draft access refused. |
 | `app/Http/Controllers/Api/ApiController.php:6363` | shipping quote refused a cart line naming another store |
@@ -308,8 +308,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
 | `app/Models/Order.php:1099` | Order return refused: the order carries no readable product_json |
 | `app/Models/Order.php:1110` | Order return refused: the order lines are not in a shape this workflow can return |
-| `app/Models/Utility.php:2294` | New Order webhook skipped: no store could be resolved for the order |
-| `app/Models/Utility.php:2304` | New Order webhook skipped: the resolved store does not exist |
+| `app/Models/Utility.php:2318` | New Order webhook skipped: no store could be resolved for the order |
+| `app/Models/Utility.php:2328` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
 | `app/Providers/PackageServiceProvider.php:144` | addon loader: a module failed to load and its features are absent |
 | `app/Services/CodCollectionService.php:161` | COD collection refused: the event is not verifiable |

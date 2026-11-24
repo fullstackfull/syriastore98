@@ -366,6 +366,12 @@
                                      * other two — so showing it there is showing a 0% that means
                                      * "not computed". */
                                     $ssStorageUsed      = (float) ($users->storage_limit ?? 0);
+                                    /* P06-STORAGE. `users.storage_limit` is now stored to six
+                                     * decimals, so concatenating the float printed
+                                     * "1.988443MB / 100MB" -- and for usage under ~105 bytes PHP
+                                     * switches to exponential, measured as "4.8E-5MB". Formatted
+                                     * for display only; the float above stays the float. */
+                                    $ssStorageUsedText  = number_format($ssStorageUsed, 2);
                                     $ssStorageQuota     = (float) ($plan->storage_limit ?? 0);
                                     $ssStorageUnlimited = $plan !== null && (int) $ssStorageQuota === -1;
                                     $ssStorageKnown     = $plan !== null && $ssStorageQuota > 0;
@@ -378,11 +384,11 @@
                                          empty. Hence the explicit variable. --}}
                                     @php
                                         if ($ssStorageKnown) {
-                                            $ssStorageNote = $ssStorageUsed . 'MB / ' . $ssStorageQuota . 'MB';
+                                            $ssStorageNote = $ssStorageUsedText . 'MB / ' . $ssStorageQuota . 'MB';
                                         } elseif ($ssStorageUnlimited) {
-                                            $ssStorageNote = __(':used MB used of unlimited storage', ['used' => $ssStorageUsed]);
+                                            $ssStorageNote = __(':used MB used of unlimited storage', ['used' => $ssStorageUsedText]);
                                         } else {
-                                            $ssStorageNote = __(':used MB used', ['used' => $ssStorageUsed]);
+                                            $ssStorageNote = __(':used MB used', ['used' => $ssStorageUsedText]);
                                         }
                                     @endphp
                                     {{-- THE NOTE IS NOT PART OF THE HEADING. It used to sit inside this

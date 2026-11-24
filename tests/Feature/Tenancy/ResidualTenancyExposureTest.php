@@ -531,7 +531,11 @@ class ResidualTenancyExposureTest extends TestCase
             // byte-identical statements, the shift is uniform, and no raw-query site was added or
             // removed. `EloquentScopeBypassInventoryTest` records the same shift for the three
             // truncate sites interleaved with these.
-            'app/Models/Utility.php:934',
+            // [2026-11-24] 934 -> 953 (+19). P06-STORAGE's docblock in updateStorageLimit() and
+            // changeStorageLimit() sits above this line; changeproductStorageLimit()'s sits below
+            // it, which is why this row moved +19 while the truncate rows below moved +24. Both
+            // figures were measured, not inferred.
+            'app/Models/Utility.php:953',
 
             // ------------------------------------------------------------------------------
             // FOREIGN_KEY_CHECKS toggles around the country/state/city reference-data import.
@@ -545,12 +549,14 @@ class ResidualTenancyExposureTest extends TestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3432',
-            'app/Models/Utility.php:3434',
-            'app/Models/Utility.php:3457',
-            'app/Models/Utility.php:3459',
-            'app/Models/Utility.php:3473',
-            'app/Models/Utility.php:3475',
+            // [2026-11-24] all six +24, located by the truncate statement each one brackets
+            // rather than by its own text, which is identical in all three blocks.
+            'app/Models/Utility.php:3456',
+            'app/Models/Utility.php:3458',
+            'app/Models/Utility.php:3481',
+            'app/Models/Utility.php:3483',
+            'app/Models/Utility.php:3497',
+            'app/Models/Utility.php:3499',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '

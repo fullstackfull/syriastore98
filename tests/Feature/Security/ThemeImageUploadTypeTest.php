@@ -508,7 +508,11 @@ class ThemeImageUploadTypeTest extends SecurityTestCase
 
         $this->postAvatar($store, $customer, $token, $this->upload('me.png', self::pngOf(300 * 1024)));
 
-        $this->assertSame(0.29, $this->chargedStorage($merchant), 'A stored avatar of 300 KB is charged as 0.29 MB to the store\'s owner.');
+        // P06-STORAGE restated this figure. `pngOf(300 * 1024)` is exactly 307,200 bytes, which is
+        // 0.29296875 MiB. The old charge quantised that to two decimals -- 0.29 -- which is the
+        // under-charging this assertion was unknowingly encoding. The figure, not the intent,
+        // changed: a 300 KB avatar is still charged to the store's owner, now for what it is.
+        $this->assertSame(0.292969, $this->chargedStorage($merchant), 'A stored avatar of 300 KB is charged as 0.292969 MB to the store\'s owner.');
     }
 
     /**
@@ -589,7 +593,7 @@ class ThemeImageUploadTypeTest extends SecurityTestCase
         $this->assertServerChosenPath($first, self::REAL_DISK_STORE_ID, 'png');
         $this->assertFileExists(base_path($first), 'Premise: the first avatar is on the real disk.');
         $this->assertSame('0755', substr(sprintf('%o', fileperms($folder)), -4), 'The folder the helper created is not readable by another user.');
-        $this->assertSame(0.29, $this->chargedStorage($merchant), 'Premise: the first avatar was charged to the store\'s owner.');
+        $this->assertSame(0.292969, $this->chargedStorage($merchant), 'Premise: the first avatar was charged to the store\'s owner.');
 
         // 2
         $post($this->upload('second.jpg', (string) base64_decode(self::JPEG) . str_repeat("\0", 200 * 1024)));
@@ -598,19 +602,35 @@ class ThemeImageUploadTypeTest extends SecurityTestCase
         $this->assertServerChosenPath($second, self::REAL_DISK_STORE_ID, 'jpg');
         $this->assertFileExists(base_path($second));
         $this->assertFileDoesNotExist(base_path($first), 'The replaced avatar was left on disk.');
-        $this->assertEqualsWithDelta(0.2, $this->chargedStorage($merchant), 0.001,
-            'The plan still carries the replaced avatar: charged 0.29 for the first and 0.20 for the second, it must hold 0.20 once the first is gone.');
+        /*
+         * P06-STORAGE RESTATED THIS FIGURE, AND THE OLD ONE PASSED FOR A REASON WORTH RECORDING.
+         *
+         * The second avatar is 694 JPEG bytes plus 204,800 NULs = 205,494 bytes = 0.195974 MiB.
+         * Under the old two-decimal charge the sequence was 0.29 + 0.20 - 0.29 = EXACTLY 0.20, so a
+         * literal 0.2 with a 0.001 delta fitted perfectly -- the quantisation was doing the work.
+         * Measured at the real sizes the sequence is now 0.292969 -> 0.488943 -> 0.195974, which is
+         * 0.004 away from 0.2 and outside that delta. The INTENT is unchanged: once the first
+         * avatar is gone the plan must hold only the second.
+         *
+         * The closure now takes its expected figure, because it is called with two different ones:
+         * 0.195974 here, and 0.2 at the two later call sites where the test resets the column to a
+         * literal 0.2 first.
+         */
+        $afterReplacement = 0.195974;
 
-        $untouched = function (string $after) use ($second, $customer, $merchant, $folder) {
+        $this->assertEqualsWithDelta($afterReplacement, $this->chargedStorage($merchant), 1e-5,
+            'The plan still carries the replaced avatar: charged 0.292969 for the first and 0.195974 for the second, it must hold 0.195974 once the first is gone.');
+
+        $untouched = function (string $after, float $expected) use ($second, $customer, $merchant, $folder) {
             $this->assertFileExists(base_path($second), "The current avatar's file is gone {$after}.");
             $this->assertSame($second, $this->avatarColumn($customer), "The avatar column changed {$after}.");
-            $this->assertEqualsWithDelta(0.2, $this->chargedStorage($merchant), 0.001, "The plan's figure moved {$after}.");
+            $this->assertEqualsWithDelta($expected, $this->chargedStorage($merchant), 1e-5, "The plan's figure moved {$after}.");
             $this->assertSame([basename($second)], array_values(array_diff(scandir($folder) ?: [], ['.', '..'])), "A file was left in the store's folder {$after}.");
         };
 
         // 3
         $this->assertSame(0, (int) $post($this->upload('shell.php', self::PHP))->json('status'));
-        $untouched('after an upload refused for its type');
+        $untouched('after an upload refused for its type', $afterReplacement);
 
         // 4
         $merchant->storage_limit = 99.9;       // of a 100 MB plan: 300 KB more is over it
@@ -618,7 +638,7 @@ class ThemeImageUploadTypeTest extends SecurityTestCase
         $this->assertSame('The image could not be saved.', $post($this->upload('third.png', self::pngOf(300 * 1024)))->json('message'));
         $merchant->storage_limit = 0.2;
         $merchant->save();
-        $untouched('after an upload refused for the plan');
+        $untouched('after an upload refused for the plan', 0.2);
 
         // 5: the database refuses the customer's row, so the new path cannot be saved
         DB::statement("CREATE TRIGGER ss_sec72_no_avatar BEFORE UPDATE ON customers BEGIN SELECT RAISE(ABORT, 'ss-sec72: no update'); END");
@@ -629,7 +649,10 @@ class ThemeImageUploadTypeTest extends SecurityTestCase
         DB::statement('DROP TRIGGER ss_sec72_no_avatar');
         $this->assertSame(500, $failed->status(), 'Premise: the save of the new path failed.');
         $this->assertSame(2, $charges, 'Premise: the request got as far as storing and charging the new file, and then handed the charge back -- two writes of the plan figure.');
-        $untouched('after a replacement whose save failed');
+        // Still exactly 0.2: the column was reset to a literal 0.2 above, and the charge-then-
+        // credit round trip returns to it exactly -- persist(0.2 + 0.292969) = 0.492969, then
+        // persist(0.492969 - 0.29296875) = 0.200000.
+        $untouched('after a replacement whose save failed', 0.2);
 
         $this->assertSame($looseBefore, $this->looseFilesInUploads(), 'An avatar was written loose into uploads/, outside any store\'s folder.');
     }
