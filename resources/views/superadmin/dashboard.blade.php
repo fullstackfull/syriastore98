@@ -182,7 +182,7 @@
                             @foreach ($topAdmins as $topAdmin)
                                 <div class="col-xxl-3 col-md-6 col-12">
                                     <div class="dashboard-card d-flex gap-3">
-                                        <img src="{{ !empty($topAdmin->profile_image) ? asset($topAdmin->profile_image) : asset('storage/uploads/profile/avatar.png') }}"
+                                        <img src="{{ !empty($topAdmin->profile_image) ? asset($topAdmin->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                             class=" " width="60px" height="60px">
                                         <div>
                                             <h5 class="f-16 f-w-600 mb-2">{{ $topAdmin->name }}</h5>

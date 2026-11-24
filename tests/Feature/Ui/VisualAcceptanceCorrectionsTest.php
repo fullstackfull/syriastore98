@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Security\SecurityTestCase;
+use Tests\Support\StripsSourceComments;
 
 /**
  * THE OWNER'S VISUAL REVIEW OF THE 24 PREMIUM SURFACES, 2026-11-12.
@@ -33,6 +34,7 @@ use Tests\Feature\Security\SecurityTestCase;
 class VisualAcceptanceCorrectionsTest extends SecurityTestCase
 {
     use RefreshDatabase;
+    use StripsSourceComments;
 
     /** A merchant with a store, acting, so Laratrust resolves against a real principal. */
     private function actingMerchant(): array
@@ -356,6 +358,168 @@ class VisualAcceptanceCorrectionsTest extends SecurityTestCase
             file_get_contents(base_path('app/DataTables/UserDataTable.php')),
             'The users list shows three broken images again.'
         );
+    }
+
+    /**
+     * THE SAME CORRECTION, ON THE FIVE SURFACES IT NEVER REACHED.
+     *
+     * The test above pins `/profile` and the users DataTable. Five more first-party surfaces kept
+     * the ORIGINAL fallback and every one of them renders a BROKEN IMAGE rather than a placeholder
+     * for a user with no avatar:
+     *
+     *   resources/views/users/index.blade.php          the lightbox href AND the img src
+     *   resources/views/dashboard.blade.php            spelled `Storage::url('uploads/profile/avatar.png')`
+     *   resources/views/store/index.blade.php
+     *   resources/views/deliveryboy/index.blade.php
+     *   resources/views/superadmin/dashboard.blade.php
+     *
+     * WHY IT IS A DEFECT AND NOT A PREFERENCE, measured rather than argued. The image those paths
+     * ask for ships at the repository ROOT as `uploads/profile/avatar.png` -- git-tracked, 8,117
+     * bytes, a 139x138 PNG -- while `/storage/...` resolves through the `public/storage` symlink
+     * into `storage/app/public/`, whose CONTENTS `.gitignore:48` ignores deliberately ("Keep the
+     * storage/ directory TREE in version control while ignoring its CONTENTS"). The file is in the
+     * wrong tree and cannot be moved into the right one without either a per-environment copy step
+     * or an exception to that stated rule. Observed as `404 /storage/uploads/profile/avatar.png`
+     * on all four combinations of the operator dashboard audit.
+     *
+     * A CORRECTION TO MY OWN EARLIER RECORD: fixing the `public/storage` symlink did NOT fix this.
+     * The 8,117-byte HTTP 200 measured during that work was served from a copy placed by hand in
+     * this container, which `git check-ignore` confirms is untracked -- so it would not exist in a
+     * fresh clone. The symlink fix stands on its own for every file that really is in storage; the
+     * avatar was never one of them.
+     *
+     * NO NEW DECISION IS TAKEN HERE. The owner's visual review already settled the direction: the
+     * correction above records that the replacement "is committed under public/ for exactly that
+     * reason", and `public/images/avatar-placeholder.svg` arrived with the accepted Phase 2.5 work
+     * and is already the first-party fallback in two places. These five are stragglers. Only the
+     * arm of the ternary that fires when a user has no avatar changes; the arm that renders a real
+     * uploaded image is untouched, so no surface that had an avatar looks different.
+     */
+    #[Test]
+    public function test_no_remaining_first_party_surface_points_the_avatar_at_storage(): void
+    {
+        $surfaces = [
+            'resources/views/users/index.blade.php',
+            'resources/views/dashboard.blade.php',
+            'resources/views/store/index.blade.php',
+            'resources/views/deliveryboy/index.blade.php',
+            'resources/views/superadmin/dashboard.blade.php',
+        ];
+
+        foreach ($surfaces as $surface) {
+            // Comments stripped: this repository has had five censuses satisfied by prose about
+            // the very thing they measured, and a `{{-- was: ... --}}` note recording this fix
+            // would otherwise fail the assertion below for no reason.
+            $code = $this->sourceWithoutComments($surface);
+
+            $this->assertStringNotContainsString(
+                'uploads/profile/avatar.png',
+                $code,
+                $surface . ': the avatar still falls back to an image under /storage/, which no '
+                . 'checkout can serve -- the file ships at the repository root and the contents of '
+                . 'storage/app/public are ignored by .gitignore:48.'
+            );
+
+            $this->assertStringContainsString(
+                "asset('images/avatar-placeholder.svg')",
+                $code,
+                $surface . ': no committed avatar fallback found. It must use the same placeholder '
+                . 'as /profile and the users DataTable, per the owner visual review.'
+            );
+        }
+
+        // The replacement itself must exist, or all of the above is a rename of one 404 to another.
+        $this->assertFileExists(public_path('images/avatar-placeholder.svg'));
+    }
+
+    /**
+     * THE DEFECT THE FALLBACK WAS HIDING: `users/index` DOUBLED THE PATH PREFIX.
+     *
+     * Found while fixing the fallback above, and it is the worse of the two because it fires for
+     * the COMMON case rather than the rare one. `profile_image` is not empty for a new account:
+     * `RegisteredUserController:123` and `:277`, `StoreController:264`, `DeliveryBoyController:66`
+     * and `Api\DeliveryBoyApiController:184` all WRITE the string `uploads/profile/avatar.png` into
+     * the column, and `StoredUpload::PLATFORM_DEFAULTS` names it as the shared platform default. So
+     * `!empty($user->profile_image)` is TRUE for every such account and the fallback never runs --
+     * the other arm does.
+     *
+     * That arm was `asset('uploads/profile/' . $user->profile_image)`, which prepends a prefix the
+     * stored value already carries. Measured through the real helper:
+     *
+     *     stored                 uploads/profile/avatar.png
+     *     users/index produced   /uploads/profile/uploads/profile/avatar.png     <- 404, always
+     *     store/index produced   /uploads/profile/avatar.png
+     *
+     * The doubling 404s under ANY deployment topology, so it is unambiguous and fixed here. The fix
+     * is not a new invention: it is the pattern `UserDataTable:43` already uses for the same column,
+     * `check_file(...) ? get_file(...) : asset('images/avatar-placeholder.svg')`, which also makes
+     * the view self-healing -- a missing file falls back to the placeholder instead of rendering a
+     * broken image.
+     *
+     * WHAT THIS TEST DELIBERATELY DOES NOT CLAIM. Whether `/uploads/profile/avatar.png` itself 200s
+     * is a DEPLOYMENT question this phase cannot settle, and it is recorded rather than guessed:
+     * only the ROOT `uploads/profile/avatar.png` is git-tracked, while `public/uploads/profile/`
+     * and `storage/app/public/uploads/profile/` both hold untracked copies that a fresh clone would
+     * not have. So that URL resolves only if the docroot is the project root, or if a deploy step
+     * places the file under `public/`. Fixing the doubling makes all five surfaces behave
+     * IDENTICALLY and leaves exactly one open question instead of two defects and a question.
+     */
+    #[Test]
+    public function test_the_users_list_does_not_prepend_a_prefix_the_stored_value_already_has(): void
+    {
+        $code = $this->sourceWithoutComments('resources/views/users/index.blade.php');
+
+        $this->assertStringNotContainsString(
+            "asset('uploads/profile/' . \$user->profile_image)",
+            $code,
+            'users/index prepends uploads/profile/ to a column that already starts with it, '
+            . 'producing /uploads/profile/uploads/profile/avatar.png for every default avatar.'
+        );
+
+        $this->assertStringContainsString(
+            '!empty($user->profile_image) ? get_file($user->profile_image)',
+            $code,
+            'users/index must resolve the stored path through get_file() rather than concatenating it.'
+        );
+
+        /*
+         * WHY `get_file()` AND NOT `check_file()`, WHICH IS WHAT `UserDataTable:43` USES.
+         *
+         * `check_file()` was my first fix and this test caught it throwing. It calls
+         * `getAdminAllSetting()`, which at `helper.php:864` reads
+         * `Setting::where('created_by', $user->id)` where `$user = User::where('type','admin')->first()`
+         * -- unguarded. On a database with no type-`admin` row that is a null dereference, so the
+         * view would 500. That is the SAME failure shape as the two null guards `get_file()` already
+         * carries and documents as "not a test artefact", and this run reproduced it:
+         * `helper.php:2019` under a clean RefreshDatabase.
+         *
+         * So the fix would have traded a broken image for a blank page. `get_file()` is explicitly
+         * guarded (`$admin ? ... : []`), is already used by `dashboard.blade.php` and
+         * `users/profile.blade.php`, and resolves the stored path without prepending anything.
+         * `check_file()`'s own exposure is PRE-EXISTING and unchanged by this commit -- recorded,
+         * not fixed here, because widening this slice into the settings helper is how a bounded fix
+         * stops being reviewable.
+         */
+        $this->assertStringNotContainsString('check_file(', $code,
+            'users/index must not call check_file(): it throws on a database with no type-admin row.');
+
+        /*
+         * THE PREMISE, MEASURED RATHER THAN ASSUMED: the stored default really is non-empty, so the
+         * fallback arm is NOT the one an ordinary account takes. Without this the reasoning above
+         * is an assertion about code nobody executed.
+         */
+        $this->assertFileExists(base_path('uploads/profile/avatar.png'),
+            'The tracked platform-default avatar is gone from the repository root.');
+
+        foreach ([
+            'app/Http/Controllers/Auth/RegisteredUserController.php',
+            'app/Http/Controllers/StoreController.php',
+            'app/Http/Controllers/DeliveryBoyController.php',
+        ] as $writer) {
+            $this->assertStringContainsString("uploads/profile/avatar.png", $this->sourceWithoutComments($writer),
+                $writer . ' no longer writes the platform-default avatar, so the premise that '
+                . 'profile_image is non-empty for a new account needs re-measuring.');
+        }
     }
 
     /**

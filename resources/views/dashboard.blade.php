@@ -260,9 +260,9 @@
                                 <div class="card-content-info d-flex gap-3 flex-wrap flex-column flex-sm-row">
                                     <div
                                         class="d-flex align-items-center align-items-sm-start gap-3 flex-1 flex-column flex-sm-row">
-                                        <a href="{{ !empty(auth()->user()->profile_image) && file_exists(auth()->user()->profile_image) ? get_file(auth()->user()->profile_image) : asset(Storage::url('uploads/profile/avatar.png')) }}"
+                                        <a href="{{ !empty(auth()->user()->profile_image) && file_exists(auth()->user()->profile_image) ? get_file(auth()->user()->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                             target="_blank" class="user-img">
-                                            <img src="{{ !empty(auth()->user()->profile_image) && file_exists(auth()->user()->profile_image) ? get_file(auth()->user()->profile_image) : asset(Storage::url('uploads/profile/avatar.png')) }}"
+                                            <img src="{{ !empty(auth()->user()->profile_image) && file_exists(auth()->user()->profile_image) ? get_file(auth()->user()->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                                 alt="user-image">
                                         </a>
                                         <div class="user-info">
