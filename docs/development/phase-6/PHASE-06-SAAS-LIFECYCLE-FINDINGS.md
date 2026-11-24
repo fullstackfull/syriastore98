@@ -98,28 +98,110 @@ unchanged. 4 of 5 mutations caught; the fifth is a deliberate control that must 
 This is **not** a data-loss defect of the `SAAS-003` kind — `user_active_modules` is availability.
 It is an entitlement-targeting defect, and it needed no owner decision.
 
+### 4.1 What the independent review added, including one thing that makes the fix bigger
+
+The entitlement fix was reviewed read-only before being pushed. It survived on every live path —
+`$this` is the right subject for all ~30 callers, and the structural reason is decisive: every other
+write in the method was already `$this`-keyed (`plan_id`, `plan_expire_date`, `active_module`,
+`save()`, and both cascades), so the delete was the *only* `$user`-keyed statement in it. Four things
+came back that the commit message did not have:
+
+**(a) It also removes a LIVE exception on the unauthenticated callback path.** The old statement
+dereferenced `$user->id` directly, not inside `empty()`, so with `\Auth::user()` null — which is the
+case at `PaymentCallbackController.php:200`, and in any CLI or queue invocation — it raised
+"Attempt to read property id on null" whenever `$modulesToRemove` was non-empty, i.e. on exactly the
+downgrades that reach the loop. That fired **after**
+`PlanPurchaseIntent::consumeForProviderCallback()` had consumed the intent: payment captured, intent
+spent, entitlement never saved — the "needs a human" state that controller documents at `:181-193`.
+So the benefit is larger than "a downgrade did not downgrade", and the earlier record understated it.
+
+**(b) A real limit on the fix.** The whole module block sits inside `if(!empty($modules))`
+(`User.php:319`), so a downgrade **to a plan whose `modules` is empty** skips it entirely — true of
+the seeded free plan that `PlanController::refund` and `SetLocate.php:86` assign. The fix bites on
+plan-to-plan changes where the new plan grants a non-empty module list.
+
+**(c) Restoring the operator's rows widens nothing.** `helper.php:1932-1933` gives a user whose
+`type` is `super admin` every active module outright, so the operator's access never consults
+`user_active_modules` at all. The narrowing half is the real half: for a merchant those rows *are*
+the entitlement (`helper.php:1974`, `:1960-1971`, read at `:1904`, consumed by
+`PlanModuleCheck:50-51`).
+
+**(d) There is no second control behind the `user_id` predicate.** `userActiveModule` is **not** in
+`config/tenancy.php`'s `scoped_models`, and `user_active_modules` has no `store_id` column at all, so
+`StoreScope` adds no predicate for any principal and both the create and the delete see the whole
+table. Isolation is *entirely* the `user_id` predicate — which is the strongest argument for having
+corrected it.
+
+## 4a. FIXED — two cascades read `created_by` as a tenant
+
+Found by that same review, both **pre-existing** and neither introduced by the entitlement fix.
+
+**The staff cascade could deactivate every merchant on the platform.** `User.php:376` selected the
+subject's staff as `User::where('created_by', '=', $this->id)->where('type', '!=', 'super admin')`
+and deactivated everyone past `$plan->max_users`. Correct for a merchant; catastrophic for the
+operator, because every merchant is created with `created_by = 1`
+(`Auth\RegisteredUserController:133` and `:286`, `StoreController:280`) and user 1 is the operator.
+With the operator as subject that query selects every merchant, in `->get()` order with no
+`orderBy`. Reachable through `StoreController::activePlan` and
+`PlanRequestController::acceptRequest`, which both take the subject from input and are
+operator-gated — so self-inflicted rather than an escalation, which is why this is a safety guard
+and not a security report. **It is the same trap CLAUDE.md already records costing an account
+takeover: "`created_by = 1` is NOT a tenant, and reading it as one was an account-takeover."**
+
+The store cascade at `:405` is the same wrong question with a smaller blast radius: stores are
+created with `created_by => $user->id` (the merchant), so an operator subject selects only stores the
+operator personally created. Guarded anyway — leaving one of a pair guarded is how a guard rots, and
+a mutation reverting only the store half survived the staff test until it got its own.
+
+Both now skip for a `super admin` subject. **Nothing is lost:** per 4.1(c) an operator is not
+plan-limited in the first place. The guard is on the cascades rather than on the method's audience
+deliberately — refusing `assignPlan()` outright for an operator would change whether an operator may
+buy a plan at all, and that is a product question.
+
+**A fixture lesson worth keeping.** The control test ("a merchant's own staff are still limited")
+failed before any fix, which should have been impossible. Measured: `makeMerchant()` defaults to
+`created_by => 1`, and in a fresh `RefreshDatabase` the first user takes id 1 — so a lone merchant
+has `created_by === $this->id` and the cascade selected **the merchant itself** alongside its staff
+(`1(admin), 2(staff), 3(staff), 4(staff)`), eating the single seat. A fixture artefact, not the
+product, since in production user 1 is the operator. Creating the operator first restores
+production's shape. The underlying edge is real but is not this fix's business: a type-`admin` user
+whose id is 1 consumes a seat in its own cascade.
+
+## 4b. FIXED — `$oldplan` was nullable and dereferenced
+
+`Plan::where('id', $this->plan_id)->first()` (`User.php:288`) can be null and `$oldplan->custom_plan`
+(`:324`) was reached whenever the `&&`'s first operand was truthy. Laravel promotes the warning to an
+`ErrorException`, so this threw **after** `plan_id` and `plan_expire_date` were mutated in memory and
+**before** `$this->save()` — on a gateway path, money captured and entitlement unsaved. Now
+`$oldplan?->custom_plan`. Null is falsy, so every case that did not already throw is byte-identical:
+it takes the replace branch, which is what already happened.
+
+**AND A TRAP THE REVIEW NAMED, LEFT ALONE ON PURPOSE.** That same condition's first operand reads the
+**acting** user's `active_module`, not the subject's. Changing it to `$this` looks like the identical
+correction as the delete and is the opposite: every merchant who has held a plan has a non-empty
+`active_module`, so `$this` would make the operand true on exactly the operator-driven downgrade path
+just narrowed, and the merge branch would then **preserve** modules the new plan does not grant
+whenever the old plan was a custom plan. That re-opens the over-entitlement through the other
+operand, and whether a custom plan keeps its extras through an operator-initiated change is the
+owner's call. **Do not carry it as a follow-on.**
+
 ## 5. Recorded, not fixed
 
 Each is at a named line, and each is left because fixing it would change behaviour I cannot verify
 the intent of, or would widen this slice past reviewable.
 
-1. **`assignPlan()` still reads the acting user twice more.** `User.php:322`'s
-   `if(!empty($user->active_module) && $oldplan->custom_plan == 1)` decides whether to merge the old
-   module set into the new one for a custom plan, from the **actor's** `active_module`. On the
-   operator path that is the operator's. Changing it alters custom-plan behaviour, so it is reported.
-2. **`$oldplan` can be null and is dereferenced.** `Plan::where('id',$this->plan_id)->first()` at
-   `:287`, then `$oldplan->custom_plan` at `:322`, guarded only by `&&` short-circuit on the first
-   operand — so an actor who has `active_module` set, acting on a subject whose `plan_id` resolves to
-   nothing, hits a null dereference.
-3. **`assignPlan()` takes one parameter and two are passed.** The signature is
+1. **`assignPlan()`'s custom-plan merge still reads the acting user.** See 4b — this one is
+   *deliberately* not fixed, because the obvious fix widens entitlement and needs an owner decision.
+   Recorded so nobody "corrects" it.
+2. **`assignPlan()` takes one parameter and two are passed.** The signature is
    `assignPlan($planID)` (`:284`); `BankTransferController:167` passes
    `($order->plan_id, $plan->duration)`. PHP discards the extra argument silently. Harmless today
    because the method derives the duration from the plan itself, but it reads as though the caller
    controls the period and it does not.
-4. **A plan lifecycle transition lives in a locale middleware** and writes to the database on every
+3. **A plan lifecycle transition lives in a locale middleware** and writes to the database on every
    request. Moving it is a design change with a blast radius across every authenticated page, so it
    is reported rather than done inside a measurement task.
-5. **Two disabled redirects** in `SetLocate.php` (`:79`, `:86-87`) mean the product has no
+4. **Two disabled redirects** in `SetLocate.php` (`:79`, `:86-87`) mean the product has no
    "your plan expired" path even though one was written. Whether to re-enable it is bound up with
    `SAAS-004`'s grace rule, so it belongs with that decision.
 

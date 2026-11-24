@@ -321,7 +321,27 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
                 $modules_array = explode(',',$modules);
                 $currentActiveModules = userActiveModule::where('user_id', $this->id)->pluck('module')->toArray();
 
-                if(!empty($user->active_module) && $oldplan->custom_plan == 1)
+                /*
+                 * `$oldplan?->` -- it is NULLABLE. `Plan::where('id', $this->plan_id)->first()`
+                 * (above) returns null for a subject whose stored `plan_id` matches no row, and
+                 * Laravel promotes the resulting warning to an `ErrorException`. That threw HERE,
+                 * after `plan_id` and `plan_expire_date` were mutated in memory and BEFORE
+                 * `$this->save()` below -- so on a gateway path the `PlanOrder` row was already
+                 * written and the money captured while the entitlement was never stored. Null is
+                 * falsy, so every case that does not currently throw is byte-identical: it takes
+                 * the replace branch, which is what already happens.
+                 *
+                 * THE FIRST OPERAND IS DELIBERATELY LEFT READING `$user`, THE ACTING PRINCIPAL.
+                 * Changing it to `$this` looks like the same correction as the delete below and is
+                 * the opposite: every merchant who has held a plan has a non-empty
+                 * `active_module`, so `$this` would make it true on exactly the operator-driven
+                 * downgrade path, and the merge branch would then PRESERVE modules the new plan
+                 * does not grant whenever the old plan was a custom plan. That re-opens the
+                 * over-entitlement the delete below closes, and whether a custom plan keeps its
+                 * extras through an operator-initiated change is an owner decision. Found by
+                 * independent review, which named it as a trap rather than a follow-on.
+                 */
+                if(!empty($user->active_module) && $oldplan?->custom_plan == 1)
                 {
                     $user_module = $currentActiveModules;
                     foreach ($modules_array as $module) {
@@ -373,7 +393,42 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
             }
 
             $this->save();
-            $users    = User::where('created_by', '=', $this->id)->where('type', '!=', 'super admin')->get();
+
+            /*
+             * `created_by` IS NOT A TENANT, AND THESE TWO CASCADES READ IT AS ONE.
+             *
+             * Both select "the subject's own rows" as `created_by = $this->id`. That is right for
+             * a merchant and catastrophic for the platform operator, because EVERY MERCHANT IS
+             * CREATED WITH `created_by = 1` -- `Auth\RegisteredUserController:133` and `:286`,
+             * `StoreController:280` -- and user 1 is the operator. With the operator as subject the
+             * staff query therefore selects every merchant on the platform (`type != 'super admin'`
+             * excludes only other operators), in `->get()` order with no `orderBy`, and deactivates
+             * all of them past `$plan->max_users`. One request, platform-wide deactivation.
+             *
+             * Reachable: `StoreController::activePlan` and `PlanRequestController::acceptRequest`
+             * both take the subject from input and are operator-gated, so an operator can name
+             * themselves. Self-inflicted rather than an escalation, which is why this is a safety
+             * guard and not a security report.
+             *
+             * This is the same trap CLAUDE.md records costing an account takeover once already:
+             * "`created_by = 1` is NOT a tenant, and reading it as one was an account-takeover".
+             *
+             * NOTHING IS LOST BY SKIPPING THEM. `helper.php:1932-1933` gives a `super admin` every
+             * active module regardless of any row, so an operator is not plan-limited in the first
+             * place -- there are no operator seats or operator stores for a plan to cap. The
+             * operator's own plan row above still updates exactly as before, so this does not
+             * decide whether an operator may hold a plan; only that holding one cannot deactivate
+             * other people's accounts.
+             *
+             * The guard is on the CASCADES rather than on the method's audience on purpose:
+             * refusing `assignPlan()` outright for an operator subject would change whether an
+             * operator can buy a plan at all, and that is a product question.
+             */
+            $subjectIsPlatformOperator = strtolower(trim((string) $this->type)) === 'super admin';
+
+            $users    = $subjectIsPlatformOperator
+                ? collect()
+                : User::where('created_by', '=', $this->id)->where('type', '!=', 'super admin')->get();
            
             if($plan->max_users == -1)
             {
@@ -402,7 +457,13 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
                 }
             }
 
-            $stores    = Store::where('created_by', '=', $this->id)->get();
+            // The twin of the query above, guarded for the same reason. Stores are created with
+            // `created_by => $user->id` (the merchant), so an operator subject selects only stores
+            // the operator personally created -- a far smaller blast radius than the staff query,
+            // but the same wrong question, and leaving one of a pair guarded is how a guard rots.
+            $stores    = $subjectIsPlatformOperator
+                ? collect()
+                : Store::where('created_by', '=', $this->id)->get();
 
             if ($plan->max_stores == -1) {
                 foreach ($stores as $store) {
