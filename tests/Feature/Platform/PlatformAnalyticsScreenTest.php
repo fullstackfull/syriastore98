@@ -4,6 +4,7 @@ namespace Tests\Feature\Platform;
 
 use App\Support\Metrics\PlatformAnalyticsFigures;
 use Carbon\CarbonImmutable;
+use Shetabit\Visitor\Models\Visit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\Security\SecurityTestCase;
@@ -676,5 +677,230 @@ final class PlatformAnalyticsScreenTest extends SecurityTestCase
             'No stat label on the operator screen is exactly "Repeat purchase". A label that merely '
             . 'STARTS with it would satisfy a substring assertion, which is why this compares the '
             . 'span\'s whole content. Labels found: '.implode(' | ', $labels));
+    }
+
+    /*
+     * =============================================================================================
+     *  DEVICES, ACROSS TENANTS -- GAP-162 / P05-14, the first of the four counterparts a mapping
+     *  pass found buildable without an owner decision.
+     *
+     *  NO TEST IN THIS FILE BUILT A VISIT ROW BEFORE THESE. Every figure here was order- or
+     *  ledger-derived, so the visit log had no fixture at all on the operator side -- which is
+     *  worth stating because it means the tenancy assertion below is the FIRST one covering a
+     *  cross-tenant read of `shetabit_visits` from this screen.
+     * =============================================================================================
+     */
+
+    /** A visit row whose own date is the point, so Eloquent must not stamp it with "now". */
+    private function logVisit(int $storeId, CarbonImmutable $when, ?string $device): void
+    {
+        $visit = new Visit();
+        $visit->timestamps = false;
+        $visit->store_id = $storeId;
+        $visit->device = $device;
+        $visit->created_at = $when;
+        $visit->updated_at = $when;
+        $visit->save();
+    }
+
+    public function test_devices_counts_page_views_from_every_store(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        // THE ASSERTION THAT MATTERS FOR A CROSS-TENANT FIGURE: two stores, one bucket, and the
+        // count is the SUM. A per-store read would report 2 and look plausible.
+        $this->logVisit((int) $storeA->id, $now->subDays(2), 'Mobile');
+        $this->logVisit((int) $storeA->id, $now->subDays(2), 'Mobile');
+        $this->logVisit((int) $storeB->id, $now->subDays(3), 'Mobile');
+
+        $devices = PlatformAnalyticsFigures::forPlatform($now)['devices'];
+
+        $this->assertCount(1, $devices['rows'],
+            'one device across two stores must be ONE row, not one per store');
+        $this->assertSame('Mobile', $devices['rows'][0]['label']);
+        $this->assertStringContainsString('3', $devices['rows'][0]['count'],
+            'the operator figure counted one store rather than every store');
+    }
+
+    public function test_devices_orders_the_busiest_first_and_counts_each_separately(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->logVisit((int) $store->id, $now->subDays(1), 'Desktop');
+        $this->logVisit((int) $store->id, $now->subDays(1), 'Mobile');
+        $this->logVisit((int) $store->id, $now->subDays(1), 'Mobile');
+
+        $devices = PlatformAnalyticsFigures::forPlatform($now)['devices'];
+
+        $this->assertCount(2, $devices['rows']);
+        $this->assertSame('Mobile', $devices['rows'][0]['label'],
+            'the rows are not ordered by count, so the busiest device is not first');
+        $this->assertSame('Desktop', $devices['rows'][1]['label']);
+    }
+
+    public function test_devices_excludes_page_views_outside_the_window(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->logVisit((int) $store->id, $now->subDays(2), 'Mobile');
+        // Outside "the last 30 days", which this screen defines in ONE place (`recentBounds()`)
+        // so the breakdown cannot drift from the tiles beside it.
+        $this->logVisit((int) $store->id, $now->subDays(40), 'Mobile');
+
+        $devices = PlatformAnalyticsFigures::forPlatform($now)['devices'];
+
+        $this->assertStringContainsString('1', $devices['rows'][0]['count'],
+            'a page view from outside the window was counted');
+    }
+
+    public function test_an_unrecorded_device_is_one_row_and_not_two(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        /*
+         * THE FOLD, AND IT IS A MEASURED DEFECT ON THE MERCHANT SIDE RATHER THAN A HYPOTHETICAL.
+         * SQL `GROUP BY device` treats NULL and '' as TWO groups, so a naive loop emits two rows
+         * both labelled "Device not recorded" with a count each -- a reader takes one absence for
+         * two devices and neither count for the real one. `MerchantAnalyticsFigures::devices()`
+         * records that measurement; this proves the operator side folds them too.
+         */
+        $this->logVisit((int) $store->id, $now->subDays(1), null);
+        $this->logVisit((int) $store->id, $now->subDays(1), '');
+
+        $devices = PlatformAnalyticsFigures::forPlatform($now)['devices'];
+
+        $this->assertCount(1, $devices['rows'],
+            'NULL and the empty string were emitted as two rows with the same label');
+        $this->assertStringContainsString('2', $devices['rows'][0]['count'],
+            'the folded row does not carry the combined count');
+    }
+
+    /**
+     * THE STORE PREDICATE, AND IT WAS UNPINNED UNTIL THIS TEST EXISTED.
+     *
+     * Measured: deleting `->whereIn('store_id', $storeIds)` from the producer SURVIVED the whole
+     * 27-test suite. It survives because `$storeIds` IS every store, so for any ordinary fixture
+     * the predicate changes nothing -- which is exactly how a tenancy predicate on a cross-tenant
+     * read ends up with no test at all.
+     *
+     * The predicate does work in one case, and this is it: a visit row whose `store_id` is NOT in
+     * the list `forPlatform()` derived from `Store`. That is reachable -- `StoreController::
+     * destroy()` deletes a store and this product has a recorded lead about rows left pointing at
+     * one -- and `Visit` carries no global scope, so without the predicate such a row is counted
+     * into a platform figure under a store that no longer exists.
+     */
+    public function test_devices_ignores_a_page_view_belonging_to_no_existing_store(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->logVisit((int) $store->id, $now->subDays(1), 'Mobile');
+
+        // A store id no `stores` row has. `forPlatform()` reads its ids from `Store`, so this one
+        // is outside the scope by construction.
+        $orphan = ((int) \App\Models\Store::query()->max('id')) + 99;
+        $this->logVisit($orphan, $now->subDays(1), 'Mobile');
+
+        $this->assertSame(0, \App\Models\Store::query()->whereKey($orphan)->count(),
+            'premise: the orphan store id must not exist, or this test proves nothing');
+
+        $devices = PlatformAnalyticsFigures::forPlatform($now)['devices'];
+
+        $this->assertStringContainsString('1', $devices['rows'][0]['count'],
+            'a page view belonging to no existing store was counted into the platform figure, so '
+            . 'the store predicate is doing nothing.');
+    }
+
+    /**
+     * THE RE-SORT AFTER THE FOLD, which a mutation proved was also unpinned.
+     *
+     * Deleting `arsort($buckets)` SURVIVED the ordering test above, because the SQL already
+     * returns `ORDER BY total DESC` and PHP preserves insertion order -- so for a fixture whose
+     * buckets need no merging the sort is invisible.
+     *
+     * It is NOT redundant: the fold merges NULL and '' into one bucket AFTER the ordering, and the
+     * merged count can exceed a bucket that arrived earlier. This fixture makes exactly that
+     * shape -- Desktop 5, NULL 3, '' 3, so the folded "not recorded" bucket is 6 and must rank
+     * FIRST. Without the re-sort it renders second, under a smaller number.
+     */
+    public function test_a_folded_bucket_is_ranked_by_its_combined_count(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->logVisit((int) $store->id, $now->subDays(1), 'Desktop');
+        }
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->logVisit((int) $store->id, $now->subDays(1), null);
+        }
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->logVisit((int) $store->id, $now->subDays(1), '');
+        }
+
+        $devices = PlatformAnalyticsFigures::forPlatform($now)['devices'];
+
+        $this->assertCount(2, $devices['rows'],
+            'premise: NULL and the empty string must fold into one bucket for this test to be '
+            . 'about ranking at all');
+        $this->assertStringContainsString('6', $devices['rows'][0]['count'],
+            'the folded bucket (3 + 3) is not ranked above the 5 it exceeds, so the re-sort after '
+            . 'the fold is not happening');
+        $this->assertSame('Desktop', $devices['rows'][1]['label']);
+    }
+
+    public function test_devices_renders_a_breakdown_shape_when_no_store_exists(): void
+    {
+        /*
+         * THE EMPTY-SCOPE GUARD, which a mapping pass omitted from all four of its proposals and
+         * which is the one omission that would have shipped red. `MetricScope`'s constructor
+         * THROWS on an empty store list, and `nothingYet()` -- the helper every TILE on this
+         * screen uses for this case -- returns no `rows` key, so a consumer looping
+         * `$figure['rows']` would fatal on it. A breakdown needs a breakdown-shaped empty.
+         */
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        $devices = PlatformAnalyticsFigures::forPlatform($now)['devices'];
+
+        $this->assertArrayHasKey('rows', $devices,
+            'the empty case does not carry a `rows` key, so every consumer that loops it fatals');
+        $this->assertSame([], $devices['rows']);
+        $this->assertNotSame('', trim((string) $devices['hint']),
+            'an empty breakdown with no explanation reads as a broken page');
+    }
+
+    public function test_the_screen_shows_the_devices_breakdown(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+        $operator = $this->makePlatformAdmin();
+
+        [, $store] = $this->makeTenant();
+        $this->logVisit((int) $store->id, $now->subDays(1), 'Tablet');
+
+        CarbonImmutable::setTestNow($now);
+
+        try {
+            $html = $this->actingAs($operator->fresh())->get(self::URI)->assertStatus(200)->getContent();
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+
+        $this->assertStringContainsString('Tablet', (string) $html,
+            'the figure is computed and the screen does not render it -- the "computed but '
+            . 'unreachable" shape this screen has already shipped three times');
+        $this->assertStringContainsString('Devices', (string) $html);
     }
 }

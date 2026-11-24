@@ -82,6 +82,7 @@ final class PlatformAnalyticsFigures
             'buyers' => self::buyers($storeIds, $now),
             'retention' => self::retention($coverage),
             'payments' => self::payments($coverage),
+            'devices' => self::devices($storeIds, $now),
             'coverage' => $coverage,
         ];
     }
@@ -728,12 +729,119 @@ final class PlatformAnalyticsFigures
      * differed between `/analytics` and `/platform/analytics`, contradicting this class's own
      * reason for reusing the metric layer.
      */
+    /**
+     * DEVICES, ACROSS TENANTS -- `GAP-162` / `P05-14`, the first of the four counterparts a
+     * mapping pass found genuinely buildable without an owner decision.
+     *
+     * IT IS A BREAKDOWN, NOT A TILE, so its shape is `{rows, period, hint}` and NOT the
+     * `{value, period, hint}` every other figure on this screen returns. That difference is the
+     * whole reason `nothingYet()` is not used for the empty case below: it has no `rows` key, and
+     * a consumer looping `$figure['rows']` would fatal on it.
+     *
+     * THE EMPTY-SCOPE GUARD IS FIRST AND IS LOAD-BEARING. `MetricScope`'s constructor THROWS on an
+     * empty store list ("an empty scope would compile to 0 = 1"), and every figure on this screen
+     * opens with this branch. This one does not even reach a scope -- it reads `Visit` directly,
+     * as `topStoresByPageViews()` does -- but the branch stays, because a platform with no stores
+     * must render a breakdown-shaped empty rather than an exception or a missing key. A mapping
+     * pass omitted this guard from all four of its proposals, which is the one omission that
+     * would have shipped red.
+     *
+     * THE SAME FOLD AS THE MERCHANT TILE, FOR THE SAME MEASURED REASON. SQL `GROUP BY device`
+     * treats NULL and `''` as TWO groups, so a naive loop emits two rows both labelled "Device not
+     * recorded" with a count each -- a reader takes one absence for two devices and neither count
+     * for the real one. `MerchantAnalyticsFigures::devices()` records that measurement; this
+     * repeats the fold rather than the defect.
+     *
+     * NO ROW CAP, DELIBERATELY, and this is the one presentation choice worth stating. The two
+     * attribution breakdowns (`channels`, `campaigns`) are blocked on owner decisions `D-N39` and
+     * `D-N40` precisely because their buckets are VISITOR-AUTHORED and a cross-tenant cap is a
+     * product question. `device` is written by the visitor library from a parsed user agent, not
+     * chosen by a visitor, so its vocabulary is closed in practice and capping it would drop real
+     * buckets to solve a problem this column does not have. The column IS declared `text`, so an
+     * unbounded tail is theoretically reachable -- a property this side SHARES with the merchant
+     * tile rather than one it introduces, recorded so that if it is ever capped, both sides are
+     * capped together and keep agreeing.
+     *
+     * TENANCY: `whereIn('store_id', ...)` over the ids `forPlatform()` resolved from `Store`, the
+     * same predicate `topStoresByPageViews()` uses. `Visit` carries no global scope, which is
+     * exactly why the predicate is explicit.
+     *
+     * @param  list<int>  $storeIds
+     * @return array{rows: list<array{label: string, count: string}>, period: string, hint: string}
+     */
+    private static function devices(array $storeIds, CarbonImmutable $now): array
+    {
+        [$from, $to] = self::recentBounds($now);
+
+        if ($storeIds === []) {
+            return [
+                'rows' => [],
+                'period' => __('not yet available'),
+                'hint' => __('No store exists yet, so there is nothing to count.'),
+            ];
+        }
+
+        $grouped = Visit::query()
+            ->whereIn('store_id', $storeIds)
+            ->whereBetween('created_at', [$from, $to])
+            ->selectRaw('device as bucket, COUNT(*) as total')
+            ->groupBy('device')
+            ->orderByDesc('total')
+            ->toBase()
+            ->get();
+
+        $buckets = [];
+
+        foreach ($grouped as $row) {
+            $label = trim((string) ($row->bucket ?? ''));
+
+            $buckets[$label] = ($buckets[$label] ?? 0) + (int) $row->total;
+        }
+
+        arsort($buckets);
+
+        $rows = [];
+
+        foreach ($buckets as $label => $count) {
+            $rows[] = [
+                'label' => $label === '' ? __('Device not recorded') : (string) $label,
+                'count' => self::ltr(number_format($count)),
+            ];
+        }
+
+        return [
+            'rows' => $rows,
+            'period' => self::recentPeriod(),
+            'hint' => __('Page views across every store, grouped by the device the visitor used. It counts requests rather than people, and a device is recorded only when the visit log could determine one.'),
+        ];
+    }
+
     private static function recentWindow(CarbonImmutable $now): MetricWindow
     {
-        return MetricWindow::between(
+        [$from, $to] = self::recentBounds($now);
+
+        return MetricWindow::between($from, $to);
+    }
+
+    /**
+     * THE TWO BOUNDS, extracted so this screen has ONE definition of "the last 30 days".
+     *
+     * `recentWindow()` wraps them for the metric layer; the device breakdown needs them raw,
+     * because it reads `Visit` directly as `topStoresByPageViews()` does rather than through a
+     * metric. Going back through `MetricWindow::from()`/`to()` for that would mean handling two
+     * nullable returns that this construction can never produce -- `MetricWindow` is nullable
+     * because `allTime()` and `since()` exist, not because `between()` can yield one -- and a
+     * `whereBetween` handed a null silently matches nothing. One source, no nullable, and the
+     * breakdown cannot drift from the tiles beside it.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    private static function recentBounds(CarbonImmutable $now): array
+    {
+        return [
             $now->subDays(self::RECENT_DAYS - 1)->startOfDay(),
-            $now->endOfDay()
-        );
+            $now->endOfDay(),
+        ];
     }
 
     /** The merchant screen's EXISTING key, not a second one saying the same thing in other words. */

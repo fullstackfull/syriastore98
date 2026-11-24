@@ -4522,5 +4522,7 @@
     "Includes :amount from orders that carry no currency, counted in your store currency.": "Includes :amount from orders that carry no currency, counted in your store currency.",
     "By order value": "By order value",
     "Total Plan Orders": "Total Plan Orders",
-    "Orders that were later cancelled or returned are counted here.": "Orders that were later cancelled or returned are counted here."
+    "Orders that were later cancelled or returned are counted here.": "Orders that were later cancelled or returned are counted here.",
+    "Page views across all stores, one row per device. It counts requests rather than people.": "Page views across all stores, one row per device. It counts requests rather than people.",
+    "Page views across every store, grouped by the device the visitor used. It counts requests rather than people, and a device is recorded only when the visit log could determine one.": "Page views across every store, grouped by the device the visitor used. It counts requests rather than people, and a device is recorded only when the visit log could determine one."
 }

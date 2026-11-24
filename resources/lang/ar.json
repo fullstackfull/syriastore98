@@ -4518,5 +4518,7 @@
     "Includes :amount from orders that carry no currency, counted in your store currency.": "يشمل :amount من طلبات لا تحمل أي عملة، محسوبة بعملة متجرك.",
     "By order value": "حسب قيمة الطلبات",
     "Total Plan Orders": "إجمالي طلبات الاشتراك",
-    "Orders that were later cancelled or returned are counted here.": "الطلبات التي أُلغيت أو أُرجعت لاحقاً محتسبة هنا."
+    "Orders that were later cancelled or returned are counted here.": "الطلبات التي أُلغيت أو أُرجعت لاحقاً محتسبة هنا.",
+    "Page views across all stores, one row per device. It counts requests rather than people.": "مرات مشاهدة الصفحات في جميع المتاجر، سطر لكل جهاز. وهي تحصي الطلبات لا الأشخاص.",
+    "Page views across every store, grouped by the device the visitor used. It counts requests rather than people, and a device is recorded only when the visit log could determine one.": "مرات مشاهدة الصفحات في كل متجر، مجمَّعة حسب الجهاز الذي استخدمه الزائر. وهي تحصي الطلبات لا الأشخاص، ولا يُسجَّل الجهاز إلا عندما يتمكَّن سجل الزيارات من تحديده."
 }

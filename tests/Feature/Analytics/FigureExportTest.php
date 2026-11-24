@@ -286,23 +286,53 @@ final class FigureExportTest extends SecurityTestCase
             'payments' => 'Payments collected',
         ];
 
+        /*
+         * THE BREAKDOWN SET IS SOURCE-DERIVED, NOT A THIRD HARD-CODED LIST. A breakdown is a
+         * figure of a DIFFERENT SHAPE -- `{rows, period, hint}`, with no `value` -- so its cell in
+         * the file is not the bare label: `FigureCsv::breakdownRows()` writes
+         * "<label> — <row label>" per row, and the bare label only for an empty breakdown.
+         *
+         * THIS TEST CAUGHT MY OWN CHANGE, which is the whole point of it. Adding `devices` to
+         * `forPlatform()` made it fail, because its premise -- "everything that is not `coverage`
+         * is a figure with a `value`" -- was true when written and stopped being true the moment
+         * the screen gained a figure of another shape. Reading the breakdown labels from
+         * `PlatformAnalyticsController::breakdownLabels()` keeps the expectation derived from the
+         * source on BOTH shapes, so the next breakdown added to the screen and not to the export
+         * is still a red test rather than a silent omission.
+         */
+        $breakdownLabels = \App\Http\Controllers\PlatformAnalyticsController::breakdownLabels();
+
+        $this->assertNotEmpty($breakdownLabels,
+            'premise failed: the platform export declares no breakdowns, so the breakdown half of '
+            . 'this assertion checks nothing.');
+
         foreach ($expected as $key) {
-            $this->assertArrayHasKey($key, $labelFor,
+            $isBreakdown = array_key_exists($key, $breakdownLabels);
+
+            $this->assertTrue($isBreakdown || array_key_exists($key, $labelFor),
                 "the platform screen gained the figure '{$key}' and this test does not know what "
                 . 'the file should call it. Name it here AND in '
-                . 'PlatformAnalyticsController::export(), or the download silently omits it.');
+                . 'PlatformAnalyticsController::export() (or its breakdownLabels(), if it is a '
+                . 'breakdown), or the download silently omits it.');
 
-            $label = $labelFor[$key];
+            $label = $isBreakdown ? $breakdownLabels[$key] : $labelFor[$key];
 
-            // Exact on the cell, or the money form "<label> (<CURRENCY>)". Not a substring: a
-            // label that merely CONTAINS the expected text is a drift, not a match.
-            $matched = array_filter($cells, fn ($cell) => $cell === $label || str_starts_with($cell, $label . ' ('));
+            /*
+             * Exact on the cell, or the money form "<label> (<CURRENCY>)", or -- for a breakdown
+             * -- "<label> — <row>". Never a bare substring: a cell that merely CONTAINS the
+             * expected text is drift, not a match. That distinction already caught one defect
+             * here, where "Repeat purchases" satisfied a containment check for "Repeat purchase".
+             */
+            $matched = array_filter($cells, fn ($cell) => $cell === $label
+                || str_starts_with($cell, $label . ' (')
+                || ($isBreakdown && str_starts_with($cell, $label . ' — ')));
 
             $this->assertNotEmpty($matched,
                 "the platform export has no row labelled exactly '{$label}'. Either the figure is "
                 . 'missing from export()\'s label map -- which drops it from the download with no '
-                . 'error, because FigureCsv::rows() iterates the map and not the figures -- or the '
-                . 'export labels it differently from the screen.');
+                . 'error, because FigureCsv::rows() iterates the map and not the figures, and its '
+                . 'array_key_exists(\'value\') limb skips a breakdown outright -- or the export '
+                . 'labels it differently from the screen.');
         }
     }
 

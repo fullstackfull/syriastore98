@@ -110,6 +110,55 @@
     </div>
 </div>
 
+{{--
+    DEVICES, ACROSS TENANTS -- GAP-162 / P05-14.
+
+    A BREAKDOWN, so it is a table rather than an <x-ss.stat> tile, and it is modelled on the
+    payments block above rather than on the merchant screen's markup: this page already had one
+    rows-shaped figure and a second shape would be a second thing to keep accessible.
+
+    The empty case prints "Not available" rather than an empty table, as payments does, because an
+    empty <tbody> reads as a broken page and a table with no rows has nothing for a screen reader
+    to announce.
+--}}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="h5 mb-1">{{ __('Devices') }}</h2>
+
+        <p class="ss-muted mb-3">
+            {{ __('Period') }}: {{ $figures['devices']['period'] }}
+        </p>
+
+        @if ($figures['devices']['rows'] === [])
+            <p>{{ __('Not available') }}</p>
+        @else
+            <div class="table-responsive">
+                <table class="table">
+                    <caption class="ss-visually-hidden">
+                        {{ __('Page views across all stores, one row per device. It counts requests rather than people.') }}
+                    </caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">{{ __('Device') }}</th>
+                            <th scope="col">{{ __('Page views') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($figures['devices']['rows'] as $row)
+                            <tr>
+                                <th scope="row">{{ $row['label'] }}</th>
+                                <td>{{ $row['count'] }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+
+        <p class="ss-stat__hint">{{ $figures['devices']['hint'] }}</p>
+    </div>
+</div>
+
 <div class="row">
     <div class="col-12">
         <p class="ss-muted">

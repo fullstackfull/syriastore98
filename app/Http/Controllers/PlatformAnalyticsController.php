@@ -65,6 +65,21 @@ class PlatformAnalyticsController extends Controller
      * beside `index`'s. An export route with a weaker guard than the screen it exports is a classic
      * way to lose a control, and this one would lose it across every tenant at once.
      */
+    /**
+     * THE BREAKDOWN LABELS, kept beside the figure map in `export()` and derived from nothing --
+     * it is the file's breakdown set, as `AnalyticsExportRows::breakdownLabels()` is the
+     * merchant's. Its labels are the SAME strings the screen's headings use, so the file and the
+     * page cannot name the same breakdown differently.
+     *
+     * @return array<string, string>
+     */
+    public static function breakdownLabels(): array
+    {
+        return [
+            'devices' => __('Devices'),
+        ];
+    }
+
     public function export(Request $request)
     {
         $figures = PlatformAnalyticsFigures::forPlatform();
@@ -93,6 +108,29 @@ class PlatformAnalyticsController extends Controller
 
         foreach (\App\Support\Metrics\FigureCsv::currencyRows($figures['payments'], __('Payments collected')) as $row) {
             $rows[] = $row;
+        }
+
+        /*
+         * THE BREAKDOWN LOOP, and the reason it is a LOOP OVER A MAP rather than one hand-added
+         * call is the three-time history the comment above records. `FigureCsv::rows()` skips any
+         * figure with no `value` key, and a breakdown has none -- so a breakdown added to that map
+         * is dropped in silence, which is the same shape as the three omissions already recorded
+         * on this screen and its merchant twin.
+         *
+         * `FigureCsv::breakdownRows()` already existed and `AnalyticsExportRows::build()` already
+         * looped it for the merchant file; the operator export was the one that never called it.
+         * A correction worth recording: an earlier note of mine claimed the renderer itself was
+         * breakdown-blind and had to be built. It was not -- only this handler was missing.
+         *
+         * `breakdownRows()` emits its own "Not available" row for an empty breakdown, so a
+         * platform with no visits still produces a line rather than a hole in the file.
+         */
+        foreach (self::breakdownLabels() as $key => $label) {
+            if (isset($figures[$key])) {
+                foreach (\App\Support\Metrics\FigureCsv::breakdownRows($figures[$key], $label) as $row) {
+                    $rows[] = $row;
+                }
+            }
         }
 
         return response(\App\Support\Metrics\FigureCsv::render($rows), 200, [
