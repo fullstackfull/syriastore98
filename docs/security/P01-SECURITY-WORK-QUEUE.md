@@ -7733,3 +7733,68 @@ none of its three candidate names is on the denylist — recorded as equivalent 
 caught. 64 tests green across the five files that hold this control's contract.
 
 **Not deployed.** Nothing in this queue is deployed; this is a branch fix.
+
+---
+
+## SEC-SESS part C — **REFUTED. The guard I planned would have protected nothing** (2026-11-24)
+
+Recorded because a refuted plan is worth as much as an executed one, and because the next reader
+of `PaymentController::getWhatsappUrl()` will have the same idea I did.
+
+### What I was going to do
+
+Mirror the containment at `PaymentController.php:5098-5100` onto `:4550`, on the reasoning that
+`getWhatsappUrl()` reads a customer id out of request data:
+
+```php
+$customer_id = $requests_data['customer_id'] ?? 0;      // :4550, caller-supplied
+```
+
+A caller-supplied identifier next to a basket-clearing delete is the single most productive defect
+shape in this codebase — five handlers in S16, twenty-six more in S19 — so the shape alone looked
+like enough.
+
+### Why it is not a defect
+
+The shape is there; the reachability is not. Two facts, both read in the handler:
+
+1. **The destructive sink does not use it.** One line below, `:4551` derives the owner from the
+   authenticated principal and nothing else:
+
+   ```php
+   $cartOwnerId = (int) (auth('customers')->id() ?? 0);
+   ```
+
+   and `$cartOwnerId` — not `$customer_id` — is what the basket delete at `:4685` is keyed on. A
+   caller who posts someone else's `customer_id` changes no predicate that deletes anything.
+
+2. **The one place `$customer_id` still reaches is dead.** It is written into
+   `$cart_list['customer_id']` at `:4570`, and that key is read by nothing afterwards.
+
+So the containment would be **behaviour-neutral by construction**: it would narrow a value that no
+sink consults and that no reader reads. It would also be worse than nothing in one specific way —
+it would read, to a future reviewer, as evidence that this handler's request-derived id was once
+dangerous and is now guarded, when in fact the guard that matters is the `auth('customers')`
+derivation that was already there.
+
+### Disposition
+
+**NOT IMPLEMENTED.** The owner's instruction was to harden here only if a focused regression test
+proved it valuable. No such test can exist: a test would have to drive the request-supplied
+`customer_id` to an observable effect, and there is no path from it to one. A test that asserted
+"posting a foreign `customer_id` deletes nothing" would pass on the unmodified tree — the vacuous
+shape this project keeps re-learning, and the same trap that produced four empty assertions in the
+P01-SEC-13 follow-up on the same day.
+
+**The generalisable point.** "A caller-supplied id appears near a destructive query" is a lead, not
+a finding. The question is always whether the *predicate that does the damage* is built from it.
+Here it is built from the guard instead, and that was established by reading the two lines between
+them rather than by pattern-matching the first.
+
+### What this does NOT say
+
+It says nothing about SEC-SESS part B, which remains **blocked on an owner decision** (what a
+store mismatch at the customer-session boundary should do), and nothing about the forced-sign-out
+residual part A narrowed rather than closed — see
+`database/migrations/_sec13_pending/README.md`, whose closing section records why that residual
+cannot currently be driven by a Feature test at all.
