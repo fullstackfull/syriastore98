@@ -4,6 +4,7 @@ namespace App\Support\Metrics;
 
 use App\Models\Order;
 use App\Support\Analytics\AnalyticsPeriod;
+use App\Support\Money\CurrencySymbol;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Shetabit\Visitor\Models\Visit;
@@ -39,7 +40,15 @@ use Shetabit\Visitor\Models\Visit;
  * in the three raw-query tenancy inventories, and an Eloquent read with its own `where` needs no exception.
  */
 final class MerchantAnalyticsFigures
-{
+{    /**
+     * The currency a BLANK `defult_currancy` setting means, and it is deliberately the same
+     * constant name and the same value as `FinanceLedgerFigures::FALLBACK_CURRENCY`. The two
+     * classes render money tiles side by side on `/analytics`; a review measured them disagreeing
+     * about whether a figure has a unit at all when that row is empty.
+     */
+    private const FALLBACK_CURRENCY = 'USD';
+
+
     /** The activity window. Short enough to be about now, long enough that a quiet week is not a cliff. */
     /*
      * PUBLIC SINCE ANA-002, and for one specific reason: it is now the number
@@ -348,27 +357,156 @@ final class MerchantAnalyticsFigures
          * store's own currency is what FinanceLedgerFigures does, and it is stated, not silent.
          */
         $result = $result->assumingUnknownCurrencyIs($storeCurrency);
-        $buckets = array_filter(
-            $result->byCurrency(),
-            static fn ($amount, $currency) => $currency !== '' && (float) $amount !== 0.0,
-            ARRAY_FILTER_USE_BOTH
-        );
+
+        /*
+         * ANA-RED. THE GUARD USED TO ASK A DIFFERENT QUESTION FROM THE ONE THAT THROWS, and
+         * `total()` is gone from this method because of it.
+         *
+         * What stood here filtered a COPY of `byCurrency()` -- dropping `''` keys and zero amounts
+         * -- guarded on `count($buckets) > 1`, and then called `$result->total()`.
+         * `MetricResult::total()` throws when `count($this->byCurrency) > 1` over the UNFILTERED
+         * array, so the guard whose whole purpose was to prevent that exception could not see the
+         * shape that causes it. MEASURED on this revision before the fix, with a probe:
+         *
+         *   a zero SYP bucket beside a real USD bucket   THREW MixedCurrencyException
+         *   two zero buckets                             THREW MixedCurrencyException
+         *   one SYP bucket, store setting USD            printed "250.00 USD"
+         *
+         * The first two are an UNCAUGHT exception on the two HTTP surfaces -- `GET /analytics` and
+         * `GET /analytics/export`, neither of which has a try/catch. THE THIRD CALLER IS DIFFERENT
+         * AND AN EARLIER DRAFT OF THIS COMMENT GOT IT WRONG: `ScheduledReportRunner` wraps the
+         * call in `catch (\Throwable)`, logs a warning and marks the schedule FAILED. So there the
+         * symptom was not a 500 but a recurring report that silently never arrived -- arguably
+         * worse, because nobody is watching a schedule, but not what the sentence claimed.
+         * And a zero-amount redemption row is ORDINARY DATA, not a corner case:
+         * `order_coupon_details.coupon_discount_amount` is declared `float default 0` BY ITS
+         * MIGRATION (per CLAUDE.md the migrations are not the schema, and no dump was available
+         * here to cross-check it).
+         *
+         * THE THIRD IS THE QUIETER ONE AND IT DID NOT THROW. The amount came from the surviving
+         * bucket and the label came from the store's `defult_currancy` setting, so a real figure
+         * was shown under the wrong currency with no caveat and no refusal -- 250 Syrian pounds
+         * reported as 250 US dollars. A wrong number a merchant cannot tell is wrong is worse
+         * than a missing one, which is the principle the rest of this class is built on.
+         *
+         * SO THE DECISION AND THE NUMBER NOW COME FROM THE SAME ARRAY. `MoneyText::buckets()` is
+         * the shared form of the filter this method rolled by hand, and it is better at it: it
+         * normalises each key (`strtoupper(trim())`, except `UNKNOWN_CURRENCY`, which keeps its
+         * spelling for FIN-SYM's reason), merges collisions, sorts so the answer does not depend
+         * on the engine's GROUP BY order, and with `$dropEmpty` drops |amount| < 0.005. Nothing
+         * real is lost by giving up the `$currency !== ''` limb: `Metric::sumByCurrency()` maps
+         * both null and `''` to `UNKNOWN_CURRENCY`, so an empty key never reaches `byCurrency()`.
+         *
+         * The refusal below is unchanged and is still the right answer for the case it names: two
+         * currencies that BOTH hold money, with nothing to convert them.
+         */
+        $buckets = MoneyText::buckets($result->byCurrency(), true);
 
         if (count($buckets) > 1) {
-            // Two real currencies and nothing converted them. No number is invented.
+            /*
+             * Two real currencies and nothing converted them. No number is invented -- and the
+             * AMOUNTS ARE LISTED, so the tile is not a dead end for a store that changed
+             * currency. `FinanceLedgerFigures::tile()` already did this and this one did not,
+             * which a review called out: the data is already in `$buckets`, and a refusal that
+             * shows nothing reads as missing data rather than as two honest numbers.
+             */
+            $listed = [];
+
+            foreach ($buckets as $bucketCurrency => $bucketAmount) {
+                $listed[] = MoneyText::amount((float) $bucketAmount, (string) $bucketCurrency);
+            }
+
             return [
                 'value' => null,
                 'period' => $period,
-                'hint' => __('Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.'),
+                'hint' => __('Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.')
+                    . ' ' . __('These amounts are in more than one currency and are not combined: :amounts.', [
+                        'amounts' => implode(', ', $listed),
+                    ]),
             ];
         }
 
-        return [
-            'value' => self::ltr(number_format((float) $result->total(), 2) . ' ' . $storeCurrency),
-            'period' => $period,
-            'hint' => __('The total discount given by coupons on orders in this period. Recorded in full from :date; earlier redemptions are not included and are not reconstructed.', [
+        /*
+         * NO BUCKET MEANS NO MONEY, so the figure is zero and the label cannot misstate any
+         * amount. The store's own setting names it, normalised through `CurrencySymbol::code()`
+         * with a BLANK setting falling back to `USD`.
+         *
+         * THAT BLANK FALLBACK IS HERE BECAUSE A REVIEWER REFUTED MY OWN CLAIM ABOUT IT. A first
+         * draft of this comment said `FinanceLedgerFigures` "has the same fallback". It does not:
+         * that class normalises once at entry with `strtoupper(trim())` and substitutes its
+         * `FALLBACK_CURRENCY` for an empty string, and it never calls `CurrencySymbol::code()`.
+         * The two mechanisms differ, and with a blank `defult_currancy` row -- reachable, because
+         * both this screen's controller and `ScheduledReportRunner` read it with
+         * `->value('value') ?? 'USD'` and `??` does not catch `''` -- the earlier draft printed
+         * `0.00 ` with no unit at all, beside a Payments tile on the SAME CARD reading `0.00 USD`.
+         * Two money figures on one card disagreeing about whether a figure has a unit is not a
+         * detail. So the blank case now lands on the same `USD` the sibling uses.
+         *
+         * A NON-BLANK setting that is not a code (a symbol, or a name like "US Dollar") still
+         * prints verbatim, which is owner decision D-N34's territory and matches the sibling's
+         * behaviour rather than inventing a policy here.
+         */
+        $currency = (string) array_key_first($buckets);
+        $amount = $buckets === [] ? 0.0 : (float) $buckets[$currency];
+
+        if ($buckets === []) {
+            $currency = CurrencySymbol::code($storeCurrency) ?: trim($storeCurrency);
+            $currency = $currency === '' ? self::FALLBACK_CURRENCY : $currency;
+        }
+
+        /*
+         * THE DISCLOSURES, AND THE FIRST IS THE REVIEW'S HEADLINE FINDING.
+         *
+         * (1) `assumingUnknownCurrencyIs()` above folds rows that recorded NO currency into the
+         *     store's, and `MetricResult` attaches `CURRENCY_UNRECORDED` plus
+         *     `notes()['currency_assumed_amount']` precisely so a surface can say so. This method
+         *     never read either -- it was the ONLY caller of that fold in the application that
+         *     disclosed nothing, while `FinanceLedgerFigures`, `CustomerMoneyTiles` and
+         *     `WalletEntitlementFigure` all state it. `orders.currency_code` was deliberately not
+         *     backfilled, so an unrecorded currency is the ORDINARY state for older rows: the
+         *     tile could print a real amount under a code the data does not record, with no
+         *     caveat. That is the same failure mode as the defect this change fixes, arriving
+         *     through the sanctioned door. The sentence is the sibling's, verbatim, so there is
+         *     one wording and one translation key rather than two.
+         *
+         * (2) The bucket's currency can now legitimately DIFFER from the store's -- that is the
+         *     point of taking the label from the bucket -- so the tile says when it does, in
+         *     `WalletEntitlementFigure`'s words. Without it a merchant reading `250.00 SYP` on a
+         *     USD store has no way to know the two were not converted.
+         *
+         * (3) THE SETTLEMENT BASIS, which no sentence on this tile stated. `CouponRedemption`
+         *     joins `orders` with no `payment_status` and no cancellation predicate, so a coupon
+         *     on an unpaid or later-cancelled order counts in full. The Orders and Payments tiles
+         *     beside it both spell their basis out; this one did not, so "what coupons cost me"
+         *     overstated by the cancelled and unpaid share with nothing on screen to say so. The
+         *     clause describes what the query already does and decides no policy.
+         */
+        $notes = [
+            __('The total discount given by coupons on orders in this period. Recorded in full from :date; earlier redemptions are not included and are not reconstructed.', [
                 'date' => self::day(CouponRedemptionCoverage::forStore($storeId)->completeFrom()),
             ]),
+            __('It counts coupons on orders placed in this period whatever their payment status, and does not exclude orders later cancelled or refunded.'),
+        ];
+
+        if ($result->hasCaveat(MetricCaveat::CURRENCY_UNRECORDED)) {
+            $notes[] = __('Includes :amount from records that carry no currency, counted in your store currency.', [
+                'amount' => MoneyText::amount((float) ($result->notes()['currency_assumed_amount'] ?? 0.0), $currency),
+            ]);
+        }
+
+        $settingCode = CurrencySymbol::code($storeCurrency);
+
+        if ($buckets !== [] && $settingCode !== '' && $currency !== $settingCode) {
+            $notes[] = __('This figure is in :wallet, and your store currency is :store. The two are not converted.', [
+                'wallet' => MoneyText::currencyLabel($currency),
+                'store' => $settingCode,
+            ]);
+        }
+
+        return [
+            'value' => MoneyText::amount($amount, $currency),
+            'period' => $period,
+            'hint' => implode(' ', $notes),
         ];
     }
 

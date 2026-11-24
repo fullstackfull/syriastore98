@@ -288,6 +288,279 @@ final class MerchantAnalyticsFiguresTest extends SecurityTestCase
         $this->assertStringContainsStringIgnoringCase('not reconstructed',
             $figures['redemptions']['hint'],
             'even a shown figure must say that earlier redemptions are not rebuilt');
+
+        /*
+         * AND IT STATES ITS SETTLEMENT BASIS, which a mutation proved was unpinned: deleting the
+         * clause failed no test. `CouponRedemption` joins `orders` with no `payment_status` and
+         * no cancellation predicate, so a coupon on an unpaid or later-cancelled order counts in
+         * full. The Orders and Payments tiles on the same card both spell their basis out; a
+         * merchant reading this one as "what coupons cost me" would otherwise overstate it by the
+         * cancelled and unpaid share with nothing on screen to say so.
+         */
+        $this->assertStringContainsStringIgnoringCase('whatever their payment status',
+            $figures['redemptions']['hint'],
+            'the figure does not say that it counts coupons on unpaid and cancelled orders');
+    }
+
+    /**
+     * A discounted order in a NAMED currency, with its redemption row. The window and the
+     * completeness rule are the same as the happy case above; only the currency differs.
+     */
+    private function discountedIn($store, string $currency, float $amount, CarbonImmutable $when): void
+    {
+        $order = $this->makeOrder($store, [
+            'coupon_price' => $amount,
+            'order_date' => $when,
+            'currency_code' => $currency,
+        ]);
+
+        DB::table('order_coupon_details')->insert([
+            'order_id' => $order->id,
+            'product_order_id' => $order->product_order_id,
+            'coupon_id' => 1,
+            'coupon_name' => 'TEN', 'coupon_code' => 'TEN',
+            'coupon_discount_type' => 'flat', 'coupon_discount_number' => $amount,
+            'coupon_discount_amount' => $amount, 'coupon_final_amount' => 90.0,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /*
+     * ANA-RED. THE GUARD ASKED A DIFFERENT QUESTION FROM THE ONE THAT THROWS.
+     *
+     * `redemptions()` folded the unrecorded-currency bucket, then FILTERED a copy of
+     * `byCurrency()` -- dropping zero amounts -- and guarded on `count($buckets) > 1` before
+     * calling `$result->total()`. But `MetricResult::total()` throws when
+     * `count($this->byCurrency) > 1` over the UNFILTERED array. So the guard that exists to
+     * prevent the exception could not see the shape that causes it.
+     *
+     * MEASURED on this revision before the fix, with a throwaway probe:
+     *
+     *   a zero SYP bucket beside a real USD bucket   THREW MixedCurrencyException
+     *   two zero buckets                             THREW MixedCurrencyException
+     *   one SYP bucket, store setting USD            printed "250.00 USD" -- 250 Syrian pounds
+     *
+     * The first two are an UNCAUGHT exception on the two HTTP surfaces, GET /analytics and
+     * GET /analytics/export. The third caller is different and an earlier draft of this comment
+     * said otherwise: `ScheduledReportRunner` catches `\Throwable`, logs a warning and marks the
+     * schedule FAILED, so there the symptom was a recurring report that silently never arrived --
+     * arguably worse, because nobody watches a schedule, but not a 500. The mislabel case does
+     * not throw at all and is the quietest of the three: the AMOUNT came from the surviving
+     * bucket and the LABEL came from the store's `defult_currancy` setting, so a real number was
+     * shown under the wrong currency with no caveat and no refusal.
+     *
+     * A ZERO-AMOUNT REDEMPTION ROW IS ORDINARY DATA, which is what makes the first two reachable
+     * rather than theoretical: `order_coupon_details.coupon_discount_amount` is declared
+     * `float default 0`.
+     */
+
+    public function test_a_zero_discount_in_another_currency_does_not_crash_the_figure(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        // One SYP order whose coupon discounted nothing, and one USD order that discounted 100.
+        // Both have their redemption row, so the completeness rule is satisfied and the tile is
+        // expected to SHOW a number -- nothing but the guard mismatch can stop it.
+        $this->discountedIn($store, 'SYP', 0.0, $now->subDays(2));
+        $this->discountedIn($store, 'USD', 100.0, $now->subDays(2));
+
+        /*
+         * THE PREMISE, ASSERTED RATHER THAN ASSUMED (review finding). This test is only about
+         * anything if the zero-amount row really produces a SECOND currency bucket -- if
+         * `CouponRedemption` ever stopped emitting a group for a zero sum, the test would pass
+         * while exercising nothing. It does emit one: the metric INNER-joins the detail rows and
+         * groups by `orders.currency_code`, so a `0.0` discount still yields its own group.
+         */
+        $measured = (new \App\Support\Metrics\CouponRedemption())->for(
+            \App\Support\Metrics\MetricScope::store((int) $store->id),
+            \App\Support\Metrics\MetricWindow::between($now->subDays(30), $now),
+        )->byCurrency();
+
+        $this->assertCount(2, $measured,
+            'premise: the fixture must produce TWO currency buckets, or neither this test nor '
+            . 'its mutation evidence means anything. Got: ' . json_encode($measured));
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        $this->assertNotNull($figures['redemptions']['value'],
+            'The figure refused a window in which exactly one currency carries any money.');
+        $this->assertStringContainsString('100.00', (string) $figures['redemptions']['value'],
+            'the one bucket that holds money is the one that must be reported');
+        $this->assertStringContainsString('USD', (string) $figures['redemptions']['value']);
+    }
+
+    public function test_two_zero_discounts_in_two_currencies_do_not_crash_the_figure(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        $this->discountedIn($store, 'SYP', 0.0, $now->subDays(2));
+        $this->discountedIn($store, 'USD', 0.0, $now->subDays(2));
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        // Nothing was discounted, in either currency, so the honest figure is zero -- not a
+        // refusal, and certainly not a 500. The refusal is for two currencies that BOTH hold
+        // money and have not been converted.
+        $this->assertNotNull($figures['redemptions']['value'],
+            'The figure refused a window in which no currency carries any money at all.');
+        $this->assertStringContainsString('0.00', (string) $figures['redemptions']['value']);
+
+        // AND THE FALLBACK CURRENCY, which a review found unpinned: with only the amount
+        // asserted, replacing the whole no-bucket fallback with '' -- or deleting the block, so
+        // that `(string) array_key_first([])` leaves an empty string -- still passed. A figure
+        // with no unit is not a money figure.
+        $this->assertStringContainsString('USD', (string) $figures['redemptions']['value'],
+            'the zero figure carries no currency at all, so nothing names what the 0.00 is');
+    }
+
+    /**
+     * A BLANK `defult_currancy` ROW, which is reachable: this screen's controller and
+     * `ScheduledReportRunner` both read it with `->value('value') ?? 'USD'`, and `??` does not
+     * catch an empty string. A review measured the consequence on one card -- the Payments tile
+     * read `0.00 USD` from `FinanceLedgerFigures`' own blank substitution while this tile read
+     * `0.00 ` with no unit. Two money figures side by side disagreeing about whether a figure has
+     * a unit is the kind of thing a merchant notices and an engineer does not.
+     */
+    public function test_a_blank_store_currency_setting_still_names_a_currency(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, '', $now);
+
+        $this->assertStringContainsString('0.00', (string) $figures['redemptions']['value'],
+            'premise: the tile shows its zero, so the assertion below is about the unit');
+        $this->assertStringContainsString('USD', (string) $figures['redemptions']['value'],
+            'A blank currency setting left the figure with no unit, while the Payments tile on '
+            . 'the same card substitutes USD for exactly this case.');
+    }
+
+    /**
+     * THE REFUSAL LIMB, WHICH NOTHING PINNED. Measured while fixing the two cases above: deleting
+     * `if (count($buckets) > 1)` failed no test in the suite, so the one branch that exists to
+     * stop two unconverted currencies being added together was unprotected. It matters more after
+     * the fix, not less, because the array that branch reads changed -- so it is pinned here
+     * rather than left to the next person to discover.
+     */
+    public function test_two_real_currencies_are_refused_rather_than_added(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        // BOTH buckets hold money, so there is no honest single total and no rate to convert with.
+        $this->discountedIn($store, 'SYP', 400.0, $now->subDays(2));
+        $this->discountedIn($store, 'USD', 100.0, $now->subDays(2));
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        $this->assertNull($figures['redemptions']['value'],
+            'Two currencies that both hold money were reduced to one number. 400 SYP and 100 USD '
+            . 'are not 500 of anything.');
+
+        $hint = (string) $figures['redemptions']['hint'];
+
+        $this->assertStringContainsStringIgnoringCase('more than one currency', $hint,
+            'the refusal must say WHY no number is shown, or it reads as missing data');
+
+        // AND IT LISTS THEM, so the tile is not a dead end for a store that changed currency.
+        // `FinanceLedgerFigures::tile()` already did this and this tile did not; the data is
+        // already in hand, and a refusal that shows nothing reads as missing data rather than as
+        // two honest numbers.
+        $this->assertStringContainsString('400.00', $hint,
+            'the refusal withholds the amounts it is refusing to combine');
+        $this->assertStringContainsString('100.00', $hint);
+        $this->assertStringContainsString('SYP', $hint);
+    }
+
+    /**
+     * THE FOLD IS DISCLOSED. `assumingUnknownCurrencyIs()` counts rows that recorded NO currency
+     * in the store's currency, and `MetricResult` attaches `CURRENCY_UNRECORDED` plus the folded
+     * amount so that a surface can say so. This tile was the ONLY caller of that fold in the
+     * application that said nothing -- and because `orders.currency_code` was deliberately never
+     * backfilled, an unrecorded currency is the ordinary state of older rows, so the tile could
+     * print a real amount under a code the data does not record. That is the same failure mode as
+     * the mislabel above, arriving through the sanctioned door.
+     */
+    public function test_a_discount_with_no_recorded_currency_says_it_was_counted_as_the_stores(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        /*
+         * AN ORDER WHOSE CURRENCY WAS NEVER RECORDED, AND IT CANNOT BE BUILT BY PASSING `''`.
+         * Measured: the first version of this test did exactly that and failed, because
+         * `Order`'s `creating` hook stamps the store's currency whenever the attribute is
+         * `empty()` -- so `''` becomes a REAL code, no unknown bucket forms, and there is nothing
+         * to fold or disclose. The column has to be NULLed AFTER the write, which is also the
+         * honest shape: the migration that added it deliberately did not backfill, so a NULL is
+         * what an older row really holds. `Order` is `Cachable`, so the raw write is followed by
+         * a flush or Eloquent keeps serving the pre-write row.
+         */
+        $this->discountedIn($store, 'USD', 75.0, $now->subDays(2));
+        DB::table('orders')->where('store_id', $store->id)->update(['currency_code' => null]);
+        (new \App\Models\Order())->flushCache();
+
+        $measured = (new \App\Support\Metrics\CouponRedemption())->for(
+            \App\Support\Metrics\MetricScope::store((int) $store->id),
+            \App\Support\Metrics\MetricWindow::between($now->subDays(30), $now),
+        );
+
+        $this->assertSame([\App\Support\Metrics\MetricResult::UNKNOWN_CURRENCY], array_keys($measured->byCurrency()),
+            'premise: the fixture must produce the UNRECORDED-currency bucket, or this test '
+            . 'asserts a disclosure about a fold that never happened. Got: '
+            . json_encode($measured->byCurrency()));
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        $this->assertNotNull($figures['redemptions']['value'],
+            'premise: the fold happened and a number is shown, which is what needs disclosing');
+        $this->assertStringContainsString('75.00', (string) $figures['redemptions']['value']);
+        $this->assertStringContainsStringIgnoringCase('carry no currency',
+            (string) $figures['redemptions']['hint'],
+            'A real amount is shown under the store currency with nothing saying the data did '
+            . 'not record one.');
+    }
+
+    /**
+     * WHEN THE FIGURE IS IN A CURRENCY THAT IS NOT THE STORE'S, the tile says so. This became
+     * necessary BECAUSE of the fix: taking the label from the bucket is what stops the mislabel,
+     * and it also means a USD store can now correctly read `250.00 SYP` -- which, unexplained,
+     * leaves a merchant unable to tell that nothing was converted.
+     */
+    public function test_a_figure_in_another_currency_says_it_was_not_converted(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        $this->discountedIn($store, 'SYP', 250.0, $now->subDays(2));
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        $this->assertStringContainsStringIgnoringCase('not converted',
+            (string) $figures['redemptions']['hint'],
+            'the figure is in SYP on a USD store and nothing says the two were not converted');
+    }
+
+    public function test_a_discount_recorded_in_another_currency_is_not_labelled_with_the_stores(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        // The ONLY redemption in the window is in SYP. The store's setting says USD.
+        $this->discountedIn($store, 'SYP', 250.0, $now->subDays(2));
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+        $value = (string) $figures['redemptions']['value'];
+
+        $this->assertStringContainsString('250.00', $value,
+            'premise: the amount is reported, so the assertion below is about its LABEL');
+        $this->assertStringContainsString('SYP', $value,
+            'The amount came from the SYP bucket and the label came from the store setting, so '
+            . '250 Syrian pounds were reported as 250 US dollars.');
+        $this->assertStringNotContainsString('USD', $value,
+            'The wrong currency is still named beside the amount.');
     }
 
     /**
