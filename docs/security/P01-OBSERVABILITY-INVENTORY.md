@@ -146,7 +146,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/ThemeEditorAccess.php:59` | Theme editor access refused. |
 | `app/Http/Middleware/ThemeDraftAccess.php:56` | Theme draft access refused. |
 | `app/Http/Controllers/Api/ApiController.php:6363` | shipping quote refused a cart line naming another store |
-| `app/Models/Cart.php:1319` | flat-rate shipping refused a cart line naming another store |
+| `app/Models/Cart.php:1331` | flat-rate shipping refused a cart line naming another store |
 | `app/Http/Controllers/PaymentCallbackController.php:106` | Paytm plan callback refused: no usable order reference. |
 | `app/Http/Controllers/PaymentCallbackController.php:131` | Paytm plan callback refused: the provider did not confirm the payment. |
 | `app/Http/Controllers/PaymentCallbackController.php:163` | Paytm plan callback refused at the intent. |
