@@ -410,6 +410,56 @@ return Application::configure(basePath: dirname(__DIR__))
         // here: for a POST to those two routes the `File` facade's root is a StoreBoundFilesystem that carries out a delete under uploads/
         // only for the signed-in user's own store. See the class for what it does not do.
         $middleware->appendToGroup('web', \App\Http\Middleware\SignInImageDeleteGuard::class);
+
+        /*
+         * PHASE 06, item 2A. A SUSPENDED ACCOUNT'S EXISTING SESSION IS ENDED ON EVERY REQUEST.
+         *
+         * Measured: suspension was enforced at exactly two places in the application, and both are
+         * login FORMS -- `Auth\AuthenticatedSessionController:68` and `:72` for a `User`,
+         * `Customer\Auth\CustomerLoginController:862` for a `Customer`. Nothing read either flag
+         * again afterwards, so a principal who was already signed in when the flag was flipped kept
+         * working indefinitely: the operator's only account-suspension control had no effect after
+         * sign-in. The token half of the same defect is closed in `CustomAuth`.
+         *
+         * Appended to `web` so it runs after `StartSession` and can see the session at all, which is
+         * the same seam the 22 guards above it use. It logs the suspended principal out of THAT
+         * guard and lets the request continue -- Laravel's own `auth` middleware then redirects an
+         * unauthenticated visitor away from a protected route, so there is nothing to redirect or
+         * abort here and no loop to design.
+         */
+        $middleware->appendToGroup('web', \App\Http\Middleware\SuspendedAccountGuard::class);
+
+        /*
+         * AND IT MUST RUN BEFORE `Authenticate`, WHICH APPENDING ALONE DOES NOT ACHIEVE.
+         *
+         * MEASURED, AFTER THE FIRST VERSION OF THIS GUARD PRODUCED A 500. `Authenticate` is in
+         * Laravel's middleware PRIORITY list and this guard is not, so the sort put `Authenticate`
+         * at position 6 and the guard at 31 -- i.e. `auth` passed on a principal the guard then
+         * logged out, and the controller ran with `auth()->user()` null. On `/dashboard` that is a
+         * null dereference: HTTP 500 instead of a redirect, which is WORSE than the defect being
+         * fixed, and the probe that found it printed `auth('web')->check() === false` next to
+         * `status: 500`.
+         *
+         * THE ANCHOR IS THE INTERFACE, NOT `Authenticate`, and that is not a style choice. Laravel's
+         * priority list holds `Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests` -- the
+         * INTERFACE the concrete middleware implements -- so anchoring on
+         * `Illuminate\Auth\Middleware\Authenticate::class` matches nothing, and
+         * `addToMiddlewarePriorityBefore()` then falls back to appending at the END of the list. That
+         * is exactly what the first attempt did: the guard landed at position 12 of 13, after the
+         * auth entry it was meant to precede, and the 500 above persisted with no error to say the
+         * registration had not taken. Printed the live list to find it.
+         *
+         * `prependToPriorityList()` inserts the guard immediately before that entry, which is after
+         * `StartSession` in the same list -- so the session exists when the guard reads it, and
+         * `Authenticate` sees the logged-out state and issues its own redirect. That is what lets the
+         * guard stay a plain `logout()` with no redirect logic of its own: the framework already
+         * knows where to send an unauthenticated visitor, per guard, and reimplementing that was the
+         * alternative worth avoiding.
+         */
+        $middleware->prependToPriorityList(
+            \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            \App\Http\Middleware\SuspendedAccountGuard::class
+        );
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and
