@@ -416,8 +416,27 @@ class StoreFinanceController extends Controller
          * audit write in a catch. A silently dropped audit row is the same evasion with no 500 to
          * notice it by.
          */
+        /*
+         * THE ACCEPTED SET IS READ FROM THE HELPER THE FORM READS -- `P05-01`.
+         *
+         * It was the literal `in:paid,unpaid`, which is what
+         * `EntitlementStateLabel::selectable()` returns today, so this changes no behaviour. What
+         * it removes is the SECOND COPY: the view offers exactly the options that helper admits
+         * (`resources/views/finance/index.blade.php`), and the two lists agreed only because
+         * nobody had changed either. Widening the form alone would have produced a 422 on an
+         * option the product itself rendered; narrowing it alone would have left this door
+         * accepting a value no form offers.
+         *
+         * THE RESTRICTION ITSELF IS DELIBERATE AND STAYS. `cancelled` and `refunded` are written
+         * by the engine (`P4-F124`, `P4-F127`), and `P5-FIN-3` settled that a refund REQUEST is
+         * not a completion -- so a dropdown declaring either by hand would be a business-rule
+         * change, which is the owner's. Both directions are pinned by
+         * `FinanceAdjustmentAccountabilityTest`.
+         */
         $request->validate([
-            'payment_status' => 'required|in:paid,unpaid',
+            'payment_status' => ['required', \Illuminate\Validation\Rule::in(
+                \App\Support\Finance\EntitlementStateLabel::selectable()
+            )],
             'reason' => [
                 'required',
                 'string',

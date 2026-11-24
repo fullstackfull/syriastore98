@@ -298,6 +298,200 @@ class FinanceAdjustmentAccountabilityTest extends TestCase
         );
     }
 
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * THE DOOR AND THE FORM MUST AGREE ABOUT WHICH STATES A MERCHANT MAY SET -- `P05-01`.
+     *
+     * TWO COPIES OF ONE LIST. `resources/views/finance/index.blade.php` offers the options
+     * `EntitlementStateLabel::isSelectable()` admits, and this handler validated against the
+     * literal `in:paid,unpaid`. The two agreed when written, and nothing held them together.
+     *
+     * THIS IS THE DUPLICATION CLASS THIS REPOSITORY HAS NOW FIXED FOUR TIMES. `ReportFigureNote`
+     * records the measurement that makes it worth a test: the "Order value" definition was an
+     * identical string literal in four Blades, and because nothing read it from one place, two of
+     * the four carried the precision caveat and two silently did not. `OrderCurrencyStamp` and
+     * `MoneyText` are the same repair. The failure mode here is a form that offers a value its own
+     * handler refuses -- a 422 on a control the product itself rendered.
+     *
+     * AND IT IS A DELIBERATE RESTRICTION, NOT AN OVERSIGHT, which is why the second case pins it
+     * from the other side. `cancelled` and `refunded` are written by the ENGINE (`P4-F124`,
+     * `P4-F127`), and `P5-FIN-3` settled that a refund REQUEST is not a refund completion. A
+     * dropdown that let a merchant declare either by hand would contradict both. The matrix row
+     * `P05-01` asks for those states to be "admitted to the finance screens and validators"; the
+     * SCREEN half shipped with `P5-R4` / `GAP-149` (all six states have a tone and a label, and a
+     * state the form cannot offer renders as a disabled selected option so the merchant sees it).
+     * Whether the WRITE half should follow is a business-rule question and is registered, not
+     * answered here.
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    public function test_every_state_the_form_can_offer_is_accepted_by_the_door(): void
+    {
+        $selectable = \App\Support\Finance\EntitlementStateLabel::selectable();
+
+        $this->assertNotEmpty($selectable,
+            'premise failed: the form offers no state at all, so this assertion checks nothing.');
+
+        /*
+         * ONE FIXTURE, RESET BETWEEN ITERATIONS. `seedFixture()` creates its owner with a FIXED
+         * e-mail, so a second call inside one test method violates the unique index on
+         * `users.email` -- which is how the first version of this case failed, with a constraint
+         * violation rather than a verdict.
+         */
+        $f = $this->seedFixture();
+        $merchant = $this->merchantWhoMayEditTheStatus();
+
+        foreach ($selectable as $state) {
+            DB::table('store_order_financials')->where('id', $f['financialId'])->update([
+                'payment_status' => 'unpaid', 'paid_amount' => 0, 'remaining_amount' => 250,
+                'paid_at' => null,
+            ]);
+
+            // Mirror of the hazard recorded in the case below: a stale error bag from a previous
+            // iteration would make this one fail for the wrong reason.
+            $this->flushSession();
+
+            $response = $this->actingAs($merchant)
+                ->from(route('finance.index'))
+                ->post(route('finance.order-financial.status', $f['financialId']), [
+                    'payment_status' => $state,
+                    'reason' => 'Reconciled against the bank statement.',
+                ]);
+
+            $response->assertSessionDoesntHaveErrors('payment_status');
+
+            $this->assertNotSame(
+                422,
+                $response->getStatusCode(),
+                "The finance form offers '{$state}' and its own handler refuses it, so a merchant "
+                . 'choosing an option the product rendered gets a validation error. The validator '
+                . 'and EntitlementStateLabel::selectable() have drifted apart.'
+            );
+        }
+    }
+
+    /**
+     * AND THE FORM ITSELF, which was the THIRD copy of the same list.
+     *
+     * The two selectable options were hard-coded in `finance/index.blade.php` with their labels
+     * written out again, beside a branch that already asked `EntitlementStateLabel` which states a
+     * merchant may choose. So the set existed three times -- markup, helper, validator -- and the
+     * WORDS twice, because `STATES` already maps `unpaid => 'Not Received'` and `paid =>
+     * 'Received'`. A badge and an option could name the same state differently, which is exactly
+     * the drift `ReportFigureNote` measured when one definition lived in four Blades.
+     */
+    public function test_the_form_offers_exactly_the_states_the_helper_admits(): void
+    {
+        $f = $this->seedFixture();
+
+        $html = $this->actingAs($this->merchantWhoMayEditTheStatus())
+            ->get(route('finance.index'))->assertStatus(200)->getContent();
+
+        // The one <select name="payment_status"> this row renders.
+        $this->assertSame(1, preg_match(
+            '/<select name="payment_status".*?<\/select>/s',
+            (string) $html,
+            $select
+        ), 'premise failed: the finance screen renders no payment-status control for this fixture.');
+
+        preg_match_all(
+            '/<option value="([^"]*)"([^>]*)>\s*(.*?)\s*<\/option>/s',
+            $select[0],
+            $options,
+            PREG_SET_ORDER
+        );
+
+        $offered = [];
+
+        foreach ($options as $option) {
+            // The current engine-written state renders as a DISABLED option so the merchant can
+            // read it; it is deliberately not offered, so it is not part of this comparison.
+            if (str_contains($option[2], 'disabled')) {
+                continue;
+            }
+
+            $offered[$option[1]] = trim(strip_tags($option[3]));
+        }
+
+        $selectable = \App\Support\Finance\EntitlementStateLabel::selectable();
+
+        $this->assertSame($selectable, array_keys($offered),
+            'the form offers a different set of states from EntitlementStateLabel::selectable(), '
+            . 'so the markup, the helper and the handler can disagree about what a merchant may '
+            . 'choose. Offered: ' . implode(', ', array_keys($offered)));
+
+        foreach ($selectable as $state) {
+            $this->assertSame(
+                __(\App\Support\Finance\EntitlementStateLabel::label($state)),
+                $offered[$state],
+                "The option for '{$state}' is worded differently from the badge for the same "
+                . 'state, so one screen can call it two things.'
+            );
+        }
+    }
+
+    public function test_a_state_the_form_cannot_offer_is_refused_by_the_door(): void
+    {
+        /*
+         * `states()` ALREADY RETURNS THE LIST, not the map -- and the first version of this case
+         * wrapped it in `array_keys()` anyway. That turned `$engineOnly` into the integers 0..5, so
+         * every iteration posted a numeric `payment_status` that NO validator would accept, and the
+         * case passed whatever the door did. A mutation widening the door to accept `refunded`
+         * reported SURVIVED; instrumenting the loop printed `STATE=0 … STATE=5` and named the
+         * defect. The premise below is now about the VALUES rather than their count, because a
+         * non-empty list of the wrong things is exactly what slipped through.
+         */
+        $known = \App\Support\Finance\EntitlementStateLabel::states();
+        $selectable = \App\Support\Finance\EntitlementStateLabel::selectable();
+        $engineOnly = array_values(array_diff($known, $selectable));
+
+        $this->assertNotEmpty($engineOnly,
+            'premise failed: every known state is selectable, so there is no engine-only state for '
+            . 'this case to be about and the restriction it pins has been removed.');
+
+        foreach ($engineOnly as $candidate) {
+            $this->assertTrue(is_string($candidate) && ! is_numeric($candidate),
+                'premise failed: the engine-only list holds ' . var_export($candidate, true)
+                . ', which is not a state name. A list of the wrong things is still non-empty, and '
+                . 'posting it exercises nothing: every validator refuses it.');
+            $this->assertNotNull(\App\Support\Finance\EntitlementStateLabel::label($candidate),
+                "premise failed: '{$candidate}' has no label, so it is not one of the states this "
+                . 'screen knows.');
+        }
+
+        $f = $this->seedFixture();
+        $merchant = $this->merchantWhoMayEditTheStatus();
+
+        foreach ($engineOnly as $state) {
+            /*
+             * THE SESSION IS FLUSHED EACH TIME, and that is not housekeeping -- it is the reason
+             * the first version of this case could not fail. A mutation widening the door to accept
+             * `refunded` SURVIVED it: the earlier iterations had already put a `payment_status`
+             * error bag in the session, and `assertSessionHasErrors` reads the session rather than
+             * this response, so the accepted request was vouched for by its predecessors' errors.
+             * Measured by applying the mutation and watching the case pass.
+             */
+            $this->flushSession();
+
+            $this->actingAs($merchant)
+                ->from(route('finance.index'))
+                ->post(route('finance.order-financial.status', $f['financialId']), [
+                    'payment_status' => $state,
+                    'reason' => 'Declaring this by hand.',
+                ])
+                ->assertSessionHasErrors('payment_status');
+
+            $this->assertSame(
+                'unpaid',
+                DB::table('store_order_financials')->where('id', $f['financialId'])->value('payment_status'),
+                "A merchant set the entitlement state to '{$state}' by hand. That state is written "
+                . 'by the engine -- a cancellation or a completed refund -- and P5-FIN-3 settled '
+                . 'that a refund REQUEST is not a completion, so a dropdown that declares one is a '
+                . 'business-rule change and not this door\'s to make.'
+            );
+        }
+    }
+
     public function test_the_audit_read_cannot_reach_another_tenants_order(): void
     {
         /*

@@ -606,8 +606,27 @@
                                                                         {{ \App\Support\Finance\EntitlementStateLabel::label($financial->payment_status) }}
                                                                     </option>
                                                                 @endif
-                                                                <option value="unpaid" {{ $financial->payment_status === 'unpaid' ? 'selected' : '' }}>{{ __('Not Received') }}</option>
-                                                                <option value="paid" {{ $financial->payment_status === 'paid' ? 'selected' : '' }}>{{ __('Received') }}</option>
+                                                                {{-- P05-01 -- THE OFFERED SET AND ITS WORDS COME FROM ONE PLACE.
+
+                                                                     These were two hard-coded options with their labels written
+                                                                     out again, which made THREE copies of one list: this markup,
+                                                                     `EntitlementStateLabel::SELECTABLE`, and the handler's own
+                                                                     `in:paid,unpaid`. The branch above already asks the helper
+                                                                     which states a merchant may choose, so the list it is the
+                                                                     negation of was still a literal here.
+
+                                                                     The labels were duplicated too: `STATES` already maps
+                                                                     `unpaid => 'Not Received'` and `paid => 'Received'`, so the
+                                                                     badge below and this option could disagree about the same
+                                                                     state's name -- the `ReportFigureNote` failure mode, where
+                                                                     one definition in four Blades let two of them drift.
+
+                                                                     Order is the helper's, so it does not depend on this file. --}}
+                                                                @foreach(\App\Support\Finance\EntitlementStateLabel::selectable() as $selectableState)
+                                                                    <option value="{{ $selectableState }}" {{ $financial->payment_status === $selectableState ? 'selected' : '' }}>
+                                                                        {{ \App\Support\Finance\EntitlementStateLabel::label($selectableState) }}
+                                                                    </option>
+                                                                @endforeach
                                                             </select>
                                                             {{-- P4-F128 -- the reason, required by the handler.
 

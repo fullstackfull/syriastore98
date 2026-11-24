@@ -50,7 +50,7 @@ decision quoted as such.
 > | The analytics screen's own Download button ignored the period on screen | `P05-15`; five tests that follow the link |
 > | Three of the analytics screen's eight store predicates were held by no test | `MerchantAnalyticsTenantIsolationSweepTest`, one mutation per predicate |
 > | **Eight rows a measurement called *already done* were put to refutation; seven fell** | matrix note dated 2026-11-22; `P05-15` re-traced DOWN from VERIFIED COMPLETE |
-> | Ten owner questions met while building or reviewing, recorded and not decided | `D-N31`…`D-N40` |
+> | Ten owner questions met while building or reviewing, recorded and not decided | `D-N31`…`D-N43` |
 >
 > #### Next, in order
 >
@@ -85,8 +85,8 @@ decision quoted as such.
 >    measured **4 / 3 / 1**: buildable now — estimated gross profit, visits, devices, orders by
 >    channel; **owner decision first** — conversion (`D-N32`/`GAP-155`: the page-view basis has
 >    never been accepted and withdrawing the tile is a registered option), referring pages and
->    campaign traffic (what a row cap means across tenants, and aggregated versus attributed,
->    decide the SQL); **blocked by a data gate** — coupon redemptions. Two facts for the build:
+>    campaign traffic (`D-N41`/`D-N42`: what a row cap means across tenants, and aggregated
+>    versus attributed, decide the SQL); **blocked by a data gate** — coupon redemptions. Two facts for the build:
 >    the empty-scope guard is the one omission that would ship red, and the PLATFORM EXPORT has
 >    no breakdown loop — `FigureCsv::breakdownRows()` already exists and the merchant file already
 >    uses it, so what is missing is a loop in `PlatformAnalyticsController::export()`, not new
@@ -99,7 +99,7 @@ decision quoted as such.
 >    statements -- and **orders by channel**, which needs no row cap because `order_source` is
 >    writer-authored from a closed vocabulary rather than visitor-authored. So ALL FOUR buildable
 >    counterparts are built and **four** remain, every one of them BLOCKED: `conversion` on
->    `D-N32`, `channels` on `D-N39`, `campaigns` on `D-N40`, `redemptions` on its data gate.
+>    `D-N32`, `channels` on `D-N41`, `campaigns` on `D-N42`, `redemptions` on its data gate.
 >    Nothing further on this row is engineering's.
 >    **The financial review of the profit slice refuted its own central claim** -- the
 >    `UNKNOWN_CURRENCY` row really does add different currencies, and for a margin that can reverse
