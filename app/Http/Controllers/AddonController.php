@@ -89,7 +89,43 @@ class AddonController extends Controller
         }
         if ($res === TRUE)
         {
-            $zip->extractTo(base_path('themes/'));
+            /*
+             * THE ARCHIVE IS NOT EXTRACTED INTO THE THEMES ROOT. That line was here:
+             *
+             *     $zip->extractTo(base_path('themes/'));
+             *
+             * and it wrote every entry at the path the ARCHIVE chose, relative to `themes/`. The
+             * entry names are validated first -- `InstallAddonRequest::archiveRejectionReason()` runs
+             * above and refuses absolute paths, drive letters, `..`, `../`, `/../` and `/..`, refuses
+             * configuration files by name, and enforces an extension allowlist -- so nothing could
+             * escape `themes/`. What nothing checked was whether the archive targeted a directory
+             * that ALREADY HELD AN INSTALLED THEME: an archive whose entries read `greentic/...`
+             * replaced the installed greentic theme's files in place, and every store on that theme
+             * then rendered the replacement.
+             *
+             * IT WAS ALSO DEAD FOR THE INSTALL ITSELF, which is what makes the fix one deletion
+             * rather than a redesign. Read the rest of this method: the archive is extracted a SECOND
+             * time, into `themes/tmp_<uniqid>`, and it is the TEMP copy everything downstream uses --
+             * `scandir($tempPath)` finds the root folder, `moveExtractedFiles($tempPath, ...)` moves
+             * the files, and the destination is `$extractPath`, derived from the uploaded FILENAME
+             * through `safeDirectoryName()`. Nothing between the two extractions read a single byte
+             * the first one wrote. So the first extraction contributed nothing to the outcome and
+             * everything to the side effect.
+             *
+             * SEVERITY, STATED HONESTLY. `manage-platform-addons` is asserted twice -- in
+             * `InstallAddonRequest::authorize()` and again at the top of this method, deliberately,
+             * because SEC-F5 records that relying on the route group alone is what failed in SEC-F2.
+             * So this is operator-reachable and NOT a privilege escalation: the same disposition as
+             * the module-removal door. It is worth closing because one operator action should add a
+             * theme, not silently replace a different one.
+             *
+             * AND A CORRECTION TO THE PHASE 06 SWEEP, which recorded this as "theme installation
+             * extracts before validating". That is refuted: validation runs first and is substantial.
+             * The sweep also called out that uploaded PHP renders -- true, and not a defect:
+             * `ALLOWED_ENTRY_EXTENSIONS` contains `php` and `blade.php` because a theme IS Blade
+             * code, so installing a theme means installing code by design.
+             */
+
             // Get the file name without extension
             $filenameWithExt = $request->file('file')->getClientOriginalName();
             $filename = pathinfo($filenameWithExt, PATHINFO_FILENAME);
