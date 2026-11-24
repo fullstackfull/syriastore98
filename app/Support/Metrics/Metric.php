@@ -2,6 +2,7 @@
 
 namespace App\Support\Metrics;
 
+use App\Support\Money\CurrencySymbol;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -101,18 +102,71 @@ abstract class Metric
     }
 
     /**
+     * The bucket key for a stored currency value -- THE SAME ONE `MetricResult::make()` USES.
+     *
+     * P5-R9 / FIN-SYM-3. The two sites that built this key by hand both carried a comment saying
+     * it was "the SAME constant `MetricResult::make()` buckets under, so the two cannot drift",
+     * and both only matched for NULL and `''`. For every other value they kept the raw column
+     * text, so `usd` and `USD` were two keys here and one key after `make()`.
+     *
+     * FOR TWELVE OF THE THIRTEEN CALL SITES THAT WAS INERT, not merely invisible: they hand the
+     * raw array straight to `make()`, which applies this same function, so the composite key never
+     * differed. `NetFinancialReceipts` is the exception -- it COMPARES two raw arrays and
+     * PUBLISHES one (`reconcile()`, and the `status_based_by_currency` note). Measured there by
+     * restoring the old inline rule, on §6's own named dataset with only the spelling varied:
+     *
+     *   {"movement":{"usd":200},"status":{"USD":200},
+     *    "divergence":{"usd":200,"USD":-200},"agrees":false}
+     *
+     * -- so §6:187's "disagreement is a reconciliation defect" fired on a dataset that agreed.
+     * Spelling the FINANCIALS column instead splits the status leg against itself,
+     * `{"USD":350,"usd":-150}`: two of its three terms arrive through `MetricResult` already
+     * normalised and the third does not. (350, not 260: §2 admits `cancelled`, `refunded` and
+     * `partially_paid` rows with `paid_amount > 0`, so its collected term is 440 on that dataset,
+     * not 200. The 260 an earlier draft of this docblock carried was arithmetic, not a reading.)
+     *
+     * WHAT THIS DID **NOT** DO: warn a merchant. `NetFinancialReceipts` has no caller anywhere in
+     * `app/` -- the only repository hits outside the class are prose in three docblocks, this one
+     * included. The defect was that the cross-check the definitions document mandates contradicted
+     * that document's own currency rule; no shipped surface read the result. Said here because an
+     * earlier draft claimed the merchant-visible version, which is not established.
+     *
+     * `CurrencySymbol::code()` is called rather than re-implemented: it is this application's one
+     * definition of "is a currency code", so a stored SYMBOL is not a code and joins `unknown`
+     * rather than becoming its own currency. Note what that definition actually tests -- `code()`
+     * runs on `clean()`'s output, which strips `< > " '`, backticks and control characters FIRST,
+     * so `<US"D>`, `"USD"` and a NUL-interrupted `USD` all normalise to `USD`. That is pre-existing
+     * `make()` behaviour, not something introduced here, and it is why this says "what `code()`
+     * accepts" rather than "three ASCII letters".
+     *
+     * NOTHING IS CONVERTED HERE -- two values that normalise alike are one currency, which is
+     * currency identity, not a rate.
+     */
+    protected static function currencyBucketKey($stored): string
+    {
+        // No `(string)` cast: `clean()` already returns '' for anything that is not
+        // string|int|float, whereas a cast would raise on an array and throw on an object with no
+        // __toString. `MetricResult::make()` carries the cast; this does not need it.
+        $code = CurrencySymbol::code($stored);
+
+        return $code === '' ? MetricResult::UNKNOWN_CURRENCY : $code;
+    }
+
+    /**
      * Aggregate an amount per currency in one query.
      *
      * Returns the per-currency sums and the row count together, because a metric that reports
      * 0.00 needs to be able to say whether that is "no rows" or "rows that summed to nothing" --
      * a distinction the finance screens have got wrong before.
      *
-     * ONE COLLATION NOTE, because the two engines disagree and only one direction is safe.
-     * The GROUP BY is on the raw `currency_code`. Under MySQL's `utf8mb4_general_ci` -- the
-     * measured production collation -- 'USD' and 'usd' collapse into ONE group; under the test
-     * suite's SQLite they are two, which would raise a spurious MIXED_CURRENCY and make `total()`
-     * throw. Production is the forgiving side, so the risk is a misleading TEST, never a wrong
-     * figure for a merchant. Recorded rather than normalised, because `UPPER()` here would defeat
+     * ONE COLLATION NOTE, CORRECTED 2026-11-24. The GROUP BY is on the raw `currency_code`. Under
+     * MySQL's `utf8mb4_general_ci` -- the measured production collation -- 'USD' and 'usd' collapse
+     * into ONE group; under the test suite's SQLite they are two. An earlier version of this note
+     * said the SQLite split "would raise a spurious MIXED_CURRENCY and make `total()` throw", so
+     * that the only risk was a misleading test. THAT WAS NEVER TRUE: `make()` has folded case
+     * since FIN-SYM, so a spelling split could not reach a caveat or a total -- and now
+     * `currencyBucketKey()` folds it here too, so this layer's keys agree whatever either engine
+     * does with the grouping. `UPPER()` is still not pushed into the SQL, because it would defeat
      * the index on a column this layer groups by on every call.
      *
      * @return array{byCurrency: array<string, float>, rowCount: int}
@@ -135,13 +189,7 @@ abstract class Metric
         $rowCount = 0;
 
         foreach ($rows as $row) {
-            $currency = $row->metric_currency;
-            // The SAME constant MetricResult::make() buckets under, so the two cannot drift --
-            // a mismatch here would hide the unrecorded-currency rows from
-            // assumingUnknownCurrencyIs() and silently drop them from every tile.
-            $key = ($currency === null || $currency === '')
-                ? MetricResult::UNKNOWN_CURRENCY
-                : (string) $currency;
+            $key = self::currencyBucketKey($row->metric_currency);
 
             $byCurrency[$key] = round(($byCurrency[$key] ?? 0.0) + (float) $row->metric_amount, 2);
             $rowCount += (int) $row->metric_rows;

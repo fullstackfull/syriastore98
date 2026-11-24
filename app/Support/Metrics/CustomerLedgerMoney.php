@@ -574,13 +574,10 @@ final class CustomerLedgerMoney extends Metric
 
         foreach ($rows as $row) {
             $customerId = (int) $row->metric_customer;
-            $currency = $row->metric_currency;
-
-            // The SAME bucket key `MetricResult::make()` uses, so an unrecorded currency cannot
-            // fall out of `assumingUnknownCurrencyIs()` and vanish from a tile.
-            $key = ($currency === null || $currency === '')
-                ? MetricResult::UNKNOWN_CURRENCY
-                : (string) $currency;
+            // The SAME bucket key `MetricResult::make()` uses -- see Metric::currencyBucketKey(),
+            // which is where that promise is actually kept. This site made it for NULL and `''`
+            // only, so one customer's `usd` and `USD` rows were two buckets.
+            $key = self::currencyBucketKey($row->metric_currency);
 
             $byCustomer[$customerId]['byCurrency'][$key] = round(
                 ($byCustomer[$customerId]['byCurrency'][$key] ?? 0.0) + (float) $row->metric_amount,

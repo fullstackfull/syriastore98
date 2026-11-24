@@ -325,17 +325,59 @@ class MetricValueObjectTest extends TestCase
         $this->assertSame('included', $folded->notes()['cancellations']);
     }
 
-    public function test_the_unknown_bucket_key_is_the_same_constant_both_sides_use(): void
+    /**
+     * THE TWO SIDES MUST CHOOSE THE SAME BUCKET KEY -- asserted by CALLING them, not by reading
+     * the source.
+     *
+     * `Metric::currencyBucketKey()` chooses the key for the raw per-currency array and
+     * `MetricResult::make()` chooses it again for the published one. If they disagree, a figure
+     * that compares or publishes a raw array sees a different currency set from the one on screen.
+     *
+     * THIS TEST REPLACES A SOURCE CENSUS THAT COULD NOT HAVE CAUGHT THE DEFECT IT NAMED, and the
+     * replacement is the point. The old body read `Metric.php` with `file_get_contents` and
+     * asserted that the literal `MetricResult::UNKNOWN_CURRENCY` appeared SOMEWHERE in it and that
+     * `? 'unknown'` did not. All three of its assertions held for months while the two sides had
+     * drifted for EVERY NON-EMPTY VALUE: `sumByCurrency()` kept the raw column text, `make()`
+     * case-folded it through `CurrencySymbol::code()`. It also read the source with comments
+     * intact, so a docblock mentioning the constant satisfied it -- the census-reading-prose
+     * failure in CLAUDE.md §3, in the one guard for this invariant. P5-R9 / FIN-SYM-3.
+     */
+    public function test_both_sides_choose_the_same_bucket_key_for_every_stored_spelling(): void
     {
-        /*
-         * `Metric::sumByCurrency()` chooses the bucket key and `MetricResult::make()` chooses it
-         * again. If the two ever disagreed, the unrecorded rows would be invisible to
-         * assumingUnknownCurrencyIs() and would silently vanish from every tile that folds.
-         */
-        $source = file_get_contents(__DIR__ . '/../../../app/Support/Metrics/Metric.php');
+        $helper = new \ReflectionMethod(\App\Support\Metrics\Metric::class, 'currencyBucketKey');
+        $helper->setAccessible(true);
 
-        $this->assertStringContainsString('MetricResult::UNKNOWN_CURRENCY', $source);
-        $this->assertStringNotContainsString("? 'unknown'", $source);
+        /*
+         * Non-numeric strings only, because the comparison hands the value to `make()` AS AN ARRAY
+         * KEY and PHP coerces a numeric-string key to int before either function sees it. The
+         * numeric and null cases are asserted against the helper alone, below.
+         */
+        foreach ([
+            'USD', 'usd', 'Usd', ' USD ', "\tUSD\n", 'ABC', 'abc',
+            'USDT', 'EURO', 'US$', 'U S D', 'US Dollar', 'unknown', 'UNKNOWN',
+            '$', '€', 'ل.س', '', '<US"D>', '"USD"', "U\x00SD", 'USD1', 'U-SD',
+        ] as $stored) {
+            $published = MetricResult::make(
+                'gmv', MetricResult::RECORD_SETTLEMENT, null, [$stored => 1.0], 1,
+                MetricScope::store(1), MetricWindow::allTime(),
+            );
+
+            $this->assertSame(
+                array_keys($published->byCurrency()),
+                [$helper->invoke(null, $stored)],
+                'the raw bucket key and the published bucket key disagree for '
+                . var_export($stored, true)
+            );
+        }
+
+        // The two shapes an array key cannot carry, asserted against the helper directly.
+        $this->assertSame(MetricResult::UNKNOWN_CURRENCY, $helper->invoke(null, null));
+        $this->assertSame(MetricResult::UNKNOWN_CURRENCY, $helper->invoke(null, 0));
+        $this->assertSame(MetricResult::UNKNOWN_CURRENCY, $helper->invoke(null, 123));
+
+        // And a real code must survive, or every assertion above passes against a helper that
+        // destroys every currency.
+        $this->assertSame('USD', $helper->invoke(null, 'usd'));
         $this->assertSame('unknown', MetricResult::UNKNOWN_CURRENCY);
     }
 
