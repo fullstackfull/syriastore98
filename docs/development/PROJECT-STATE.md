@@ -5,10 +5,194 @@ is the file to read first. It links the six phases, says what is done, what is n
 executable action is. Everything in it is either a measured fact with its source, or an owner
 decision quoted as such.
 
-**Last updated:** 2026-11-22 · **Active phase:** 05 (Marketing & Analytics) ·
-**Active branch:** `feature/phase-05-marketing-analytics`
+**Last updated:** 2026-11-25 · **Active branch:** `feature/phase-06-saas-super-admin` (PR #141) ·
+**Active execution scope:** the ENTIRE remaining project across all six phases and Phase 2.5 — the
+branch name does not narrow it.
 
-> ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-22)
+> The previous header read *"Active phase: 05 · Active branch `feature/phase-05-marketing-analytics`"*.
+> That was stale from 2026-11-22. The Phase 05 work it described is preserved below and in
+> `docs/development/phase-5/`; nothing has been removed.
+
+> ### NEXT EXECUTABLE ACTION (read this first — account transfer of 2026-11-25)
+>
+> **MODE: EXECUTE THE VERIFIED BACKLOG. DO NOT START ANOTHER SURVEY.** The owner directive of
+> 2026-11-22 remains in force and was restated at the transfer. Long multi-agent investigations are
+> reserved for the final integration candidate. Independent specialist review of each individual
+> security or financial slice remains **mandatory**.
+>
+> **THE SCOPE IS THE WHOLE PROJECT, NOT PHASE 06.** The continuation branch is named for Phase 06
+> because that is where the newest slices land. The authorised scope is every remaining item across
+> Phase 01, Phase 02, Phase 2.5, Phase 03, Phase 04, Phase 05, Phase 06 and the project-wide
+> integration, security and acceptance obligations. **Engineering closure of a phase is not proof
+> that its original requirements were delivered** — see §4.1 of `CLAUDE.md` and the four states that
+> must never be collapsed into one label.
+>
+> #### Repositories and the stacked chain
+>
+> | | |
+> |---|---|
+> | Laravel | `fullstackfull/syriastore98` |
+> | Flutter (shipped admin app) | `fullstackfull/StoreSyria_app98` |
+>
+> `main` → Phase 03 [#138](https://github.com/fullstackfull/syriastore98/pull/138) → Phase 04
+> [#139](https://github.com/fullstackfull/syriastore98/pull/139) → Phase 05
+> [#140](https://github.com/fullstackfull/syriastore98/pull/140) → Phase 06
+> [#141](https://github.com/fullstackfull/syriastore98/pull/141). **Each PR targets the one before
+> it.** Do not merge, rebase, force-push, rewrite history or retarget any of them without owner
+> authorisation.
+>
+> #### Published state at the transfer — measured, not inferred
+>
+> | | |
+> |---|---|
+> | branch | `feature/phase-06-saas-super-admin` |
+> | local HEAD | `8811b5b2` |
+> | remote HEAD | `8811b5b2` — **in sync**, working tree clean, no uncommitted work |
+> | last CI-verified head | **`87063414`** — ci.yml **#642** ([run 45540961886](https://github.com/fullstackfull/syriastore98/actions/runs/45540961886)), **conclusion `success`**, concluded 2026-11-25 04:39:03Z |
+> | `8811b5b2` | **PUBLISHED** 2026-11-25 as a fast-forward `87063414..8811b5b2`. Its own required run had not concluded when this was written — **read the run for the head you are on.** |
+>
+> Run #642 was read job by job, not from the run conclusion: both REQUIRED Tests jobs green (04:09:06Z
+> and 04:10:49Z), the merge-base regression gate green including *"Run the Feature suite at HEAD"*,
+> *"Record the official known-outcome gate's verdict"* and *"Compare failing test identities"*, plus
+> static checks, the secret scan, `composer audit` and the PayHere report.
+>
+> **Local gate on `8811b5b2`** (the evidence for the commit whose CI had not yet concluded):
+> Feature **11,746 passed, 1 declared failure, 1 declared skip**, and
+> `assert-known-test-outcomes.php` reports the observed set matches the manifest **exactly**. Unit
+> **6,212 passed + 1 declared skip**; Contract **45 passed**.
+>
+> **The security attestation's human checklist is RED and must stay that way.** On the current head
+> the attestation workflow reports *"Security-sensitive diff: human approval"* **success** and
+> *"Security-sensitive diff: human checklist"* **failure**. That gate requires a person to work
+> `.github/SECURITY-DIFF-REVIEW.md` and leave a marker that records **who** gave it. An agent typing
+> that marker would defeat the control, not satisfy it. It is **not** a required CI job and blocks
+> nothing in development. It is already explained once on PR #141
+> ([comment 7131474457](https://github.com/fullstackfull/syriastore98/pull/141#issuecomment-7131474457));
+> **do not comment again and do not forge or bypass it.**
+>
+> #### THE EXACT NEXT IMPLEMENTATION SLICE — task #204, the only active incomplete slice
+>
+> **P06-2B — widen the disabled-application boundary.** Do not start anything else first.
+>
+> *Already done and CI-verified* (`b329e43b`, `b85485ff`, run 45509227165 #639): the boundary refuses
+> a disabled module's routes **that carry their own authentication — 1,012 of 1,464**. Review finding
+> F1 made `requiresAuthentication()` consult `ModuleRouteManifest`, because `gatherMiddleware()`
+> alone missed the 340 ADMINISTRATIVE keys whose authentication comes from group middleware.
+>
+> *The remainder* is the **243 `ANONYMOUS_BY_DESIGN` routes.** Counts re-measured 2026-11-25 against
+> the manifest and matching `PHASE-06-DISABLED-APPLICATION-BOUNDARY.md` §4 exactly — **reconcile
+> against the inventory, never infer a category**:
+>
+> | tag | routes | disposition |
+> |---|---|---|
+> | `storefront` | 100 | **OWNER DECISION — still open** |
+> | `payment-callback` | 87 | **DECIDED by the owner's clarification** (below) |
+> | `guarded` | 22 | orthogonal — another host guard owns ownership |
+> | `oauth` | 16 | **OWNER DECISION — still open** |
+> | `inert` | 8 | unreachable by construction |
+> | `own-credential` | 6 | settled — authenticated by its own credential |
+> | `webhook` | 2 | **DECIDED** with `payment-callback` |
+> | `owner-exemption` | 2 | already an explicit owner exemption |
+>
+> `ADMINISTRATIVE` (340) by rule: `auth` 171, `store-row` 81, `settings` 33, `operator` 28, `owner`
+> 26, `tenant-store` 1.
+>
+> **OWNER ANSWER ALREADY GIVEN, not yet reflected in the repository.** The boundary document still
+> records the whole anonymous half as *"PARTIAL by design — the owner has the counts and the
+> question."* The owner's clarification answers the payment part and must be written in:
+>
+> > *"Implement effective, immediate account and application suspension."* · *"Preserve all existing
+> > data, orders, balances and audit records. Disabling is not deletion."* · *"Keep a safe,
+> > authenticated and idempotent reconciliation mechanism for previously initiated payments; do not
+> > use it to permit new transactions through disabled applications."* · *"Do not stop for these same
+> > three questions again."*
+>
+> So `payment-callback` + `webhook` are **decided**: continuity for an already-initiated payment,
+> refusal for anything that would start a new one. **`storefront` (100) and `oauth` (16) remain the
+> owner's** — whether switching off a merchant *application* should also take down shopper-facing
+> pages, or break an in-flight OAuth return, is not inventable. **Do not re-ask the three settled
+> questions.**
+>
+> **THE PREREQUISITE IS A BUILD, NOT A FLAG.** Review finding F13, confirmed independently
+> 2026-11-25: **P5-FIN-4's reconciliation capability DOES NOT EXIST.** `app/Console/Commands/` holds
+> twelve commands and none reconciles payments (`CheckMetricThresholds`, `CreatePackage`,
+> `DetectRecoveryCandidates`, `DownloadExposureReport`, `FindDuplicateRouteNames`,
+> `MakePackageComponent`, `PackageMigrate`, `PackageSeed`, `SendScheduledAnalyticsReports`,
+> `TokenInventoryReport`, `ZidProcessEvents`, `ZidRefreshTokens`). The pattern to copy is
+> `app/Services/PaytmTransactionVerifier.php`: it asks the provider server-to-server over a channel
+> it authenticates itself, **owns its transport** because the vendored SDK disables
+> `CURLOPT_SSL_VERIFYHOST`/`VERIFYPEER`, and refuses when it cannot verify. Relevant models:
+> `PlanOrder` (`payment_status`, `txn_id`, nullable indexed `store_id`), `store_order_financials`.
+>
+> **Widening the refusal before that surface exists would lose captured payments** — the exact risk
+> `PHASE-06-DISABLED-APPLICATION-BOUNDARY.md` §4 names. Order of work: (1) build the authenticated,
+> idempotent reconciliation surface; (2) widen the boundary on the manifest's **category** rather
+> than on `requiresAuthentication()`, which closes F1/F2 structurally; (3) correct the boundary
+> document so *"pending an owner decision"* names only `storefront` and `oauth`; (4) carry F7 (
+> `PackageServiceProvider` force-loads `LandingPage` and `LynomiaChat` irrespective of any
+> `add_on_managers` row) and F6 (LynomiaChat schedules six of its own reconcilers, which keep running
+> for a switched-off module — **owner's**) with the widening. The current bounded behaviour is pinned
+> by `test_an_anonymous_route_of_a_disabled_module_is_not_refused_pending_an_owner_decision`, so the
+> test that must change says why.
+>
+> **This is a financial slice: the independent financial/data-integrity review is mandatory before
+> commit, and settlement rules must not be invented.**
+>
+> #### Project-wide backlog and decision registers — the canonical pointers
+>
+> | what | where |
+> |---|---|
+> | the plan itself (immutable — do not edit, shorten or recreate) | [`master-plan/README.md`](master-plan/README.md), [`MASTER-PRODUCT-PLAN-v1.0-BASE.md`](master-plan/MASTER-PRODUCT-PLAN-v1.0-BASE.md), [`…-WITH-AMENDMENTS.md`](master-plan/MASTER-PRODUCT-PLAN-v1.0-WITH-AMENDMENTS.md), [`DECISION-ID-REGISTER.md`](master-plan/DECISION-ID-REGISTER.md) (181 ids, 12 `EX-*` exclusions) |
+> | can the plan even be checked | [`MASTER-PLAN-SOURCE-VERIFICATION.md`](MASTER-PLAN-SOURCE-VERIFICATION.md) — **NOT FULLY VERIFIED**; 3 texts (1 GOV, 2 ARCH) still missing and **must not be invented** |
+> | requirement-by-requirement | [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) — **350 recovered, 170 VERIFIED COMPLETE, 180 not**; project-wide **370 known, 170 verified, 200 not** |
+> | the gaps | [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) — **GAP-001…GAP-232** |
+> | security queue | [`../security/P01-SECURITY-WORK-QUEUE.md`](../security/P01-SECURITY-WORK-QUEUE.md) |
+> | Phase 05 remaining + its `D-N` register | [`phase-5/`](phase-5/) |
+> | Phase 06 scope, the `D-P6-01…D-P6-51` package, owner answers | [`phase-6/`](phase-6/) |
+> | Phase 01 release gates | [`phase-1/PHASE-01-CLOSURE-EXECUTION.md`](phase-1/PHASE-01-CLOSURE-EXECUTION.md) |
+> | Phase 02 coverage | [`phase-2/PHASE-02-COVERAGE-AUDIT-2026-10-25.md`](phase-2/PHASE-02-COVERAGE-AUDIT-2026-10-25.md) |
+>
+> **These are recorded checkpoints, not a guarantee every row is current.** Classify each unverified
+> requirement as actionable engineering, verification, an owner decision, an approved deferral or an
+> external blocker — never all as implementation work.
+>
+> #### Priority order for everything that follows #204
+>
+> 1. Security and tenant isolation · 2. Financial and data correctness · 3. Missing approved
+> functionality · 4. Cross-phase dependencies · 5. UX, accessibility and bilingual parity.
+>
+> #### Owner-blocked — do not execute, do not re-ask
+>
+> | item | state |
+> |---|---|
+> | **#139 P1-SEC-81** (CRITICAL) | engineering COMPLETE on held branch `p1-sec-81-hold` @ `5c313b0d`, **on no remote**. Publication held by owner decision 2026-11-20; production remediation is owner/operator. **Keep confidential.** |
+> | **PAY-SEC** (task #141) | confidential pre-existing payment findings. No public exploit detail, no production probing. |
+> | **#120** P1-SEC-40 | the database-dump exposure incident. Deferred ≠ remediated. |
+> | **#137** | final project-wide integration and security review. |
+> | #129 P1-SEC-74 · #132 P1-SEC-76 batch 2 · #190 GAP-162 correction · #112 D6 stage 2 (GAP-214) · #67 P4-1 | each needs an owner decision or holds vendored/owner-only residue |
+>
+> #### Standing restrictions (full text in §6)
+>
+> **This repository is PUBLIC.** No credentials, production data, confidential vulnerability detail
+> or privately held remediation patches. No production deployment, credential rotation, live-host
+> change, repository-visibility change, unauthorised merge, or fabricated approval. Do not edit
+> vendored `packages/workdo/` (except first-party `LynomiaChat`) — guard from first-party code. Green
+> CI is a checkpoint, not release readiness.
+>
+> #### What could not be transferred
+>
+> Nothing was lost. The held P1-SEC-81 branch stays local and unpublished **by owner decision**, not
+> by accident. Task #204's code is not started — only its measurement, dispositions and order of work
+> are recorded above.
+
+---
+
+> ### HISTORICAL — the previous NEXT EXECUTABLE ACTION (owner directive of 2026-11-22)
+>
+> Superseded by the block above on 2026-11-25 and **kept verbatim as the record of what was executed
+> in Phase 05**. Its head and CI references describe that moment, not now.
+>
+> #### (original heading) NEXT EXECUTABLE ACTION — owner directive of 2026-11-22
 >
 > **MODE: EXECUTE THE VERIFIED BACKLOG. DO NOT START ANOTHER SURVEY.** The owner's 2026-11-22
 > directive is explicit: the nine-row investigation is accepted as a basis for correcting the
@@ -235,8 +419,13 @@ distinct from whether the engineering passed:
 | document | what it answers |
 |---|---|
 | [`MASTER-PLAN-SOURCE-VERIFICATION.md`](MASTER-PLAN-SOURCE-VERIFICATION.md) | **Can the original plan even be checked?** Answer: **NOT FULLY VERIFIED** — the Decision Register v1.0 was never committed to this repository. |
-| [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) | **350 requirements recovered. 169 VERIFIED COMPLETE. 181 are not.** |
-| [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) | **181 open gaps — 56 category A (must complete before release)**, 16 B, 73 C, 11 D, 25 E. |
+| [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) | **350 requirements recovered. 170 VERIFIED COMPLETE. 180 are not.** Project-wide, including the recovered-and-untracked: **370 known, 170 verified, 200 not.** |
+| [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) | **GAP-001…GAP-232.** 181 open gaps out of the 350, plus 18 recovered 2026-11-16 and 2 more on 2026-11-24. Of the 181: 56 category A (must complete before release), 16 B, 73 C, 11 D, 25 E; the 20 recovered are deliberately `COVERAGE NOT ASSESSED`. |
+
+> **Corrected 2026-11-25.** This table read *"169 VERIFIED COMPLETE / 181 are not"* and *"181 open
+> gaps"*, which disagreed with the documents it cites — the matrix states 170/180 and the register
+> now runs to GAP-232. The figures above were re-read from those two files. No requirement status
+> was changed; only this summary was brought back into agreement with its sources.
 
 **CI success does not establish product-scope completeness.** See `CLAUDE.md` §4.1 for the rule and
 the four states that must never be merged into one label.
@@ -504,7 +693,11 @@ code.
 
 ---
 
-## 8. Next executable action
+## 8. Phase 03 milestone record (historical)
+
+> **This section's heading formerly read "Next executable action".** Retitled 2026-11-25 because it
+> records the Phase 03 M0–M3 milestones and is not a statement of what to do next; the canonical
+> NEXT EXECUTABLE ACTION is the block at the top of this file. No content below was changed.
 
 **M0, M1 and M2 are complete.** M2's five packages:
 

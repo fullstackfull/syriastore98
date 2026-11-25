@@ -2,7 +2,7 @@
 
 Multi-tenant Laravel e-commerce SaaS. Laravel 11.57 on PHP 8.3, built on the vendored **WorkDo
 eCommerceGo** addon platform (70 modules under `packages/workdo/`). A second repository,
-`StoreSyria_app98`, is the shipped **admin** Flutter app. **Resuming or new account? Read `docs/development/HANDOFF-CURRENT.md` §13 first — Phase 01 engineering is CLOSED.**
+`StoreSyria_app98`, is the shipped **admin** Flutter app. **Resuming or new account? Read `docs/development/PROJECT-STATE.md` first** — its NEXT EXECUTABLE ACTION block is the canonical handoff; scope is the WHOLE project, not just the branch's phase.
 
 The full analysis lives in `docs/`. This file is the short version of what will bite you, and it
 records only things verified by reading or executing the code.
