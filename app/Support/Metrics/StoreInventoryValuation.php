@@ -10,9 +10,11 @@ use App\Models\ProductVariant;
  * =================================================================================================
  *
  * `P05-02`'s requirement is that **no controller computes money inline**: the metric layer is the
- * single definition. `StoreFinanceController::index()` was the last money surface that did not
- * comply. It read every product of the store into memory and walked them in a nested PHP loop --
- * once per product, and for a variant product once per variant -- accumulating six figures:
+ * single definition. `StoreFinanceController::index()` did not comply, and GAP-150 item 1 names it.
+ * (Whether it was the LAST such surface is NOT established here and an earlier draft of this line
+ * claimed it was; no census of the remaining controllers was run for this slice.) It read every
+ * product of the store into memory and walked them in a nested PHP loop -- once per product, and for
+ * a variant product once per variant -- accumulating six figures:
  *
  *   inventory units            how many sellable items the merchant is holding
  *   inventory cost             what those items cost the merchant                 (capital tied up)
@@ -100,9 +102,11 @@ use App\Models\ProductVariant;
  * written in this file -- no column name, table name or value comes from a request -- so there is
  * no injection surface to argue about.
  *
- * `disableCache()` ON BOTH READS, AND IT IS LOAD-BEARING RATHER THAN TIDY. MEASURED: without it,
- * editing a product's `cost_price` through the product form left the inventory COST figure at its
- * old value. `Product` and `ProductVariant` are two of the 79 `Cachable` models, and
+ * `disableCache()` ON BOTH READS, AND IT IS LOAD-BEARING RATHER THAN TIDY. MEASURED: without it, a
+ * product's `cost_price` saved through Eloquent -- which is how `ProductController::store()` and
+ * `::update()` write it -- left the inventory COST figure at its old value. The write path was
+ * driven as `$product->cost_price = …; $product->save()`, not through the form's HTTP route.
+ * `Product` and `ProductVariant` are two of the 79 `Cachable` models, and
  * laravel-model-caching keys a query under the tag of the model it was built from -- so the variant
  * leg, rooted on `ProductVariant`, reads `products.cost_price` through a cache a `Product` save
  * does not flush. Driven on `CACHE_STORE=array`: `cost_price` 10 -> 20 on a product holding 3
