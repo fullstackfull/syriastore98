@@ -222,6 +222,14 @@ and `packages/workdo/`. Phase 06 scope, not started.
 | **Blocked** | Nothing. The breakage is fixed either way; this is the aesthetic. |
 | **Related, and genuinely blocking a bigger thing** | §8(c) and §8(d) of the audit — whether the numeric subdomain supersedes discovery recommendation D-08(a), and the cookie-domain question that would log every session out at stage 3. Those are untouched and still the owner's. |
 
+### E6 — Acceptance of the two platform screens (added with this batch)
+
+Neither `/superadmin` platform-revenue nor platform-resources has been seen by the owner. They are
+operator-only, they are additive (no existing screen changed), and they are covered by 93 tests, so
+nothing is blocked by the absence of acceptance — but **GAP-192 cannot be closed without it**, and
+the figures are the platform's own revenue, which is exactly the kind of number worth one human
+reading before it is relied on.
+
 ## F. First-party module behaviour
 
 ### F1 — LynomiaChat's six self-scheduled reconcilers keep running for a switched-off module
@@ -282,3 +290,32 @@ shipped client reads.
   cover them.
 - P1-SEC-81. Held local and unpublished **by owner decision**; nothing about it belongs in a public
   file.
+
+## H. Decisions raised by the 2026-11-25 platform-revenue batch
+
+Two, from building `SaasRevenueFigures` (GAP-192 / `SAAS-007`) and from closing the second
+fulfilment-state-machine door (GAP-135). Both are cases where **engineering has already taken the
+conservative half and the remaining half is a rule, not a fix.**
+
+### H1 — What may `plans.duration` contain, and should the plan form enforce it?
+
+| | |
+|---|---|
+| **Where it stands** | `Plan::$arrDuration` defines exactly three words: `Unlimited`, `Month`, `Year`. `plans.duration` is `$table->string('duration')->nullable()` — free text — and **`PlanController`'s validation for store and update does not mention `duration` at all** (it covers `name`, `price`, `max_stores`, `max_products`, `max_users`, `storage_limit`). The form is a `Form::select`, which constrains the UI and not the request. |
+| **What it cost** | The platform-revenue producer branched `$duration === 'Year' ? $price / 12 : $price`, so every other spelling fell down the MONTHLY branch at its whole price. A plan priced 1200 a year reading `Yearly` reported MRR 1200 instead of 100 — a **twelvefold overstatement** of the platform's own revenue. |
+| **Already done, and not needing a decision** | The READ side is closed. An unrecognised duration now goes to a named, visible `Duration not recognised` bucket with its reason, instead of being counted or dropped — the same refusal `Unlimited` and `plan_missing` already get. Deliberately **not** a synonym table mapping `Yearly`/`year`/`annual` onto `Year`: that is the producer inventing the figure it exists to stop inventing, and it is wrong the first time somebody adds a quarterly plan. |
+| **The choice** | (a) Add `'duration' => 'required|in:Unlimited,Month,Year'` to `PlanController`'s store and update rules, so the three words become the contract. (b) Widen the vocabulary first — a quarterly or weekly plan is a product decision, and if one is coming the rule should admit it on the same day. (c) Leave the column unvalidated and rely on the read-side refusal, accepting that a bad duration silently removes a paying merchant from MRR until somebody looks at the bucket. |
+| **Recommendation** | **(a)**, unless a new billing period is actually planned. It makes the existing three words enforceable rather than conventional, and it is the write-side counterpart of a read-side refusal that already works. |
+| **Why it is yours** | It is a validation rule on plan creation — a contract change on the operator's own plan surface — and the vocabulary question ("are three periods the product's whole answer?") is a product decision, not an engineering one. |
+| **What is blocked** | Nothing. Both figures are correct and tested either way; (a) stops bad data being written, it does not fix any figure. |
+
+### H2 — May a delivery courier move an order back to Pending from a terminal state?
+
+| | |
+|---|---|
+| **Where it stands** | `Api\DeliverySyriaOrderController::updateStatus` now refuses any transition `FulfilmentStateMachine` refuses, answering 409 — 20 of the 56 reachable transitions were accepted before and are refused now. **One integer is still unconstrained: `status = 0` (Pending).** The machine governs no `pending` word, so `refusalFor()` answers null and the push falls through from EVERY state, terminal ones included. |
+| **Why engineering stopped there** | A bare matrix-membership check would have refused it, which is this door inventing a rule the single definition does not hold. No merchant surface can move an order to Pending at all — the shared writer has no `pending` branch — so narrowing it is a change to the state machine's own vocabulary, which every order surface in the product reads. That is a business-rule change, and CLAUDE.md puts those in this package. |
+| **The choice** | (a) Add `pending` to the machine's vocabulary with the transitions that may reach it — presumably none from a terminal state — so every surface inherits the rule. (b) Leave Pending ungoverned and accept that the courier platform can reopen a delivered or cancelled order by pushing 0. (c) Refuse `status = 0` at this door alone, accepting that two surfaces then disagree about what Pending means. |
+| **Recommendation** | **(a).** The reason this door was wrong is that it disagreed with the single definition; fixing it by adding a second local rule reproduces the defect in a smaller place. If Pending is never a legal destination, the machine should say so once. |
+| **Why it is yours** | It changes the fulfilment state machine, which governs the merchant web, the Flutter status door, `order-cancel`, the engine writer and this webhook. A change there is a product rule about what an order may do. |
+| **What is blocked** | Nothing is blocked. The 20 refusals that are decided are in place and tested; this is the one integer left wide. |

@@ -4617,7 +4617,7 @@
     "No expiry recorded": "لا تاريخ انتهاء مسجل",
     "A recurring plan with no expiry date. Every path in this product writes one, so these rows cannot be dated and are reported rather than assumed to be live.": "باقة متكررة بلا تاريخ انتهاء. وكل مسار في هذا المنتج يكتب تاريخًا، فهذه السطور لا يمكن تأريخها وتُعلَن بدلًا من افتراض أنها سارية.",
     "Plan no longer exists": "الباقة لم تعد موجودة",
-    "The merchant's record points at a plan row that has been deleted, so neither its price nor its duration can be read.": "سجل التاجر يشير إلى باقة محذوفة، فلا يمكن قراءة سعرها ولا مدتها.",
+    "The merchant's record names a plan that does not resolve to a plan row — deleted, or never present — so neither its price nor its duration can be read.": "سجلّ التاجر يشير إلى خطة لا تُطابق أي صف خطة — محذوفة، أو لم توجد قطّ — لذلك لا يمكن قراءة سعرها ولا مدّتها.",
     "Plan payments the platform recorded as taken, grouped by the currency each was charged in. The rows are NOT added together: converting between them would need the exchange rate on each payment's own date, which this schema does not record.": "مدفوعات الباقات التي سجلت المنصة استلامها، مجمَّعة حسب العملة التي حُصِّلت بها. والسطور لا تُجمع معًا: التحويل بينها يحتاج سعر الصرف في تاريخ كل دفعة، وهو ما لا يسجله هذا المخطط.",
     "the last 30 days": "آخر 30 يومًا",
     "The same measurement over the last 30 days, so an all-time figure cannot make a platform that has stopped selling look like one that has not.": "القياس نفسه خلال آخر 30 يومًا، حتى لا يُظهر رقمُ البداية منصةً توقفت عن البيع كأنها لم تتوقف.",

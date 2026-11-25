@@ -417,7 +417,7 @@ final class SaasRevenueFigures
             ],
             'plan_missing' => [
                 __('Plan no longer exists'),
-                __('The merchant\'s record points at a plan row that has been deleted, so neither its price nor its duration can be read.'),
+                __('The merchant\'s record names a plan that does not resolve to a plan row — deleted, or never present — so neither its price nor its duration can be read.'),
             ],
         ];
 
