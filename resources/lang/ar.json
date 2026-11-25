@@ -4657,5 +4657,6 @@
     "The plan's duration is not one of the three this product defines, so how often it is paid cannot be read. It is reported here rather than counted as monthly, which would multiply a yearly price by twelve.": "مدة الخطة ليست إحدى المدد الثلاث التي يعرّفها هذا المنتج، لذلك لا يمكن معرفة وتيرة سدادها. تُدرَج هنا بدلاً من احتسابها شهرية، وهو ما كان سيضرب السعر السنوي في اثني عشر.",
     "This order is closed, so its status cannot be changed.": "هذا الطلب مُغلق، لذلك لا يمكن تغيير حالته.",
     "This order cannot be moved to that status.": "لا يمكن نقل هذا الطلب إلى تلك الحالة.",
-    "Your order has not been delivered. You can return the order after delivery.": "لم يُسلَّم طلبك بعد. يمكنك إرجاع الطلب بعد التسليم."
+    "Your order has not been delivered. You can return the order after delivery.": "لم يُسلَّم طلبك بعد. يمكنك إرجاع الطلب بعد التسليم.",
+    ":duration (no longer offered)": ":duration (لم تعد معروضة)"
 }

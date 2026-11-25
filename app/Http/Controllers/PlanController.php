@@ -58,6 +58,68 @@ class PlanController extends Controller
     }
 
     /**
+     * THE WORD A ROW ALREADY CARRIES, WHEN IT IS NOT ONE OF THE THREE — or null.
+     * =============================================================================================
+     *
+     * Decision H1 has two clauses and they pull in opposite directions at exactly one place: the
+     * edit form of a plan whose duration predates the vocabulary. "Enforce the three words on
+     * creation and update" and "do not silently rewrite historical values" are both satisfied for
+     * a request that omits `duration` -- but the real form does not omit it, and MEASURED on the
+     * rendered page, `Form::select('duration', $arrDuration, null, ...)` under `Form::model($plan)`
+     * emitted NO `selected` attribute at all for a stored `Yearly`, because no option matched it.
+     * A browser shows and submits the FIRST option. So an operator opening that form to change
+     * `max_products` and pressing Save replaced `Yearly` with `Unlimited` -- a silent rewrite of a
+     * historical value, performed by the very change that was meant to prevent one, and accepted
+     * because `Unlimited` is approved.
+     *
+     * The three ways out were not equal. Rendering the legacy word as a fourth option for every
+     * plan RE-OFFERS a withdrawn billing period, which the decision forbids. Auto-correcting on
+     * save IS the silent rewrite, which the decision forbids by name. What is left is to show the
+     * row its own stored value, marked as withdrawn, and to accept that one value back from that
+     * one row: re-submitting the word already in the column writes nothing new, introduces no
+     * billing period anywhere, and is the only shape under which an operator can edit an unrelated
+     * field without either being blocked or destroying the value.
+     *
+     * NOTHING WIDENS UNLESS THE COLUMN ALREADY HOLDS IT. The extra value is read from the stored
+     * row and never from the request, so no request can introduce one, and the allowance is
+     * per-plan: a second plan carrying a different legacy word does not accept this one.
+     */
+    private function legacyDurationOf(Plan $plan): ?string
+    {
+        $stored = is_string($plan->duration) ? trim($plan->duration) : '';
+
+        if ($stored === '' || array_key_exists($stored, Plan::$arrDuration)) {
+            return null;
+        }
+
+        return $stored;
+    }
+
+    /**
+     * The options the edit form offers for ONE plan: the three approved words, plus that row's own
+     * historical value when it has one, labelled as withdrawn so the operator can see what it is.
+     *
+     * The label goes through `__()` with a replacement rather than string concatenation, so the
+     * Arabic panel reads right; the key is in `resources/lang/{en,ar}.json`. The legacy word itself
+     * is not translated -- it is stored data, and showing it verbatim is the point.
+     *
+     * `create()` keeps `Plan::getDurationsArr()` unchanged: there is no row yet, so there is no
+     * historical value, and a new plan may only ever be one of the three.
+     */
+    private function durationOptionsFor(Plan $plan): array
+    {
+        $options = Plan::getDurationsArr();
+
+        $legacy = $this->legacyDurationOf($plan);
+
+        if ($legacy !== null) {
+            $options[$legacy] = __(':duration (no longer offered)', ['duration' => $legacy]);
+        }
+
+        return $options;
+    }
+
+    /**
      * The rule for UPDATE, and the reason it is `sometimes` rather than a plain `required`.
      *
      * HISTORICAL VALUES ARE NOT REWRITTEN. A plan that already carries something else keeps it;
@@ -87,9 +149,17 @@ class PlanController extends Controller
      * value. `test_a_blank_duration_is_refused_even_if_empty_strings_are_not_converted` drives
      * exactly that and is the case that goes red when `required` is dropped.
      */
-    private function durationRulesForUpdate(): array
+    private function durationRulesForUpdate(Plan $plan): array
     {
-        return ['sometimes', 'required', $this->approvedDurationRule()];
+        $legacy = $this->legacyDurationOf($plan);
+
+        $allowed = array_keys(Plan::$arrDuration);
+
+        if ($legacy !== null) {
+            $allowed[] = $legacy;
+        }
+
+        return ['sometimes', 'required', Rule::in($allowed)];
     }
 
     /**
@@ -188,7 +258,7 @@ class PlanController extends Controller
     {
         if (auth()->user() && auth()->user()->isAbleTo('Edit Plan'))
         {
-            $arrDuration = Plan::getDurationsArr();
+            $arrDuration = $this->durationOptionsFor($plan);
             $theme = Addon::where('status','1')->get();
             $modules = Module::all();
             $setting = getSuperAdminAllSetting();
@@ -216,7 +286,7 @@ class PlanController extends Controller
                             $request->all(), [
                                 'name' => 'required|unique:plans,name,' . $plan->id,
                                 'price' => 'numeric|min:0',
-                                'duration' => $this->durationRulesForUpdate(),
+                                'duration' => $this->durationRulesForUpdate($plan),
                                 'max_stores' => 'required|numeric',
                                 'max_products' => 'required|numeric',
                                 'max_users' => 'required|numeric',
@@ -232,7 +302,7 @@ class PlanController extends Controller
                                 // other zero-priced plan takes -- and `$plan->update($post)` writes
                                 // `duration` just the same. A rule in only one of these two arrays
                                 // would leave the whole defect reachable through the other.
-                                'duration' => $this->durationRulesForUpdate(),
+                                'duration' => $this->durationRulesForUpdate($plan),
                                 'max_stores' => 'required|numeric',
                                 'max_products' => 'required|numeric',
                                 'max_users' => 'required|numeric',

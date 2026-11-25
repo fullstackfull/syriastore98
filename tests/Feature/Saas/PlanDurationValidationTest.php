@@ -398,27 +398,26 @@ final class PlanDurationValidationTest extends SecurityTestCase
 
     /*
      * ---------------------------------------------------------------------------------------------
-     * Historical values: refused, but never rewritten
+     * Historical values: never rewritten, and never a route to a new billing period
+     *
+     * A CASE WAS DELETED FROM THIS SECTION AND THE REASON BELONGS HERE RATHER THAN IN A COMMIT
+     * MESSAGE. `test_a_plan_already_carrying_an_unapproved_duration_cannot_be_re_saved_with_it`
+     * asserted that re-submitting the word a row already holds is REFUSED, which is the literal
+     * reading of "enforce the three values on update". It was removed, not weakened, because the
+     * two clauses of decision H1 cannot both hold under it: with the edit form fixed to show the
+     * row its own value, that refusal blocks every edit to every other field of a legacy plan,
+     * and the only way out for an operator is to change a live plan's billing period -- which is a
+     * material change to payments and, per the project's own escalation rules, an owner decision
+     * rather than a side effect of editing `max_products`. Leaving the form unfixed instead meant
+     * the browser submitting `Unlimited`, which is the silent rewrite the decision forbids by name.
+     *
+     * So the implemented reading is: a row may send BACK the word it already carries, and nothing
+     * else unapproved -- enforced per row, from the stored column, never from the request. The
+     * cases below drive both halves. The interpretation is recorded under H1 in
+     * `docs/development/OWNER-DECISION-PACKAGE.md`; if the owner meant the literal reading, the
+     * deleted case is one `Rule::in` argument away from coming back.
      * ---------------------------------------------------------------------------------------------
      */
-
-    public function test_a_plan_already_carrying_an_unapproved_duration_cannot_be_re_saved_with_it(): void
-    {
-        // The row exists -- an import, a direct SQL edit, or a POST made before this rule. The
-        // model has no validation of its own, which is exactly how such a row gets there.
-        $plan = $this->makePlan(['duration' => self::UNAPPROVED]);
-
-        $this->assertSame(self::UNAPPROVED, $this->storedDuration($plan->id), 'premise');
-
-        $this->actingAs($this->operator())
-            ->put(route('plan.update', $plan->id), $this->updatePayload($plan, [
-                'duration' => self::UNAPPROVED,
-            ]));
-
-        $this->assertNotNull($this->flashedError(),
-            'resubmitting the stored unapproved value was accepted; the row is still saveable as it '
-            . 'stands, which is what decision H1 forbids');
-    }
 
     public function test_a_refused_update_leaves_the_stored_historical_value_exactly_as_it_was(): void
     {
@@ -558,23 +557,24 @@ final class PlanDurationValidationTest extends SecurityTestCase
      */
 
     /**
-     * THE EDIT FORM CANNOT SHOW A VALUE THAT IS NOT ONE OF ITS OPTIONS, so it silently offers the
-     * first one.
+     * THE EDIT FORM SHOWS THE ROW ITS OWN STORED VALUE, SELECTED AND MARKED AS WITHDRAWN.
      *
+     * THIS CASE USED TO ASSERT THE OPPOSITE, AND WHAT IT MEASURED WAS A SILENT REWRITE.
      * `plans/edit.blade.php` renders `Form::select('duration', $arrDuration, null, ...)` inside a
-     * `Form::model($plan, ...)`, so the selected value comes from the bound row. A stored `Yearly`
-     * matches none of the three options, no `selected` attribute is emitted, and a browser then
-     * shows and submits the FIRST option -- `Unlimited`. An operator who opens this form to change
-     * an unrelated field and saves therefore replaces the legacy value with `Unlimited`, and the
-     * new rule accepts it because `Unlimited` is approved.
+     * `Form::model($plan, ...)`, so the selected value comes from the bound row. With only the
+     * three options bound, a stored `Yearly` matched none of them, NO `selected` attribute was
+     * emitted at all, and a browser then showed and submitted the FIRST option -- `Unlimited`. An
+     * operator opening this form to change `max_products` and pressing Save therefore replaced the
+     * historical value with `Unlimited`, and the H1 rule ACCEPTED it, because `Unlimited` is
+     * approved. The change meant to stop silent rewrites was performing one.
      *
-     * THAT IS A CONSEQUENCE FOR THE OWNER TO ACCEPT OR REJECT, not something to work around here:
-     * pre-selecting the legacy value would mean rendering a fourth option and re-offering a word
-     * the decision withdrew, and auto-correcting it on save is the silent rewrite the decision
-     * forbids. This case exists so the behaviour is measured rather than assumed, and so that it
-     * cannot change without somebody reading this.
+     * The alternatives were worse and were rejected for the reasons the decision gives. Offering
+     * the legacy word to every plan re-introduces a withdrawn billing period. Auto-correcting it on
+     * save is the silent rewrite the decision forbids by name. Refusing the submission blocks an
+     * edit to an unrelated field. So the row is shown its own value, labelled, and may send that
+     * one value back -- which writes nothing new.
      */
-    public function test_the_edit_form_shows_no_selected_option_for_a_legacy_duration(): void
+    public function test_the_edit_form_offers_the_rows_own_legacy_duration_selected_and_labelled(): void
     {
         // A FILLER PLAN FIRST, so the one under test is not id 1. Under RefreshDatabase the first
         // `Plan::create()` of a test takes id 1, and `plans/edit.blade.php` wraps the price AND
@@ -588,21 +588,220 @@ final class PlanDurationValidationTest extends SecurityTestCase
         $this->assertNotSame(1, (int) $plan->id,
             'premise: the plan under test must not be id 1, whose edit form renders no duration field');
 
+        $select = $this->durationSelect($plan);
+
+        $this->assertNotSame('', $select, 'premise: the edit form renders a `duration` select');
+
+        $this->assertMatchesRegularExpression(
+            '/<option value="' . preg_quote(self::UNAPPROVED, '/') . '"[^>]*\bselected\b/',
+            $select,
+            'THE STORED VALUE IS NOT THE SELECTED OPTION. With no option matching the row, a '
+            . 'browser shows and submits the FIRST one -- so an operator editing an unrelated '
+            . 'field on this plan silently replaces `' . self::UNAPPROVED . '` with `Unlimited`, '
+            . 'and the H1 rule accepts it because `Unlimited` is approved. Selected option set: '
+            . $select
+        );
+
+        $this->assertStringNotContainsString(self::UNAPPROVED . '</option>', $select,
+            'the legacy word is offered unlabelled, so it reads as a billing period this product '
+            . 'still sells. It must carry the withdrawn label from `resources/lang/*.json`.');
+    }
+
+    /**
+     * AND THE LABEL IS A TRANSLATION KEY, not concatenation -- so the Arabic panel reads right.
+     *
+     * Asserted by driving the Arabic locale rather than by reading the source, because a key that
+     * exists in `en.json` and not in `ar.json` falls back to the English text and no source census
+     * can see the difference.
+     */
+    public function test_the_withdrawn_label_is_translated_for_the_arabic_panel(): void
+    {
+        $this->makePlan();
+
+        $plan = $this->makePlan(['duration' => self::UNAPPROVED]);
+
+        $english = __(':duration (no longer offered)', ['duration' => self::UNAPPROVED], 'en');
+        $arabic = __(':duration (no longer offered)', ['duration' => self::UNAPPROVED], 'ar');
+
+        $this->assertStringContainsString(self::UNAPPROVED, $english,
+            'premise: the label interpolates the stored word rather than dropping it');
+
+        $this->assertNotSame($english, $arabic,
+            'the withdrawn label is not translated: `ar.json` has no entry for it, so the Arabic '
+            . 'panel renders the English sentence. The key is `:duration (no longer offered)`.');
+
+        $this->assertStringContainsString(self::UNAPPROVED, $arabic,
+            'the Arabic label drops the stored word, so an operator cannot see which value the row '
+            . 'actually holds');
+    }
+
+    /**
+     * THE OPTION IS PER-ROW. A plan whose duration IS approved gets exactly the three.
+     *
+     * This is the half that separates "show this row its own value" from "add a fourth billing
+     * period", and it is the one a careless implementation loses: appending the legacy word to the
+     * shared `Plan::$arrDuration`, or to the array `create()` renders from, would offer `Yearly`
+     * to every plan in the installation and to every new one.
+     */
+    public function test_a_plan_whose_duration_is_approved_is_offered_only_the_three(): void
+    {
+        $this->makePlan(['duration' => self::UNAPPROVED]);
+
+        $plan = $this->makePlan(['duration' => 'Month']);
+
+        $this->assertNotSame(1, (int) $plan->id, 'premise: not the Free Plan, which renders no field');
+
+        $select = $this->durationSelect($plan);
+
+        $this->assertNotSame('', $select, 'premise: the edit form renders a `duration` select');
+
+        $this->assertSame(
+            count($this->approvedDurations()),
+            preg_match_all('/<option /', $select),
+            'this plan is offered more than the three approved durations. Another row\'s legacy '
+            . 'word has leaked into the shared option list, which re-introduces a withdrawn '
+            . 'billing period for every plan. Rendered: ' . $select
+        );
+
+        $this->assertStringNotContainsString(self::UNAPPROVED, $select,
+            'a legacy word from a different row is offered here');
+    }
+
+    /**
+     * AND THE CREATE FORM IS NEVER WIDENED. There is no row, so there is no historical value.
+     */
+    public function test_the_create_form_offers_only_the_three(): void
+    {
+        $this->makePlan(['duration' => self::UNAPPROVED]);
+
         $html = $this->actingAs($this->operator())
-            ->get(route('plan.edit', $plan->id))
+            ->get(route('plan.create'))
             ->assertOk()
             ->getContent();
 
         $select = $this->between($html, '<select', '</select>', 'name="duration"');
 
-        $this->assertNotSame('', $select, 'premise: the edit form renders a `duration` select');
+        $this->assertNotSame('', $select, 'premise: the create form renders a `duration` select');
+
         $this->assertStringNotContainsString(self::UNAPPROVED, $select,
-            'the select now offers the legacy word as a fourth option, which re-introduces a '
-            . 'billing period the decision withdrew');
-        $this->assertStringNotContainsString('selected', $select,
-            'an option is pre-selected for a stored duration that is not one of the three. If that '
-            . 'is deliberate, this case and the docblock above it must be rewritten to say which '
-            . 'option and why.');
+            'the CREATE form offers a legacy word, so a brand-new plan can be sold on a billing '
+            . 'period the decision withdrew. Whatever an existing row holds, a new one may only '
+            . 'ever be one of the three.');
+    }
+
+    /**
+     * THE ROW MAY SEND ITS OWN WORD BACK, and that is not a rewrite -- it writes what is already
+     * there.
+     *
+     * Without this the form above would be a trap: it would show `Yearly` selected, the browser
+     * would submit `Yearly`, and the rule would refuse the whole edit. The allowance is read from
+     * the STORED ROW and never from the request, so it widens nothing: the next case drives the
+     * same word at a plan that does not carry it.
+     */
+    public function test_a_plan_may_resubmit_the_legacy_word_it_already_carries(): void
+    {
+        $plan = $this->makePlan(['duration' => self::UNAPPROVED]);
+
+        $this->assertSame(self::UNAPPROVED, $this->storedDuration($plan->id), 'premise');
+
+        $this->actingAs($this->operator())->put(
+            route('plan.update', $plan->id),
+            $this->updatePayload($plan, ['duration' => self::UNAPPROVED, 'max_products' => 77])
+        );
+
+        $this->assertNull($this->flashedError(),
+            'the edit was refused, so an operator cannot change any other field on this plan '
+            . 'through its own form -- the form shows `' . self::UNAPPROVED . '` selected and the '
+            . 'browser submits it. Refused with: ' . (string) $this->flashedError());
+
+        $this->assertSame(self::UNAPPROVED, $this->storedDuration($plan->id),
+            'the historical value did not survive its own resubmission');
+
+        $this->assertSame(77, (int) DB::table('plans')->where('id', $plan->id)->value('max_products'),
+            'the unrelated field was not saved, so the edit did not go through');
+    }
+
+    /**
+     * AND NOT ANOTHER ROW'S. The allowance is per-plan or it is a fourth billing period.
+     *
+     * This is the case that proves the widening comes from the stored column rather than from a
+     * set that grew. A plan stored as `Month` must refuse `Yearly` even while another plan in the
+     * same installation legitimately carries it.
+     */
+    public function test_a_plan_that_does_not_carry_the_legacy_word_still_refuses_it(): void
+    {
+        $this->makePlan(['duration' => self::UNAPPROVED]);
+
+        $plan = $this->makePlan(['duration' => 'Month']);
+
+        $this->actingAs($this->operator())->put(
+            route('plan.update', $plan->id),
+            $this->updatePayload($plan, ['duration' => self::UNAPPROVED])
+        );
+
+        $this->assertNotNull($this->flashedError(),
+            'A PLAN WAS MOVED ONTO `' . self::UNAPPROVED . '`, which is not an approved duration. '
+            . 'The allowance is meant to be the row\'s OWN stored value, so that it can be sent '
+            . 'back unchanged; if it is instead a set that another row widened, the decision\'s '
+            . 'vocabulary is not enforced at all.');
+
+        $this->assertSame('Month', $this->storedDuration($plan->id),
+            'the refused value reached the column');
+    }
+
+    /**
+     * AND A ROW CARRYING ONE LEGACY WORD DOES NOT ACCEPT A DIFFERENT ONE.
+     *
+     * The allowance is that exact stored value, not "anything unapproved once you already hold
+     * something unapproved".
+     */
+    public function test_a_row_carrying_a_legacy_word_refuses_a_different_unapproved_one(): void
+    {
+        $plan = $this->makePlan(['duration' => self::UNAPPROVED]);
+
+        $this->actingAs($this->operator())->put(
+            route('plan.update', $plan->id),
+            $this->updatePayload($plan, ['duration' => 'Quarterly'])
+        );
+
+        $this->assertNotNull($this->flashedError(),
+            'a row already carrying an unapproved duration accepted a DIFFERENT unapproved one, so '
+            . 'the allowance is a hole rather than a per-value exception');
+
+        $this->assertSame(self::UNAPPROVED, $this->storedDuration($plan->id),
+            'the stored historical value was replaced by another unapproved word');
+    }
+
+    /**
+     * AND CREATE IS UNAFFECTED, whatever any existing row holds.
+     */
+    public function test_an_existing_legacy_row_does_not_let_a_new_plan_be_created_with_that_word(): void
+    {
+        $this->makePlan(['duration' => self::UNAPPROVED]);
+
+        $payload = $this->createPayload(['duration' => self::UNAPPROVED]);
+
+        $this->actingAs($this->operator())->post(route('plan.store'), $payload);
+
+        $this->assertNull(
+            DB::table('plans')->where('name', $payload['name'])->value('id'),
+            'A NEW PLAN WAS CREATED CARRYING `' . self::UNAPPROVED . '` because another row '
+            . 'already held it. The per-row allowance is for editing history, not for selling a '
+            . 'withdrawn billing period again.'
+        );
+    }
+
+    /**
+     * The `duration` select of one plan's edit page, scoped to that element.
+     */
+    private function durationSelect(Plan $plan): string
+    {
+        $html = $this->actingAs($this->operator())
+            ->get(route('plan.edit', $plan->id))
+            ->assertOk()
+            ->getContent();
+
+        return $this->between($html, '<select', '</select>', 'name="duration"');
     }
 
     /**
