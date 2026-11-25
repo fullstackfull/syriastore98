@@ -879,10 +879,90 @@ private function normalizePhone($phone)
                     // P1-SEC-24: only this store's rows -- the cookie is the guest's across every store, and the customer belongs to one.
                     $cartItems = Cart::forGuestCookie($cookie_session_id)->where('store_id', $store->id)->get();
 
+                    /*
+                     * P4-F011. A GUEST LINE FOR A PRODUCT THE ACCOUNT ALREADY HOLDS IS FOLDED IN,
+                     * NOT RE-LABELLED INTO A SECOND LINE.
+                     *
+                     * This loop used to do nothing but stamp the signed-in customer's id onto each
+                     * guest row and null its cookie. With the same product and variant in both
+                     * baskets -- add it signed in, sign out or open a second browser, add it again
+                     * as a guest, sign back in -- the account ended up with TWO rows for one
+                     * product+variant. Measured: rows 2 and 1 for one product, both cookies null.
+                     *
+                     * This was the only producer of that duplicate. Both add-to-cart writers find
+                     * the customer's existing line by the product+variant TUPLE and increment it,
+                     * which is why the rest of the cart may treat the tuple as unique -- and why
+                     * the duplicate did more than look untidy: `change_cart` resolves the row the
+                     * shopper pressed by `cart_id` and `ApiController::cart_qty` then re-identifies
+                     * it by that tuple with no `orderBy`, so measured on the two rows above, `+` on
+                     * the SECOND line moved the FIRST (2 -> 3) and left the pressed one at 1.
+                     *
+                     * THE QUANTITIES ARE ADDED, which is the behaviour `Cart::cookie_to_cart()`
+                     * already states for the same merge and what a shopper means by "I had two and
+                     * added one". No stock ceiling is applied here, and the independent review of
+                     * this change corrected BOTH halves of the reason first written:
+                     *
+                     *   The claim "both writers cap at their own door" is FALSE.
+                     *   `CartController::product_cartlist` applies no quantity-versus-stock ceiling
+                     *   at all -- it tests only whether the product is out of stock, then does
+                     *   `$qty = $cart->qty + $qty` with no bound, so one `POST {slug}/product_cart`
+                     *   with `qty=999` against a 5-stock product already stores 999. The real
+                     *   argument is stronger: a shopper can ALREADY exceed stock in a single add,
+                     *   so folding two lines grants them nothing new.
+                     *
+                     *   And something downstream DOES read `carts.qty` against stock, which the
+                     *   first draft of this comment implied nothing did: `ApiController::cart_check`
+                     *   refuses a line whose qty exceeds stock. So the fold has a real consequence
+                     *   -- two lines of qty a and b that each passed can become one line of a+b
+                     *   that is REFUSED, and the shopper must lower it before checking out. That is
+                     *   the safe direction, and arguably the correct one, but it is a consequence
+                     *   rather than a no-op.
+                     *
+                     * Capping a basket line at sign-in would still be a stock rule rather than a
+                     * de-duplication, which is why none is added here.
+                     *
+                     * AND NO FIGURE MOVES. `carts.price` is NOT touched by the fold, which is
+                     * correct and not an oversight: the column is read at five sites and every one
+                     * of them is a read-modify-write accumulator INSIDE the column's own writers,
+                     * so it is a drifting running total rather than a derived figure. No consumer
+                     * turns it into anything anyone sees -- both cart readers re-derive each line
+                     * from the product or variant price times `qty` and never look at it, and the
+                     * merchant's abandoned-cart modal deliberately shows no money. This matches an
+                     * existing writer: `Cart::addtocart_cookie` already bumps `qty` and leaves
+                     * `price` alone. Stated as five-reads-no-consumer rather than "unused", because
+                     * the shorter claim would invite somebody to delete the accumulators.
+                     *
+                     * THE LOOKUP IS THE PRINCIPAL'S OWN BASKET IN THIS STORE -- `forCustomer()`
+                     * (which matches nothing for anything that is not a positive id) plus the store
+                     * from the ROUTE, never a value from the request. The two queries carry the same
+                     * pair of predicates, so the global scope cannot admit a guest row above and
+                     * then hide the account's line here: where it would hide the line it has already
+                     * emptied `$cartItems` and this loop does not run.
+                     *
+                     * The id is spelled `auth('customers')->id()` rather than held in a local
+                     * because `CartScopesTest` censuses every `forCustomer()` ARGUMENT in `app/`:
+                     * the scope refuses a non-id and so cannot refuse the WRONG person's id, which
+                     * makes the argument the control -- it is read from the guard the lines above
+                     * just signed in, exactly as the other call sites read it.
+                     */
                     foreach ($cartItems as $cartItem) {
+                        $alreadyInTheBasket = Cart::forCustomer(auth('customers')->id())
+                            ->where('store_id', $store->id)
+                            ->where('product_id', $cartItem->product_id)
+                            ->where('variant_id', $cartItem->variant_id)
+                            ->first();
+
+                        if (!empty($alreadyInTheBasket)) {
+                            $alreadyInTheBasket->qty = (int) $alreadyInTheBasket->qty + (int) $cartItem->qty;
+                            $alreadyInTheBasket->save();
+                            $cartItem->delete();
+
+                            continue;
+                        }
+
                         $cartItem->customer_id =  auth('customers')->user()->id;
-                        $cartItem->cookie_session_id = null; 
-                        $cartItem->save(); 
+                        $cartItem->cookie_session_id = null;
+                        $cartItem->save();
                     }
 
                     return redirect()->route('landing_page', $slug);
