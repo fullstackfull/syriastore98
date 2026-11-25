@@ -99,6 +99,25 @@
             @endphp
 
             <div class="col-md-6">
+                {{--
+                    THE ONE GROUP ON THIS SCREEN THAT IS DELIBERATELY LEFT WITHOUT AN INSTRUCTION
+                    (GAP-060 / GAP-061), because the control does not work and a sentence saying
+                    what it does would be a false statement.
+
+                    `app/Helper/helper.php:1740`, `:1741`, `:2435` and `:2436` all read
+                    `((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '')`. The
+                    parenthesisation makes the left operand a BOOLEAN, so the comparison is
+                    `true == 'withspace'`, which PHP settles by casting the string to bool -- true.
+                    Measured: a stored value of `withoutspace` yields TRUE and a space is printed;
+                    only an UNSET value yields no space. So "Without space" does nothing once this
+                    panel has ever been saved.
+
+                    `app/Helper/helper.php` is not this workstream's file and this is a money
+                    formatter, so the defect is REPORTED rather than patched here.
+                    `SettingsChoiceGroupGuidanceTest::test_the_two_groups_whose_behaviour_is_
+                    broken_carry_no_instruction` pins the absence, names the lines, and says what
+                    to do when the formatter is fixed.
+                --}}
                 <fieldset class="ss-field">
                     <legend class="ss-label">{{ __('Currency Symbol Space') }}</legend>
                     <div class="ss-choice">
@@ -118,8 +137,24 @@
             </div>
 
             <div class="col-md-6">
-                <fieldset class="ss-field">
+                {{--
+                    GAP-060 / GAP-061 (WS I4 + I5). `aria-describedby` on the FIELDSET, with the
+                    id convention `resources/views/components/ss/choice-group.blade.php` uses, so
+                    the instruction is announced when focus enters the group rather than when a
+                    reader lands on one radio.
+
+                    The sentence says the thing a merchant cannot see from this screen: the choice
+                    is read by `currency_format_with_sym()` and its three siblings
+                    (app/Helper/helper.php:1740), which print every price in the panel and the
+                    storefront -- not just the preview beside these controls.
+                --}}
+                <fieldset class="ss-field" aria-describedby="site_currency_symbol_position-group-help">
                     <legend class="ss-label">{{ __('Currency Symbol Position') }}</legend>
+
+                    <p class="ss-field__hint" id="site_currency_symbol_position-group-help">
+                        {{ __('Whether the currency symbol is printed before the amount or after it. This is how prices are written everywhere for this store, not only in the preview on this screen.') }}
+                    </p>
+
                     <div class="ss-choice">
                         <input class="ss-choice__input currency_note" type="radio" name="site_currency_symbol_position"
                                value="pre" id="currency_position_pre" @checked($ssPosition === 'pre')>
@@ -134,8 +169,19 @@
             </div>
 
             <div class="col-md-6">
-                <fieldset class="ss-field">
+                {{--
+                    GAP-060 / GAP-061 (WS I4 + I5). The instruction here corrects the LABEL rather
+                    than repeating it: "With Currency Name" prints `defult_currancy`
+                    (app/Helper/helper.php:1737), which is the three-letter CODE, not a
+                    spelled-out name. A merchant reading the label expects "US Dollars".
+                --}}
+                <fieldset class="ss-field" aria-describedby="site_currency_symbol_name-group-help">
                     <legend class="ss-label">{{ __('Currency Symbol & Name') }}</legend>
+
+                    <p class="ss-field__hint" id="site_currency_symbol_name-group-help">
+                        {{ __('With Currency Name prints the three-letter currency code, such as USD, in place of the symbol. It is the code that is printed and not a spelled-out name.') }}
+                    </p>
+
                     <div class="ss-choice">
                         <input class="ss-choice__input currency_note" type="radio" name="site_currency_symbol_name"
                                value="symbol" id="currency_symbol_only" @checked($ssSymbolName === 'symbol')>

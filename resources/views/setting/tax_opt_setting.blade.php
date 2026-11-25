@@ -22,8 +22,32 @@
     </div>
 
     <div class="ss-card__body">
-        <fieldset class="ss-field">
+        {{--
+            GAP-060 / GAP-061 (WS I4 + I5) — THE INSTRUCTION, BOUND TO THE GROUP.
+
+            `aria-describedby` on the FIELDSET and not on a radio: the thing being described is
+            the choice, and a description hung off one option is announced only when a reader
+            happens to land on that option. The id convention is the one
+            `resources/views/components/ss/choice-group.blade.php` already uses
+            (`<name>-group-help`), so the two surfaces cannot drift into two conventions; this
+            panel keeps its own `ss-field`/`ss-label` classes, which is why it does not swap in
+            the component itself.
+
+            WHY THIS SENTENCE AND NOT A RESTATEMENT OF THE LABELS. The inclusive behaviour is
+            conditional on BOTH this setting and `shop_price`, measured at four call sites --
+            app/Models/Cart.php:718, app/Models/Cart.php:1010, app/Models/Product.php:420 and
+            app/Models/Tax.php:73 -- each of which reads
+            `price_type == 'inclusive' && shop_price == 'including'`. So a merchant who chooses
+            inclusive here and leaves the select below on Exclusive Tax gets tax added on top of
+            a price that already contains it, and nothing on the screen said so.
+        --}}
+        <fieldset class="ss-field" aria-describedby="price_type-group-help">
             <legend class="ss-label">{{ __('Prices entered with tax') }}</legend>
+
+            <p class="ss-field__hint" id="price_type-group-help">
+                {{ __('Whether the price you type on a product already contains tax. Inclusive pricing also needs Display prices in the shop below to be set to Including Tax: the cart, the product page and the tax calculation each test the two settings together, so choosing inclusive on its own still adds tax on top of a price that already contains it.') }}
+            </p>
+
             <div class="ss-choice">
                 <input type="radio" class="ss-choice__input type" id="price_type_inclusive"
                        name="price_type" value="inclusive"

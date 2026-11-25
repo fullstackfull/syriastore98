@@ -4546,5 +4546,9 @@
     "The period shown is the latest start among the stores included, because a rate across stores is only as complete as its least complete contributor.": "الفترة المعروضة هي أحدث تاريخ بداية بين المتاجر المشمولة، لأن النسبة المحسوبة عبر المتاجر لا تكون أكمل من أقل المتاجر المساهمة اكتمالًا.",
     "This figure is in :wallet, and your store currency is :store. The two are not converted.": "هذا الرقم بعملة :wallet، وعملة متجرك :store. ولا يُجرى أي تحويل بينهما.",
     "Total Merchants": "إجمالي التجار",
-    "Popular Coupon": "الكوبون الشعبي"
+    "Popular Coupon": "الكوبون الشعبي",
+    "Whether the price you type on a product already contains tax. Inclusive pricing also needs Display prices in the shop below to be set to Including Tax: the cart, the product page and the tax calculation each test the two settings together, so choosing inclusive on its own still adds tax on top of a price that already contains it.": "هل السعر الذي تكتبه على المنتج يتضمن الضريبة أصلًا. والتسعير الشامل للضريبة يحتاج أيضًا ضبط «عرض الأسعار في المتجر» أدناه على «شاملة الضريبة»: فالسلة وصفحة المنتج وحساب الضريبة تختبر الإعدادين معًا، ولذلك اختيار الشامل وحده يضيف الضريبة فوق سعر يتضمنها بالفعل.",
+    "Whether the currency symbol is printed before the amount or after it. This is how prices are written everywhere for this store, not only in the preview on this screen.": "هل يُطبع رمز العملة قبل المبلغ أم بعده. وهذه هي طريقة كتابة الأسعار في كل مكان لهذا المتجر، لا في المعاينة على هذه الشاشة وحدها.",
+    "With Currency Name prints the three-letter currency code, such as USD, in place of the symbol. It is the code that is printed and not a spelled-out name.": "خيار «مع اسم العملة» يطبع الرمز الدولي للعملة المكوّن من ثلاثة أحرف، مثل USD، بدلًا من العلامة. والمطبوع هو هذا الرمز لا الاسم المكتوب بالكامل.",
+    "This colours the merchant panel: its sidebar, the selected menu item and the primary buttons. It does not change your storefront, whose colours come from the storefront theme.": "هذا يلوّن لوحة التاجر: شريطها الجانبي وعنصر القائمة المحدد والأزرار الرئيسية. ولا يغيّر متجرك، فألوانه تأتي من ثيم المتجر."
 }
