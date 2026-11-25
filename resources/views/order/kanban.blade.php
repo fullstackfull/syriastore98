@@ -181,7 +181,14 @@
 
         {{-- The TRUE aside total, summed over the counts rather than over the capped
              collections, or a capped aside would under-report and (at the limit) hide itself. --}}
-        @php($ssAsideTotal = collect($ssAside)->keys()->sum(fn ($s) => $ssCounts[(int) $s] ?? 0))
+        {{-- GAP-254: the key is used RAW, because `(int)` here was the third and last place the
+             same cast stranded an order. `Api\ApiController` writes the literal `-` into
+             `delivered_status`; `(int)` of it is 0, so this sum read the PENDING count -- correctly
+             zero once the controller stopped folding the row into it -- the aside total came out 0,
+             and the `@if` below suppressed the whole section. The order was counted nowhere and
+             drawn nowhere. The other two casts are in `OrderController::order_kanban_view()` and
+             each looked locally harmless. --}}
+        @php($ssAsideTotal = collect($ssAside)->keys()->sum(fn ($s) => $ssCounts[$s] ?? 0))
 
         @if ($ssAsideTotal > 0)
             {{-- NOT STAGES, AND SAID SO IN WORDS. F0: these two values share `delivered_status`
@@ -196,7 +203,7 @@
                     <div class="ss-board ss-board--aside" role="list">
                         @foreach ($ssAside as $ssStatus => $ssOrders)
                             @continue($ssOrders->count() === 0)
-                            @php($ssCount = $ssCounts[(int) $ssStatus] ?? 0)
+                            @php($ssCount = $ssCounts[$ssStatus] ?? 0)
                             <section class="ss-board__col" role="listitem"
                                      aria-label="{{ $ssLabels[$ssStatus] ?? __('Status :value', ['value' => $ssStatus]) }} ({{ $ssCount }})">
                                 <header class="ss-board__head">
