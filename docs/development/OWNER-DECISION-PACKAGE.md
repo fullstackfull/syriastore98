@@ -202,6 +202,19 @@ and `packages/workdo/`. Phase 06 scope, not started.
 
 ---
 
+### E5 — What should an Arabic store name become in a URL? (audit §3.1, stage 4)
+
+| | |
+|---|---|
+| **Settled already, not asking** | The defect is fixed. `User::slugs()` no longer hands out `-` or an empty slug for an Arabic name; it falls back to `store-<uniqid>`, which is the fallback the function already shipped. The audit authorised stage 4 directly ("worth doing on its own merits ... whether or not numeric subdomains ship"). |
+| **The choice** | Should an Arabic name be TRANSLITERATED instead — `متجر سوريا` → `mtjr-swrya` — rather than replaced with an opaque `store-a1b2c3`? |
+| **Why it is yours** | It decides what a merchant's public URL looks like. Engineering must not pick a URL scheme. |
+| **Evidence it was the original intent** | `User::slugs()` carries a commented-out `transliterator_transliterate('Any-Latin; Latin-ASCII', ...)` on the line above the pass that strips Arabic. Somebody meant to transliterate and the line was disabled. |
+| **Consequence of transliterating** | Readable, name-bearing URLs for Arabic merchants. Needs the `intl` PHP extension present in production, and transliteration of Arabic to Latin is lossy and ambiguous (`سوريا` → `swrya`), so two different names can still collide. |
+| **Consequence of leaving it** | Arabic merchants get `store-a1b2c3`: unique, routable, and meaningless. Latin-named stores keep readable slugs, so the two groups are treated visibly differently. |
+| **Blocked** | Nothing. The breakage is fixed either way; this is the aesthetic. |
+| **Related, and genuinely blocking a bigger thing** | §8(c) and §8(d) of the audit — whether the numeric subdomain supersedes discovery recommendation D-08(a), and the cookie-domain question that would log every session out at stage 3. Those are untouched and still the owner's. |
+
 ## F. First-party module behaviour
 
 ### F1 — LynomiaChat's six self-scheduled reconcilers keep running for a switched-off module

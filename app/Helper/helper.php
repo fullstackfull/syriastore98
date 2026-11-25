@@ -1337,24 +1337,54 @@ if (!function_exists('metaKeywordSetting')) {
         $metadesc = $metadesc ?? config('app.name');
         $metaimage = $metaimage ?? config('app.name');
         $slug = $slug ?? config('app.name');
+        // GAP-118 / P03-MP-02, TWO defects in the statement below. See
+        // tests/Unit/Security/MetaKeywordSettingEscapingTest.
+        //
+        // 1. ESCAPE ON OUTPUT. Every value here was interpolated raw into a single-quoted HTML
+        //    attribute, and all four storefront layouts print this string with `{!! !!}`. An
+        //    apostrophe terminates the attribute: `XSS-1' onerror='XSS-1` put a handler on three
+        //    of these elements, and `'><img src=x onerror=…>` closed the tag and injected three
+        //    images -- measured. `e()` is ENT_QUOTES (the apostrophe is the character that
+        //    matters) and ENT_SUBSTITUTE, so a bad byte becomes U+FFFD instead of blanking the
+        //    whole value; Arabic codepoints are untouched. The `(string)` cast is deliberate:
+        //    `e()` returns a Htmlable's markup UNESCAPED, and the cast matches what interpolation
+        //    already did for every other type.
+        //
+        //    The merchant half of this feature is live (`POST /seo-setting` stores metakeyword /
+        //    metadesc / metaimage per store) but NOTHING reads those values back into this helper
+        //    today, so the three arguments are always null and the injection is not reachable by a
+        //    real request yet. Wiring the read-back is Phase 03 SEO scope, deliberately not done
+        //    here; this is so the plumbing connects to a sink that is already safe.
+        //
+        // 2. THE FORMAT STRING, which IS reachable today and is an ARABIC defect. The return was
+        //    `sprintf($script)` -- the fully interpolated markup passed as the FORMAT argument
+        //    with nothing after it, so any `%` in a value is read as a conversion specification.
+        //    `$url` comes from `route('landing_page', $slug)`, which percent-encodes, and
+        //    `User::slugs()` keeps `\p{L}`, so an Arabic store name yields an Arabic slug:
+        //    `متجر-سوريا` becomes `%D9%85%D8%AA…` and PHP 8 raised
+        //    `ArgumentCountError: 37 arguments are required, 1 given` -- HTTP 500 in the `<head>`
+        //    of every storefront page of that store. `e()` does not neutralise `%`, so the
+        //    escaping above is only a fix with this line changed too. `sprintf()` returned its
+        //    format unchanged whenever it did not throw, so returning the string directly is
+        //    behaviour-preserving for every input that worked.
         $script = "
-        <meta name='title' content='$metakeyword'>
-        <meta name='description' content='$metadesc'>
+        <meta name='title' content='" . e((string) $metakeyword) . "'>
+        <meta name='description' content='" . e((string) $metadesc) . "'>
 
         <meta property='og:type' content='website'>
-        <meta property='og:url' content='$url'>
-        <meta property='og:title' content=' $metakeyword'>
-        <meta property='og:description' content='$metadesc'>
-        <meta property='og:image' content=' $metaimage'>
+        <meta property='og:url' content='" . e((string) $url) . "'>
+        <meta property='og:title' content=' " . e((string) $metakeyword) . "'>
+        <meta property='og:description' content='" . e((string) $metadesc) . "'>
+        <meta property='og:image' content=' " . e((string) $metaimage) . "'>
 
         <meta property='twitter:card' content='summary_large_image'>
-        <meta property='twitter:url' content='$url'>
-        <meta property='twitter:title' content=' $metakeyword'>
-        <meta property='twitter:description' content=' $metadesc'>
-        <meta property='twitter:image' content=' $metaimage'>
+        <meta property='twitter:url' content='" . e((string) $url) . "'>
+        <meta property='twitter:title' content=' " . e((string) $metakeyword) . "'>
+        <meta property='twitter:description' content=' " . e((string) $metadesc) . "'>
+        <meta property='twitter:image' content=' " . e((string) $metaimage) . "'>
         ";
 
-        return sprintf($script);
+        return $script;
     }
 }
 

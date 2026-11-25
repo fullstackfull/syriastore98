@@ -49,14 +49,19 @@ class StoreSlugIdentityTest extends TestCase
         $slug = preg_replace('/\s+/', '-', $slug);
         $slug = preg_replace('/-+/', '-', $slug);
 
-        if (empty($slug)) {
-            $slug = 'store-FIXED-FOR-TEST';     // uniqid() in the original; the branch, not the value, is what matters
-        }
-
         $slug = preg_replace('/[^a-zA-Z0-9\s-]/', '', $slug);
         $slug = preg_replace('/\s+/', '-', trim($slug));
+        $slug = strtolower($slug);
 
-        return strtolower($slug);
+        /* STAGE 4 MOVED THIS BELOW THE ASCII PASS, and the copy follows. While it sat above, it
+           could never fire for an Arabic name: it tested a string that was not yet empty, and the
+           pass that emptied it ran afterwards. `uniqid()` in the original; the BRANCH, not the
+           value, is what this copy needs to reproduce. */
+        if (! preg_match('/[a-z0-9]/', $slug)) {
+            $slug = 'store-FIXED-FOR-TEST';
+        }
+
+        return $slug;
     }
 
     private function merchant(): User
@@ -72,11 +77,35 @@ class StoreSlugIdentityTest extends TestCase
     {
         $this->assertSame(0, Store::count(), 'premise: an empty stores table, so de-duplication is a no-op');
 
+        /*
+         * ARABIC NAMES ARE IN THIS LIST NOW, and their absence was a real blind spot. The guard drove
+         * only ASCII names, so when stage 4 moved the fallback the copy silently diverged for exactly
+         * the case this whole file is about -- and the section 3.1 test went on passing against a
+         * copy that no longer described the shipped generator. A guard that cannot see the file's own
+         * subject is not a guard.
+         *
+         * The `store-` cases compare the SHAPE, not the value: the real generator ends in `uniqid()`
+         * and the copy in a fixed string, so only a literal comparison of the prefix is meaningful.
+         */
         foreach (['Damascus Bazaar', 'Shop One', 'a-b', 'Store 42'] as $name) {
             $this->assertSame(
                 $this->sanitise($name),
                 User::slugs($name),
                 "the local copy diverges from User::slugs() for [{$name}], so every measurement below is unsound"
+            );
+        }
+
+        foreach (['متجر الشام', 'سوق دمشق', 'مـتجر!!!'] as $name) {
+            $this->assertSame(
+                'store-FIXED-FOR-TEST',
+                $this->sanitise($name),
+                "the local copy no longer routes [{$name}] to the fallback"
+            );
+            $this->assertMatchesRegularExpression(
+                '/^store-[a-z0-9]+$/',
+                (string) User::slugs($name),
+                "User::slugs() no longer routes [{$name}] to the fallback, so the copy and the "
+                . 'shipped generator disagree about the case this file exists to measure'
             );
         }
     }
@@ -91,25 +120,75 @@ class StoreSlugIdentityTest extends TestCase
      *
      * When the fix lands, this test fails. Rewrite it to assert the corrected slug.
      */
-    public function test_an_arabic_store_name_collapses_to_a_hyphen_which_is_the_defect(): void
+    public function test_the_ascii_pass_still_strips_arabic_and_the_fallback_now_rescues_it(): void
     {
-        $this->assertSame('-', $this->sanitise('متجر الشام'), 'store name 1');
-        $this->assertSame('-', $this->sanitise('سوق دمشق'), 'store name 2');
-        $this->assertSame('-2', $this->sanitise('متجر 2'), 'only the ASCII digit survives');
-        $this->assertSame('', $this->sanitise('مـتجر!!!'), 'and this one reduces to the empty string');
+        /*
+         * THE CAUSE IS UNCHANGED AND STILL WORTH PINNING. The ASCII-only pass
+         * (`/[^a-zA-Z0-9\s-]/`, no `/u`) deletes every Arabic letter, so the sanitisation really
+         * does reduce these names to nothing usable. Stage 4 did not change that -- it changed what
+         * happens next. Measuring the passes separately from the rescue is what makes the
+         * difference legible: if someone later "fixes" the ASCII pass instead, this test says so.
+         */
+        $this->assertSame('-2', $this->sanitiseWithoutFallback('متجر 2'), 'only the ASCII digit survives the passes');
+        $this->assertSame('-', $this->sanitiseWithoutFallback('متجر الشام'), 'the passes leave only the space-hyphen');
+        $this->assertSame('', $this->sanitiseWithoutFallback('مـتجر!!!'), 'and this one reduces to the empty string');
+
+        /* AND THE SHIPPED GENERATOR NO LONGER HANDS ANY OF THOSE OUT. */
+        foreach (['متجر الشام', 'سوق دمشق', 'مـتجر!!!'] as $name) {
+            $this->assertMatchesRegularExpression('/^store-[a-z0-9]+$/', (string) User::slugs($name),
+                'the generator handed out an unusable slug for ' . $name);
+        }
+
+        /* `متجر 2` keeps a digit, so it is USABLE and must NOT be replaced -- the fallback fires on
+           "no alphanumeric character at all", not on "contains Arabic". A merchant who named their
+           store with a number keeps it. */
+        $this->assertSame('-2', User::slugs('متجر 2'),
+            'a name that kept an alphanumeric character was replaced anyway, so the fallback is '
+            . 'firing too widely and is discarding part of the merchant\'s own name');
 
         // the control: a Latin name is unaffected, so the cause is the ASCII pass and not the whole generator
         $this->assertSame('damascus-bazaar', $this->sanitise('Damascus Bazaar'));
     }
 
     /**
-     * AUDIT SECTION 3.1, second limb -- so Arabic-named stores CONTEND for one slug.
-     *
-     * Driven through the real `User::slugs()` against a real table, because the contention is the
-     * de-duplication's behaviour. Two differently-named Arabic stores receive `-` and `-1`: the public
-     * URL is decided by signup order and carries no trace of the merchant's name.
+     * The two sanitisation passes WITHOUT the stage-4 fallback, so a test can measure the passes and
+     * the rescue separately. Kept beside `sanitise()` rather than folded into it: conflating the two
+     * is what let the section 3.1 pin go stale.
      */
-    public function test_two_differently_named_arabic_stores_contend_for_the_same_slug(): void
+    private function sanitiseWithoutFallback(string $data): string
+    {
+        $slug = preg_replace('/[^\p{L}\p{N}\s-]/u', '', $data);
+        $slug = strtolower(trim($slug));
+        $slug = preg_replace('/\s+/', '-', $slug);
+        $slug = preg_replace('/-+/', '-', $slug);
+        $slug = preg_replace('/[^a-zA-Z0-9\s-]/', '', $slug);
+        $slug = preg_replace('/\s+/', '-', trim($slug));
+
+        return strtolower($slug);
+    }
+
+    /**
+     * AUDIT SECTION 3.1, second limb -- REWRITTEN 2026-11-25 WHEN STAGE 4 LANDED, which is exactly
+     * what this file's header says to do: "when the audit's stage 4 fixes land, these tests FAIL and
+     * must be rewritten to the corrected expectation -- which is the intended signal, not an
+     * accident." It failed; this is the rewrite.
+     *
+     * WHAT IT USED TO ASSERT, and it was true: two differently-named Arabic stores received `-` and
+     * `--1`, so the public URL was decided by signup order and carried no trace of the merchant's
+     * name. (`--1` and not `-1`, because the `/-+/ => -` collapse runs BEFORE de-duplication, so
+     * appending `-1` to the base slug `-` re-introduced the double hyphen the collapse exists to
+     * remove. Measured then, and worth keeping in the record.)
+     *
+     * WHAT CHANGED: `User::slugs()` now runs its unusable-slug fallback AFTER the ASCII pass instead
+     * of before it, so a name that sanitises to no alphanumeric character at all gets
+     * `'store-' . uniqid()`. The audit authorised this directly -- "Stage 4 -- fix the two slug
+     * defects that survive regardless ... they should be fixed whether or not numeric subdomains
+     * ship" -- and section 8 reserves only the numeric-subdomain questions for the owner.
+     *
+     * The assertion is now the PROPERTY rather than a literal: each store gets its own routable
+     * slug. The literal would be a `uniqid()`, which is not assertable and should not be.
+     */
+    public function test_two_differently_named_arabic_stores_each_get_their_own_slug(): void
     {
         $user = $this->merchant();
 
@@ -118,25 +197,43 @@ class StoreSlugIdentityTest extends TestCase
 
         $second = User::slugs('سوق دمشق');
 
-        $this->assertSame('-', $first);
+        foreach (['first' => $first, 'second' => $second] as $which => $slug) {
+            $this->assertMatchesRegularExpression('/^store-[a-z0-9]+$/', (string) $slug, sprintf(
+                'the %s Arabic store got the slug "%s". Stage 4 routes a name holding no '
+                . 'alphanumeric character to the generator\'s own `store-` . uniqid() fallback.',
+                $which,
+                $slug
+            ));
+        }
 
-        // `--1`, not `-1`: the `/-+/ => -` collapse runs BEFORE de-duplication, so appending `-1` to the
-        // base slug `-` re-introduces the double hyphen the collapse exists to remove. Measured, not assumed.
-        $this->assertSame('--1', $second, 'the second Arabic store is addressed as /--1');
-        $this->assertNotSame($first, $second, 'premise: de-duplication did run');
+        $this->assertNotSame($first, $second,
+            'two differently-named Arabic stores still share one slug, which is the defect stage 4 '
+            . 'exists to remove');
+        $this->assertNotSame($first . '-1', $second,
+            'the second store got the first store\'s slug with a collision suffix, so both are '
+            . 'still really the same slug -- the contention was renamed, not removed');
     }
 
     /**
-     * AUDIT SECTION 3.2 -- after 100 collisions the generator returns NULL. THIS IS A DEFECT.
+     * AUDIT SECTION 3.2 -- REWRITTEN 2026-11-25 WHEN STAGE 4 LANDED. It used to assert that after 100
+     * collisions `User::slugs()` returned NULL, because the `for ($i = 1; $i <= 100; $i++)` loop had
+     * no fallback `return` and a PHP function that falls off the end yields null.
      *
-     * `User::slugs()` ends in a `for ($i = 1; $i <= 100; $i++)` with no fallback `return`, so a PHP
-     * function that exhausts it yields null. Combined with 3.1 the threshold is 101 ARABIC-NAMED
-     * stores, not 101 identically-named ones.
+     * THE CONSEQUENCE THE AUDIT MEASURED, and corrected its own first draft over: an explicit NULL
+     * into the `NOT NULL` `slug` column is refused under BOTH `strict => true` and `strict => false`,
+     * so it was never a silent `whereNull` fail-open -- it was a HARD FAILURE. The 101st colliding
+     * store could not be created and the merchant got a 500.
      *
-     * Rather than create 101 stores, this drives the exhaustion directly: 101 rows whose slugs occupy
-     * `-` and `-1` … `-100`, which is the state the 101st Arabic signup arrives at.
+     * The loop now ends in `return 'store-' . uniqid();`. `uniqid()` rather than a 101st suffix,
+     * because a wider loop only moves the wall, and the fallback is the one this function already
+     * uses for an unusable slug, so nothing new is invented.
+     *
+     * The exhaustion is still driven directly rather than by creating 101 stores, and the seeded set
+     * is still `--1` … `--100`: section 3.1's collapse is what made that the real derived set, and
+     * seeding `-1` … `-100` instead is how this test first passed for the wrong reason -- `--1` was
+     * free, so the generator returned it and the exhaustion was never reached.
      */
-    public function test_the_hundred_and_first_colliding_store_gets_a_null_slug_which_is_the_defect(): void
+    public function test_the_hundred_and_first_colliding_store_still_gets_a_routable_slug(): void
     {
         $user = $this->merchant();
 
@@ -152,7 +249,14 @@ class StoreSlugIdentityTest extends TestCase
         }
 
         $this->assertSame(101, Store::count(), 'premise: the 100 derived slugs and the base are all taken');
-        $this->assertNull(User::slugs('متجر الشام'), 'the generator no longer returns a slug');
+
+        $slug = User::slugs('متجر الشام');
+
+        $this->assertNotNull($slug,
+            'the generator returned null after exhausting its suffixes. stores.slug is NOT NULL and '
+            . 'the engine refuses an explicit null on both strict settings, so this is a 500 at '
+            . 'signup rather than a bad slug.');
+        $this->assertMatchesRegularExpression('/^store-[a-z0-9]+$/', (string) $slug);
     }
 
     /**
