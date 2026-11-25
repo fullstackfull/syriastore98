@@ -144,8 +144,8 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **172** |
-| PARTIALLY IMPLEMENTED | **86** |
-| NOT IMPLEMENTED | **34** |
+| PARTIALLY IMPLEMENTED | **87** |
+| NOT IMPLEMENTED | **33** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -3687,16 +3687,16 @@ against a pre-reorganization original.
 
 ### `P03-B-07` — 03-B Controlled visual theme editor
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
 
 - **Requirement (original wording / faithful reference):** "...accessibility, keyboard operation..." applied to the editor's reorder control. M4-9 measured the defect: "neither first-party sortable has any keyboard path (keydown count 0 in both), a WCAG 2.1.1 and 2.5.7 failure for any reorder UI shipped as-is."
 - **Source:** `docs/development/phase-3/PHASE-03-M4-THEME-EDITOR-PLAN.md §M4-9 (line ~303); PHASE-03-EXECUTION-PREP.md §03-A/03-E accessibility criteria`
 - **Expected behaviour:** The reorder control is operable by keyboard, or it is not shipped.
-- **Actual behaviour:** Measured now: `grep -c keydown resources/views/theme_customize/order.blade.php` returns 0. The screen ships a jQuery UI `.sortable()` with `disableSelection()` and no keyboard path, reachable at the named route theme.customize.order. M4-9 fixed the third-party jQuery UI load and the input validation but did not address the keyboard failure, and the final report does not mention it.
+- **Actual behaviour:** Measured when this row was written: `grep -c keydown resources/views/theme_customize/order.blade.php` returned 0, alongside `tabindex` 0 and `role=` 0 — the screen shipped a jQuery UI `.sortable()` with `disableSelection()` and no keyboard path, at the named route theme.customize.order. M4-9 fixed the third-party jQuery UI load and the input validation but not the keyboard failure, and the final report did not mention it. **RE-MEASURED AND PARTLY CLOSED 2026-11-25 (`5608bd54`).** The named view now carries native `<button type="button">` move controls per row — a visually-hidden name giving direction and section, `aria-describedby` to a per-row `Position n of N`, `aria-disabled` rather than `disabled` so the end stops stay in the tab order, focus restored after a move, a polite live region, `aria-hidden` on the decorative glyph — and one shared writer for the persisted order, the position text and the end stops, so the drag and the keyboard path cannot disagree. Buttons and not arrow keys **because 2.5.7 wants a non-dragging POINTER alternative** and an arrow-key handler answers only 2.1.1. Verified keyboard-only in a real Chromium: 44 checks across LTR and RTL, 0 failed; 21 mutants caught; with the pre-fix view restored 10 of 13 tests fail. Up/down are **not** mirrored in RTL, which mirrors the inline axis only. **A caution for anyone re-running M4-9's instrument:** `grep -c keydown` on that view now returns 1 and all of it is PROSE in a comment quoting the original finding — zero listeners remain, which the Unit test proves by stripping `{{-- --}}` first. The two sortables the finding covers are not both done: `resources/views/attribute_option/index.blade.php` re-measures at `keydown` 0, and five new strings have no Arabic entry.
 - **Implementation:** resources/views/theme_customize/order.blade.php:88-116
 - **Gap:** A WCAG 2.1.1 (keyboard) failure ships on an authenticated merchant screen, measured by the project itself and then not carried into any outstanding list. It is absent from PHASE-03-FINAL-REPORT.md §9.
 - **Responsible:** phase 03 (unclosed)
-- **Next action:** Add it to the Phase 03 outstanding list explicitly; fix with a keyboard reordering path or remove the control alongside the P03-B-06 decision.
+- **Next action:** **Both halves of the original action are done for the named control:** the keyboard reordering path ships, and the gap is now carried explicitly in `PHASE-03-FINAL-REPORT.md` §9 rather than existing only in an M4 planning document. The control was made accessible rather than removed, because removing it is a product decision — `P03-B-06` is untouched and still the owner's, and nothing on the storefront consumes saved ordering, so the control is now fully operable and still changes nothing a shopper sees. Remaining, and the reason this is PARTIALLY and not VERIFIED COMPLETE: the second sortable (`attribute_option/index.blade.php`, which persists by AJAX rather than a hidden input, so the same fix needs the shared writer pointed at its endpoint) and the five untranslated strings, which no coverage census catches because `ArabicUiCoverageTest::SURFACES` does not glob `resources/views/theme_customize/`.
 
 ### `P03-C-01` — 03-C Official website (OWNER-SUSPECTED GAP B)
 
