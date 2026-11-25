@@ -432,9 +432,11 @@ run_one verify-order-replacement-concurrency-on-mysql \
 # under the stricter mode is the only direction safe to be wrong in. It also drives a genuinely
 # NULL `orders.currency_code` row -- the shape `2026_10_12_000102` deliberately left unbackfilled --
 # and proves `total()` really throws before the fold, which is the HTTP 500 that P5-3a prevents.
-run_one verify-metric-layer-on-mysql \
-  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
-  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+# (The duplicate `run_one verify-metric-layer-on-mysql` that stood here until 2026-11-25 has been
+# removed. It ran the same script a second time without `FRESH_MYSQL_DATABASE`, so the two
+# invocations differed only in which database they created and dropped; the surviving registration
+# further down names `metriclayer_verify` explicitly and is the one kept. Found by the Phase 05
+# workstream, which also showed the later block's comment was wrong about this -- see there.)
 
 # P5-3b -- the merchant sales report's month window. THIS ONE IS NOT A CONVENIENCE: ReportController
 # calls MONTH() 36 times and YEAR() 9 times inside selectRaw and SQLite has neither, so every
@@ -495,8 +497,14 @@ run_one verify-gap223-lastmonth-window-on-mysql \
 run_one verify-ana009-alert-key-on-mysql \
   "ANA009_MYSQL_SOCKET=${SOCK}" "ANA009_MYSQL_USERNAME=${USER_NAME}" "ANA009_MYSQL_PASSWORD=${PASS}"
 
-# P5-2. THE WHOLE METRIC LAYER, and it was NOT registered here until 2026-11-24 -- so a green run of
-# this runner never covered Phase 05's financial evidence at all. Every metric aggregates with a
+# P5-2. THE WHOLE METRIC LAYER.
+#
+# THIS COMMENT USED TO SAY "it was NOT registered here until 2026-11-24 -- so a green run of this
+# runner never covered Phase 05's financial evidence at all", AND THAT WAS FALSE: a second
+# registration of this same script already stood earlier in this file, so the runner did cover it.
+# The duplicate has been removed (see the note above where it was) and this claim corrected, both
+# on 2026-11-25. Recorded rather than deleted because a runner that silently ran one script twice
+# is the kind of thing a reader needs to be told once. Every metric aggregates with a
 # GROUP BY over a currency column written through selectRaw, which ONLY_FULL_GROUP_BY can reject and
 # SQLite cannot; and the net-receipts agreement in its §6 is between two DECIMAL(15,2) computations
 # that SQLite turns into floats, so on SQLite they agree for the wrong reason. 65 checks.
@@ -520,6 +528,45 @@ run_one verify-metric-layer-on-mysql \
 run_one verify-loyalty-redemption-currency-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=loyaltyredemption_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# ANA-005 -- "Payments received" on the sales report. REGISTERED 2026-11-25, and `GAP-171` named its
+# absence by name: "57 MySQL harnesses exist, the runner registers 42, the ANA-005 one is among the
+# fifteen it does not, and CI runs none." The script itself has existed and passed since the slice
+# shipped; nothing but this line was missing, so a green run of this runner never covered it. 22
+# checks: the clamp to the ledger's verified coverage, the refusal for a window that ends before the
+# records begin, and a second tenant's decoy ledger.
+#
+# `SESSION_DRIVER=array` IS LOAD-BEARING HERE, and this is why the registration is not a one-word
+# change. The script signs a principal in to drive the report handler; `config/session.php` defaults
+# to the `database` driver, and in an environment with no `.env` that driver resolves against the
+# DEFAULT connection -- still sqlite at the moment `Auth::login()` migrates the session -- so the
+# run dies with "Database file at path [database/database.sqlite] does not exist" after two of its
+# twenty-two checks. MEASURED both ways on MariaDB 10.11: without the override, 2 checks / 1 failed;
+# with it, 22 / 0.
+run_one verify-ana005-sales-collection-on-mysql \
+  "SESSION_DRIVER=array" \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=ana005_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# GAP-154 / GAP-171 -- the merchant analytics screen's three grouped reads, which `GAP-154` asks for
+# as "a MySQL harness for the screen's GROUP BY reads" and `GAP-171` lists among five items with no
+# MySQL evidence at all. It forces `ONLY_FULL_GROUP_BY` on, which this container's server does not
+# enable by default, because a query that passes under the stricter mode cannot be broken by a
+# stricter server.
+#
+# IT FOUND A LIVE DEFECT ON ITS FIRST RUN, which is the reason to run it rather than to trust the
+# suite: `GROUP BY order_source` is case-INSENSITIVE on this engine, so three orders spelled
+# `POS`, `pos`, `pos` are ONE group represented by whichever row the engine reached first -- and
+# `Order::orderSourceLabel()` is a `match` on lower-case constants, so the whole group was shown to
+# the merchant as "POS (not a source this version knows)" with a correct count. SQLite's BINARY
+# collation makes that two groups and hides it. 12 checks; with the fold reverted, 2 of them fail.
+#
+# Like the two scripts above it prints `  FAIL  <what>`, which `run_one`'s `[FAIL]` grep does not
+# match, so the EXIT CODE is the live detector -- measured: the reverted fold exits 1.
+run_one verify-analytics-breakdowns-on-mysql \
+  "SESSION_DRIVER=array" \
+  "BREAKDOWN_MYSQL_SOCKET=${SOCK}" "BREAKDOWN_MYSQL_HOST=${HOST}" "BREAKDOWN_MYSQL_PORT=${PORT}" \
+  "BREAKDOWN_MYSQL_DATABASE=breakdowns_verify" "BREAKDOWN_MYSQL_USERNAME=${USER_NAME}" "BREAKDOWN_MYSQL_PASSWORD=${PASS}"
 
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"

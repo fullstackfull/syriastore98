@@ -39,6 +39,19 @@ use Tests\TestCase;
  * it was extracted into `topSellingProducts()` and is driven directly, against real rows in a
  * real database. What that cannot see is the rendering, which is stated rather than implied: no
  * test in this repository renders this screen.
+ *
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
+ * CORRECTED 2026-11-25 (ANA-002 / GAP-221): THE PARAGRAPH ABOVE IS NO LONGER TRUE, AND IS KEPT
+ * BECAUSE IT RECORDS WHY THIS FILE IS SHAPED THE WAY IT IS.
+ *
+ * `top_product()`'s two rankings no longer join on `SUBSTRING_INDEX` -- they go through
+ * `App\Support\Reports\TopSellersByOrderCount`, which uses two ordinary queries and PHP -- so
+ * `/top-all-reports` answers 200 under this suite and the screen IS rendered by a test now:
+ * `Tests\Feature\Analytics\TopSalesReportSuiteReachabilityTest` drives the real route, and
+ * `TopSalesReportPeriodTest` drives it with a period. This file keeps its method-level fixture,
+ * which still asserts the one thing those do not: that a label is paired with its OWN count when
+ * id order and popularity order disagree.
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
  */
 class TopSalesReportPairingTest extends TestCase
 {
@@ -215,6 +228,19 @@ class TopSalesReportPairingTest extends TestCase
             'top_brand_sales' => collect(),
             'paymentMethods' => collect(['COD' => 2]),
             'periodLabel' => __('All time'),
+            /* ANA-002 / GAP-221 added the period control to this view, and a Blade that reads an
+               undefined variable is an HTTP 500 -- which is how this test found the change. The
+               five are passed as the unfiltered screen passes them, because that is the state
+               this test describes: `periodLabel` above says "All time". They are NOT defaulted in
+               the view with `?? ''`: a handler that computes a period and forgets to hand it over
+               would then render a control that silently ignores it, which is the GAP-227(e1)
+               failure shape (a figure shipped into a slot nobody could read). */
+            'periodKey' => '',
+            'periodOptions' => \App\Support\Analytics\AnalyticsPeriod::options(),
+            'periodFrom' => '',
+            'periodTo' => '',
+            'periodToday' => \Carbon\CarbonImmutable::now()->toDateString(),
+            'periodClamped' => null,
         ]))->middleware(['web', 'auth']);
 
         $html = $this->actingAs($this->merchant)->get('/__top5_render')->assertOk()->getContent();

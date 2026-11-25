@@ -23,9 +23,37 @@ use Tests\TestCase;
  * This test is the cheap half: it runs in CI on every commit and fails if the ranking, the limit,
  * the case-insensitive grouping or the de-duplication is removed. It cannot prove the figures are
  * right -- only that the four mechanisms are still there.
+ *
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
+ * CORRECTED 2026-11-25 (ANA-002 / GAP-221), AND THE PARAGRAPH ABOVE IS KEPT BECAUSE IT EXPLAINS
+ * THE SHAPE OF THIS FILE RATHER THAN BECAUSE IT IS STILL TRUE.
+ *
+ * `top_product()` DOES run under this suite now: its two rankings go through
+ * `App\Support\Reports\TopSellersByOrderCount`, two ordinary queries and PHP, so the route
+ * answers 200 and the FIGURES are asserted behaviourally --
+ * `Tests\Feature\Analytics\TopSalesReportSuiteReachabilityTest` (12 tests: the metric, the
+ * ranking, the tie-break, the hundred-position ceiling and three store predicates) and
+ * `TopSalesReportPeriodTest` (6).
+ *
+ * So the first test below no longer reads the handler for an `orderByDesc(...)->limit(5)` that has
+ * moved -- a string census of a mechanism's CURRENT SPELLING is the thing `GAP-229` keeps
+ * catching. It asserts the two durable properties instead: the unexecutable join is gone, and both
+ * charts come from the one shared object rather than from two hand-written copies. The MariaDB
+ * script remains the only evidence that this engine and MySQL's case-insensitive collation agree,
+ * and it reports **19** checks, not the 14 this docblock claimed (measured 2026-11-25, 0 failed,
+ * against the rewritten charts).
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
  */
 class TopFiveRankingTest extends TestCase
 {
+    /*
+     * A CENSUS THAT READS COMMENTS CAN BE SATISFIED -- OR BROKEN -- BY PROSE ABOUT THE THING IT
+     * MEASURES, and this file met that trap the moment the handler gained a comment explaining the
+     * join it no longer uses: the `SUBSTRING_INDEX` assertion below failed against code that
+     * contains no such call. CLAUDE.md names four instances on 2026-11-21 alone.
+     */
+    use \Tests\Support\StripsSourceComments;
+
     private const CONTROLLER = 'app/Http/Controllers/ReportController.php';
 
     private const VIEW = 'resources/views/reports/top_5_reports.blade.php';
@@ -38,26 +66,35 @@ class TopFiveRankingTest extends TestCase
         return (string) file_get_contents($path);
     }
 
-    public function test_the_category_and_brand_charts_rank_and_limit_to_five(): void
+    public function test_the_category_and_brand_charts_come_from_the_one_shared_ranking_object(): void
     {
-        $source = $this->source(self::CONTROLLER);
+        $source = $this->sourceWithoutComments(self::CONTROLLER);
 
-        foreach ([
-            'categories.name' => 'Top Selling Category',
-            'product_brands.name' => 'Top Selling Brand',
-        ] as $tieBreak => $chart) {
+        /*
+         * THE RANKING, THE LIMIT AND THE TIE-BREAK ARE ASSERTED BEHAVIOURALLY NOW, by
+         * `Tests\Feature\Analytics\TopSalesReportSuiteReachabilityTest`, which drives the real
+         * route and reads the real figures. What this test holds is the two properties that
+         * assertion CANNOT see -- both about how the figure is obtained rather than what it is.
+         */
+        $this->assertStringNotContainsString(
+            'SUBSTRING_INDEX',
+            $source,
+            'The `SUBSTRING_INDEX` + generated-numbers cross join is back in ReportController. '
+            . 'SQLite has no such function, so every Feature test of a handler using it answers '
+            . 'HTTP 500 -- which is how this screen came to have no suite coverage of its '
+            . 'ranking, its limit or its three store predicates at all (GAP-221). '
+            . 'App\\Support\\Reports\\TopSellersByOrderCount computes the same metric in two '
+            . 'ordinary queries.'
+        );
+
+        foreach (['CATEGORY', 'BRAND'] as $dimension) {
             $this->assertStringContainsString(
-                "->orderByDesc('total_sale')\n            ->orderBy('" . $tieBreak . "')\n            ->limit(5)",
+                "TopSellersByOrderCount::compute(\n            TopSellersByOrderCount::" . $dimension,
                 $source,
-                sprintf(
-                    'The %s query no longer ranks by total_sale, tie-breaks on %s and limits to '
-                    . 'five. Without all three a store with forty of them gets forty bars in '
-                    . 'engine order, under a page headed "Top Sales Report" -- and without the '
-                    . 'tie-break two on the same count swap places between requests, so '
-                    . 'whichever lands fifth appears and disappears.',
-                    $chart,
-                    $tieBreak
-                )
+                'The ' . $dimension . ' chart no longer comes from the shared ranking object. Two '
+                . 'hand-written copies of one metric is how the category and brand charts drifted '
+                . 'apart before: P5-3f had to repair the identical defect twice, in two places, '
+                . 'for the same reason.'
             );
         }
     }

@@ -12,12 +12,22 @@ use Tests\TestCase;
  * with a signed-in merchant and recorded the HTTP status of each. Five answered 500, and reading
  * the log separated them into two kinds that must not be reported as one:
  *
- *   ENVIRONMENT, NOT DEFECTS -- three of them, and they would work in production:
+ *   ENVIRONMENT, NOT DEFECTS -- TWO of them now, and they would work in production:
  *     /themean-alytic          no such function: regexp            MySQL REGEXP
  *     /product-order-reports   no such function: MONTH             MySQL date function
- *     /top-all-reports         no such function: SUBSTRING_INDEX   MySQL string function
  *   The dev harness runs SQLite; `CLAUDE.md` records this gap and it is why schema-sensitive work
  *   is verified against a real MySQL.
+ *
+ *   `/top-all-reports  no such function: SUBSTRING_INDEX` WAS THE THIRD AND IS NO LONGER TRUE
+ *   (corrected 2026-11-25). GAP-221's own disposition called removing that blindness "the one that
+ *   removes it permanently", and `top_product()`'s category and brand rankings no longer join
+ *   against a generated series with `SUBSTRING_INDEX` -- they go through
+ *   `App\Support\Reports\TopSellersByOrderCount`, so that screen is now suite-reachable and
+ *   `TopSalesReportSuiteReachabilityTest` drives it. The figures were proved unchanged on the
+ *   production engine first (`verify-top-five-reports-on-mysql.php`, 19 checks, 0 failed).
+ *
+ *   This is prose in a docblock and no assertion depended on it, which is exactly why it went
+ *   stale unnoticed -- the list is a reader's map, not a ratchet.
  *
  *   DEFECTS ON ANY DATABASE -- two, both the same shape:
  *     /otp-integration   View [otp.integration] not found

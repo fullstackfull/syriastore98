@@ -19,6 +19,7 @@ use App\Support\Tenancy\OperatorStoreSelection;
 use App\Support\Metrics\MetricWindow;
 use App\Support\Reports\DimensionPeriodRevenue;
 use App\Support\Reports\ReportFigureNote;
+use App\Support\Reports\TopSellersByOrderCount;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -3456,58 +3457,82 @@ class ReportController extends Controller
 
     public function top_product(Request $request)
     {
+        /*
+         * ANA-002 / GAP-221 -- THE FIFTH AND LAST OF THAT ROW'S UNFILTERED SCREENS.
+         *
+         * This one read every order the store had ever taken and said so in a hardcoded
+         * `periodLabel`, exactly as the four before it did. It was recorded as NOT BUILDABLE with
+         * suite evidence because the screen could not be EXECUTED by the suite at all -- see
+         * `TopSellersByOrderCount` for the `SUBSTRING_INDEX` blockage that is now gone.
+         *
+         * OPT-IN, for the reason the other four record: `AnalyticsPeriod::fromRequest([])` falls
+         * through to `DEFAULT` (`last_30_days`), so resolving unconditionally would narrow every
+         * existing reader's figure to thirty days without anyone asking. With no `ss_period` this
+         * screen answers byte-for-byte as before, and a test pins it.
+         */
+        $period = $request->filled(\App\Support\Analytics\AnalyticsPeriod::KEY_PERIOD)
+            ? \App\Support\Analytics\AnalyticsPeriod::fromRequest($request->all())
+            : null;
+
         $productQuery = Product::where('store_id', OperatorStoreSelection::reportStoreId());
-        $orderQuery = Order::where('store_id', OperatorStoreSelection::reportStoreId());
+
+        /*
+         * ONE WINDOWED ORDER QUERY FOR ALL FOUR RANKINGS, and that is the whole risk on this
+         * screen. Products, categories, brands and payment methods sit under one caption and all
+         * four derive from this builder, so a period cannot reach some of them and not others.
+         * Windowing one and not another is how a February chart ends up beside an all-time total
+         * -- the confusion `showCountryOrderReport()` has now been fixed for twice, through two
+         * different doors.
+         *
+         * `order_date`, not `created_at`: every other screen in this centre windows `order_date`,
+         * and the merchant's own order list shows that column under the title "Date".
+         *
+         * The window JOINS the store predicate, it does not replace it. `Order` is not in
+         * `config/tenancy.php`'s `scoped_models`, so nothing else would confine this read.
+         */
+        $orderQuery = Order::where('store_id', OperatorStoreSelection::reportStoreId())
+            ->when($period !== null, fn ($query) => $query->whereBetween('order_date', [$period->from(), $period->to()]));
 
         [$productNames, $productCounts] = $this->topSellingProducts($orderQuery, $productQuery);
 
-        $top_sales = Category::select(
-            'categories.name as sale_name',
-            'categories.image_path as sale_image_path',
-            \DB::raw('COUNT(DISTINCT orders.id) as total_sale')
-        )
-            ->join('products', 'categories.id', '=', 'products.category_id')
-            ->join('orders', function ($join) {
-                $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                    ->crossJoin(\DB::raw("(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers"));
-            })
-            ->where('products.store_id', OperatorStoreSelection::reportStoreId())
-            ->where('orders.store_id', OperatorStoreSelection::reportStoreId())
-            ->where('categories.store_id', OperatorStoreSelection::reportStoreId())
-            ->groupBy('categories.name')
-            /*
-             * P5-3f -- RANKED AND LIMITED, which is what the card beside it already promises:
-             * "Categories by the number of distinct orders containing one of their products" and,
-             * above, "the five are the top five". This query ended at `->get()` with NO orderBy
-             * and NO limit, so a store with forty categories got forty bars in whatever order the
-             * engine returned them, under a page headed "Top Sales Report". The metric was never
-             * the problem -- COUNT(DISTINCT orders.id) is exactly what the note describes -- the
-             * ranking simply was not applied.
-             *
-             * The name is a deterministic tie-break. Without it two categories on the same count
-             * swap places between requests, and whichever lands fifth appears and disappears.
-             */
-            ->orderByDesc('total_sale')
-            ->orderBy('categories.name')
-            ->limit(5)
-            ->get();
+        /*
+         * ANA-002 / GAP-221 -- THE TWO RANKINGS NO LONGER NEED `SUBSTRING_INDEX`, AND THAT IS WHY
+         * THIS SCREEN CAN BE TESTED AT ALL.
+         *
+         * Both were a join of `orders.product_id` against a generated series 1..100:
+         *
+         *     ->on('products.id', '=', DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
+         *       ->crossJoin(DB::raw("(SELECT 1 + a.N + b.N * 10 AS n FROM … ) AS numbers"))
+         *
+         * SQLite has neither function nor need for it, so driving `top-all-reports` in a Feature
+         * test answered `General error: 1 no such function: SUBSTRING_INDEX` -- which is how this
+         * screen's ranking, limit, tie-break and THREE store predicates came to have no suite
+         * coverage of any kind, and why GAP-221 recorded its missing period as unbuildable.
+         *
+         * `TopSellersByOrderCount` computes the identical metric -- COUNT(DISTINCT orders.id) per
+         * dimension name, ranked descending with a name tie-break, limited to five -- in two
+         * ordinary queries plus PHP. Its docblock holds the full equivalence argument, the three
+         * store predicates it keeps, and the ONE behaviour difference: the old series stopped at
+         * the hundredth position of the list, so an order listing more than a hundred products
+         * silently omitted the rest from a figure defined as "orders containing one of their
+         * products". It reads the whole list.
+         *
+         * IT IS HANDED THE SAME `$orderQuery` AS THE OTHER CHARTS, not its own. Four rankings on
+         * one screen under one caption must count the same orders; deriving the order set twice is
+         * how a windowed chart ends up beside an all-time total, which is the confusion
+         * `showCountryOrderReport()` has now been fixed for twice.
+         */
+        $top_sales = TopSellersByOrderCount::compute(
+            TopSellersByOrderCount::CATEGORY,
+            $orderQuery,
+            OperatorStoreSelection::reportStoreId()
+        );
 
-        $top_brand_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('COUNT(DISTINCT orders.id) as total_sale'))
-            ->join('products', 'product_brands.id', '=', 'products.brand_id')
-            ->join('orders', function ($join) {
-                $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                    ->crossJoin(\DB::raw("(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers"));
-            })
-            ->where('products.store_id', OperatorStoreSelection::reportStoreId())
-            ->where('orders.store_id', OperatorStoreSelection::reportStoreId())
-            ->where('product_brands.store_id', OperatorStoreSelection::reportStoreId())
-            ->groupBy('product_brands.name')
-            // P5-3f -- the same repair as the category chart above, for the same reason and with
-            // the same deterministic tie-break.
-            ->orderByDesc('total_sale')
-            ->orderBy('product_brands.name')
-            ->limit(5)
-            ->get();
+        $top_brand_sales = TopSellersByOrderCount::compute(
+            TopSellersByOrderCount::BRAND,
+            $orderQuery,
+            OperatorStoreSelection::reportStoreId()
+        );
 
         $new_orders = (clone $orderQuery)->orderBy('id', 'DESC')->get();
 
@@ -3564,7 +3589,15 @@ class ReportController extends Controller
             'top_sales' => $top_sales,
             'productNames' => $productNames,
             'productCounts' => $productCounts,
-            'periodLabel' => __('All time'),
+            // The caption follows the window. A true number under a false label is the defect
+            // this workstream keeps fixing.
+            'periodLabel' => $period === null ? __('All time') : $period->label(),
+            'periodOptions' => \App\Support\Analytics\AnalyticsPeriod::options(),
+            'periodKey' => $period === null ? '' : $period->key(),
+            'periodFrom' => $period === null ? '' : $period->from()->toDateString(),
+            'periodTo' => $period === null ? '' : $period->to()->toDateString(),
+            'periodToday' => \Carbon\CarbonImmutable::now()->toDateString(),
+            'periodClamped' => $period === null ? null : $period->clampNote(),
         ]);
     }
 
