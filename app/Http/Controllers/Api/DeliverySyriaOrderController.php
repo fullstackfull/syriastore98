@@ -6,6 +6,7 @@ use App\Events\OrderPaymentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Services\DeliverySyriaCredential;
+use App\Support\Orders\FulfilmentStateMachine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,67 @@ use Illuminate\Support\Facades\Validator;
 class DeliverySyriaOrderController extends Controller
 {
     use \App\Http\Controllers\Concerns\RestoresCancelledOrderStock;
+
+    /**
+     * THE WEBHOOK SPEAKS INTEGERS; THE STATE MACHINE SPEAKS WORDS. GAP-135.
+     *
+     * `Order::order_status_change()` is the writer five doors share and it asks
+     * {@see FulfilmentStateMachine} before it moves anything (app/Models/Order.php:946). This
+     * handler is one of the two that do NOT go through that writer -- it assigns
+     * `orders.delivered_status` itself and saves (:304, :418) -- so until this map existed it moved
+     * an order wherever the courier asked, including out of the two TERMINAL states. Measured
+     * before the fix: `status = 1` against an order at `delivered_status = 2` (CANCELLED) answered
+     * HTTP 200 `{"success":true}`, wrote `delivered_status = 1` and stamped `delivery_date`. The
+     * machine refuses that transition, and the consequence is money rather than cosmetics:
+     * `Order::product_return()` refuses unless `delivered_status == 1` and then REDUCES
+     * `final_price`, so a cancelled order -- goods already credited by this handler's own cancel
+     * arm, merchant entitlement already walked back by `OrderEntitlementReversal` -- was walked
+     * back into the return and refund workflow by a third party.
+     *
+     * THE MAP IS THE ONLY THING ADDED. No rule is written here: which transitions are legal stays
+     * in the one place that defines it, so narrowing the matrix (which that class documents as a
+     * one-line edit) reaches this door too. Both sides are the machine's own constants, so a
+     * renamed word or a renumbered state is a compile-time concern rather than a silent drift.
+     *
+     * `0` (Pending) IS ABSENT FROM THIS MAP AND IS NOT THEREFORE PERMITTED, and the first version
+     * of this fix had that backwards. The machine governs exactly the six words
+     * `Order::order_status_change()`'s branch chain matches; `pending` is not among them, so
+     * `governs()` answers false and {@see FulfilmentStateMachine::refusalFor()} answers null. That
+     * first version read the null as "permitted" and let the push fall through, WHICH LEFT THE
+     * DEFECT ABOVE REACHABLE IN TWO REQUESTS INSTEAD OF ONE: `PERMITTED[PENDING]` holds five of the
+     * six governed words, so `2 -> 0 -> 1` answered 200 then 200 and reached the identical row
+     * state -- measured through this route by
+     * `DeliverySyriaOrderTransitionTest::test_a_settled_order_cannot_be_re_opened_in_two_pushes_either`,
+     * which failed before {@see FulfilmentStateMachine::refusalForTranslatedTarget()} existed. The
+     * same composition reached a cancel of a DELIVERED order (`1 -> 0 -> 2`), which restores stock
+     * for goods already delivered.
+     *
+     * So a `null` from the map is now a refusal for any from-state the machine recognises, asked
+     * through `refusalForTranslatedTarget()`. **That is not this door inventing a rule:** `PERMITTED`
+     * is the complete statement of what may be written out of each state and no row holds a word
+     * targeting Pending, so writing Pending is outside the single definition's authorisation rather
+     * than unmentioned by it -- and `Order::order_status_change()` has no `pending` arm either, so
+     * no merchant surface can make the move. This door was the outlier; it is not any more.
+     *
+     * **IT IS NEVERTHELESS A CHANGE TO WHAT THIS ENDPOINT ACCEPTS.** The validator still advertises
+     * `status = 0` (:166) and a courier pushing it for a recognised order now gets 409 where it got
+     * 200. Recorded for the owner as a third-party contract change rather than presented as a pure
+     * fix; see `OWNER-DECISION-PACKAGE.md` H2.
+     *
+     * 7 (Partially Paid) and 8 (Pre Order) need no entry: the validator refuses them as TARGETS
+     * (:166). They are still handled correctly as FROM states, because the machine carries a row
+     * for each.
+     *
+     * @var array<int, string>
+     */
+    private const MACHINE_WORD_FOR_STATUS = [
+        FulfilmentStateMachine::STATE_DELIVERED => FulfilmentStateMachine::DELIVERED,
+        FulfilmentStateMachine::STATE_CANCELLED => FulfilmentStateMachine::CANCEL,
+        FulfilmentStateMachine::STATE_RETURN => FulfilmentStateMachine::RETURNED,
+        FulfilmentStateMachine::STATE_CONFIRMED => FulfilmentStateMachine::CONFIRMED,
+        FulfilmentStateMachine::STATE_PICKED_UP => FulfilmentStateMachine::PICKED_UP,
+        FulfilmentStateMachine::STATE_SHIPPED => FulfilmentStateMachine::SHIPPED,
+    ];
 
     public function updateStatus(Request $request): JsonResponse
     {
@@ -171,9 +233,108 @@ class DeliverySyriaOrderController extends Controller
                     'order_id' => $order->id,
                     'product_order_id' => $order->product_order_id,
                     'status' => $order->delivered_status,
-                    'status_name' => $this->statusName($order->delivered_status),
+                    /*
+                     * `$oldStatus` AND NOT THE RAW COLUMN, because `statusName(int $status)` is
+                     * typed and this branch is reachable with a non-numeric value in the column.
+                     * MEASURED: `Api\ApiController` writes the literal `'-'` into
+                     * `orders.delivered_status` for a storefront order placed without one; `(int) '-'`
+                     * is 0, so a courier push of `status = 0` satisfies the comparison above, reaches
+                     * this line, and PHP 8 raises `TypeError: Argument #1 ($status) must be of type
+                     * int, string given`. It is outside the `try` further down, so it surfaced as an
+                     * uncaught HTTP 500 on a live third-party webhook. Found by an independent review
+                     * as a latent defect and then reproduced by execution, which is why the fix is
+                     * here and not in the register. The response is unchanged for every other row:
+                     * `status` still prints the raw stored value and only the NAME is derived from
+                     * the cast one, which is what every other branch of this handler already does.
+                     */
+                    'status_name' => $this->statusName($oldStatus),
                 ],
             ]);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 8b. THE FULFILMENT STATE MACHINE. GAP-135, the second of the two doors.
+        |--------------------------------------------------------------------------
+        |
+        | AFTER THE EARLY RETURN ABOVE, AND THAT ORDERING IS LOAD-BEARING. A push of the status the
+        | order already holds is a no-op that re-opens nothing, and Delivery Syria RETRIES
+        | deliveries, so :213-224 is this endpoint's only idempotency. Asking the machine first
+        | would answer 409 to a courier's retry out of a terminal state -- a behaviour change
+        | dressed as a fix. `DeliverySyriaOrderTransitionTest::
+        | test_the_same_status_early_return_is_preserved_even_where_the_machine_refuses` pins it.
+        |
+        | THE RAW COLUMN VALUE IS PASSED, NOT `$oldStatus`, AND THE DIFFERENCE IS OBSERVABLE.
+        | `$oldStatus` is `(int) $order->delivered_status` and the cast changes the machine's
+        | answer: `Api\ApiController:10495` writes the literal `-` into this column on SQLite, and on MySQL with the production `strict => false` the same write may coerce to 0 -- the live column type was NOT measured, so what matters here is only that the machine documents ANY value outside 0..8 as ungoverned
+        | (`!empty($request->delivered_status) ? $request->delivered_status : '-'`, so a storefront
+        | order placed without one carries it), and under PHP 8 `(int) '-'` is `0` while `'-' == 0`
+        | is FALSE. So the machine refuses `cancel` out of such a row -- exactly as
+        | `Order::order_status_change()` always has -- while the cast would have made it
+        | cancellable here alone. This is the same raw-value call `Order::refuseIllegalTransition()`
+        | makes (app/Models/Order.php:946); that class's docblock derives it in full, and
+        | `DeliverySyriaOrderTransitionTest::
+        | test_the_machine_is_asked_with_the_raw_column_value_and_not_the_cast_one` pins it.
+        |
+        | AND THE WORD MAY BE `null`, WHICH IS NOT THE SAME AS "REFUSE". `refusalFor()` asks
+        | `governs()` first and answers null for a word it does not know, so an ungoverned push
+        | (`status = 0`) falls through untouched instead of being refused by a door that invented a
+        | rule the single definition does not contain. See MACHINE_WORD_FOR_STATUS.
+        |
+        | 409 AND NOT 401, 403 OR 422. 401 is forbidden across this API: repo B's
+        | lib/network/network.dart turns ANY 401 into a forced logout that clears stored
+        | preferences. 403 is what this handler already answers for a caller it does not recognise,
+        | and this caller IS recognised. 422 is what it answers for a malformed payload, and carries
+        | an `errors` bag -- this payload is well formed and the order's own state is the conflict.
+        | 409 is the code this codebase already uses for exactly that (`ProductController:4222`,
+        | `StoreFinanceController:2582`, `OrderRefundController:709`, `PosController:417`), in the
+        | same `{success, message}` envelope as every other answer from this method.
+        */
+        $statusWord = self::MACHINE_WORD_FOR_STATUS[$newStatus] ?? null;
+
+        /*
+        | TWO QUESTIONS, AND THE FIRST ONE IS THE ONE A WORD-ONLY CHECK CANNOT ASK.
+        |
+        | `refusalFor()` answers null for a word it does not govern, and `governs()` lists no PENDING
+        | word -- so `status = 0` maps to no word and, with only the second question, fell through
+        | from EVERY state including both terminal ones. `PERMITTED[PENDING]` then holds five of the
+        | six governed words, so a caller refused `CANCELLED -> delivered` in one push reached the
+        | identical row state in two: `2 -> 0 -> 1`, measured as 200 then 200 before this line
+        | existed. The refusal cost an attacker one extra request and removed nothing else.
+        |
+        | `refusalForTranslatedTarget()` is the question a door with its own wire vocabulary has to
+        | ask: a `null` from the map means "I cannot express this as a word the machine governs", and
+        | the machine's `PERMITTED` rows contain no word targeting Pending from ANY state -- so
+        | writing it is outside the single definition's authorisation rather than unmentioned by it.
+        | It lives on the machine and not here on purpose: a second local rule disagreeing with the
+        | single definition is the defect this whole door was fixing, and the sibling door in
+        | `Api\DashboardController::updateStatus` translates an integer the same way and needs the
+        | same question.
+        */
+        $refusal = FulfilmentStateMachine::refusalForTranslatedTarget($order->delivered_status, $statusWord);
+
+        if ($refusal !== null) {
+            Log::warning('Delivery Syria order status transition refused', [
+                'order_id' => $order->id,
+                'product_order_id' => $order->product_order_id,
+                'store_id' => $order->store_id,
+                'old_status' => $oldStatus,
+                'old_status_name' => $this->statusName($oldStatus),
+                'new_status' => $newStatus,
+                'new_status_name' => $this->statusName($newStatus),
+                'reason' => $refusal,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $refusal,
+                'data' => [
+                    'order_id' => $order->id,
+                    'product_order_id' => $order->product_order_id,
+                    'status' => $order->delivered_status,
+                    'status_name' => $this->statusName($oldStatus),
+                ],
+            ], 409);
         }
 
         /*

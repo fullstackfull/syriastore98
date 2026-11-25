@@ -273,6 +273,48 @@ final class FulfilmentStateMachine
             : (string) __(self::MESSAGE_NOT_PERMITTED);
     }
 
+    /**
+     * THE REFUSAL FOR A DOOR THAT TRANSLATES ITS OWN STATUS VOCABULARY INTO THESE WORDS.
+     *
+     * `refusalFor()` ANSWERS NULL FOR A WORD IT DOES NOT GOVERN, which is right for its own
+     * question and is a hole in anything that asks only that question. A door whose wire format is
+     * an integer has to map that integer onto one of the six words; when the map has no entry, it
+     * holds `null`, and `refusalFor(null)` says nothing. `null` there means "I was not asked about
+     * a word I govern" -- NOT "permitted".
+     *
+     * MEASURED, BY EXECUTION, ON THE DELIVERY SYRIA WEBHOOK (2026-11-25, found by an independent
+     * review of the one-step fix and reproduced through the real route): `governs()` lists no
+     * PENDING word, so `status = 0` mapped to nothing and fell through from EVERY state. And
+     * `PERMITTED[PENDING]` holds FIVE of the six governed words, so every refusal was two pushes
+     * away from being irrelevant:
+     *
+     *   - `2 (CANCELLED) -> 0 -> 1 (DELIVERED)` answered 200 then 200, reaching the state
+     *     `Order::product_return()` gates on before it REDUCES `final_price`;
+     *   - `1 (DELIVERED) -> 0 -> 2 (CANCELLED)` reaches a cancel that `MESSAGE_CANCEL_REFUSED`
+     *     refuses in one step, and a cancel RESTORES STOCK for goods already delivered.
+     *
+     * NOT A NEW RULE, AND THAT IS THE WHOLE JUSTIFICATION FOR IT. `PERMITTED` is the complete
+     * statement of which words may be written out of each state, and NO row contains a word that
+     * targets Pending, because there is no pending word. Writing Pending is therefore outside this
+     * machine's authorisation from every state -- and `Order::order_status_change()` has no pending
+     * arm either, so no merchant surface in the product can make the move. A door that refuses it
+     * AGREES with every other surface; the door that accepted it was the outlier.
+     *
+     * AN UNRECOGNISED FROM-STATE STAYS AS MOVABLE AS IT IS TODAY, for the reason `refusalFor()`
+     * gives in the same situation: `stateOf()` answers null for the literal `'-'` that
+     * `Api\ApiController` writes, and stranding those rows would be a new defect in place of a fix.
+     */
+    public static function refusalForTranslatedTarget($rawFrom, ?string $word): ?string
+    {
+        if ($word === null || ! self::governs($word)) {
+            return self::stateOf($rawFrom) === null
+                ? null
+                : (string) __(self::MESSAGE_NOT_PERMITTED);
+        }
+
+        return self::refusalFor($rawFrom, $word);
+    }
+
     /** Whether the transition is allowed. The inverse of a refusal. */
     public static function permits($rawFrom, $word): bool
     {
