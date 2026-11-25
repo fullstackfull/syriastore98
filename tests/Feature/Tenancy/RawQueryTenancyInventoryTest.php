@@ -666,7 +666,36 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            refused rather than reported clean), and the ledger's `reopenInitiation()` and
            `initiationStore()`. Three name no `store_id`, because neither table has the column;
            `ServiceLayerRawQueryInventoryTest` declares each with its reason. */
-        $this->assertSame(['app' => 221, 'packages' => 45], $perDir,
+        /*
+           221 -> 223 [the same day, the same review's finding 9]: TWO more, both in
+           `PlanPurchaseIntent` and both about an intent a PERSON has answered --
+           `needingAPerson()`, the narrow predicate for which intents an acknowledgement may name,
+           and `acknowledge()`, the conditional `UPDATE ... WHERE acknowledged_at IS NULL`.
+
+           Neither names a `store_id` and neither could: `plan_purchase_intents` has no such column,
+           because a plan purchase is between the platform and a merchant's ACCOUNT rather than
+           inside one of their stores. The isolation that applies is the purchaser's, carried as
+           `user_id` on the row, and both statements identify the row by its primary key from the
+           operator's console -- never by anything a caller supplied.
+
+           What the acknowledgement is FOR is the point this census cannot see: it closes the only
+           remaining door through which the payment could be settled, which is why
+           `PlanPaymentReconciliationTest` drives the settlement refusing one as its own case rather
+           than trusting the reconciler's earlier refusal. */
+        /*
+           223 -> 225 the same day [the two independent reviews of that change]: `answerableById()`
+           (which REPLACED two statements with one, so the predicate a read uses is the predicate the
+           write carries -- the financial review measured an acknowledgement landing on a payment a
+           concurrent settlement had just granted), plus `reopen()`, `acknowledged()` and `byId()`,
+           which make a mistyped id correctable on the record and let the audit row describe the row
+           as it is rather than as a caller last saw it. Net +2 statements for +4 methods.
+
+           `byId()` is in the SERVICE and not in the console command that needs it, deliberately: the
+           first version wrote `DB::table('plan_purchase_intents')` in the command, which broke the
+           invariant recorded above -- every statement against this table belongs to the service that
+           owns it, so the table has exactly one class that queries it -- and put the table into the
+           per-table exposure map as a literal for the first time. */
+        $this->assertSame(['app' => 225, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -793,8 +822,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            on the per-directory assertion above (204 + 45). The UNSCOPED sum moves with them, on
            purpose and for the stated reason: the table has no `store_id` to scope by.
            249 -> 262 [the same change]: the thirteen `ModulePaymentLedger` sites (217 + 45).
-           262 -> 266 [the review of the same change]: the four above (221 + 45). */
-        $this->assertSame(266, array_sum($perDir));
+           262 -> 266 [the review of the same change]: the four above (221 + 45).
+           266 -> 268 [the same review's finding 9]: `needingAPerson()` and `acknowledge()`
+           (223 + 45).
+           268 -> 270 [the two reviews of that change]: the four acknowledgement methods above,
+           net +2 (225 + 45). */
+        $this->assertSame(270, array_sum($perDir));
     }
 
     /**

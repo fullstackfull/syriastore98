@@ -94,6 +94,28 @@ final class PlanPaymentReconciler
             );
         }
 
+        if (($intent->acknowledged_at ?? null) !== null) {
+            /*
+             * A PERSON HAS ALREADY DEALT WITH THIS ONE. Answered before the provider is asked, for
+             * two reasons: a question nobody will act on is not worth a call, and the acknowledged
+             * resolutions ("refunded it", "granted it by hand") are invisible to the verifier --
+             * a refund issued after a capture does not necessarily change what a status endpoint
+             * reports -- so an answer would read as a settleable capture. `PlanPurchaseSettlement`
+             * refuses it again, which is what makes this a property of the system and not of this
+             * caller; this clause only saves the call.
+             *
+             * `?? null` rather than a column test: against a database migrated before
+             * `2026_11_25_000200` the property is simply absent, which reads as "not acknowledged"
+             * and leaves the behaviour exactly as it was.
+             */
+            return new ReconciliationOutcome(
+                ReconciliationOutcome::ACKNOWLEDGED,
+                'a person recorded what was done about this on ' . (string) $intent->acknowledged_at
+                    . ': ' . (string) ($intent->acknowledged_reason ?? 'no reason recorded'),
+                ['acknowledged_at' => (string) $intent->acknowledged_at],
+            );
+        }
+
         $verifier = $provider !== '' ? $this->verifiers->for($provider) : null;
 
         if ($verifier === null) {

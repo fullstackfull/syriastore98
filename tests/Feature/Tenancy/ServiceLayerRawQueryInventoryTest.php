@@ -168,10 +168,49 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
             . 'Console-only, discloses no row, and is keyed on module names this application '
             . 'chooses.',
 
-        "DB::table(self::TABLE) ->where('id', \$id)" =>
+        /*
+         * `->where('status', self::REFUSED)` IS PART OF THIS FRAGMENT ON PURPOSE, and leaving it out
+         * let two statements about a DIFFERENT table satisfy this ratchet by accident.
+         *
+         * Matching is `str_contains(normalise($statement), normalise($fragment))`, so the shorter
+         * `DB::table(self::TABLE) ->where('id', $id)` also matched `PlanPurchaseIntent`'s new
+         * acknowledgement statements -- which meant the declaration ratchet, whose whole purpose is
+         * to make an author write down why a store-less statement is store-less, passed without
+         * anybody writing anything. Worse, the reason it lent them was FALSE: it says "both
+         * statements require the row to be a refusal", and the plan acknowledgement does not.
+         *
+         * Both module statements really do carry that clause (`ModulePaymentLedger:458`, `:481`), so
+         * narrowing the fragment to the thing the reason actually claims costs nothing and stops it
+         * being lent out. Found by the independent review of the acknowledgement change; it also
+         * strengthens `test_no_declaration_outlives_the_statement_it_describes`, which would have
+         * kept this row "live" on the strength of statements it does not describe.
+         */
+        "DB::table(self::TABLE) ->where('id', \$id) ->where('status', self::REFUSED)" =>
             'Reading or acknowledging ONE refusal by its id, from the console. The id is typed by '
             . 'the operator who has a shell on the server, both statements require the row to be '
             . 'a refusal, and the acknowledgement is a conditional UPDATE that can happen once.',
+
+        "DB::table(self::TABLE) ->where('id', \$id) ->whereNull('acknowledged_at')" =>
+            'The one predicate for "this plan intent is answerable by a person" -- read by '
+            . 'needingAPerson() and carried INSIDE acknowledge()\'s conditional UPDATE, which is why '
+            . 'it is one builder and not two. plan_purchase_intents has no store_id and could not: a '
+            . 'plan is bought by a User from the platform, so the isolation that applies is the '
+            . 'purchaser\'s and it travels on the row as user_id. The row is addressed by primary '
+            . 'key from the console plus server-written state, never by anything a caller supplied.',
+
+        "DB::table(self::TABLE) ->where('id', \$id) ->first()" =>
+            'ONE plan intent by its id, whatever state it is in, so the console\'s audit row can '
+            . 'describe the row as it is at the moment the acknowledgement won rather than as the '
+            . 'caller last saw it -- the financial review found the record naming a status a '
+            . 'concurrent settlement had already changed. Read inside the same transaction as the '
+            . 'write. Same table with no store_id, addressed by primary key from the console.',
+
+        "DB::table(self::TABLE) ->where('id', \$id) ->whereNotNull('acknowledged_at')" =>
+            'Reading or REOPENING one acknowledged plan intent, from the console. Same table with no '
+            . 'store_id, same primary-key-plus-server-state addressing. The reopen only clears the '
+            . 'three acknowledgement columns, so the worst it can do is put the row back in front of '
+            . 'a person -- the reconciliation command must still obtain an authoritative capture '
+            . 'from the provider before anything is settled.',
 
         "DB::table(self::TABLE)->distinct()->pluck('provider')" =>
             'The providers any plan intent has ever been recorded for, so the reconciliation command '
@@ -380,8 +419,56 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
          * STORE_LESS_BY_DESIGN; the other three are covered by the reference-keyed and
          * `(reference, module)` declarations already there.
          */
+        /*
+         * 65 -> 67 on 2026-11-25 [the acknowledgement for plan intents, the same review's finding 9]:
+         * TWO more, both in `PlanPurchaseIntent`, both about the row a person has answered.
+         *
+         *   `needingAPerson()`  the one intent an acknowledgement may name. Deliberately NARROWER
+         *                       than `unreconciled()`: a `pending` intent qualifies only once
+         *                       something has been RECORDED against it, because acknowledging a
+         *                       clean pending payment would make a capture permanently unsettleable
+         *                       with one console command.
+         *   `acknowledge()`     the conditional `UPDATE ... WHERE acknowledged_at IS NULL`, so two
+         *                       people racing produce one record and the first reason survives.
+         *
+         * Both name no `store_id` (34 -> 36), for the reason every statement against this table
+         * does: `plan_purchase_intents` has no such column, and it could not -- a plan purchase is
+         * between the platform and a merchant's ACCOUNT, not inside one of their stores. The
+         * isolation that matters here is the purchaser's, and it is `user_id`, which both carry
+         * through the row they read rather than from any caller's input.
+         *
+         * 67 -> 68 THE SAME DAY [the two independent reviews of that change]: ONE more, net, and the
+         * arithmetic is worth writing out because it is three changes rather than one addition.
+         *
+         *   -2 +1  `needingAPerson()`'s builder and `acknowledge()`'s UPDATE became ONE shared
+         *          statement, `answerableById()`. The financial review measured why they must not be
+         *          two: the state was tested by a separate NON-locking read, so a settlement that
+         *          committed while the acknowledgement waited for the row lock left the payment
+         *          granted AND recorded as "will never be settled" -- and once `plan_order_id` is
+         *          set the row matches no `unreconciled()` clause, so the contradiction never
+         *          surfaces again. The predicate now lives inside the conditional UPDATE, which is
+         *          the shape `ModulePaymentLedger::acknowledge()` already had.
+         *   +2     `reopen()` and `acknowledged()`, so a mistyped id is correctable ON THE RECORD.
+         *          Both reviews raised the irreversibility: the ids are small sequential integers
+         *          printed beside other purchasers' findings, and before this the only way back was
+         *          a hand-written UPDATE -- same shell access, no audit row.
+         *
+         * Store-less goes 36 -> 37 and `$scoped` stays at 31, which is the evidence that none of it
+         * widened a tenant's reach.
+         *
+         * AND ALL THREE NOW CARRY THEIR OWN DECLARED REASONS, which they did not before. The same
+         * review found them satisfying the declaration ratchet by INHERITING a fragment written for
+         * `ModulePaymentLedger`, whose stated reason ("both statements require the row to be a
+         * refusal") is false for them. That fragment is narrowed above so it can no longer be lent
+         * out -- which is this file's own failure mode, not theirs.
+         */
+        /* 68 -> 69, same day: `byId()`. The console had a `DB::table('plan_purchase_intents')` of
+           its own for the audit re-read, which broke the invariant the entry-point census records
+           for this table -- every statement against it belongs to the service that owns it, so the
+           table has exactly ONE class that queries it -- and put the table into the per-table
+           exposure map as a literal for the first time. Moved here instead of declared there. */
         $this->assertSame(
-            65,
+            69,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -393,8 +480,15 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            `store_id` -- so the whole of the +2 lands here and the store-less count below is
            unchanged at 18. That split is the evidence that the change added no cross-tenant
            exposure; the totals above would move either way. */
+        /* 34 -> 36 -> 37 on 2026-11-25: `needingAPerson()` and `acknowledge()`, then the reviews'
+           net +1 (`answerableById()` replacing those two, plus `reopen()` and `acknowledged()`).
+           `$scoped` is UNCHANGED at 31 through all of it, which is the evidence that none of this
+           added cross-tenant exposure -- every one of these statements reads or writes
+           `plan_purchase_intents`, which has no `store_id` and could not have one, and every one
+           addresses its row by primary key or the server-minted reference rather than by anything a
+           caller supplied. */
         $this->assertSame(31, $scoped, 'statements naming store_id');
-        $this->assertCount(34, $storeLess, 'statements naming store_id nowhere');
+        $this->assertCount(38, $storeLess, 'statements naming store_id nowhere');
     }
 
     public function test_every_store_less_service_statement_is_declared_with_its_reason(): void

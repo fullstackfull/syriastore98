@@ -81,6 +81,37 @@ final class PlanPurchaseSettlement
      */
     public function preflight(object $intent, CaptureAnswer $answer): ?ReconciliationOutcome
     {
+        $acknowledgement = $this->acknowledgementOn($intent);
+
+        if ($acknowledgement !== null) {
+            /*
+             * A PERSON HAS DEALT WITH THIS PAYMENT. Refused here so that it is never reported as a
+             * fresh discrepancy and never audited as one again -- first, before the discrepancy
+             * checks below.
+             *
+             * THIS IS NOT THE CONTROL, AND AN EARLIER VERSION OF THIS COMMENT CLAIMED IT WAS. It
+             * said this guard was what the browser return comes through. That was false, and
+             * independent review measured it: no plan browser return reaches this class at all.
+             * `PaytmPaymentController:489`, `CashfreeController:291` and `MolliePaymentController:269`
+             * each call `PlanPurchaseIntent::verifyAndConsume()` or `consumeForPlanBinding()`
+             * directly, so a purchaser re-presenting their own signed return body would have settled
+             * an acknowledged payment -- money that may already have been refunded -- and this guard
+             * would never have run. Only `PaymentCallbackController` settles through here, and that
+             * route ships closed.
+             *
+             * THE CONTROL IS NOW THE CONSUMPTION ITSELF: both conditional UPDATEs in
+             * `PlanPurchaseIntent` carry `acknowledged_at IS NULL` beside `status = pending`, which
+             * is the one chokepoint every door funnels through and is atomic rather than
+             * advisory. This stays because a refusal that names the reason beats a refusal that
+             * reads "already consumed".
+             */
+            return new ReconciliationOutcome(
+                ReconciliationOutcome::ACKNOWLEDGED,
+                'a person recorded what was done about this payment: ' . $acknowledgement,
+                ['provider_txn_id' => trim((string) $answer->transactionId)],
+            );
+        }
+
         $transactionId = trim((string) $answer->transactionId);
 
         if ($transactionId === '') {
@@ -412,6 +443,36 @@ final class PlanPurchaseSettlement
      * with no discrepancy code rather than as a mismatching amount, because an amount discrepancy
      * is the one that CLOSES the intent.
      */
+    /**
+     * WHAT A PERSON RECORDED ABOUT THIS INTENT, or null when nobody has recorded anything.
+     *
+     * READS THE ROW IT WAS HANDED, AND AN EARLIER VERSION RE-READ IT UNDER A LOCK. That re-read was
+     * written to close a race between an operator acknowledging and a settlement in flight, and
+     * independent review was right that it did not: `findForUpdate()` swallows every throwable and
+     * returns null, so a lock-wait timeout degraded the guard to the possibly-stale object it
+     * existed to distrust -- fail-open, on the money path, untested because every caller passes a
+     * freshly-read row.
+     *
+     * It is gone rather than fixed because that race is now closed where it belongs. Both
+     * conditional UPDATEs in `PlanPurchaseIntent` carry `acknowledged_at IS NULL`, so an
+     * acknowledgement committed at any moment before the consumption makes the consumption lose its
+     * claim -- atomically, in the one statement, for every door. A second lock here would be a
+     * weaker copy of a control that already holds.
+     *
+     * `?? null` on both reads, so a database migrated before `2026_11_25_000200` -- table present,
+     * columns absent -- answers "not acknowledged" and settles exactly as it did before.
+     */
+    private function acknowledgementOn(object $intent): ?string
+    {
+        $at = $intent->acknowledged_at ?? null;
+
+        if ($at === null) {
+            return null;
+        }
+
+        return (string) $at . ': ' . (string) ($intent->acknowledged_reason ?? 'no reason recorded');
+    }
+
     private function outcomeForUnconsumedIntent(string $provider, string $reference, string $state, string $reason, string $transactionId): ReconciliationOutcome
     {
         $now = PlanPurchaseIntent::findForUpdate($provider, $reference);

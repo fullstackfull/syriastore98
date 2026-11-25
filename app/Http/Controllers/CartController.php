@@ -1261,6 +1261,27 @@ foreach ($response->data->product_list as $item) {
     public function abandon_carts_show($customerId)
     {
         if (auth()->user()->isAbleTo('Show Cart')) {
+            /*
+             * GAP-077 / GAP-223(b). `empty($storeId)` CANNOT FIRE FOR AN UNSELECTED OPERATOR, which
+             * is why this is a separate guard and not a tightening of the one below:
+             * `getCurrentStore()` hands that principal the hard-coded literal 1
+             * (`app/Helper/helper.php:888-889`), and 1 is not empty -- so this handler served store
+             * 1's cart lines to somebody who chose no store. Measured: HTTP 200 with the store-1
+             * product's name in the body.
+             *
+             * The owner's rule is already recorded (`OperatorStoreSelection:17-19`, 2026-11-21) and
+             * the LIST leg of this same screen has enforced it since GAP-218, through
+             * `MarketingScreenAccess`. This is the refusal half of that predicate and ONLY that
+             * half: `MarketingScreenAccess` also ADMITS an operator holding no permission, and
+             * whether the operator belongs on this leg is the owner's question, so the
+             * `isAbleTo()` check above is left exactly as it was. Every outcome here is narrower.
+             */
+            if (\App\Support\Tenancy\OperatorStoreSelection::unchosen()) {
+                \App\Support\Tenancy\OperatorStoreSelection::logRefusal('CartController::abandon_carts_show');
+
+                return redirect()->back()->with('error', __(\App\Services\MarketingScreenAccess::NO_STORE));
+            }
+
             $storeId = getCurrentStore();
 
             // No resolved store means no rows this caller may see -- not "every row with a NULL
@@ -1297,7 +1318,53 @@ foreach ($response->data->product_list as $item) {
     public function abandon_carts_destroy($customerId)
     {
         if (auth()->user()->isAbleTo('Delete Cart')) {
-            $store = Store::find(getCurrentStore());
+            /*
+             * GAP-077 / GAP-223(b), AND THIS IS THE LEG THAT MATTERED MOST: it had no store guard
+             * of ANY kind, and it deletes. `Store::find(getCurrentStore())` resolves the literal 1
+             * for an operator who chose no store, `$store->id` becomes the predicate, and a real
+             * merchant's abandoned carts were destroyed. Measured: store 1's cart rows 1 -> 0.
+             *
+             * Refusal only -- the `isAbleTo('Delete Cart')` check above is untouched, so this
+             * grants nobody anything. See `abandon_carts_show()` for why the operator's ADMISSION
+             * to this leg is a separate, owner-level question.
+             */
+            if (\App\Support\Tenancy\OperatorStoreSelection::unchosen()) {
+                \App\Support\Tenancy\OperatorStoreSelection::logRefusal('CartController::abandon_carts_destroy');
+
+                return redirect()->back()->with('error', __(\App\Services\MarketingScreenAccess::NO_STORE));
+            }
+
+            /*
+             * AND NO STORE AT ALL IS A REFUSAL, NOT A CRASH. This leg was the only one of the four
+             * with no store guard, so two principals reached `$store->id` on a null: a merchant who
+             * owns no store, and a staff member whose `current_store` is unset -- both resolve null
+             * from `getCurrentStore()`, `Store::find(null)` compiles to `stores.id is null`, and the
+             * read on null is an HTTP 500. `AbandonedCartSendStoreScopeTest:30` records the same
+             * shape on the sibling send leg. It failed CLOSED, so nothing was deleted; it is still a
+             * 500 where a refusal belongs, and a 500 is the shape that lets a regression test pass
+             * for the wrong reason.
+             *
+             * `$store?->id` IS THE TRAP AND IS NOT WHAT THIS DOES. `carts.store_id` is nullable, so
+             * `where('store_id', null)` compiles to `store_id IS NULL` and would DELETE EVERY
+             * ORPHANED NULL-STORE CART ROW IN THE TABLE, across every tenant, for a caller who
+             * resolves no store. There is a standing report script for those rows
+             * (`report-null-store-orders.php`), so they are not hypothetical, and the read side of
+             * this exact trap is already pinned at `AbandonedCartShowIdentifierTest:362-389`.
+             * Refusing explicitly does not depend on reading `where(null)` correctly. Raised by the
+             * tenant-authz review of this change.
+             */
+            $storeId = getCurrentStore();
+
+            if (empty($storeId)) {
+                return redirect()->back()->with('error', __('Data not found.'));
+            }
+
+            $store = Store::find($storeId);
+
+            if (! $store) {
+                return redirect()->back()->with('error', __('Data not found.'));
+            }
+
             $carts = Cart::where('customer_id', $customerId)->where('store_id',$store->id)->get();
             foreach ($carts as $cart) {
                 $cart->delete();
@@ -1325,6 +1392,24 @@ foreach ($response->data->product_list as $item) {
              * a configured store it would have texted another tenant's customer about another tenant's
              * products. Found by the tenant-authz review of the neighbouring identifier repair.
              */
+            /*
+             * GAP-077 / GAP-223(b). The guard below reads `empty($storeId)` and the literal 1 an
+             * unselected operator receives is not empty, so this leg accepted a cart id and would
+             * have EMAILED a real merchant's shopper about that merchant's products. Measured:
+             * HTTP 200. Refusal only; the `isAbleTo('Abandon Cart')` check above is untouched.
+             *
+             * The existing no-store shape is reused deliberately rather than inventing a status:
+             * the same JSON keys and the same 404, with the message naming the real reason.
+             */
+            if (\App\Support\Tenancy\OperatorStoreSelection::unchosen()) {
+                \App\Support\Tenancy\OperatorStoreSelection::logRefusal('CartController::abandon_carts_emailsend');
+
+                return response()->json([
+                    'is_success' => false,
+                    'message' => __(\App\Services\MarketingScreenAccess::NO_STORE),
+                ], 404);
+            }
+
             $storeId = getCurrentStore();
             if (empty($storeId)) {
                 return response()->json(['is_success' => false, 'message' => __('Cart not found.')], 404);
@@ -1480,6 +1565,22 @@ foreach ($response->data->product_list as $item) {
          */
         if (! auth()->user() || ! auth()->user()->isAbleTo('Abandon Cart')) {
             return response()->json(['is_success' => false, 'message' => __('Permission denied.')], 403);
+        }
+
+        /*
+         * GAP-077 / GAP-223(b). Same as the mail leg beside it: the `empty($storeId)` guard below
+         * cannot fire for an operator who chose no store, because the literal 1 they receive is not
+         * empty -- and this is the leg that reaches `Utility::SendMsgs()`, so on a configured store
+         * it would have TEXTED a real merchant's shopper. Refusal only; the permission check above
+         * is untouched.
+         */
+        if (\App\Support\Tenancy\OperatorStoreSelection::unchosen()) {
+            \App\Support\Tenancy\OperatorStoreSelection::logRefusal('CartController::abandon_carts_messsend');
+
+            return response()->json([
+                'is_success' => false,
+                'message' => __(\App\Services\MarketingScreenAccess::NO_STORE),
+            ], 404);
         }
 
         /*

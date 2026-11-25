@@ -67,7 +67,7 @@ that is `pending`, carries no `provider_txn_id` and no `failure_reason` — **th
 | **transaction ownership** | the question asked of the provider is the intent's own server-minted reference; the purchaser, plan, amount and currency are the intent's. **Nothing a caller supplies chooses any of them** |
 | **amount, currency and state** | `PlanPurchaseIntent::compare()` — exact scaled-integer comparison, never a float and never `bccomp` (bcmath is not installed here) — and only a `pending` intent is eligible |
 | **replay and duplicate settlement** | the intent's conditional `UPDATE … WHERE status = 'pending'`; `plan_orders.order_id` UNIQUE **on the intent reference** rather than on `time()`; and a refusal when the provider's transaction id is already somebody's plan order |
-| **concurrency safety** | the same conditional UPDATE, inside the settlement's transaction, **raced on MariaDB through this service** — `verify-plan-payment-reconciliation-on-mysql.php`, 15 checks. *(This row used to cite a script that races the intent's bare UPDATE and knows nothing about the settlement; the review named that as a false claim, and the new script is what makes it true.)* |
+| **concurrency safety** | the same conditional UPDATE, inside the settlement's transaction, **raced on MariaDB through this service** — `verify-plan-payment-reconciliation-on-mysql.php`, 20 checks — which now include the acknowledgement genuinely BLOCKING on the settlement's row lock and then losing, the half no SQLite test can reach. *(This row used to cite a script that races the intent's bare UPDATE and knows nothing about the settlement; the review named that as a false claim, and the new script is what makes it true.)* |
 | **no duplicate financial or inventory side effects** | a plan purchase is paid to the platform: no wallet, no `store_order_financials`, no stock, no `orders` row. Asserted as a count over six tables before and after a settlement |
 | **auditable discrepancies** | written onto the intent in the server's own words so `unreconciled()` surfaces it, **and** into `audit_logs`, in one transaction. **Once**, keyed on a canonical `reconciliation[<code>]:` marker in the reason — the first version compared the whole sentence, which the review showed is not once at all |
 | **no invented settlement rules** | a matching capture becomes exactly what the paid browser return already makes it. Nothing is refunded, reversed, credited or guessed |
@@ -223,7 +223,7 @@ tests/Feature/Security/PaytmPlanCallbackTest               22 passed   (3 new, a
 tests/Feature/Security/PaytmTransactionVerifierTest        23 passed   (2 new, both failing first)
 Unit suite                                              6,218 passed, 1 declared skip
 Contract suite                                             45 passed
-verify-plan-payment-reconciliation-on-mysql.php            15 checks, 0 failed (MariaDB 10.11)
+verify-plan-payment-reconciliation-on-mysql.php            20 checks, 0 failed (MariaDB 10.11)
 verify-module-payment-boundary-on-mysql.php                16 checks, 0 failed (MariaDB 10.11)
 ```
 
@@ -283,7 +283,7 @@ Recorded rather than fixed, each with the reason:
 
 | | |
 |---|---|
-| **the "needs a person" list only grows** | there is no way to acknowledge a PLAN intent (`--acknowledge` is module-only), so once one definite provider NO is on the list every later run exits 1 and the status stops carrying information. A `TXN_FAILURE` recorded by the callback is indistinguishable from money waiting to be settled. The fix is an acknowledgement for plan intents, and it is a surface rather than a one-line change |
+| ~~**the "needs a person" list only grows**~~ | **CLOSED 2026-11-25 — see §7.** There was no way to acknowledge a PLAN intent (`--acknowledge` is module-only), so once one definite provider NO was on the list every later run exited 1 and the status stopped carrying information |
 | **three doors, two policies, on an unobtainable answer** | the browser return still closes an intent TERMINALLY on `UNVERIFIABLE` (`PaytmPaymentController:471`), while the callback and the reconciliation now keep it open. The return is the oldest of the three and changing it changes a live purchase path, so it is named rather than touched |
 | **`payment_type` spellings** | the browser return stores `__('paytm')` — lower case, and translated per locale — while this settlement stores the canonical `Paytm`. `GuardsPlanActivation`'s replay sweep covers the language files' CURRENT and HISTORICAL spellings but not `trans('paytm')`, so a locale whose `paytm` key differs leaves a gap in the replay lookup. Pre-existing, measured by the review on MariaDB, and a change to that trait's constant rather than to this slice |
 | **the plan order is dated the day of settlement** | up to `--days` after the money moved, and the provider's own date is not kept. A reporting question, not a correctness one |
@@ -303,3 +303,94 @@ Recorded rather than fixed, each with the reason:
   `F216-CAPTURE-RECOVERY-DESIGN.md` §6, unchanged.
 - **The two remaining boundary categories**, `storefront` (the 76 keys that are not a payment) and
   `oauth` (16).
+
+## 7. The acknowledgement — closing §5.3's first row (2026-11-25)
+
+### 7.1 Why a monitor that cannot go green is not a monitor
+
+`reportWhatOnlyAPersonCanResolve()` adds `unreconciled()`'s whole count to the command's exit
+status, and no state ever ended a row's membership of that query. So **one** definite provider NO
+made `payments:reconcile` exit 1 on every later run, for ever. Since this command is the only
+reader of "captured, nothing delivered" in the application, the next genuinely new loss would have
+arrived behind a status that had already been red for weeks — which is the same as not reporting it.
+
+Three nullable columns (`2026_11_25_000200`), mirroring `module_payment_initiations` so one command
+speaks about both ledgers in the same words, and `payments:reconcile --acknowledge-intent=<id>
+--reason="..."`.
+
+### 7.2 It is not the module ledger's acknowledgement with a different table
+
+A module refusal is a record of a request that was **turned away**; acknowledging one changes no
+payment. A plan intent **is** a payment, so acknowledging one has to mean *"never settle this"* —
+because the two honest resolutions are "refunded it" and "granted the plan by hand", and **neither
+is visible to any verifier this application has**. A refund issued after a capture need not change
+what a provider's status endpoint reports, which is why `refundSignalIn()` is fail-closed and
+name-based. An acknowledgement that only silenced the alarm would be an invitation to grant a plan
+for money that has gone back.
+
+**Where that is enforced: the two conditional consumption UPDATEs**, which now carry
+`acknowledged_at IS NULL` beside `status = pending`. That is the one statement every door funnels
+through — the three browser returns, this command, and `PaymentCallbackController` — so the
+guarantee is atomic rather than a convention each caller remembers.
+
+**The first version got this wrong and said so in four places.** It guarded
+`PlanPurchaseSettlement::preflight()` and asserted that this was "the door the browser return comes
+through". It is not: no plan browser return reaches that class. `PaytmPaymentController:489`,
+`CashfreeController:291` and `MolliePaymentController:269` each consume the intent **directly**, so
+a purchaser re-presenting their own signed return body — a valid checksum stays valid on a re-POST,
+as that controller's own comment records — would have settled an acknowledged payment while the
+guard never ran. Found by the independent tenant-authz review.
+
+### 7.3 Only an intent a person is being asked about
+
+`needingAPerson()` is the predicate the command **lists** with (`unreconciled(0)`), so anything
+reported as needing a person can be answered by one, and nothing else can. A **clean** `pending`
+intent — no reason, no transaction id — is excluded: that is not a finding, it is a purchase whose
+buyer may still be on the provider's page, and acknowledging one would make a capture permanently
+unsettleable with one console command and nothing recorded about what it was.
+
+`PlanPaymentReconciliationTest` pins the equality **in both directions**, with each state built by a
+raw UPDATE rather than waiting for a writer — including the `pending` + `provider_txn_id` clause
+that nothing can currently produce, so that a future door writing a transaction id onto a pending
+row yields a row that is both reported and answerable instead of silently making this partial again.
+
+### 7.4 What the two independent reviews found, and what each changed
+
+Neither found an authorization or tenancy hole. Both found the change doing less than its own
+docblocks claimed — and between them **eleven live items**, every one fixed:
+
+| | |
+|---|---|
+| **the browser returns were never closed** | §7.2. The claim appeared in four docblocks and in the audit row's own `consequence` string |
+| **a settlement that committed while the acknowledgement waited still got acknowledged** | the state was tested by a separate NON-locking read, and a settlement never touches `acknowledged_at` — so the UPDATE unblocked, re-evaluated a predicate the settlement could not have changed, and wrote. The operator was told a payment "will not be settled by any door" about one just granted; they refund out of band, the merchant keeps the plan, and because `plan_order_id` is now set **the row matches no `unreconciled()` clause and the contradiction never surfaces again**. The predicate now lives inside the UPDATE, which is the shape the module ledger always had |
+| **the `--days` door reinstated the permanently-red status** | `outsideReconciliationWindow()` counts `pending` rows with no acknowledgement filter, and the command adds that count to its exit status. An acknowledged *recoverable* intent — what every non-amount discrepancy produces — went green for 30 days and red for ever after. Invisible to the test pinning this very finding, which uses a `refused` intent |
+| **the guard failed OPEN** | it re-read under `findForUpdate()`, which swallows every throwable and returns null, then fell back to the caller's possibly-stale object. A lock-wait timeout turned "a person refunded this" into "nobody recorded anything". Removed rather than fixed: the atomic consumption predicate makes the re-read a weaker copy of a control that already holds — which also ends a "report only" run taking row locks |
+| **the gated callback relabelled an acknowledged intent** | no `ACKNOWLEDGED` arm, so it fell to the terminal one: `recordRecoverableRefusal()` **overwrote** the reconciliation reason with the operator's own text, and `Log::critical(... needs a human)` fired once per provider retry for a payment a human had resolved — the exact alert fatigue the non-pending short-circuit was added to prevent |
+| **byte truncation on a bilingual application** | `substr($reason, 0, 255)` cuts Arabic mid-character, `mb_check_encoding()` then fails and `json_encode()` returns false with `JSON_ERROR_UTF8` — re-creating downstream the exact hazard the console's own encoding check exists to close. Now `mb_substr` for every reason field; the identifier truncations beside them stay on `substr` as ASCII by construction |
+| **the rollback could not run** | `down()` dropped an indexed column, which SQLite — the engine the whole suite runs on — refuses. This is the one migration in the repository whose `down()` is *meant* to work, and nothing in CI runs a rollback. `AcknowledgementMigrationRollsBackTest` now does, in both directions |
+| **the declaration ratchet was satisfied by a reason that was false** | both new statements matched a fragment written for `ModulePaymentLedger` whose reason says "both statements require the row to be a refusal". The fragment is narrowed to the clause it actually claims, and the new statements carry their own reasons |
+| **"no record installed" was reported as "run the migrations"** | both false in production, where the table is absent **by design** (D-31) |
+| **a padded id acted on a different row** | `ctype_digit('0042')` is true and `(int) '0042'` is 42 — the same class as the `is_numeric('1e2')` defect this check replaced, now guarding an irreversible action |
+| **two ids and one reason** | `--acknowledge` was tested first and returned, so passing both acknowledged only the module refusal while the operator believed they had closed the intent |
+
+### 7.5 And a reopen, because the alternative was SQL
+
+Both reviews raised the irreversibility: the ids are small sequential integers printed beside other
+purchasers' findings, and nothing could clear `acknowledged_at`. The comparison that settles it is
+not *"should an acknowledgement be undoable"* but *"when somebody undoes one, is there a record"* —
+both need the same shell access, so `--reopen-intent` adds no reach, only an audit row and a
+required reason. It **settles nothing**: clearing the columns only puts the row back in front of a
+person, and the command must still obtain an authoritative capture before anything is written.
+
+### 7.6 What the acknowledgement still does not do
+
+- **It cannot name who did it.** The only caller is a console command with no session, so
+  `acknowledged_by` on the row is always null and the audit row says "whoever ran
+  payments:reconcile". The column exists for the operator screen that would pass a real id — and
+  when that screen is written, the gate must be **operator-first**, because `isAbleTo()` alone
+  refuses the platform operator and this surface has no other principal.
+- **It takes a bare id with no principal predicate.** Correct for a console surface; wiring either
+  method to a request without adding one would be the id-from-input shape CLAUDE.md names as this
+  codebase's most productive defect pattern. Latent, not live — no route reaches it.
+- **It does not decide whether a late payment should ever auto-apply.** `ENTITLEMENT_MOVED_ON` still
+  refuses and records; that remains the owner's.

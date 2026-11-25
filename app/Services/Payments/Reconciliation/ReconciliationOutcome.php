@@ -21,6 +21,7 @@ namespace App\Services\Payments\Reconciliation;
  * | `NO_VERIFIER` | this provider cannot be asked | nothing | unknowable from here | no |
  * | `DISCREPANCY` | provider confirms a capture that cannot be matched to the intent | the reason, an audit row | **yes** | no |
  * | `SETTLEMENT_FAILED` | confirmed and matching, but the settlement raised | nothing -- it was rolled back | **yes** | yes |
+ * | `ACKNOWLEDGED` | whatever it was, a person has recorded what they did about it | nothing -- no provider is asked | no | no |
  *
  * `NO_VERIFIER` IS NOT COUNTED AS "NEEDS A PERSON", AND THAT IS A JUDGEMENT WORTH STATING. Whether
  * money moved is genuinely unknown -- the provider cannot be asked. But the providers in that
@@ -46,6 +47,33 @@ final class ReconciliationOutcome
 
     /** The intent is not `pending`, so it is not this surface's to act on. No provider was asked. */
     public const NOT_ELIGIBLE = 'not_eligible';
+
+    /**
+     * A PERSON HAS ALREADY DEALT WITH THIS ONE, so it is neither an alarm nor a settlement
+     * candidate — and the second half is the one that matters.
+     *
+     * The independent financial review's finding 9 was about the alarm: `--acknowledge` reached the
+     * module ledger only, `unreconciled()` has no terminal state, and the command adds its whole
+     * count to the exit status — so one definite provider NO made every later run exit 1 for ever.
+     * This command is the only reader of "captured, nothing delivered", so the next genuinely new
+     * loss would have arrived behind a status that had been red for weeks.
+     *
+     * But an acknowledgement cannot merely be cosmetic, because of what a person dealing with one
+     * of these actually DOES: the honest resolutions are "refunded it" and "granted the plan by
+     * hand". Both mean the intent must never be settled again, and NEITHER is visible to the
+     * verifier — `PaytmTransactionVerifier` reads a capture, and a refund issued afterwards does not
+     * necessarily change `STATUS` (which is why `refundSignalIn()` is fail-closed and name-based).
+     * So an acknowledged intent is refused BEFORE the provider is asked, and the payment is made
+     * unsettleable by the two conditional consumption UPDATEs in `PlanPurchaseIntent`, which carry
+     * `acknowledged_at IS NULL` beside `status = pending` and are the one statement every door
+     * funnels through. THIS OUTCOME IS THE REPORT OF THAT REFUSAL, NOT THE MECHANISM OF IT — an
+     * earlier version of this paragraph named `PlanPurchaseSettlement` as the browser return's door,
+     * which independent review measured to be false: the three plan browser returns consume the
+     * intent directly and never reach that class.
+     *
+     * Not retryable, by the same reasoning: asking again is what a person decided to stop.
+     */
+    public const ACKNOWLEDGED = 'acknowledged';
 
     /*
      * WHICH discrepancy. A `DISCREPANCY` is recorded differently depending on what it is -- an

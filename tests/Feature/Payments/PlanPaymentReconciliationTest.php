@@ -1167,4 +1167,472 @@ class PlanPaymentReconciliationTest extends SecurityTestCase
         $this->assertSame(ModulePaymentLedger::INITIATED, DB::table(ModulePaymentLedger::TABLE)->value('status'));
         $this->assertTrue(ModulePaymentLedger::hasOpenInitiation('Donation', $reference), 'the payer\'s initiation was closed from the console');
     }
+
+    // ═══════════════════════════════════════════ ACKNOWLEDGING A PLAN INTENT A PERSON HAS DEALT WITH
+    //
+    // The independent financial review's finding 9. `--acknowledge` reaches the MODULE ledger only,
+    // so a plan intent that needs a person needed one FOREVER: `reportWhatOnlyAPersonCanResolve()`
+    // adds `unreconciled()`'s whole count to the exit status, and `unreconciled()` has no terminal
+    // state. One definite provider NO therefore made every later run exit 1 -- and this command is
+    // the only reader of "captured, nothing delivered", so the next, genuinely new loss arrived
+    // behind a status that had already been red for weeks. A monitor that cannot go green is a
+    // monitor nobody reads.
+    //
+    // An acknowledgement silences the ALARM and nothing else: the row is kept, still listed, and
+    // -- the property that matters more -- it becomes permanently INELIGIBLE for automatic
+    // settlement, because "a person dealt with it" includes "the buyer was refunded out of band",
+    // and settling that would grant a plan for money that has gone back.
+
+    /** The finding itself: a loss a person has dealt with stops making every later run exit 1. */
+    public function test_an_acknowledged_loss_stops_failing_every_later_run_and_is_still_listed(): void
+    {
+        $reference = $this->intent();
+        $this->providerAnswers($this->paytmSays($reference, ['TXNAMOUNT' => '99.00']));
+
+        $this->artisan('payments:reconcile', ['--apply' => true])
+            ->expectsOutputToContain(ReconciliationOutcome::DISCREPANCY)
+            ->assertExitCode(1);
+
+        $id = (int) $this->row($reference)->id;
+
+        $this->artisan('payments:reconcile', [
+            '--acknowledge-intent' => $id,
+            '--reason' => 'provider confirmed 99.00 was captured; refunded in full on 2026-11-25, ticket 4471',
+        ])->assertExitCode(0);
+
+        /* GREEN now -- and the row is still printed, under a heading that does not raise an alarm. */
+        $this->providerMustNotBeAsked();
+        $this->artisan('payments:reconcile')
+            ->expectsOutputToContain('already dealt with')
+            ->expectsOutputToContain($reference)
+            ->doesntExpectOutputToContain('need a person')
+            ->assertExitCode(0);
+
+        $row = $this->row($reference);
+        $this->assertNotNull($row->acknowledged_at);
+        $this->assertStringContainsString('ticket 4471', (string) $row->acknowledged_reason);
+        $this->assertSame(PlanPurchaseIntent::REFUSED, $row->status, 'the acknowledgement must not alter what happened');
+    }
+
+    /**
+     * AND IT IS NOT A SETTLEMENT ORDER. An acknowledged intent is never settled again, and the
+     * provider is not even asked -- the money may have been refunded, which no provider status
+     * field this verifier reads would necessarily still show.
+     */
+    public function test_an_acknowledged_intent_is_never_settled_and_the_provider_is_not_asked(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRecoverableRefusal('Paytm', $reference, 'reconciliation[ENTITLEMENT_MOVED_ON]: the buyer has since bought a dearer plan');
+
+        $this->assertTrue(
+            PlanPurchaseIntent::acknowledge((int) $this->row($reference)->id, 'refunded out of band', null),
+            'premise: the acknowledgement was not recorded'
+        );
+
+        $this->providerMustNotBeAsked();
+        $outcome = $this->reconcile($reference, true);
+
+        $this->assertSame(ReconciliationOutcome::ACKNOWLEDGED, $outcome->kind);
+        $this->assertFalse($outcome->needsHuman());
+        $this->assertFalse($outcome->isRetryable());
+        Http::assertNothingSent();
+        $this->assertCount(0, $this->orders());
+        $this->assertSame(PlanPurchaseIntent::PENDING, $this->row($reference)->status);
+
+        /* CONTROL: the same intent, same refusal, WITHOUT the acknowledgement, does settle. */
+        $second = $this->intent();
+        PlanPurchaseIntent::recordRecoverableRefusal('Paytm', $second, 'reconciliation[UNVERIFIABLE]: the provider timed out');
+        $this->providerAnswers($this->paytmSays($second));
+
+        $this->assertSame(ReconciliationOutcome::SETTLED, $this->reconcile($second, true)->kind);
+        $this->assertCount(1, $this->orders());
+    }
+
+    /**
+     * THE SINGLE WRITER REFUSES IT TOO, so the browser return cannot settle what the console
+     * acknowledged. `PlanPaymentReconciler` guards early to save a provider call; this is the
+     * guard that actually makes it a property of the system rather than of one caller.
+     */
+    public function test_the_settlement_itself_refuses_an_acknowledged_intent(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRecoverableRefusal('Paytm', $reference, 'reconciliation[UNVERIFIABLE]: no answer');
+        PlanPurchaseIntent::acknowledge((int) $this->row($reference)->id, 'handled manually', null);
+
+        $answer = CaptureAnswer::fromVerifierArray([
+            'state' => CaptureAnswer::VERIFIED,
+            'amount' => '100.00',
+            'currency' => 'INR',
+            'txn_id' => 'TXN-LIVE-RETURN',
+            'reason' => 'the provider confirmed the capture',
+        ]);
+        $outcome = app(PlanPurchaseSettlement::class)->preflight($this->row($reference), $answer);
+
+        $this->assertNotNull($outcome, 'the single writer let an acknowledged intent through to settlement');
+        $this->assertSame(ReconciliationOutcome::ACKNOWLEDGED, $outcome->kind);
+        $this->assertCount(0, $this->orders());
+    }
+
+    /**
+     * A CLEAN PENDING INTENT CANNOT BE SILENCED. Nothing has examined it, so there is nothing to
+     * have dealt with -- and acknowledging it would make a captured payment permanently
+     * unsettleable with one console command and no record of what it was.
+     */
+    public function test_an_unexamined_pending_intent_cannot_be_acknowledged(): void
+    {
+        $reference = $this->intent();
+        $id = (int) $this->row($reference)->id;
+
+        $this->assertFalse(PlanPurchaseIntent::acknowledge($id, 'nothing to see here', null));
+
+        $this->artisan('payments:reconcile', ['--acknowledge-intent' => $id, '--reason' => 'nothing to see here'])
+            ->assertExitCode(2);
+
+        $this->assertNull($this->row($reference)->acknowledged_at);
+
+        /* CONTROL: once something HAS been recorded against it, the same id is acknowledgeable. */
+        PlanPurchaseIntent::recordRecoverableRefusal('Paytm', $reference, 'reconciliation[UNVERIFIABLE]: no answer');
+        $this->assertTrue(PlanPurchaseIntent::acknowledge($id, 'nothing to see here', null));
+    }
+
+    /**
+     * EVERY STATE `unreconciled()` HAS A CLAUSE FOR, and the two it has none for.
+     *
+     * `[status, plan_order_id, failure_reason code, provider_txn_id, is it a finding]`. The four
+     * true rows are `unreconciled()`'s four clauses in order; the two false ones are a settled
+     * purchase and a clean pending one -- a buyer who may still be on the provider's page.
+     */
+    public static function acknowledgeableStates(): array
+    {
+        return [
+            'refused outright' => [PlanPurchaseIntent::REFUSED, null, 'AMOUNT', null, true],
+            'pending carrying a provider transaction id' => [PlanPurchaseIntent::PENDING, null, null, 'TXN-CAPTURED', true],
+            'pending with a refusal recorded against it' => [PlanPurchaseIntent::PENDING, null, 'UNVERIFIABLE', null, true],
+            'consumed with no order behind it' => [PlanPurchaseIntent::CONSUMED, null, null, null, true],
+            'consumed WITH an order' => [PlanPurchaseIntent::CONSUMED, 4242, null, 'TXN-SETTLED', false],
+            'pending and clean' => [PlanPurchaseIntent::PENDING, null, null, null, false],
+        ];
+    }
+
+    /**
+     * THE EQUALITY, IN BOTH DIRECTIONS: a row is reported as needing a person exactly when a person
+     * can answer it.
+     *
+     * Asserted rather than assumed because either direction failing is a real defect and neither is
+     * visible from reading one predicate. A row reported but not answerable is the permanently-red
+     * status this change exists to end, only worse -- the command would be telling an operator to
+     * deal with something it then refuses to record. A row answerable but not reported is a capture
+     * that can be silenced before anybody is told about it.
+     *
+     * The first version of `needingAPerson()` omitted `unreconciled()`'s `pending` +
+     * `provider_txn_id` clause on the grounds that nothing can currently produce such a row -- which
+     * is true, and is exactly why this test constructs each state with a raw UPDATE rather than
+     * waiting for a writer to make one.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('acknowledgeableStates')]
+    public function test_an_intent_is_answerable_by_a_person_exactly_when_it_is_reported_as_needing_one(
+        string $status,
+        ?int $planOrderId,
+        ?string $reason,
+        ?string $providerTxnId,
+        bool $isAFinding
+    ): void {
+        $reference = $this->intent();
+
+        DB::table('plan_purchase_intents')->where('reference', $reference)->update([
+            'status' => $status,
+            'plan_order_id' => $planOrderId,
+            'failure_reason' => $reason === null ? null : 'reconciliation[' . $reason . ']: measured',
+            'provider_txn_id' => $providerTxnId,
+        ]);
+
+        $id = (int) $this->row($reference)->id;
+
+        /* DIRECTION 1 -- is it reported? `unreconciled(0)` is what the command lists. */
+        $reported = PlanPurchaseIntent::unreconciled(0)->contains(fn ($intent) => (int) $intent->id === $id);
+
+        $this->assertSame($isAFinding, $reported, $isAFinding
+            ? 'premise: this state is one of unreconciled()\'s clauses and was not reported'
+            : 'premise: a state nobody is being asked about was reported as needing a person');
+
+        /* DIRECTION 2 -- can a person answer it? */
+        $this->assertSame(
+            $isAFinding,
+            PlanPurchaseIntent::acknowledge($id, 'dealt with', null),
+            $isAFinding
+                ? 'a state this command reports as needing a person could not be acknowledged, so it '
+                . 'would be reported for ever'
+                : 'a purchase nobody is being asked about could be silenced'
+        );
+    }
+
+    /** No silent acknowledgement: a reason is the only thing it leaves behind. */
+    public function test_an_acknowledgement_without_a_reason_is_refused(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRefusal('Paytm', $reference, 'reconciliation[AMOUNT]: 99.00 against 100.00');
+        $id = (int) $this->row($reference)->id;
+
+        $this->assertFalse(PlanPurchaseIntent::acknowledge($id, '   ', null));
+        $this->artisan('payments:reconcile', ['--acknowledge-intent' => $id])->assertExitCode(2);
+
+        $this->assertNull($this->row($reference)->acknowledged_at);
+    }
+
+    /** Once, and the first reason survives -- a second attempt must not overwrite the record. */
+    public function test_an_intent_cannot_be_acknowledged_twice(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRefusal('Paytm', $reference, 'reconciliation[AMOUNT]: 99.00 against 100.00');
+        $id = (int) $this->row($reference)->id;
+
+        $this->assertTrue(PlanPurchaseIntent::acknowledge($id, 'first: refunded, ticket 4471', null));
+        $this->assertFalse(PlanPurchaseIntent::acknowledge($id, 'second: and I changed my mind', null));
+
+        $this->assertStringContainsString('ticket 4471', (string) $this->row($reference)->acknowledged_reason);
+        $this->artisan('payments:reconcile', ['--acknowledge-intent' => $id, '--reason' => 'again'])->assertExitCode(2);
+    }
+
+    /**
+     * TWO IDS AND ONE REASON IS A TYPO, NOT A BATCH. The ids index different tables, so taking the
+     * first and ignoring the second would leave the operator believing they had answered both --
+     * and the one they did not answer is either a payment that stays unsettleable or an alarm that
+     * stays red. Neither is something they would go back and check.
+     */
+    public function test_both_acknowledgements_at_once_are_refused_and_change_nothing(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRefusal('Paytm', $reference, 'reconciliation[AMOUNT]: 99.00 against 100.00');
+        $intentId = (int) $this->row($reference)->id;
+
+        ModulePaymentLedger::recordRefusedCompletion(
+            'Donation', 11, 'POST {storeSlug}/customer-donation-store', 'abc123', 'no initiation was recorded'
+        );
+        $refusalId = (int) DB::table(ModulePaymentLedger::TABLE)->where('status', ModulePaymentLedger::REFUSED)->value('id');
+
+        $this->assertGreaterThan(0, $refusalId, 'premise: no module refusal was recorded, so the ambiguity under test cannot arise');
+
+        $this->artisan('payments:reconcile', [
+            '--acknowledge' => $refusalId,
+            '--acknowledge-intent' => $intentId,
+            '--reason' => 'dealt with both',
+        ])->expectsOutputToContain('Pass one of')->assertExitCode(2);
+
+        $this->assertNull($this->row($reference)->acknowledged_at, 'the plan intent was acknowledged by an ambiguous run');
+        $this->assertNull(
+            DB::table(ModulePaymentLedger::TABLE)->where('id', $refusalId)->value('acknowledged_at'),
+            'the module refusal was acknowledged by an ambiguous run'
+        );
+        $this->assertSame(0, $this->audits('payment.reconciliation.acknowledged'));
+        $this->assertSame(0, $this->audits('payment.reconciliation.intent_acknowledged'));
+    }
+
+    /**
+     * A SETTLEMENT THAT COMMITS WHILE THE ACKNOWLEDGEMENT WAITS MUST WIN, and the acknowledgement
+     * must then FAIL rather than be written onto a payment that was just granted.
+     *
+     * Found by the independent financial review. The first version tested the state with a separate
+     * non-locking read and then ran an UPDATE keyed only on `id` and `acknowledged_at IS NULL`,
+     * which a settlement never touches. On MySQL the operator's UPDATE blocks on the settlement's
+     * row lock -- held across `assignPlan()`, which saves the user, every store and every staff row
+     * -- and then succeeded anyway. The operator was told the payment "will not be settled by any
+     * door from here on" about a payment that just had been: they refund out of band, the merchant
+     * keeps the plan, and because `plan_order_id` is now set the row matches no `unreconciled()`
+     * clause and the contradiction never surfaces again.
+     *
+     * THE INVARIANT IS "NO ROW IS EVER BOTH ACKNOWLEDGED AND SETTLED", and it is asserted that way
+     * rather than on a return value, because the return value cannot tell the two shapes apart.
+     *
+     * SQLite cannot show the lock -- `lockForUpdate()` compiles to nothing -- so the interleaving is
+     * forced with a one-shot `DB::listen` that settles the payment WHILE the acknowledgement is
+     * mid-flight, which is exactly what the released row lock did on MySQL. A first version of this
+     * test settled the payment BEFORE calling `acknowledge()` and passed against the defective
+     * shape, because the separate state read then saw the settled row and refused for the wrong
+     * reason. With the predicate inside the UPDATE there is no separate read to interleave with, so
+     * the listener never fires and the acknowledgement simply succeeds on a row nothing settled --
+     * which is why the assertion is the invariant and not "it returned false".
+     */
+    public function test_an_acknowledgement_is_never_written_onto_a_payment_a_settlement_granted(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRecoverableRefusal('Paytm', $reference, 'reconciliation[CURRENCY]: INR against inr');
+        $id = (int) $this->row($reference)->id;
+
+        $this->assertNotNull(PlanPurchaseIntent::needingAPerson($id), 'premise: the row is not answerable to begin with');
+
+        /*
+         * THE INTERLEAVE. Fires once, on any SELECT this acknowledgement makes against the table,
+         * and does what the settlement's commit does to the row: spends it and attaches its order.
+         * A raw UPDATE is correct here -- `plan_purchase_intents` is read through `DB::table()`
+         * throughout, so there is no `Cachable` model to leave stale.
+         */
+        $interleaved = false;
+        DB::listen(function ($query) use (&$interleaved, $id) {
+            /*
+             * `from "plan_purchase_intents"` and not just the table's name: `acknowledgementAvailable()`
+             * runs `Schema::hasColumn()` first, whose `pragma_table_xinfo('plan_purchase_intents')`
+             * ALSO carries the name. A looser match fired on that instead, so the state changed
+             * before the state read rather than after it -- and the defective shape then refused for
+             * the wrong reason and the test passed against it.
+             */
+            if ($interleaved
+                || ! str_contains(strtolower($query->sql), 'from "plan_purchase_intents"')
+                || ! str_starts_with(strtolower(trim($query->sql)), 'select')) {
+                return;
+            }
+            $interleaved = true;
+            DB::table('plan_purchase_intents')->where('id', $id)->update([
+                'status' => PlanPurchaseIntent::CONSUMED,
+                'consumed_at' => now(),
+                'plan_order_id' => 4242,
+            ]);
+        });
+
+        PlanPurchaseIntent::acknowledge($id, 'refunded in full, ticket 4471', null);
+
+        $row = $this->row($reference);
+
+        $this->assertFalse(
+            $row->acknowledged_at !== null && $row->plan_order_id !== null,
+            'a payment carries BOTH an acknowledgement and a granted plan order. The operator was '
+            . 'told it "will not be settled by any door from here on" about a payment that just '
+            . 'was: they refund out of band, the merchant keeps the plan, and because plan_order_id '
+            . 'is set the row matches no unreconciled() clause, so the contradiction never surfaces '
+            . 'again.'
+        );
+    }
+
+    /** And the plain case: a payment already settled cannot be acknowledged at all. */
+    public function test_a_settled_payment_cannot_be_acknowledged(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRecoverableRefusal('Paytm', $reference, 'reconciliation[CURRENCY]: INR against inr');
+        $id = (int) $this->row($reference)->id;
+
+        $this->providerAnswers($this->paytmSays($reference));
+        $this->assertSame(ReconciliationOutcome::SETTLED, $this->reconcile($reference, true)->kind);
+        $this->assertNotNull($this->row($reference)->plan_order_id, 'premise: no plan order was written');
+
+        $this->assertFalse(PlanPurchaseIntent::acknowledge($id, 'refunded in full, ticket 4471', null));
+
+        $this->artisan('payments:reconcile', ['--acknowledge-intent' => $id, '--reason' => 'refunded in full'])
+            ->assertExitCode(2);
+
+        $this->assertNull($this->row($reference)->acknowledged_at);
+        $this->assertSame(0, $this->audits('payment.reconciliation.intent_acknowledged'),
+            'an audit row claims a payment was foreclosed when it was settled');
+    }
+
+    /**
+     * A MISTYPED ID IS CORRECTABLE ON THE RECORD. The ids are small sequential integers printed
+     * beside other purchasers' findings and nothing could clear `acknowledged_at`, so the only
+     * remedy was a hand-written UPDATE -- same shell access, no record. Raised by independent
+     * review.
+     */
+    public function test_an_acknowledged_intent_can_be_reopened_and_is_then_settleable_again(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRecoverableRefusal('Paytm', $reference, 'reconciliation[UNVERIFIABLE]: no answer');
+        $id = (int) $this->row($reference)->id;
+
+        $this->artisan('payments:reconcile', ['--acknowledge-intent' => $id, '--reason' => 'wrong row, meant 43'])
+            ->assertExitCode(0);
+        $this->assertNotNull($this->row($reference)->acknowledged_at);
+
+        /* Acknowledged, so the reconciler refuses it and asks nobody. */
+        $this->providerMustNotBeAsked();
+        $this->assertSame(ReconciliationOutcome::ACKNOWLEDGED, $this->reconcile($reference, true)->kind);
+
+        $this->artisan('payments:reconcile', ['--reopen-intent' => $id, '--reason' => 'acknowledged the wrong id'])
+            ->expectsOutputToContain('reopened')
+            ->assertExitCode(0);
+
+        $row = $this->row($reference);
+        $this->assertNull($row->acknowledged_at);
+        $this->assertNull($row->acknowledged_by);
+        $this->assertNull($row->acknowledged_reason);
+        $this->assertSame('reconciliation[UNVERIFIABLE]: no answer', $row->failure_reason,
+            'the reopen altered what happened to the payment, which is not its job');
+
+        /* AND THE REOPEN SETTLED NOTHING BY ITSELF -- the provider still has to confirm. */
+        $this->assertCount(0, $this->orders());
+
+        $this->providerAnswers($this->paytmSays($reference));
+        $this->assertSame(ReconciliationOutcome::SETTLED, $this->reconcile($reference, true)->kind);
+
+        $this->assertSame(1, $this->audits('payment.reconciliation.intent_reopened'));
+        $audit = AuditLog::where('action', 'payment.reconciliation.intent_reopened')->first();
+        $this->assertStringContainsString('wrong row, meant 43', json_encode($audit->old_values),
+            'the acknowledgement being undone was not recorded, so what was cleared is unrecoverable');
+    }
+
+    /** Only an acknowledged row can be reopened, and a reason is required for that too. */
+    public function test_a_reopen_needs_an_acknowledged_row_and_a_reason(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRefusal('Paytm', $reference, 'reconciliation[AMOUNT]: 99.00 against 100.00');
+        $id = (int) $this->row($reference)->id;
+
+        /* Not acknowledged yet. */
+        $this->assertFalse(PlanPurchaseIntent::reopen($id));
+        $this->artisan('payments:reconcile', ['--reopen-intent' => $id, '--reason' => 'why not'])->assertExitCode(2);
+
+        PlanPurchaseIntent::acknowledge($id, 'refunded', null);
+
+        $this->artisan('payments:reconcile', ['--reopen-intent' => $id])->assertExitCode(2);
+        $this->assertNotNull($this->row($reference)->acknowledged_at, 'a reopen with no reason still cleared the row');
+
+        /* And twice is once. */
+        $this->assertTrue(PlanPurchaseIntent::reopen($id));
+        $this->assertFalse(PlanPurchaseIntent::reopen($id));
+    }
+
+    /** A padded id is a paste that went wrong, and this action cannot be undone by the typist. */
+    public function test_a_padded_id_is_refused_rather_than_coerced(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRefusal('Paytm', $reference, 'reconciliation[AMOUNT]: 99.00 against 100.00');
+        $id = (int) $this->row($reference)->id;
+
+        $this->artisan('payments:reconcile', [
+            '--acknowledge-intent' => '0' . $id,
+            '--reason' => 'ctype_digit says this is a number and (int) says it is a different row',
+        ])->assertExitCode(2);
+
+        $this->assertNull($this->row($reference)->acknowledged_at);
+    }
+
+    /** Three ids and one reason is a typo, not a batch -- whichever two of the three are passed. */
+    public function test_more_than_one_named_record_is_refused(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRefusal('Paytm', $reference, 'reconciliation[AMOUNT]: measured');
+        $id = (int) $this->row($reference)->id;
+
+        $this->artisan('payments:reconcile', [
+            '--acknowledge-intent' => $id,
+            '--reopen-intent' => $id,
+            '--reason' => 'both at once',
+        ])->expectsOutputToContain('not 2')->assertExitCode(2);
+
+        $this->assertNull($this->row($reference)->acknowledged_at);
+    }
+
+    /** It is written down where an auditor looks, not only on the row. */
+    public function test_acknowledging_an_intent_is_audited(): void
+    {
+        $reference = $this->intent();
+        PlanPurchaseIntent::recordRefusal('Paytm', $reference, 'reconciliation[AMOUNT]: 99.00 against 100.00');
+
+        $this->artisan('payments:reconcile', [
+            '--acknowledge-intent' => (int) $this->row($reference)->id,
+            '--reason' => 'refunded in full, ticket 4471',
+        ])->assertExitCode(0);
+
+        $this->assertSame(1, $this->audits('payment.reconciliation.intent_acknowledged'));
+
+        $audit = AuditLog::where('action', 'payment.reconciliation.intent_acknowledged')->first();
+        $this->assertStringContainsString($reference, json_encode($audit->new_values));
+        $this->assertStringContainsString('ticket 4471', json_encode($audit->new_values));
+    }
 }

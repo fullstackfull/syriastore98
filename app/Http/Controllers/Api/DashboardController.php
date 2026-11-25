@@ -2814,6 +2814,63 @@ public function ViewOrder(Request $request)
         ]);
     }
 
+    /*
+     * GAP-142 / P4-F106. THE PERMISSION AXIS, WHICH THIS ROUTE HAD NONE OF.
+     *
+     * `resolveOwnedStore()` above settles TENANCY -- a foreign store id resolves nothing -- and
+     * the order lookup below is scoped by `store_id`. Neither says anything about WHO INSIDE THE
+     * STORE may read an order, and nothing else did either: any authenticated member of the store
+     * could read the whole order, its billing details and every internal order note while holding
+     * no order permission of any kind. That is the merchant's own employee-level access control
+     * over customer PII.
+     *
+     * THROUGH `MerchantPermissions`, NOT `isAbleTo()`, and the ordering is the reason: `isAbleTo()`
+     * alone REFUSES the platform operator -- there is no super-admin bypass here and operator
+     * status is a string on `users.type` -- so a gate built on it would lock out the one principal
+     * who may do everything, on a store `resolveOwnedStore()` has already admitted them to.
+     * `MerchantPermissions` answers `WILDCARD` for the operator and scopes a staff member's names
+     * to THIS store, which `allPermissions()` does not.
+     *
+     * THE OWNER LIMB IS NOT REDUNDANT. A merchant does not implicitly hold the order permissions,
+     * and the known-outcome gate caught a gate in this family refusing the store's own owner once
+     * already; `DeleteOrder` carries the same two limbs for the same reason.
+     *
+     * THE NAMES ARE THE SINGULAR FAMILY, and the reason is not the one I first wrote. `Utility`
+     * seeds a singular merchant family (`Manage Order`, beside Coupon and Newsletter) and a plural
+     * platform one (`Manage Orders`, beside Manage Dashboard). I claimed a merchant cannot grant
+     * the plural names; independent review refuted that -- both become real `Permission` rows and
+     * `RoleController::create` lists `Permission::all()`, so a merchant can tick either. The true
+     * and stronger fact is that **NO GATE IN THE CODEBASE READS THE PLURAL NAMES**: they appear
+     * nowhere in `app/` except the two seeding arrays, while every order surface checks the
+     * singular ones (`OrderController:916`, `:577`, `MerchantDashboardAbilities::PERMISSION_ORDERS`,
+     * whose docblock warns against "correcting" it to the plural).
+     *
+     * BOTH SINGULAR NAMES ADMIT, AND THAT IS NOT AN OVER-ADMISSION ON ANY REACHABLE PATH -- also a
+     * correction. The web's single-order view gates on `Show Order` alone, which made this look
+     * wider than the web. But this route's own API siblings -- the order LIST at `:1639` and
+     * `Top_orders` at `:7920` -- already admit on EITHER name, and the list is the only way the
+     * shipped app reaches a detail view. So `Manage Order` admits nobody who cannot already read
+     * that order's `final_price`, `payment_status` and customer name in the list row. Naming both
+     * makes this agree with its siblings rather than diverge from the web.
+     *
+     * ONE ASYMMETRY, RECORDED RATHER THAN RESOLVED: the sibling list uses
+     * `refuseWithoutPermission()`, which has NO owner limb -- so a merchant who edited their own
+     * role to drop both names could open an order here and not list it. This gate keeps the owner
+     * limb because refusing a store's own owner is the regression this family has already produced
+     * (the register records `DeleteOrder` breaking that way), and fail-open for the legitimate owner
+     * is the right direction for a read they own. Normalising the two belongs with the remaining
+     * eight rows of GAP-142, not here.
+     *
+     * 403, NEVER 401, and NEVER `$this->error()`: the shipped Flutter app force-clears its session
+     * on any 401, and `ApiResponser::error()` answers HTTP 200 by default -- a refusal no client
+     * distinguishes from success. `orderPermissionDenied()` is the shape `DeleteOrder` and
+     * `createOrderViaApi` already use.
+     */
+    if (! $this->callerIsStoreOwner($store->id)
+        && ! MerchantPermissions::allowsAny(\Auth::user(), ['Show Order', 'Manage Order'], $store->id)) {
+        return $this->orderPermissionDenied();
+    }
+
     $orderModel = Order::query()
         ->where('id', $request->order_id)
         ->where('store_id', $store->id)

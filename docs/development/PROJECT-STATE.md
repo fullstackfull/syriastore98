@@ -146,10 +146,100 @@ branch name does not narrow it.
 > | **F7** | `PackageServiceProvider` force-*loads* `LandingPage` and `LynomiaChat` irrespective of any row, and three other first-party mechanisms keep saying LandingPage is on. A row that exists and says `0` would make its 275 routes refuse while they disagree. Recoverable (the module screen is a host route, pinned by a test), so an inconsistency rather than a lockout |
 > | **F6** | LynomiaChat schedules six of its own reconcilers, which keep running for a switched-off module. For a bundled first-party integration that is probably right; it is a decision and it is unstated. **The owner's** |
 > | the wallet axis of `P04-FIN-04` | needs `report-settlement-entitlement.php` run against a restored copy of production, which is owner/operator work |
-> | **no acknowledgement for PLAN intents** | `--acknowledge` is module-only, so one definite provider NO on the list makes every later run exit 1 and the status stops carrying information. A surface, not a line |
+> | ~~**no acknowledgement for PLAN intents**~~ | **CLOSED 2026-11-25**, see the block below |
 > | **the browser return still closes an intent terminally on an unobtainable answer** | `PaytmPaymentController:471`. The callback and the reconciliation now keep it open; three doors, two policies. Changing the oldest one changes a live purchase path |
 > | **`payment_type` spellings** | the return stores `__('paytm')`, translated per locale; the replay sweep covers the language files' current and historical spellings but not `trans('paytm')`. Pre-existing, measured on MariaDB by the review |
 > | promoting the three dev-only payment migrations | `plan_purchase_intents`, `order_gateway_references`, `module_payment_initiations`. **The owner's** |
+>
+> #### AFTER #204 — two slices, both reviewed, both in the owner's priority bands 1 and 2
+>
+> **GAP-077 / GAP-223(b) — the abandoned-cart screen's four other legs served STORE 1.** Band 1.
+> `getCurrentStore()` ends in a hard-coded literal `1` for an operator with no `current_store`, and
+> four legs guard on `empty($storeId)`, which `1` is not. Measured at HEAD before any change:
+> `/abandon-carts-show` **HTTP 200 with store 1's product in the body**; `/abandon-carts-destroy`
+> took store 1's cart rows **1 → 0**; `/abandon-carts-emailsend` **accepted the cart id**.
+> `ACCOUNT-HANDOFF.md` open item 84 worried that fixing one leg would make the two disagree — it had
+> already happened **in reverse**, GAP-218 having fixed the LIST leg only. All four now refuse
+> through `OperatorStoreSelection::unchosen()`, **refusal only**: every `isAbleTo()` check is
+> untouched, because `MarketingScreenAccess` (what the list leg uses) *admits* an operator holding no
+> permission and its own docblock says it must not gate a write. Whether the operator should be
+> **admitted** to these legs is the GAP-218 audience question and stays **the owner's**.
+>
+> The tenant-authz review of that change found a fifth defect: `abandon_carts_destroy` was the only
+> leg with no store guard **at all**, so a storeless merchant or a staff member with an unset
+> `current_store` reached `$store->id` on a null — HTTP 500 where a refusal belongs. It also named
+> the trap in the obvious fix: `$store?->id` compiles to `store_id IS NULL`, and `carts.store_id` is
+> nullable, so that one character would **delete every orphaned null-store cart row in the table,
+> across every tenant**. A test now drives the principal that makes it reachable (an operator whose
+> selected store no longer exists, for whom `StoreScope` adds no predicate at all) and fails on it.
+>
+> **The plan-intent acknowledgement — the #204 financial review's finding 9.** Band 2.
+> `payments:reconcile` added `unreconciled()`'s whole count to its exit status with no terminal
+> state, so one definite provider NO made every later run exit 1 for ever — and that command is the
+> only reader of "captured, nothing delivered", so the next genuinely new loss would have arrived
+> behind a weeks-old red status. `--acknowledge-intent` / `--reopen-intent`, three nullable columns,
+> and the guarantee enforced where it cannot be bypassed: **both conditional consumption UPDATEs now
+> carry `acknowledged_at IS NULL`**, which is the one statement every door funnels through.
+>
+> **The first version of that was wrong in a way worth recording**: it guarded
+> `PlanPurchaseSettlement` and claimed in four docblocks that this was "the door the browser return
+> comes through". No plan browser return reaches that class — `PaytmPaymentController:489`,
+> `CashfreeController:291` and `MolliePaymentController:269` consume the intent **directly**. Between
+> them the two reviews found **eleven live items**, all fixed; the full table is
+> [`../finance/P204-PAYMENT-RECONCILIATION.md`](../finance/P204-PAYMENT-RECONCILIATION.md) §7.4. The
+> sharpest was the mirror image: a settlement committing while the acknowledgement waited on the row
+> lock left the payment **granted and recorded as "will never be settled"**, and because
+> `plan_order_id` was then set the row matched no `unreconciled()` clause, so the contradiction was
+> permanently invisible.
+>
+> **GAP-131 / P4-F002 — `cart-check-guest` handed any token holder another tenant's stock.** Band 1,
+> and the first requirement promoted to VERIFIED COMPLETE since the transfer (170 → 171; Phase 04
+> 15 → 16). Reproduced at HEAD before anything was changed: `POST /api/{storeA-slug}/cart-check-guest`
+> carrying a store-B product id answered **HTTP 200 with that product's stock** — 4242 plain, 777
+> per-variant — **identically for a customer, a merchant and a driver token** of store A, because
+> `custom.auth` logs a token's owner into the guard matching its tokenable class and this handler has
+> no customer binding at all. `$store = getStore($slug)` was read at the top and used for nothing but
+> the "Store not found." early return, and **nothing underneath contained it**: `Product` and
+> `ProductVariant` carry `StoreScope` but neither is in `scoped_models`, so no predicate is added for
+> any principal.
+>
+> Both lookups now carry `->where('store_id', $store->id)`. **Fixing only the plain one would have
+> looked like a fix** — the variant branch overwrites `$product` before the stock is read — and a
+> missing request key was a 500, now read defensively. Nine cases, three mutations each killing
+> exactly one. **The family is wider than the row**: `product-detail-guest` is
+> reported to disclose the same figure, the siblings are being measured for registration as their own
+> rows, and the register says so in terms so that closing this route cannot read as closing the
+> family.
+>
+> **GAP-142 / P4-F106 — `GET api/admin/vieworder` had NO permission check, and it is the route the
+> shipped Flutter app opens an order with.** Band 1, and the first of that row's nine families.
+> `resolveOwnedStore()` settles tenancy; it settles nothing about **who inside the store** may read
+> an order, and nothing else did either — so any authenticated member of the store read the whole
+> order, its `order_billing_details` and every internal `order_notes` row while holding no order
+> permission of any kind. Now gated on `callerIsStoreOwner() || MerchantPermissions::allowsAny(['Show
+> Order','Manage Order'])`, which is the shape `DeleteOrder` already shipped, refusing with an
+> explicit **403** — never 401, because the shipped app force-clears its session on one, and never
+> `$this->error()`, which answers HTTP 200 by default.
+>
+> Three controls, because this family has already produced the opposite regression: the platform
+> operator still reads it (`isAbleTo()` alone refuses them; `MerchantPermissions` answers WILDCARD),
+> the store's **own owner** still reads it (a merchant does not implicitly hold the order
+> permissions, and the known-outcome gate once caught a gate here refusing the owner), and staff
+> holding either name still read it. **One of my own assertions was wrong and the test caught it:**
+> the cross-tenant control asserted a non-200 status and failed against *working* code, because
+> `ApiResponser::error()` answers **HTTP 200** with `{status: 0}` — on this API a refusal IS a 200,
+> which is also why the new gate had to be an explicit `response()->json(..., 403)`.
+>
+> **EIGHT rows of GAP-142 remain**, named in the register and the matrix: F108 (driver assignment,
+> which writes commission rows), F109, F110, F111, F112 (whole-Order dumps), F113, F065, F075.
+> F112 and F108 are next by PII and money exposure.
+>
+> **Still owed, recorded not fixed:** `acknowledged_by` is always null (console has no session — the
+> column is for the operator screen, whose gate must be operator-first); the real-engine lock race
+> is pinned by a forced interleave in the suite, not by two MySQL connections; and
+> `OperatorStoreSelection::logRefusal()` still writes *"Report refused"* on a cart screen — cosmetic,
+> left because the handler name is in the log context and changing the message means hand-editing a
+> 273-row observability inventory the resync script will not touch.
 >
 > #### Project-wide backlog and decision registers — the canonical pointers
 >

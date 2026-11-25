@@ -394,6 +394,105 @@ try {
             && (string) DB::table('users')->where('id', $purchaser3->id)->value('plan_expire_date') === '2027-11-25',
         'the buyer was downgraded by a days-old payment'
     );
+    /*
+     * ──────────────────────────────────────────────────────────────────────────────────────────
+     * THE ACKNOWLEDGEMENT AGAINST A REAL ROW LOCK — the half no SQLite test can reach.
+     * ──────────────────────────────────────────────────────────────────────────────────────────
+     *
+     * The independent financial review of the acknowledgement found that its state was tested by a
+     * separate NON-locking read while the write was keyed only on `id` and `acknowledged_at IS
+     * NULL`. A settlement never touches that column, so with a settlement in flight the operator's
+     * UPDATE blocked on the row lock, unblocked after the commit, re-evaluated a predicate the
+     * settlement could not have changed, and WROTE — telling the operator a payment "will not be
+     * settled by any door" about one that just had been. Worse, `plan_order_id` was then set, so the
+     * row matched no `unreconciled()` clause and the contradiction was permanently invisible.
+     *
+     * TWO CONNECTIONS AND A SHORT LOCK TIMEOUT, because PHP is single-threaded and cannot hold two
+     * blocking statements at once. `ppr_b` exists in this file for exactly this and had no user
+     * until now. The sequence is the real one:
+     *
+     *   1. A holds the row with `SELECT … FOR UPDATE` inside a transaction and writes the
+     *      settlement's own state change.
+     *   2. B attempts the acknowledgement. It must BLOCK — proved by the lock-wait timeout, which
+     *      is the thing SQLite cannot produce (`lockForUpdate()` compiles to nothing there).
+     *   3. A commits.
+     *   4. B attempts it again and must now LOSE, because an UPDATE reads the latest committed row
+     *      rather than its transaction's snapshot.
+     *
+     * WHAT THIS DOES AND DOES NOT PROVE, because the two halves need different harnesses and
+     * claiming one proves both is how a green run stops meaning anything.
+     *
+     *   PROVED HERE, and only here: the lock is real, B genuinely waits on it, and once the
+     *   settlement commits the acknowledgement loses. On SQLite step 2 cannot happen at all.
+     *
+     *   NOT PROVED HERE: that the state predicate lives INSIDE the UPDATE. Step 4 runs after the
+     *   commit, so a defective implementation that tests the state in a separate read beforehand
+     *   also refuses — measured, by re-running this file against that exact shape, which still
+     *   reported 20 of 20. The deciding evidence is
+     *   `PlanPaymentReconciliationTest::test_an_acknowledgement_is_never_written_onto_a_payment_a_settlement_granted`,
+     *   which forces the interleave with a one-shot `DB::listen` so the state changes BETWEEN the
+     *   read and the write, and which does fail against that shape.
+     */
+    $lockRace = PlanPurchaseIntent::create([
+        'provider' => 'Paytm',
+        'user_id' => $purchaser->id,
+        'plan_id' => $plan->id,
+        'expected_amount' => '100.0000',
+        'currency' => 'INR',
+    ]);
+
+    DB::table('plan_purchase_intents')->where('reference', $lockRace)
+        ->update(['failure_reason' => 'reconciliation[CURRENCY]: INR against inr']);
+
+    $raceId = (int) DB::table('plan_purchase_intents')->where('reference', $lockRace)->value('id');
+
+    check('premise: the racing intent is answerable before the settlement',
+        PlanPurchaseIntent::needingAPerson($raceId) !== null);
+
+    /* B waits one second and no longer, so a genuine block is observable rather than a hang. */
+    DB::connection('ppr_b')->statement('SET SESSION innodb_lock_wait_timeout = 1');
+
+    DB::connection('ppr_a')->beginTransaction();
+
+    DB::connection('ppr_a')->table('plan_purchase_intents')->where('id', $raceId)->lockForUpdate()->first();
+
+    DB::connection('ppr_a')->table('plan_purchase_intents')->where('id', $raceId)->update([
+        'status' => 'consumed',
+        'consumed_at' => now(),
+        'plan_order_id' => 987654,
+    ]);
+
+    $blocked = false;
+
+    try {
+        DB::connection('ppr_b')->table('plan_purchase_intents')
+            ->where('id', $raceId)
+            ->whereNull('acknowledged_at')
+            ->update(['acknowledged_at' => now(), 'acknowledged_reason' => 'refunded, ticket 4471']);
+    } catch (Throwable $theLockHeld) {
+        $blocked = str_contains(strtolower($theLockHeld->getMessage()), 'lock wait timeout');
+    }
+
+    check('the acknowledgement genuinely BLOCKS on the settlement\'s row lock',
+        $blocked,
+        'it did not wait, so this engine is not reproducing the race the review measured');
+
+    DB::connection('ppr_a')->commit();
+
+    /* AND NOW THE DECIDING ASSERTION: the service, on its own connection, must refuse. */
+    check('the acknowledgement LOSES once the settlement has committed',
+        PlanPurchaseIntent::acknowledge($raceId, 'refunded in full, ticket 4471', null) === false,
+        'an acknowledgement was written onto a payment the settlement had already granted');
+
+    $after = DB::table('plan_purchase_intents')->where('id', $raceId)->first();
+
+    check('no row is both acknowledged and settled',
+        $after->acknowledged_at === null && $after->plan_order_id !== null,
+        'acknowledged_at=' . var_export($after->acknowledged_at, true)
+            . ' plan_order_id=' . var_export($after->plan_order_id, true));
+
+    check('and the reopen cannot invent an acknowledgement that never happened',
+        PlanPurchaseIntent::reopen($raceId) === false);
 } catch (Throwable $theScriptItselfFailed) {
     /* `HandleExceptions` would RENDER an uncaught throwable and exit 0. See
        run-mysql-verifications.sh for the run where that reported nine passes over a dead script. */

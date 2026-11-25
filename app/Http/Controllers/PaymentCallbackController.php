@@ -292,6 +292,31 @@ class PaymentCallbackController extends Controller
          * so nothing is ambiguous, and an intent that is still open is one the reconciliation
          * command can finish the moment the cause is put right.
          */
+        if ($outcome->kind === ReconciliationOutcome::ACKNOWLEDGED) {
+            /*
+             * A PERSON HAS ALREADY DEALT WITH THIS PAYMENT, so this is a working outcome and not a
+             * fault. It needs its own arm because an acknowledged intent is still `pending`, so the
+             * non-pending short-circuit above does not catch it, and falling through to the terminal
+             * arm did two wrong things -- found by independent review:
+             *
+             *   1. `recordRecoverableRefusal()` OVERWROTE `failure_reason`, destroying the
+             *      reconciliation reason that recorded why a person was needed in the first place
+             *      and replacing it with the operator's own acknowledgement text.
+             *   2. `Log::critical(... needs a human)` fired ONCE PER PROVIDER RETRY for a payment a
+             *      human had already resolved -- the same alert fatigue the non-pending
+             *      short-circuit above was added to prevent.
+             *
+             * 200, because the provider's delivery succeeded and a retry would change nothing.
+             */
+            Log::info('Paytm plan callback: the payment was already dealt with by a person.', [
+                'reference' => $reference,
+                'intent_user_id' => $intent->user_id,
+                'reason' => $outcome->reason,
+            ]);
+
+            return response()->json(['status' => ReconciliationOutcome::ACKNOWLEDGED], 200);
+        }
+
         PlanPurchaseIntent::recordRecoverableRefusal(
             'Paytm',
             $reference,

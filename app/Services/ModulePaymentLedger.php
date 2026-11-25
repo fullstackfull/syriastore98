@@ -384,7 +384,7 @@ final class ModulePaymentLedger
                 'route' => substr($route, 0, 191),
                 'payload_hash' => $payloadHash,
                 'attempts' => 1,
-                'reason' => substr($reason, 0, 255),
+                'reason' => mb_substr($reason, 0, 255),
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -460,7 +460,7 @@ final class ModulePaymentLedger
                 ->update([
                     'acknowledged_at' => now(),
                     'acknowledged_by' => $actorId,
-                    'acknowledged_reason' => substr(trim($reason), 0, 255),
+                    'acknowledged_reason' => mb_substr(trim($reason), 0, 255),
                     'updated_at' => now(),
                 ]) === 1;
         } catch (\Throwable $theAcknowledgementFailed) {

@@ -92,7 +92,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:174` | gateway reference not recorded: the store id or reference is unusable |
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
-| `app/Http/Controllers/PaymentCallbackController.php:302` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
+| `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
 ### `warning` — 236 lines
 
@@ -187,9 +187,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PlanPurchaseIntent.php:252` | Plan purchase intent not recorded: no usable purchaser or plan. |
 | `app/Services/PlanPurchaseIntent.php:263` | Plan purchase intent not recorded: the expected amount is not numeric. |
 | `app/Services/PlanPurchaseIntent.php:309` | Plan purchase intent not recorded. |
-| `app/Services/PlanPurchaseIntent.php:759` | Plan purchase intent refusal not recorded. |
-| `app/Services/PlanPurchaseIntent.php:798` | Plan purchase intent recoverable refusal not recorded. |
-| `app/Services/PlanPurchaseIntent.php:819` | Plan purchase intent order not attached. |
+| `app/Services/PlanPurchaseIntent.php:783` | Plan purchase intent refusal not recorded. |
+| `app/Services/PlanPurchaseIntent.php:822` | Plan purchase intent recoverable refusal not recorded. |
+| `app/Services/PlanPurchaseIntent.php:843` | Plan purchase intent order not attached. |
 | `app/Http/Controllers/CyberSourceController.php:122` | CyberSource plan purchase refused: the posted plan id matches no plan. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:159` | Plan purchase refused before any write: the provider has no usable credentials. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:179` | stock evidence not attributed: the order carries no usable id or store |
@@ -199,26 +199,26 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/ApiController.php:3712` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:4292` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
 | `app/Http/Controllers/Api/ApiController.php:4430` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:10352` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
-| `app/Http/Controllers/Api/ApiController.php:10401` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:9605` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:10417` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
+| `app/Http/Controllers/Api/ApiController.php:10466` | Storefront intake claim could not be released; it will expire on its own. |
+| `app/Http/Controllers/Api/ApiController.php:9670` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/PaymentController.php:2174` | Web checkout intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:135` | Coupon refused: the basket could not be priced |
 | `app/Http/Controllers/Api/ApiController.php:3519` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7584` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7675` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:8651` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:8677` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9291` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9453` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:7649` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7740` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:8716` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:8742` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9356` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9518` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:84` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:356` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:398` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:262` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:315` | product_cart: refused a product belonging to another store |
-| `app/Http/Controllers/CartController.php:1438` | abandoned-cart e-mail nudge failed |
-| `app/Http/Controllers/CartController.php:1625` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/CartController.php:1523` | abandoned-cart e-mail nudge failed |
+| `app/Http/Controllers/CartController.php:1726` | abandoned-cart WhatsApp nudge failed |
 | `app/Http/Controllers/WishlistController.php:316` | abandoned-wishlist e-mail nudge failed |
 | `app/Http/Controllers/WishlistController.php:734` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Services/Reports/ScheduledReportRunner.php:197` | scheduled analytics report: stored recipient differs from the owner address; using the owner |

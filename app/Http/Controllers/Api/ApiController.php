@@ -6859,11 +6859,76 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
                 if (!is_array($value)) {
                     continue;
                 }
-                $product = Product::find($value['product_id']);
+                /*
+                 * GAP-131. THE STORE PREDICATE, on BOTH lookups, because neither model has one of
+                 * its own and this handler had none either.
+                 *
+                 * `$store` is resolved from the ROUTE at the top of this method and was used for
+                 * nothing but the "Store not found." early return. Measured before this change:
+                 * `POST /api/{storeA-slug}/cart-check-guest` carrying a store-B product id answered
+                 * HTTP 200 with that product's stock figure, identically for a customer, a merchant
+                 * and a driver token of store A.
+                 *
+                 * NOTHING UNDERNEATH CONTAINED IT, for two different reasons. `Product` carries
+                 * `StoreScope` (`BelongsToStore`) but is not in `config/tenancy.php`'s
+                 * `scoped_models`, so `isActiveFor()` short-circuits and the scope adds nothing for
+                 * ANY principal; `ProductVariant` has no scope at all (`use HasFactory, Cachable`
+                 * only). The conclusion is the same for both and the REASON is not -- an earlier
+                 * version of this comment said both carried the scope, which is the distinction
+                 * CLAUDE.md records as having been mis-stated in both directions. The predicate
+                 * below is the only control either way, which is why it is written here rather
+                 * than relied on from the model.
+                 *
+                 * BOTH ARMS ARE CLOSED, BUT NOT BY THE SAME MEANS, and the difference is the point.
+                 * The variant branch OVERWRITES `$product` before the stock is read, so leaving it
+                 * alone would disclose the per-variant figure however well the plain arm were
+                 * scoped.
+                 *
+                 * THE VARIANT ARM IS GATED ON THE ALREADY-VERIFIED PRODUCT, NOT ON A SECOND
+                 * `store_id` PREDICATE, and the independent review of this change is why. A variant
+                 * predicate would have been a FOURTH store-scoped reader of a column this project
+                 * has MEASURED as drifting: `ProductController:2873-2895` records an operator's
+                 * ordinary save stamping `store_id = 1` on a store-7 product's variants while
+                 * `products.store_id` stayed 7, and names the readers that then "stop seeing them".
+                 * `product_variants.store_id` is nullable besides, and both writers go through
+                 * `getCurrentStore()`, which answers null for a storeless user. On a PRE-CHECKOUT
+                 * STOCK GATE the cost of that is a shopper told "Product no found." about a product
+                 * their own merchant really sells.
+                 *
+                 * Gating on `$product` is exactly as safe: a foreign product does not resolve on the
+                 * plain arm, so a variant under it is unreachable, and a variant under a product
+                 * that DID resolve belongs to this store by construction whatever its own column
+                 * says (`product_id` is a cascading foreign key). It also stops this handler
+                 * disagreeing with `productOfCartLineStore()` a few hundred lines above, which
+                 * deliberately accepts a NULL `store_id` and refuses "only a provable mismatch".
+                 *
+                 * AND THE KEYS ARE READ DEFENSIVELY. `$value['product_id']` and
+                 * `$value['varient_id']` had no `isset`, and PHP 8 promotes the undefined-key
+                 * warning to an `ErrorException` -- so a single malformed item answered HTTP 500 for
+                 * the whole basket. Measured. A 500 is also the shape that lets a regression test
+                 * pass for the wrong reason, which this family has produced before.
+                 *
+                 * `varient_id` keeps its misspelling: it is the request key clients already send,
+                 * and it appears nowhere else in app/, so renaming it would break the contract and
+                 * a census grepping `variant_id` still misses this surface.
+                 */
+                $productId = $value['product_id'] ?? null;
+                $variantId = $value['varient_id'] ?? 0;
+
+                $product = $productId === null
+                    ? null
+                    : Product::where('id', $productId)->where('store_id', $store->id)->first();
+
                 $qty = !empty($value['qty']) ? $value['qty'] : 0;
                 $stock = 0;
-                if ($value['varient_id'] != 0) {
-                    $product = ProductVariant::where('product_id', $value['product_id'])->where('id', $value['varient_id'])->first();
+                if ($variantId != 0) {
+                    /* `$product === null` means the plain arm already refused this product for this
+                       store, so there is nothing of ours to look a variant up under. */
+                    $product = $product === null
+                        ? null
+                        : ProductVariant::where('product_id', $productId)
+                            ->where('id', $variantId)
+                            ->first();
                     $stock = !empty($product) ? $product->stock : 0;
                 } else {
                     $stock = !empty($product) ? $product->product_stock : 0;

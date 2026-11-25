@@ -63,14 +63,49 @@ class ReconcileInitiatedPayments extends Command
         {--minutes=30 : Leave an intent younger than this alone -- its buyer may still be at the provider}
         {--days=30 : Do not ask a provider about an intent older than this}
         {--acknowledge= : The id of one refused module payment return a person has dealt with. Needs --reason}
+        {--acknowledge-intent= : The id of one plan intent a person has dealt with. Needs --reason. It will never be settled afterwards}
+        {--reopen-intent= : The id of one acknowledged plan intent to put back in front of a person. Needs --reason}
         {--reason= : What was done about the refusal being acknowledged}';
 
     protected $description = 'Reconcile previously initiated plan payments against their provider (report only unless --apply)';
 
     public function handle(PlanPaymentReconciler $reconciler, CaptureVerifierRegistry $verifiers): int
     {
+        $named = array_filter(
+            ['acknowledge', 'acknowledge-intent', 'reopen-intent'],
+            fn ($option) => $this->option($option) !== null
+        );
+
+        if (count($named) > 1) {
+            /*
+             * BOTH, WITH ONE `--reason`, IS AMBIGUOUS AND MUST NOT BE GUESSED. The two ids index
+             * DIFFERENT tables, so a run that took the first and ignored the second would record one
+             * operator's single sentence against one of two records they believed they had answered
+             * -- and the acknowledgement they did not get is a payment that stays unsettleable or an
+             * alarm that stays red, neither of which they would go back and check.
+             *
+             * Refused rather than ordered, because there is no defensible order: this is a typo or a
+             * misreading of the two lists, and the operator is the only one who knows which.
+             */
+            $this->error(sprintf(
+                'Pass one of --acknowledge, --acknowledge-intent or --reopen-intent, not %d: they name rows in different records and share one --reason.',
+                count($named)
+            ));
+            $this->line('--acknowledge=<id> is a refused module payment return; --acknowledge-intent=<id> and --reopen-intent=<id> are plan payments.');
+
+            return 2;
+        }
+
         if ($this->option('acknowledge') !== null) {
             return $this->acknowledgeOneRefusal();
+        }
+
+        if ($this->option('acknowledge-intent') !== null) {
+            return $this->acknowledgeOneIntent();
+        }
+
+        if ($this->option('reopen-intent') !== null) {
+            return $this->reopenOneIntent();
         }
 
         if (! PlanPurchaseIntent::available() && ! ModulePaymentLedger::available()) {
@@ -205,6 +240,18 @@ class ReconcileInitiatedPayments extends Command
      * Refused intents, consumed intents with no order behind them, and pending intents that carry
      * a reason: captured-or-possibly-captured payments that nothing here will act on. Listed with
      * the reason each one carries, in the server's own words.
+     *
+     * PARTITIONED BY WHETHER A PERSON HAS ANSWERED, and only the unanswered are returned -- the
+     * financial review's finding 9. This count is added to the exit status, and before the
+     * acknowledgement existed no state ever left `unreconciled()`, so one definite provider NO made
+     * every later run exit 1 for ever. Since this is the only reader of "captured, nothing
+     * delivered" in the application, that meant the next genuinely new loss arriving behind a red
+     * status weeks old, which is the same as not reporting it.
+     *
+     * THE ACKNOWLEDGED ROWS ARE STILL PRINTED, under their own heading and with `line()` rather
+     * than `warn()`. Dropping them from the output would make a loss disappear once somebody had
+     * looked at it, which is the opposite of the point: the row is kept, the reason is kept, and
+     * only the alarm stops.
      */
     private function reportWhatOnlyAPersonCanResolve(): int
     {
@@ -214,24 +261,50 @@ class ReconcileInitiatedPayments extends Command
             return 0;
         }
 
-        $this->newLine();
-        $this->warn(sprintf('%d intent(s) need a person. Nothing here acts on them:', $unreconciled->count()));
+        /* `?? null`, so a database whose table predates `2026_11_25_000200` reads every row as
+           unanswered and this behaves exactly as it did before the column existed. */
+        $answered = $unreconciled->filter(fn ($intent) => ($intent->acknowledged_at ?? null) !== null);
+        $open = $unreconciled->reject(fn ($intent) => ($intent->acknowledged_at ?? null) !== null);
 
-        $this->table(
-            ['intent', 'provider', 'reference', 'purchaser', 'status', 'order', 'provider txn', 'reason'],
-            $unreconciled->map(fn ($intent) => [
-                $intent->id,
-                $intent->provider,
-                $intent->reference,
-                $intent->user_id,
-                $intent->status,
-                $intent->plan_order_id ?? '-',
-                $intent->provider_txn_id ?? '-',
-                $intent->failure_reason ?? ($intent->status === PlanPurchaseIntent::CONSUMED ? 'consumed, with no plan order attached' : '-'),
-            ])->all()
-        );
+        $row = fn ($intent) => [
+            $intent->id,
+            $intent->provider,
+            $intent->reference,
+            $intent->user_id,
+            $intent->status,
+            $intent->plan_order_id ?? '-',
+            $intent->provider_txn_id ?? '-',
+            $intent->failure_reason ?? ($intent->status === PlanPurchaseIntent::CONSUMED ? 'consumed, with no plan order attached' : '-'),
+        ];
 
-        return $unreconciled->count();
+        $columns = ['intent', 'provider', 'reference', 'purchaser', 'status', 'order', 'provider txn', 'reason'];
+
+        if ($open->isNotEmpty()) {
+            $this->newLine();
+            $this->warn(sprintf('%d intent(s) need a person. Nothing here acts on them:', $open->count()));
+            $this->table($columns, $open->map($row)->all());
+            $this->line('When one has been dealt with: payments:reconcile --acknowledge-intent=<intent> --reason="what was done"');
+        }
+
+        if ($answered->isNotEmpty()) {
+            $this->newLine();
+            $this->line(sprintf('%d intent(s) already dealt with. Kept, and never settled from here:', $answered->count()));
+            $this->table(
+                /* `amount` IS HERE AND WAS NOT: this table is the only place a reader sees how much
+                   money has been acknowledged away, and without it the figure lived solely in
+                   `audit_logs`. Raised by independent review. */
+                array_merge($columns, ['amount', 'dealt with', 'by', 'what was done']),
+                $answered->map(fn ($intent) => array_merge($row($intent), [
+                    trim((string) $intent->expected_amount . ' ' . (string) $intent->currency),
+                    (string) $intent->acknowledged_at,
+                    $intent->acknowledged_by ?? 'console',
+                    (string) ($intent->acknowledged_reason ?? '-'),
+                ]))->all()
+            );
+            $this->line('If one was answered by mistake: payments:reconcile --reopen-intent=<intent> --reason="why"');
+        }
+
+        return $open->count();
     }
 
     /**
@@ -308,37 +381,13 @@ class ReconcileInitiatedPayments extends Command
      */
     private function acknowledgeOneRefusal(): int
     {
-        $id = (string) $this->option('acknowledge');
-        $reason = $this->stringOption('reason');
+        $claim = $this->validatedAcknowledgement('acknowledge', 'refusal');
 
-        /* `ctype_digit`, NOT `is_numeric`: independent review pointed out that `is_numeric('1e2')`
-           is true and `(int) '1e2'` is 100, so a typo could acknowledge a different row. */
-        if (! ctype_digit($id) || (int) $id <= 0) {
-            $this->error('--acknowledge takes the id of one refusal, as listed by this command.');
-
-            return 2;
+        if (! is_array($claim)) {
+            return $claim;
         }
 
-        if ($reason === null) {
-            $this->error('--acknowledge needs --reason: what was found, and what was done about it.');
-
-            return 2;
-        }
-
-        /*
-         * THE ENCODING IS CHECKED BEFORE THE ROW LEAVES THE LIST. `audit_logs.new_values` is a
-         * `json` cast, so a reason carrying a malformed UTF-8 byte makes `json_encode()` return
-         * false and Eloquent throw -- and the acknowledgement would already have committed, leaving
-         * a refusal that had left the list with nothing recorded about why. This project measured
-         * exactly that at `StoreFinanceController:403-410`, where the beneficiary was the principal
-         * the audit exists to hold to account; independent review found it here too. Refused in the
-         * validator, before anything moves.
-         */
-        if (! mb_check_encoding($reason, 'UTF-8')) {
-            $this->error('--reason must be valid UTF-8: it is written into an audit row and a malformed byte would lose it.');
-
-            return 2;
-        }
+        [$id, $reason] = $claim;
 
         $refusal = ModulePaymentLedger::refusal((int) $id);
 
@@ -406,6 +455,319 @@ class ReconcileInitiatedPayments extends Command
         }
 
         $this->info(sprintf('Refusal %d acknowledged. The row is kept.', (int) $id));
+
+        return 0;
+    }
+
+    /**
+     * THE CHECKS BOTH ACKNOWLEDGEMENTS SHARE. Returns `[id, reason]`, or the exit code to return.
+     *
+     * One copy rather than two, because the reasoning behind each of these three is specific enough
+     * that a second copy would drift from it:
+     *
+     *   - `ctype_digit`, NOT `is_numeric`: independent review pointed out that `is_numeric('1e2')`
+     *     is true and `(int) '1e2'` is 100, so a typo could acknowledge a DIFFERENT row.
+     *   - a reason is required, because whether a refused return was a real payer or a probe --
+     *     or what was done about a captured payment -- is a fact only the person who checked holds,
+     *     and it is unrecoverable a week later. The finance screen's reason field exists for this.
+     *   - THE ENCODING IS CHECKED BEFORE ANYTHING MOVES. `audit_logs.new_values` is a `json` cast,
+     *     so a reason carrying a malformed UTF-8 byte makes `json_encode()` return false and
+     *     Eloquent throw -- and with the order these writers use, the acknowledgement would already
+     *     have committed, leaving a row that had left the list with nothing recorded about why.
+     *     This project measured exactly that at `StoreFinanceController:403-410`, where the
+     *     beneficiary was the principal the audit exists to hold to account.
+     *
+     * @return array{0:string,1:string}|int
+     */
+    private function validatedAcknowledgement(string $option, string $noun)
+    {
+        $id = (string) $this->option($option);
+        $reason = $this->stringOption('reason');
+
+        /*
+         * AND NO LEADING ZERO. `ctype_digit('0042')` is true and `(int) '0042'` is 42, so a padded
+         * id silently acted on a different-looking row -- the same class of defect as the
+         * `is_numeric('1e2')` one this check replaced, and it now guards an action that cannot be
+         * undone. An id this command printed never has a leading zero, so refusing one costs
+         * nothing and catches a paste that went wrong. Raised by independent review.
+         */
+        if (! ctype_digit($id) || (int) $id <= 0 || ($id !== '0' && str_starts_with($id, '0'))) {
+            $this->error(sprintf('--%s takes the id of one %s, as listed by this command.', $option, $noun));
+
+            return 2;
+        }
+
+        if ($reason === null) {
+            $this->error(sprintf('--%s needs --reason: what was found, and what was done about it.', $option));
+
+            return 2;
+        }
+
+        if (! mb_check_encoding($reason, 'UTF-8')) {
+            $this->error('--reason must be valid UTF-8: it is written into an audit row and a malformed byte would lose it.');
+
+            return 2;
+        }
+
+        return [$id, $reason];
+    }
+
+    /**
+     * A PERSON SAYS ONE PLAN INTENT HAS BEEN DEALT WITH -- the financial review's finding 9.
+     *
+     * THIS IS NOT THE MODULE LEDGER'S ACKNOWLEDGEMENT WITH A DIFFERENT TABLE, and the difference is
+     * worth stating because it is the dangerous part. A module refusal is a record of a request
+     * that was turned away; acknowledging it changes no payment, as its own docblock says. A plan
+     * intent is a PAYMENT, and acknowledging one makes it permanently unsettleable. The enforcement
+     * is named precisely because an earlier version of this paragraph named the wrong place: both
+     * conditional consumption UPDATEs in `PlanPurchaseIntent` carry `acknowledged_at IS NULL`, and
+     * that is the one statement every door funnels through -- the three browser returns, this
+     * command, and `PaymentCallbackController`. Atomic, rather than a convention each caller has to
+     * remember.
+     *
+     * That is deliberate rather than incidental. The two honest resolutions for one of these rows
+     * are "refunded it" and "granted the plan by hand", and NEITHER is visible to any verifier this
+     * application has -- a refund issued after a capture need not change what a provider's status
+     * endpoint reports. So an acknowledgement has to mean "do not settle this", or it would be an
+     * invitation to grant a plan for money that has gone back.
+     *
+     * Which is why only an intent something has already been RECORDED against can be acknowledged
+     * (`needingAPerson()`): a clean pending payment is not a finding, and silencing one would make
+     * a captured payment permanently unsettleable with one console command.
+     */
+    private function acknowledgeOneIntent(): int
+    {
+        $claim = $this->validatedAcknowledgement('acknowledge-intent', 'plan intent');
+
+        if (! is_array($claim)) {
+            return $claim;
+        }
+
+        [$id, $reason] = $claim;
+
+        if (! PlanPurchaseIntent::available()) {
+            /*
+             * NO RECORD AT ALL -- which is production, BY DESIGN (D-31, D-15 condition 9). Said
+             * separately from the missing-column case because `acknowledgementAvailable()` is false
+             * for both, and an earlier version answered this one with "plan_purchase_intents has no
+             * acknowledged_at column. Run the migrations." Both sentences are false there: the table
+             * is absent on purpose and running the migrations is not the remedy. Independent review
+             * executed it. The accurate message further down cannot be reached, because this
+             * dispatch runs before it.
+             */
+            $this->error('There is no plan purchase intent record on this installation, so no plan payment can be acknowledged.');
+            $this->line('plan_purchase_intents does not exist here. On production that is deliberate (D-31); nothing is wrong.');
+
+            return 2;
+        }
+
+        if (! PlanPurchaseIntent::acknowledgementAvailable()) {
+            /* Table present, columns absent: a database migrated before `2026_11_25_000200`. Said
+               in words rather than reported as "no such intent", which would be a lie about the id. */
+            $this->error('This installation cannot record an acknowledgement yet: plan_purchase_intents has no acknowledged_at column.');
+            $this->line('Run the migrations. Nothing else about reconciliation is affected.');
+
+            return 2;
+        }
+
+        $intent = PlanPurchaseIntent::needingAPerson((int) $id);
+
+        if ($intent === null) {
+            $this->error('No unacknowledged plan intent that needs a person has that id.');
+            $this->line('Only an intent something has been recorded against can be acknowledged: refused, consumed with no');
+            $this->line('order behind it, or pending with a reason. Run the command first -- it either settles the payment or');
+            $this->line('writes down why it could not, and the second is what there is to acknowledge.');
+
+            return 2;
+        }
+
+        /* ONE TRANSACTION, CONDITIONAL UPDATE FIRST -- see `acknowledgeOneRefusal()` for what the
+           other order cost: an audit row for an acknowledgement that did not happen. */
+        try {
+            $acknowledged = DB::transaction(function () use ($id, $reason, $intent) {
+                if (! PlanPurchaseIntent::acknowledge((int) $id, $reason, null)) {
+                    throw new \RuntimeException('the intent was not acknowledged by this call');
+                }
+
+                /*
+                 * THE STATE IS RE-READ HERE, INSIDE THE TRANSACTION AND AFTER THE CLAIM. `$intent`
+                 * was read before it, so every state field taken from it could describe a row that
+                 * has since moved -- independent review found the audit row recording
+                 * `status => 'pending'` for an intent that a concurrent settlement had consumed.
+                 * The claim itself is now safe from that (`answerableById()` carries the state), but
+                 * the RECORD still has to say what was true when the claim won, so it reads the row
+                 * rather than the object. Falls back to `$intent` only if the re-read fails, which
+                 * cannot happen on a row this transaction just updated.
+                 */
+                $claimed = PlanPurchaseIntent::byId((int) $id) ?? $intent;
+
+                AuditLog::create([
+                    'user_id' => null,
+                    /*
+                     * NO STORE. A plan purchase is between the platform and a merchant's account,
+                     * not inside one of their stores -- `plan_purchase_intents` carries `user_id`
+                     * and no `store_id` -- so the purchaser goes in `new_values` where it can be
+                     * read, rather than into a column that would claim the wrong scope.
+                     */
+                    'store_id' => null,
+                    'action' => 'payment.reconciliation.intent_acknowledged',
+                    'subject_type' => 'plan_purchase_intent',
+                    'subject_id' => (int) $id,
+                    'old_values' => ['acknowledged_at' => null],
+                    'new_values' => [
+                        'provider' => $claimed->provider,
+                        'reference' => $claimed->reference,
+                        'purchaser_id' => $claimed->user_id,
+                        'plan_id' => $claimed->plan_id,
+                        'expected_amount' => $claimed->expected_amount,
+                        'currency' => $claimed->currency,
+                        'status' => $claimed->status,
+                        'provider_txn_id' => $claimed->provider_txn_id,
+                        'failure_reason' => $claimed->failure_reason,
+                        /*
+                         * BOTH OF THESE, because `plan_order_id` IS the finding for the
+                         * "consumed with nothing to show" clause -- an auditor reading this row
+                         * cannot tell that state from a settled one without it, and review found
+                         * neither was recorded.
+                         */
+                        'plan_order_id' => $claimed->plan_order_id ?? null,
+                        'consumed_at' => $claimed->consumed_at ?? null,
+                        'acknowledged_reason' => $reason,
+                        /* Always this sentence today: the only caller is a console command with no
+                           session, so `acknowledged_by` on the row is null. The column exists for
+                           the operator screen the docblock below anticipates, which will pass a
+                           real id. */
+                        'acknowledged_by' => 'console (no session; whoever ran payments:reconcile)',
+                        'consequence' => 'this payment will not be settled by any door from here on',
+                    ],
+                    'ip_address' => null,
+                    'user_agent' => 'payments:reconcile (console)',
+                ]);
+
+                return true;
+            });
+        } catch (\Throwable $theAcknowledgementFailed) {
+            $this->error('That intent could not be acknowledged, or was acknowledged by somebody else first. Nothing was changed.');
+
+            return 2;
+        }
+
+        if (! $acknowledged) {
+            $this->error('No unacknowledged plan intent that needs a person has that id.');
+
+            return 2;
+        }
+
+        /*
+         * SAY WHICH PAYMENT IT WAS, because this cannot be undone and the ids are small sequential
+         * integers printed in a table next to OTHER purchasers' findings. Nothing clears
+         * `acknowledged_at` -- `acknowledge()` requires it to be null -- so a single-digit typo
+         * permanently closes a different purchaser's payment under a reason describing somebody
+         * else's. There is no confirmation prompt (the command must stay usable unattended), so the
+         * mitigation is that the operator can SEE what they just did while they still remember what
+         * they meant to do. `$intent` is already in hand.
+         */
+        $this->info(sprintf('Intent %d acknowledged. The row is kept, and it will not be settled from here.', (int) $id));
+        $this->line(sprintf(
+            '  %s %s | purchaser %s | plan %s | %s %s | was: %s',
+            $intent->provider,
+            $intent->reference,
+            $intent->user_id,
+            $intent->plan_id,
+            $intent->expected_amount,
+            $intent->currency,
+            $intent->status
+        ));
+
+        return 0;
+    }
+
+    /**
+     * PUT AN ACKNOWLEDGED PAYMENT BACK IN FRONT OF A PERSON -- the correction for a mistyped id.
+     *
+     * Independent review raised the irreversibility twice, and the comparison that justifies this is
+     * not "should an acknowledgement be undoable" but "when somebody undoes one, is there a record".
+     * Before this the only way back was a hand-written UPDATE, which needs the same shell access and
+     * leaves nothing behind.
+     *
+     * IT SETTLES NOTHING. Clearing the columns only makes the row eligible for the reconciliation
+     * command again, and that command still has to obtain an authoritative capture from the provider
+     * before it writes anything. The worst a wrong reopen does is show the row to a person.
+     */
+    private function reopenOneIntent(): int
+    {
+        $claim = $this->validatedAcknowledgement('reopen-intent', 'acknowledged plan intent');
+
+        if (! is_array($claim)) {
+            return $claim;
+        }
+
+        [$id, $reason] = $claim;
+
+        if (! PlanPurchaseIntent::acknowledgementAvailable()) {
+            $this->error('This installation records no acknowledgements, so there is nothing to reopen.');
+
+            return 2;
+        }
+
+        $intent = PlanPurchaseIntent::acknowledged((int) $id);
+
+        if ($intent === null) {
+            $this->error('No acknowledged plan intent has that id.');
+
+            return 2;
+        }
+
+        try {
+            $reopened = DB::transaction(function () use ($id, $reason, $intent) {
+                if (! PlanPurchaseIntent::reopen((int) $id)) {
+                    throw new \RuntimeException('the intent was not reopened by this call');
+                }
+
+                AuditLog::create([
+                    'user_id' => null,
+                    'store_id' => null,
+                    'action' => 'payment.reconciliation.intent_reopened',
+                    'subject_type' => 'plan_purchase_intent',
+                    'subject_id' => (int) $id,
+                    /* WHAT IS BEING UNDONE, in full, because clearing the columns destroys it. */
+                    'old_values' => [
+                        'acknowledged_at' => (string) $intent->acknowledged_at,
+                        'acknowledged_by' => $intent->acknowledged_by,
+                        'acknowledged_reason' => $intent->acknowledged_reason,
+                    ],
+                    'new_values' => [
+                        'provider' => $intent->provider,
+                        'reference' => $intent->reference,
+                        'purchaser_id' => $intent->user_id,
+                        'plan_id' => $intent->plan_id,
+                        'expected_amount' => $intent->expected_amount,
+                        'currency' => $intent->currency,
+                        'status' => $intent->status,
+                        'reopened_reason' => $reason,
+                        'reopened_by' => 'console (no session; whoever ran payments:reconcile)',
+                        'consequence' => 'this payment is eligible for reconciliation again; nothing has been settled',
+                    ],
+                    'ip_address' => null,
+                    'user_agent' => 'payments:reconcile (console)',
+                ]);
+
+                return true;
+            });
+        } catch (\Throwable $theReopenFailed) {
+            $this->error('That intent could not be reopened. Nothing was changed.');
+
+            return 2;
+        }
+
+        if (! $reopened) {
+            $this->error('No acknowledged plan intent has that id.');
+
+            return 2;
+        }
+
+        $this->info(sprintf('Intent %d reopened. It needs a person again, and nothing has been settled.', (int) $id));
+        $this->line(sprintf('  it had been dealt with on %s: %s', (string) $intent->acknowledged_at, (string) $intent->acknowledged_reason));
 
         return 0;
     }

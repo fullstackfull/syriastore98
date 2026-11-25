@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 170 VERIFIED COMPLETE. 180 are not.**
+**350 requirements recovered. 171 VERIFIED COMPLETE. 179 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 170 verified complete, 200 not.** It read 368/198
+project-wide figure is **370 known requirements, 171 verified complete, 199 not.** It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -93,12 +93,20 @@ against a pre-reorganization original.
 > row says which half is which. **No row was promoted to VERIFIED COMPLETE**, and the project-wide
 > 170 verified is unchanged: a surface that has never seen a live provider handshake is not a
 > verified requirement.
+>
+> **2026-11-25 (GAP-131).** `P04-P1-06` (cart and guest checkout) moves NOT IMPLEMENTED ->
+> **VERIFIED COMPLETE** (34 / 171), the first promotion since the account transfer, and Phase 04
+> goes 15 -> 16 verified. It is promoted because the requirement is *this route* and the route was
+> reproduced leaking at HEAD, fixed on both of its lookups, and falsified by three mutations each
+> killing exactly one case -- not because the defect family is finished. The row says so explicitly:
+> `product-detail-guest` is reported to disclose the same figure, and the siblings will be
+> registered as their own rows.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **170** |
+| VERIFIED COMPLETE | **171** |
 | PARTIALLY IMPLEMENTED | **86** |
-| NOT IMPLEMENTED | **35** |
+| NOT IMPLEMENTED | **34** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **19** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -111,7 +119,7 @@ against a pre-reorganization original.
 | 02 Merchant Experience | 114 | 100 | **14** |
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
 | 03 Storefront, Themes, Official Website and Documentation (M | 36 | 10 | **26** |
-| 04 Commerce (P4-0 .. P4-9) | 43 | 15 | **28** |
+| 04 Commerce (P4-0 .. P4-9) | 43 | 16 | **27** |
 | 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 1 | **34** |
 
 ---
@@ -3011,12 +3019,12 @@ against a pre-reorganization original.
 - **Source:** `docs/development/phase-2.5/PHASE-2.5-DECISION-REGISTER.md D-42.7`
 - **Owner decisions:** D-42.7, including the owner's own stop condition.
 - **Expected behaviour:** Named financial write paths refuse when no merchant is selected; getCurrentStore() itself is untouched.
-- **Actual behaviour:** Partially established. The Arabic acceptance-readiness report documents four StoreFinanceController handlers (index, requestWithdrawal, withdrawals, updateFinancialPaymentStatus) changed from 500 / raw exception / empty money list to a refusal naming the state, and records that this is hardening not disclosure because `store_id` is NOT NULL. But the handoff still lists open item 84: "The abandoned-cart screen has no operator limb, so an operator with an empty `current_store` is served store 1 by `getCurrentStore()`'s literal. The list leg has the identical property."
-- **Implementation:** app/Http/Controllers/StoreFinanceController.php
-- **Evidence:** PHASE-2.5-ACCEPTANCE-READINESS-AR.md §1.1(b) table of four handlers before/after; ACCOUNT-HANDOFF.md §3 open items 83, 84
-- **Gap:** At least one surface (abandoned carts, both legs) still falls through to store 1 for an unselected operator. Open item 84 is unresolved and no owner decision closes it.
-- **Responsible:** phase, then owner dependency
-- **Next action:** Either extend the fail-closed guard to the abandoned-cart list and show legs, or report it under D-42.7's stop condition as a named blocker.
+- **Actual behaviour:** Partially established, and wider than it was. The Arabic acceptance-readiness report documents four StoreFinanceController handlers (index, requestWithdrawal, withdrawals, updateFinancialPaymentStatus) changed from 500 / raw exception / empty money list to a refusal naming the state, and records that this is hardening not disclosure because `store_id` is NOT NULL. Reports go through `OperatorStoreSelection::reportStoreId()`; the four Marketing list screens through `MarketingScreenAccess`. **2026-11-25: the abandoned-cart surface named by open item 84 is closed.** That item's worry — that fixing one leg would make the two disagree — had materialised *in reverse*: GAP-218 fixed the LIST leg and left four siblings, each measured open at HEAD, because each guards on `empty(getCurrentStore())` and the literal 1 that an unselected operator receives is not empty. `abandon_carts_show` answered 200 with store 1's cart lines; `abandon_carts_destroy` had **no store guard at all** and deleted store 1's cart rows; `_emailsend` and `_messsend` accepted a cart id and would have emailed and texted a real merchant's shopper about that merchant's products. All four now refuse through `OperatorStoreSelection::unchosen()` — the refusal half only, with every `isAbleTo()` check untouched, so no principal gained anything.
+- **Implementation:** app/Http/Controllers/StoreFinanceController.php, app/Http/Controllers/CartController.php (four legs), app/Support/Tenancy/OperatorStoreSelection.php, app/Services/MarketingScreenAccess.php
+- **Evidence:** PHASE-2.5-ACCEPTANCE-READINESS-AR.md §1.1(b) table of four handlers before/after; ACCOUNT-HANDOFF.md §3 open items 83, 84 (84 now closed); `tests/Feature/Security/AbandonedCartOperatorStoreSelectionTest.php` — five cases driving all four legs with the permission GRANTED so no assertion rests on "Permission denied.", each of the four guards individually mutation-checked, and controls proving a selected operator is still served and may still clear the cart
+- **Gap:** The known surfaces are guarded; what is missing is the PROOF that they are all of them. "At least one surface" was never a counted set, and no exhaustive census establishes that every `getCurrentStore()` reader has an operator limb — that census is GAP-167's next action and is where this row's remaining risk lives. The separate question of whether the operator should be ADMITTED to the show and send legs rather than merely refused is the GAP-218 audience half and remains the owner's.
+- **Responsible:** phase (the census, via GAP-167), then owner dependency (the audience question)
+- **Next action:** Run GAP-167's census over every `getCurrentStore()` caller so the surface list becomes counted rather than illustrative. Do not report a D-42.7 stop-condition blocker for the abandoned-cart screen: an explicit choice IS reliably distinguishable there, which is what `OperatorStoreSelection::unchosen()` measures, and four legs now prove it in both directions.
 
 ### `P2.5-F-01` — F. Design skills and the premium bar
 
@@ -4192,15 +4200,18 @@ against a pre-reorganization original.
 
 ### `P04-P1-06` — Cart and GUEST checkout
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE** *(2026-11-25)*
 
 - **Requirement (original wording / faithful reference):** P4-F002 — 'api/{slug}/cart-check-guest discloses any tenant's product and per-variant stock to any Sanctum token holder'.
 - **Source:** `docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md, medium-severity table (P4-F002)`
 - **Expected behaviour:** The guest cart check resolves products within the slug's store and discloses no other tenant's stock.
-- **Actual behaviour:** STILL OPEN, read in the code: app/Http/Controllers/Api/ApiController.php:6818 is `Product::find($value['product_id'])` with no store predicate, and :6821 resolves ProductVariant by product_id+id only. Product carries NO StoreScope predicate (CLAUDE.md: Product is not in config/tenancy.php scoped_models), so stock for any tenant's product id is returned to any Sanctum token holder.
-- **Gap:** Cross-tenant stock disclosure on a live storefront API route.
-- **Responsible:** Phase 04 engineering (P4-1 open)
-- **Next action:** Scope the lookup to the resolved store and add a negative test driving a foreign product id.
+- **Actual behaviour:** **FIXED AND FALSIFIED.** Reproduced at HEAD before the change rather than inferred from the earlier reading: `POST /api/{storeA-slug}/cart-check-guest` carrying a store-B product id answered **HTTP 200** with that product's stock figure — 4242 on the plain arm, 777 on the per-variant arm — **identically for a customer, a merchant and a driver token of store A**, because `custom.auth` logs a token's owner into the guard matching its tokenable class and this handler has no customer binding at all. `$store = getStore($slug)` was read at the top and used for nothing but the "Store not found." early return. Nothing underneath contained it: `Product` and `ProductVariant` carry `StoreScope` but neither is in `config/tenancy.php`'s `scoped_models`, so `isActiveFor()` short-circuits and **no predicate is added for any principal** — the `null_tenant => 'open'` rule does not even come into it. Both lookups now carry `->where('store_id', $store->id)`, the pattern `check_variant_stock()` in the same class already shipped. **Line numbers had drifted** from the earlier reading (:6818/:6821 → :6862/:6866).
+- **Implementation:** `app/Http/Controllers/Api/ApiController.php`, `cart_check_guest()` — both the plain and the variant lookup
+- **Evidence:** `tests/Feature/Security/StorefrontGuestCartStockTenancyTest.php` — 9 cases. Failing-first: the two disclosure cases failed on the exact figures ("4242 is not equal to 4242", "777 is not equal to 777") and the malformed-item case on a 500, while every control passed. Three mutations, each disabling one guard, each killing exactly one case: the plain predicate, the variant predicate, and the defensive key reads. Contract suite 45 passed, so the shipped Flutter app's contract is unchanged; the storefront siblings (`StorefrontCrossTenantProductTest`, `StorefrontCartWishlistAuthorizationTest`, `ForeignProductCartChainTest`) 63 passed.
+- **Three things this fix deliberately also records:** fixing only the plain lookup would have **looked** like a fix while leaving the per-variant figure fully disclosed, because the variant branch overwrites `$product` before the stock is read; the handler reads the request key as the misspelled `varient_id`, which appears nowhere else in `app/`, so a census grepping `variant_id` misses this surface entirely (the spelling is preserved because it is the contract clients already send); and **the variant arm is gated on the already store-verified product rather than on a second `store_id` predicate** — the independent review's finding. `product_variants.store_id` is nullable and this project has MEASURED it drifting (`ProductController:2873-2895`: an operator's no-op save stamped `store_id = 1` on a store-7 product's variants, and the comment names the store-scoped readers that then stop seeing them, including one whose deletion a drifted row survives). A fourth blind reader on a pre-checkout stock gate would tell a shopper their own merchant does not sell their own product. Gating on the product is as safe and agrees with `productOfCartLineStore()`, which deliberately accepts a NULL `store_id`. Carried as `GAP-237`.
+- **Gap:** None for this route. **The defect FAMILY is wider than this requirement's wording and is now registered rather than described:** `GAP-233` (`product-detail` and `product-detail-guest` return the whole foreign product row, its image gallery and reviewer names and **e-mail addresses** — strictly worse than this requirement's one integer — plus a missing `empty($store)` guard that 500s on an unknown slug), `GAP-234` (`sub-category` / `-guest` return every store's uncategorised products when `category_id` is omitted, via the null-to-`whereNull` conversion), `GAP-235` (an existence oracle and two live 500s), `GAP-236` (the guard-class census misses `auth('customers')->guest()`, a third syntax, at three further sites), `GAP-237` (the unresolved NULL/drift policy).
+- **Responsible:** closed; the sibling routes remain Phase 04 engineering
+- **Next action:** None for P4-F002. `GAP-233` is the next slice, being strictly worse than this one: same family, larger payload, includes customer e-mail addresses.
 
 ### `P04-P2-01` — P4-2 Pricing arithmetic
 
@@ -4447,9 +4458,11 @@ against a pre-reorganization original.
 - **Actual behaviour:** THREE ROUTES WERE GATED, THE REST WERE NOT. Measured by mapping every MerchantPermissions::allowsAny() call to its method in app/Http/Controllers/Api/DashboardController.php: gates exist on DeleteOrder (:3562), callerMayChangeOrderState (:5048, serving status-change and order-cancel), createOrderViaApi (:6852), addCustomer (:9121), DeleteVariant (:2627) — 17 isAbleTo mentions in a ~10k-line file, most of them in comments. I read ViewOrder (:2796) and assignOrder (:10023) in full: both resolveOwnedStore() for tenancy and NEITHER has any permission check. The register's other permission rows — P4-F106 (vieworder), P4-F108 (assignOrders), P4-F109 (DeliveryBoyApiController), P4-F110 (order notes), P4-F111 (cost_price in product search), P4-F112 (searchdata dumps Order rows), P4-F113 (customerlist/destroyCustomer), P4-F065 (coupon writes), P4-F075 (six tax/shipping writers) — are all still open.
 - **Implementation:** commits c62f06f7, and the P4-9b correction after the known-outcome gate caught a gate that refused the store's own owner
 - **Evidence:** tests/Feature/Security/AdminApiOrderDeletePermissionTest.php, tests/Feature/Security/AdminApiOrderStatusPermissionTest.php (the two gated families only)
-- **Gap:** At least nine confirmed permission rows remain ungated on the Flutter admin API, including order PII (F106), driver assignment with commission rows (F108) and whole-Order dumps (F112).
+- **2026-11-25 — THE FIRST OF THE NINE IS GATED: P4-F106, `GET api/admin/vieworder`.** It had **no permission check of any kind**, so any authenticated member of the store read the whole order, its `order_billing_details` and every internal `order_notes` row holding no order permission — customer PII and the merchant's own employee-level access control. `resolveOwnedStore()` settles tenancy and settles nothing about who inside the store may read it. Now gated on `callerIsStoreOwner() || MerchantPermissions::allowsAny(['Show Order','Manage Order'])`, the shape `DeleteOrder` already shipped. Three principals verified still working: the platform operator (whom `isAbleTo()` alone refuses — `MerchantPermissions` answers WILDCARD), the store's own owner (who does not implicitly hold the order permissions, and whom the known-outcome gate once caught a gate in this family refusing), and staff holding either name. Refusal is an explicit **403** — never 401, because the shipped app force-clears its session on one, and never `$this->error()`, which answers HTTP 200 by default. `AdminApiOrderViewPermissionTest` (7 cases) asserts the PII is absent from the refused body separately from the status, and its cross-tenant control had to be corrected to read the `{status: 0}` envelope rather than a non-200 status — on this API a refusal IS a 200. Evidence: Contract 45 passed (the route is in `flutter-endpoints.json`, so the shipped app calls it), and the three other suites that drive it, 50 passed.
+- **The names are the SINGULAR family**, deliberately: `Utility::addNewData()` seeds `Manage Order`/`Show Order`/`Delete Order` in the merchant block and `Manage Orders`/`Show Orders`/`Delete Orders` in the platform block, so a gate naming the plural set would admit nobody a merchant can grant. Admitting **both** singular names is wider than the web's `order_view` (`Show Order` alone) — recorded in the test as a product decision rather than taken by analogy, because narrowing it would refuse staff who can open an order in the shipped app today.
+- **Gap:** EIGHT confirmed permission rows remain ungated on the Flutter admin API — P4-F108 (driver assignment, which writes commission rows), F109 (DeliveryBoyApiController), F110 (order notes), F111 (cost_price in product search), F112 (whole-Order dumps via searchdata), F113 (customerlist/destroyCustomer), F065 (coupon writes), F075 (six tax/shipping writers).
 - **Responsible:** Phase 04 engineering
-- **Next action:** Gate the remaining routes with the operator-first predicate already in MerchantPermissions::allowsAny, one family at a time with the refusal tests.
+- **Next action:** Continue one family at a time with the refusal tests, in the order the independent review established by what the principal GETS, which is not the order I first wrote. **1. P4-F109 `DeliveryBoyApiController` — five routes with no permission limb of any kind** (`index:79` route `:390`, `store:134` `:392`, `update:202` `:395`, `destroy:265` `:397`, `resetPassword:339` `:399`; the only gate is `refuseUnlessOperatorOwns()`). `resetPassword` is a PASSWORD WRITE and `update` rewrites a driver's login e-mail, so this is a **takeover primitive**, not a privacy row — it outranks every PII read below it. **2. F108 `assignOrder`** (`:10288`, route `:249`): deletes `DeliveryEarning` rows and inserts commission — a money write with no permission check. **3. F065 coupon writes** (`AddCoupon:2063`, `UpdateCoupon:2104`, `DeleteCoupon:2159`) and **4. F075 six tax/shipping writers** (`:2207`, `:2238`, `:2276`, `:2307`, `:2336`, `:2380`) — price-affecting. **5. F113 write half `destroy:6830`** (route `:269`), which carries an asymmetry worth fixing with it: the CREATE side of the same resource IS gated on `Manage Customer` (`:9378-9388`), so today one staff member can DELETE a customer they cannot create. Then the PII reads: **6. F113 read half** (`CustomerList:6649`, `getCustomerOrdersApi:9043` which serves a full delivery address, `searchCustomerByName:10159`), **7. F110 order notes** (`AddOrderNote:169`, `DeleteOrderNote:276`), **8. F112 `SearchData:3644`** (dumps whole `Order` rows at `:3662-3664`, the same money the list one route over gates on), **9. F111 `cost_price`** (`searchProductsByName:7824`, `SearchProduct:3942`). Each needs all three controls F106's test carries — operator, store owner, permitted staff — because a gate refusing the operator or the store's own owner is the regression this family has already produced. Two things to normalise while scheduling, both harmless today because `resolveOwnedStore()` has already proved the value: several of these key on `$request->store_id` rather than `$store->id`, and the sibling list's `refuseWithoutPermission()` has no owner limb, so a roleless merchant can open an order it would refuse to list.
 
 ### `P04-P8-01` — P4-8 Tax
 
