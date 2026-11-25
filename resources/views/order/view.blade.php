@@ -79,6 +79,101 @@
 @endsection
 
 @section('content')
+    @php
+        /*
+         * P4-F033 — WHICH STATUS MOVES THIS PAGE MAY OFFER. ASKED OF THE WRITER'S OWN MACHINE.
+         * =========================================================================================
+         *
+         * WHAT WAS WRONG. The "Set order status" menu below was five hand-written lists of
+         * `delivered_status` integers, one per control, and the `cancel` list read
+         * `0, 4, 5, 7, 8`. `FulfilmentStateMachine` — which `Order::order_status_change()` now asks
+         * before any arm writes — permits `cancel` out of PENDING ALONE: the rule is literally
+         * `$rawFrom != 0 ? MESSAGE_CANCEL_REFUSED : null`. So on a Confirmed, a Picked Up, a
+         * Partially Paid and a Pre Order order this page drew "Cancel Order", and the only answer
+         * it could ever get back was "The order has been delivered. So you cannot cancel the
+         * order." FOUR offered-and-refused controls, measured on the rendered page.
+         *
+         * The server half was already right and is not touched. What follows is the UI half.
+         *
+         * THE MACHINE IS THE GATE, AND IT IS ASKED IN EXACTLY ONE PLACE — the `permits()` call in
+         * the loop. Nothing below may be offered unless it answers yes, so this menu cannot drift
+         * past the server again: narrow the matrix and the controls narrow with it.
+         *
+         * THE `from` LISTS ARE A NARROWING, AND THEY ARE NOT THE MACHINE'S JOB.
+         * =========================================================================================
+         *
+         * `FulfilmentStateMachine`'s own docblock is explicit that it is NOT a full workflow
+         * restriction: "Backwards moves AMONG the in-flight states -- Shipped back to Confirmed,
+         * say -- stay permitted, because a merchant correcting a mis-click is a business-rule
+         * question". Its matrix is therefore BROADER than this screen's affordances on purpose,
+         * and three of them matter:
+         *
+         *   - it permits `return` out of Confirmed, Picked Up and Shipped. This page has only ever
+         *     offered Return Order out of Delivered, and widening that would put undelivered goods
+         *     into the return and refund workflow (`return_status = 1`, and `product_return()`
+         *     reduces `final_price`) — a material business-rule change, which CLAUDE.md section 2
+         *     puts in the escalate-to-owner set.
+         *   - it permits `confirmed` out of Picked Up and Shipped, and `pickedup` out of Shipped.
+         *     This page offers no backwards step and adding one is a product decision.
+         *   - it permits `delivered` out of Delivered (a re-stamp). Not a move, so not offered.
+         *
+         * So each row keeps the states this screen has ALWAYS drawn it for, written out with the
+         * machine's own state constants so a reader can lay them beside `matrix()` — and the
+         * machine then has the last word on every one of them. The intersection can only ever
+         * remove a control, never add one. Widening any `from` list is a product change and needs
+         * an owner decision; it is not a tidy-up.
+         *
+         * `stateOf()` RATHER THAN THE RAW VALUE for the `from` test, because `delivered_status`
+         * really does hold values outside 0..8 — one shipped handler writes the literal `'-'`
+         * (`Api\ApiController:10471`). It answers `null` for those, which matches no `from` list,
+         * so such an order draws no status menu. That is what it does today: the enclosing
+         * condition was `in_array($order['order_status'], [0, 1, 4, 5, 6, 7, 8])`, and 2, 3 and
+         * anything unrecognised have never had one. Measured, not assumed.
+         */
+        $ssFsm = \App\Support\Orders\FulfilmentStateMachine::class;
+
+        $ssRawStatus = $order['order_status'];
+        $ssState = $ssFsm::stateOf($ssRawStatus);
+
+        /* Short handles, so the markup below names no status word of its own. */
+        $ssConfirmed = $ssFsm::CONFIRMED;
+        $ssPickedUp  = $ssFsm::PICKED_UP;
+        $ssShipped   = $ssFsm::SHIPPED;
+        $ssDelivered = $ssFsm::DELIVERED;
+        $ssCancel    = $ssFsm::CANCEL;
+        $ssReturn    = $ssFsm::RETURNED;
+
+        $ssScreenOffers = [
+            $ssConfirmed => [$ssFsm::PENDING, $ssFsm::STATE_PRE_ORDER],
+            $ssPickedUp  => [$ssFsm::PENDING, $ssFsm::STATE_CONFIRMED, $ssFsm::STATE_PARTIALLY_PAID, $ssFsm::STATE_PRE_ORDER],
+            $ssShipped   => [$ssFsm::PENDING, $ssFsm::STATE_CONFIRMED, $ssFsm::STATE_PICKED_UP, $ssFsm::STATE_PARTIALLY_PAID, $ssFsm::STATE_PRE_ORDER],
+            $ssDelivered => [$ssFsm::PENDING, $ssFsm::STATE_CONFIRMED, $ssFsm::STATE_PICKED_UP, $ssFsm::STATE_SHIPPED, $ssFsm::STATE_PARTIALLY_PAID, $ssFsm::STATE_PRE_ORDER],
+            $ssCancel    => [$ssFsm::PENDING, $ssFsm::STATE_CONFIRMED, $ssFsm::STATE_PICKED_UP, $ssFsm::STATE_PARTIALLY_PAID, $ssFsm::STATE_PRE_ORDER],
+            $ssReturn    => [$ssFsm::STATE_DELIVERED],
+        ];
+
+        $ssStatusMenu = [];
+
+        foreach ($ssScreenOffers as $ssWord => $ssFromStates) {
+            if ($ssState === null || ! in_array($ssState, $ssFromStates, true)) {
+                continue;
+            }
+
+            if (! $ssFsm::permits($ssRawStatus, $ssWord)) {
+                continue;
+            }
+
+            $ssStatusMenu[$ssWord] = true;
+        }
+
+        /*
+         * THE GUEST RULE IS THIS SCREEN'S AND SURVIVES THE REWRITE. Return Order has always been
+         * gated on `is_guest == 0` as well as on delivery, and the machine knows nothing about it.
+         */
+        if ($order['is_guest'] != 0) {
+            unset($ssStatusMenu[$ssReturn]);
+        }
+    @endphp
     <div class="row">
     <div class="col-md-12">
             <div class="mt-2 " id="multiCollapseExample1">
@@ -102,48 +197,37 @@
                                         data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="true">
                                         {{ __('Status') }} : {{ $order['order_status_text'] }}
                                     </button>
-                                    @if (in_array($order['order_status'], [0, 1, 4, 5, 6, 7, 8]))
+                                    {{-- P4-F033. `$ssStatusMenu` is built at the top of this
+                                         section, and the menu is drawn when it holds something:
+                                         the shell is no longer rendered for an order with nothing
+                                         to offer, which is what a delivered GUEST order used to
+                                         get -- a dropdown containing a heading and no controls. --}}
+                                    @if (! empty($ssStatusMenu))
                                         <div class="dropdown-menu ss-menu" data-popper-placement="bottom-start">
                                             <h5 class="dropdown-header text-wrap ss-menu__group" style="font-size: 14px;">{{ __('Set order status') }}</h5>
-                                            @if ($order['order_status'] == 0 || $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="confirmed">
+                                            @if (isset($ssStatusMenu[$ssConfirmed]))
+                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="{{ $ssConfirmed }}">
                                                     <i class="ti ti-circle-check text-success me-1"></i> {{ __(' Confirmed') }}
                                                 </a>
                                                 @stack('AddOrderStatus')
                                             @endif
-                                            @if ($order['order_status'] == 0 || $order['order_status'] == 4 || $order['order_status'] == 7 || $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="pickedup">
+                                            @if (isset($ssStatusMenu[$ssPickedUp]))
+                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="{{ $ssPickedUp }}">
                                                     <i class="ti ti-package text-success me-1"></i> {{ __(' Picked Up') }}
                                                 </a>
                                             @endif
-                                            @if (
-                                                $order['order_status'] == 0 ||
-                                                    $order['order_status'] == 5 ||
-                                                    $order['order_status'] == 4 ||
-                                                    $order['order_status'] == 7 ||
-                                                    $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="shipped">
+                                            @if (isset($ssStatusMenu[$ssShipped]))
+                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="{{ $ssShipped }}">
                                                     <i class="ti ti-truck-delivery text-success me-1"></i> {{ __(' Shipped') }}
                                                 </a>
                                             @endif
-                                            @if (
-                                                $order['order_status'] == 0 ||
-                                                    $order['order_status'] == 4 ||
-                                                    $order['order_status'] == 5 ||
-                                                    $order['order_status'] == 6 ||
-                                                    $order['order_status'] == 7 ||
-                                                    $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="delivered">
+                                            @if (isset($ssStatusMenu[$ssDelivered]))
+                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="{{ $ssDelivered }}">
                                                     <i class="ti ti-check text-success me-1"></i> {{ __(' Delivered') }}
                                                 </a>
                                             @endif
-                                            @if (
-                                                $order['order_status'] == 0 ||
-                                                    $order['order_status'] == 4 ||
-                                                    $order['order_status'] == 5 ||
-                                                    $order['order_status'] == 7 ||
-                                                    $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="cancel">
+                                            @if (isset($ssStatusMenu[$ssCancel]))
+                                                <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="{{ $ssCancel }}">
                                                     <i class="ti ti-ban text-danger me-1"></i> {{ __(' Cancel Order') }}
                                                 </a>
                                             @endif
@@ -176,8 +260,14 @@
                                                     <i class="ti ti-refresh text-danger me-1" aria-hidden="true"></i> {{ __('Cancel and Replace') }}
                                                 </a>
                                             @endif
-                                            @if ($order['order_status'] == 1 && $order['is_guest'] == 0)
-                                                <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="return">
+                                            {{-- The `is_guest == 0` half of this gate now lives
+                                                 beside the rest of the menu's rules, at the top of
+                                                 the section: it is this screen's own rule and the
+                                                 state machine knows nothing about it, so it is
+                                                 written where a reader can see it is not the
+                                                 machine's. --}}
+                                            @if (isset($ssStatusMenu[$ssReturn]))
+                                                <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="{{ $ssReturn }}">
                                                     <i class="ti ti-arrow-back-up text-danger me-1"></i> {{ __(' Return Order') }}
                                                 </a>
                                             @endif

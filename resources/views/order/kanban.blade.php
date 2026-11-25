@@ -36,14 +36,6 @@
             HomeController::ORDER_STATUS_PRE_ORDER      => __('Pre Order'),
         ];
 
-        // The transitions the EXISTING writer accepts, keyed by the value it expects. Not a new
-        // vocabulary: `Order::order_status_change()` branches on exactly these strings.
-        // P2.5-R-05: `pickedup`, no underscore. `Order::order_status_change()` tests
-        // `$order_status == 'pickedup'`; `picked_up` matched no branch, so that one move went on
-        // silently doing nothing even after the field name was repaired -- the worse failure of
-        // the two, because three working options make the fourth look like the merchant's
-        // mistake. OrderKanbanMoveTest sweeps every option against the writer's vocabulary rather
-        // than listing four cases, so a fifth added later cannot slip past.
         /*
          * THE QUERY STRING THIS SCREEN MAY HAND ON, with the filter-memory keys REMOVED.
          *
@@ -61,12 +53,71 @@
             \App\Services\TableFilterMemory::CLEAR,
         ]);
 
-        $ssMoves = [
-            'confirmed' => __('Confirmed'),
-            'pickedup'  => __('Picked Up'),
-            'shipped'   => __('Shipped'),
-            'delivered' => __('Delivered'),
+        /*
+         * P4-F033 — THE MOVES THIS BOARD MAY OFFER, TAKEN FROM THE WRITER'S OWN STATE MACHINE.
+         *
+         * This was four hardcoded `word => label` pairs, and the card then dropped whichever one's
+         * LABEL matched the card's current status. Two things followed from that, both measured on
+         * the rendered board:
+         *
+         *   - a CANCELLED or RETURNED order names no move, so it kept all four options, and
+         *     `FulfilmentStateMachine` refuses every transition out of a settled order: eight
+         *     controls whose only possible answer was "This order is closed";
+         *   - a DELIVERED order lost only `delivered`, so it still offered Confirmed, Picked Up
+         *     and Shipped — three more refusals, and the ones that un-happen a delivery.
+         *
+         * ELEVEN offered-and-refused moves in total. The writer was already correct; the board was
+         * drawing controls that existed only to be declined.
+         *
+         * SO THE VOCABULARY IS NO LONGER WRITTEN HERE. It is the union of the machine's own matrix,
+         * minus the two moves this surface deliberately does not carry, and the per-card filter in
+         * `order/partials/kanban-card.blade.php` then asks `permits()` for the card's own status.
+         * A word the machine stops governing disappears from the board on its own.
+         *
+         * AND IT RETIRES P2.5-R-05's HAZARD RATHER THAN RESTATING IT. That slice found the board
+         * offering `picked_up`, with an underscore, which `Order::order_status_change()` matches no
+         * branch for -- so one of four moves went on silently doing nothing, the worse failure of
+         * the two because three working options make the fourth look like the merchant's mistake.
+         * The comment that recorded it stood above the WRONG block (the query-string one) and the
+         * literal it warned about is now unspellable here: every word below is a constant on the
+         * class the writer itself branches with.
+         */
+        $ssFsm = \App\Support\Orders\FulfilmentStateMachine::class;
+
+        /*
+         * the word the writer reads => the `delivered_status` it writes.
+         *
+         * BOTH SIDES ARE THE MACHINE'S OWN CONSTANTS, so this is a join between two vocabularies
+         * it already publishes rather than a third one invented here — which is the whole point:
+         * it is what lets the label come from `$ssLabels` (one source for the column headings and
+         * the move options) and what lets the card tell "a move" from "the state it is already
+         * in" without comparing two translated strings.
+         */
+        $ssMoveTarget = [
+            $ssFsm::CONFIRMED => $ssFsm::STATE_CONFIRMED,
+            $ssFsm::PICKED_UP => $ssFsm::STATE_PICKED_UP,
+            $ssFsm::SHIPPED   => $ssFsm::STATE_SHIPPED,
+            $ssFsm::DELIVERED => $ssFsm::STATE_DELIVERED,
+            $ssFsm::CANCEL    => $ssFsm::STATE_CANCELLED,
+            $ssFsm::RETURNED  => $ssFsm::STATE_RETURN,
         ];
+
+        /*
+         * NOT ON THE BOARD, AND NOT BECAUSE THE MACHINE REFUSES THEM. Cancel is permitted out of
+         * Pending and Return out of Delivered, so `permits()` would hand both to a card. They are
+         * excluded here because they are irreversible and money-bearing — the cancel limb walks a
+         * merchant entitlement back through `OrderEntitlementReversal` — and they belong on the
+         * detail page where the merchant sees the whole order before acting. A drag-sized control
+         * that could cancel an order is one somebody hits by accident.
+         */
+        $ssNotOnTheBoard = [$ssFsm::CANCEL, $ssFsm::RETURNED];
+
+        $ssMoves = collect($ssMoveTarget)
+            ->only(array_merge(...array_values($ssFsm::matrix())))
+            ->except($ssNotOnTheBoard)
+            ->map(fn ($ssState) => $ssLabels[$ssState] ?? null)
+            ->filter()
+            ->all();
     @endphp
 
     <div class="ss-scope">
@@ -114,7 +165,7 @@
 
                                 <div class="ss-board__cards">
                                     @forelse ($ssOrders as $ssOrder)
-                                        @include('order.partials.kanban-card', ['ssOrder' => $ssOrder, 'ssMoves' => $ssMoves])
+                                        @include('order.partials.kanban-card', ['ssOrder' => $ssOrder, 'ssMoves' => $ssMoves, 'ssMoveTarget' => $ssMoveTarget])
                                     @empty
                                         {{-- Per column, so a merchant can tell "nothing here" from
                                              "this column failed to render". --}}
@@ -157,7 +208,7 @@
                                 </header>
                                 <div class="ss-board__cards">
                                     @foreach ($ssOrders as $ssOrder)
-                                        @include('order.partials.kanban-card', ['ssOrder' => $ssOrder, 'ssMoves' => $ssMoves])
+                                        @include('order.partials.kanban-card', ['ssOrder' => $ssOrder, 'ssMoves' => $ssMoves, 'ssMoveTarget' => $ssMoveTarget])
                                     @endforeach
                                 </div>
                             </section>
