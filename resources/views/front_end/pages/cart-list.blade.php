@@ -26,7 +26,7 @@ $is_checkout_login_required = \App\Models\Utility::GetValueByName('is_checkout_l
                             <td class="py-4 px-4">
                                 <div class="flex items-center gap-4">
                                     <button class="text-gray-500 hover:text-red-500 transition-all duration-300 remove_item_from_cart text-red-600"
-                                        title="Remove item" data-id="{{ $product->cart_id }}" data-product-id = "{{ $product->product_id }}"  data-variant-id = "{{ $product->variant_id }}">
+                                        title="{{ __('Remove item') }}" data-id="{{ $product->cart_id }}" data-product-id = "{{ $product->product_id }}"  data-variant-id = "{{ $product->variant_id }}">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
                                             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                                             stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">

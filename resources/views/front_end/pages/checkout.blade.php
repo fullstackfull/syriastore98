@@ -224,7 +224,7 @@
                                 <h2 class="font-semibold text-xl md:mb-4 mb-3">5. {{ __('Order Notes') }}</h2>
                                 <div class="bg-gray-50 border md:p-6 p-4 rounded-lg shadow-sm">
                                     <label class="block mb-2 font-medium md:text-base text-sm">{{ __('Add Comments About Your Order') }}</label>
-                                    <textarea class="form-input" name="payment_comment" placeholder="Description" rows="3"></textarea>
+                                    <textarea class="form-input" name="payment_comment" placeholder="{{ __('Description') }}" rows="3"></textarea>
                                 </div>
                             </div>
                         

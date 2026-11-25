@@ -15,7 +15,11 @@
             @foreach ($response->data->product_list as $product)
         <div class="flex gap-3 border-b pb-4">
             <a href="{{ url($slug.'/product/'. getProductSlug($product->product_id)) }}" class="w-20 h-24 rounded-md overflow-hidden bg-gray-100 border p-3">
-                <img src="{{ get_file($product->image) }}" alt="Artisan Sourdough Bread"
+                {{-- The alt was a hardcoded `Artisan Sourdough Bread`, left over from the HTML template this
+                     view was cut from, and printed for EVERY line of the slide-out basket -- so a screen
+                     reader announced a shopper's whole cart as one sourdough loaf, in both languages. Not a
+                     translation defect: no `__()` call means no key census could ever see it. --}}
+                <img src="{{ get_file($product->image) }}" alt="{{ $product->name }}"
                     class="object-contain h-full w-full" />
             </a>
             <div class="flex-1">
