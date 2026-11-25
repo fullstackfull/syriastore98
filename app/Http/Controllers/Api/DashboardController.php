@@ -635,6 +635,58 @@ $storeId = getCurrentStore();
             : $oldPaymentStatus;
 
         /*
+         * P4-F145, PART 3 -- AN ECHO IS NOT A TRANSITION ON THE DELIVERY COLUMN EITHER.
+         * =========================================================================================
+         *
+         * Part 1 above drops an echoed `payment_status` before the validator sees it, because "a
+         * request that asks for the state the order is already in is asking for NOTHING". THE SAME
+         * CLIENT DOES THE SAME THING WITH THIS COLUMN and the rules below did not know it: the
+         * payment sheet fills `delivered_status` with the order's own stored value on a
+         * payment-only change (`payment_status_bottom_sheet.dart:177` -> `getDeliveredStatus`).
+         *
+         * MEASURED CONSEQUENCE, by driving this door: a merchant could not record a payment on a
+         * CANCELLED or a RETURNED order at all. The cancel guard below reads an echoed `2` as an
+         * attempt to cancel, and `FulfilmentStateMachine::refusalForLeaving()` reads an echoed `3`
+         * as an attempt to leave a settled order. A COD bag handed over on a returned order and a
+         * bank transfer that clears after a cancellation are both ordinary, and payment and
+         * fulfilment are different axes -- which is the whole reason this endpoint accepts either
+         * field alone.
+         *
+         * THIS PREDICATE GATES THE WRITE ARM TOO, AND THAT IS NOT TIDINESS. `case 2` of the switch
+         * restocks every line and reverses the merchant's wallet entitlement, and its own comment
+         * relies on the cancel guard to mean it "only ever runs from Pending"; the other arms stamp
+         * `cancel_date` / `delivery_date` / `return_date` with `now()`. Exempting the echo from the
+         * REFUSALS alone would have walked it into that arm and turned a wrong refusal into a
+         * double stock credit and a re-stamped settlement date.
+         * `SettledOrderPaymentEchoTest::test_an_echo_does_not_re_run_the_cancellation_side_effects`
+         * is that assertion.
+         *
+         * NOTHING IS RELAXED FOR A REAL MOVE. The comparison is on EQUALITY of the two values, so a
+         * genuine backward transition out of a settled order is still refused (decision H2) and a
+         * genuine cancel out of a non-pending state is still refused (P4-F105). Both have a case.
+         *
+         * TWO CONSEQUENCES DISCLOSED RATHER THAN DISCOVERED LATER, both traced through the code:
+         *
+         *   `case 3` of the write arm also sets `return_status = 1`, and an echo no longer reaches
+         *   it. That loses nothing: ALL THREE writers of `delivered_status = 3` set `return_status`
+         *   in the same breath -- this handler's own `case 3`, `Order::order_status_change()`'s
+         *   `return` arm (Order.php:807-808) and the courier webhook
+         *   (`DeliverySyriaOrderController:358,447`) -- so `delivered_status = 3` with
+         *   `return_status = 0` is not reachable through any shipped path, and repairing it by
+         *   echo was never a control anyway.
+         *
+         *   A row holding the literal `'-'` that `Api\ApiController` writes casts to 0, so a
+         *   request naming `0` now reads as an echo and the write arm no longer normalises the
+         *   column to a real `0`. This only arises when payment or a note changes in the same
+         *   request: without one, `(int) '-' === 0` already took the "nothing changed" early
+         *   return above, so the behaviour is unchanged there. Leaving the value is also what
+         *   GAP-254 established for the board -- an unrecognised status keeps its own bucket and
+         *   stays reachable rather than being silently folded into Pending.
+         */
+        $deliveredStatusChanges = $hasDeliveredStatus
+            && $oldDeliveredStatus !== (int) $newDeliveredStatus;
+
+        /*
          * P4-F145, PART 1 -- AN ECHO IS NOT A TRANSITION.
          * =========================================================================================
          *
@@ -719,7 +771,7 @@ $storeId = getCurrentStore();
          * 403 or 404 either -- those are this handler's permission and lookup refusals and a client
          * cannot tell them apart from this.
          */
-        if ($hasDeliveredStatus && (int) $newDeliveredStatus === 2 && $oldDeliveredStatus !== 0) {
+        if ($deliveredStatusChanges && (int) $newDeliveredStatus === 2 && $oldDeliveredStatus !== 0) {
             return response()->json([
                 'success' => false,
                 'message' => __('Only a pending order can be cancelled.'),
@@ -727,7 +779,7 @@ $storeId = getCurrentStore();
             ]);
         }
 
-        if ($hasDeliveredStatus && (int) $newDeliveredStatus === 3 && $oldDeliveredStatus === 0) {
+        if ($deliveredStatusChanges && (int) $newDeliveredStatus === 3 && $oldDeliveredStatus === 0) {
             return response()->json([
                 'success' => false,
                 'message' => __('A pending order cannot be returned.'),
@@ -776,7 +828,7 @@ $storeId = getCurrentStore();
          * handler's permission and lookup refusals and which a client could not tell apart from
          * this.
          */
-        if ($hasDeliveredStatus) {
+        if ($deliveredStatusChanges) {
             /*
              * TWO QUESTIONS, AND THE FIRST ONE IS WHY THE ONE-STEP VERSION OF THIS GATE WAS A
              * BYPASS. `refusalFor()` answers about a target WORD, and `governs()` lists no
@@ -830,12 +882,12 @@ $storeId = getCurrentStore();
             DB::transaction(function () use (
                 $request,
                 $order,
-                $hasDeliveredStatus,
+                $deliveredStatusChanges,
                 $newDeliveredStatus,
                 $hasPaymentStatus,
                 $newPaymentStatus
             ) {
-                if ($hasDeliveredStatus) {
+                if ($deliveredStatusChanges) {
                     $order->delivered_status = $newDeliveredStatus;
 
                     /*
