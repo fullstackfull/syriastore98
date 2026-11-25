@@ -377,3 +377,37 @@ conservative half and the remaining half was a rule rather than a fix.
 | **Recommendation** | **(a) now, (b) with the next Flutter release.** (c) is the wrong direction for a server-to-server caller. |
 | **What is blocked** | Nothing. It is declared so it reads as a decision rather than as drift. |
 | **DECIDED 2026-11-25 — option (a) now, option (b) with the appropriate Flutter release** | *"Preserve the current caller-specific response contracts until coordinated migration is safe."* So **no code changes under this decision today**, deliberately: the webhook keeps its 409 and the admin door keeps HTTP 200 with `success: false`, each matching its own client, and the difference is now an approved decision rather than drift. **What this decision creates is an obligation on a FUTURE change**, recorded here because it will otherwise be forgotten: when the next Flutter release is prepared, the admin door moves to 409 *in the same coordinated change as the client that understands it* — not before, because a 409 the shipped app does not expect is a user-visible regression, and not silently, because `ApiResponser::error()` answering 200 is what every other refusal on that controller does. Until then, a reader finding the two codes different should find this row rather than conclude one door is wrong. |
+
+---
+
+## I. Scope questions that block a NOT-IMPLEMENTED requirement, collected 2026-11-25
+
+**These are the requirements that cannot be built from this repository**, pulled out of the gap
+register so they sit in one place instead of twelve rows. Each one is blocked on a *scope* answer,
+not on engineering: nothing here is waiting for a design, a measurement or a test. Implementation of
+every other actionable requirement continues in parallel and is not held by any of them.
+
+**Two kinds, and the difference matters.** `I1`–`I5` are blocked because **the original text is
+lost** — the Decision Register's `EX-*` exclusions and three requirement texts (1 GOV, 2 ARCH) were
+never committed, so the repository cannot say whether the thing was excluded or simply dropped.
+Those cannot be answered by anyone but the owner, and must not be inferred from the WorkDo surface
+that happens to exist. `I6`–`I11` have a recoverable requirement but a genuine product or
+commercial choice inside them.
+
+| | Requirement | The question, in one line | Why engineering cannot take it |
+|---|---|---|---|
+| **I1** | `P04-P4-02` (`GAP-134`) — multi-warehouse stock | Was it `EX-*` excluded, or is it still required? | The entire capability turns on the answer, and the exclusions list is lost. |
+| **I2** | `P04-CH-01` (`GAP-119`) — "channels" | What does the word mean in the Decision Register? | Both the requirement's meaning **and** any work against it are unrecoverable here. |
+| **I3** | `P04-P9-01` (`GAP-145`) — six end-to-end journeys | Resupply the list of journeys A, B, D, E and F. | Five of six have no recoverable definition; the phase closed without restating them. The owner is the only source. |
+| **I4** | `P06-04` (`GAP-177`) — platform "controls" and "operations" | What do those two words cover? | They are two words in a derived summary with no original behind them. Inferring scope from the vendored super-admin surface would be engineering inventing the requirement. |
+| **I5** | `P03-C-05` (`GAP-104`) — official-website content management | Accept code-owned marketing copy, or schedule a managed-content path? | Also gates the five legal documents and the contact details, which only the owner can supply, and names where legal text is published from. |
+| **I6** | `P04-P6-05` (`GAP-141`) — gateway refunds | In scope? | Building it needs provider credentials, so **verification stays externally blocked even once built** — worth knowing before it is scheduled. Phase 02's E13 records the same blocker. |
+| **I7** | `P05-11` (`GAP-159`) — loyalty | Add the slice to Phase 05, or defer it explicitly? | It is an approved requirement the execution plan omitted. The owner's own accounting rule says a slice list must not stand as the definition of scope, so it needs a decision either way rather than silence. |
+| **I8** | `P03-MP-01` (`GAP-117`) — storefront SEO | Scope it (canonical, hreflang ar/en, sitemap, robots, structured data) and assign it to a phase. | An owner-approved Phase 03 scope item the execution plan omitted, so it was never built, dispositioned or reported. The per-store meta half is being implemented now under `GAP-118`; the rest is a scoping decision. |
+| **I9** | `P03-B-06` (`GAP-099`) — the theme reorder control | Should saved section ordering drive the storefront at all? | The control is now fully keyboard-operable (`GAP-100`, closed today) and still changes nothing a shopper sees. Removing a control is a product decision; making it accessible was not. |
+| **I10** | `P03-D-04` (`GAP-107`) — documentation editorial workflow | Name a documentation owner and the release process. | Working documentation exists; an editorial workflow does not. "Who drafts, who reviews the Arabic, who approves, how a change reaches production" is an organisational answer, not a code change. |
+| **I11** | `P06-07` (`GAP-180`) — a financial-configuration question | Stated on the row. | Financial configuration is reserved to the owner by the standing escalation rules. |
+| **I12** | `P01-LEDGER-MIG-02` (`GAP-030`) | Apply the prepared migration. | **Not a scope question — a production action.** The migration exists and is verified; applying it is a persistent migration against live data, which this authorization explicitly excludes. On MySQL the web password reset silently fails or truncates until it is applied (P01-SEC-13). |
+
+**What is already decided and must not be re-asked:** `H1`–`H5` above, and everything in sections
+A–G. A recommendation in this file is a recommendation; only a dated `DECIDED` line is an answer.

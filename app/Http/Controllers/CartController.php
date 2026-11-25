@@ -877,7 +877,15 @@ foreach ($response->data->product_list as $item) {
                     $country = !empty($Delivery_Address->country_id) ? $Delivery_Address->country_id : '';
                     $state_id = !empty($Delivery_Address->state_id) ? $Delivery_Address->state_id : '';
 
-                    $Address = DeliveryAddress::find($User_address);
+                    /*
+                     * GAP-144 / P4-F021 [2026-11-25]: `$Address = DeliveryAddress::find($User_address);`
+                     * stood here -- UNSCOPED, on the same id the scoped read two lines above had
+                     * already resolved, and assigned to a variable **nothing in this method ever
+                     * read**. It is the leftover of the GAP-243 fix: the scoped version was added
+                     * and the old statement was not deleted. Harmless as it stood, and removed
+                     * rather than scoped because the risk was never the read -- it is that the next
+                     * person to need an address here copies the line that has no predicate.
+                     */
                     $Shipping_zone = ShippingZone::where('store_id', $store->id)->where('country_id', $country)->where('state_id', $state_id)->first();
                 }
                 if(empty($Shipping_zone)){
@@ -1090,7 +1098,27 @@ foreach ($response->data->product_list as $item) {
             $other_info = $request['billing_info'];
 
             if ($address_id) {
-                $billing_address  = DeliveryAddress::find($address_id);
+                /*
+                 * GAP-144 / P4-F021 [2026-11-25] -- SCOPED TO THE AUTHENTICATED SHOPPER, and it is
+                 * worth saying why this one was NOT a live defect, because the finding's first
+                 * reading called it a second instance and its reviewer corrected that.
+                 *
+                 * `DeliveryAddress::find($address_id)` read any customer's address on a
+                 * caller-supplied id -- `DeliveryAddress` carries no `StoreScope` and is not in
+                 * `config/tenancy.php`'s `scoped_models`, so every row in the database answered.
+                 * But `$country`, `$state_id` and `$city_id` are **unconditionally reassigned**
+                 * below from `$request['countryId']` / `$other_info` before anything reads them,
+                 * and this method never merges the address into the request -- so the foreign
+                 * values could not survive. Measured, not assumed.
+                 *
+                 * Scoped regardless: an inert read becomes a live one the moment somebody deletes
+                 * a reassignment three lines down, and the predicate costs nothing. This is the
+                 * same statement that WAS live at `get_shipping_method` (GAP-243) and in
+                 * `ApiController::apply_coupon` (GAP-235); this is the last copy.
+                 */
+                $billing_address  = DeliveryAddress::where('id', $address_id)
+                    ->where('customer_id', auth('customers')->user()->id)
+                    ->first();
                 $country = !empty($billing_address->country_id) ? $billing_address->country_id : $other_info['delivery_country'];
                 $state_id = !empty($billing_address->state_id) ? $billing_address->state_id : $other_info['delivery_state'];
                 $city_id = !empty($billing_address->city_id) ? $billing_address->city_id : $other_info['delivery_city'];
