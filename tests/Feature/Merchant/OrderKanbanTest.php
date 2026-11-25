@@ -287,17 +287,48 @@ class OrderKanbanTest extends SecurityTestCase
 
         $body = $this->html();
 
-        // The vocabulary, read from `Order::order_status_change()` rather than restated here.
-        $model = file_get_contents(app_path('Models/Order.php'));
-        $writer = substr($model, strpos($model, 'public static function order_status_change'));
-        $writer = substr($writer, 0, 6000);
-        preg_match_all('/\$order_status\s*==\s*\x27([a-z_]+)\x27/', $writer, $m);
-        $accepts = array_values(array_unique($m[1]));
+        /*
+         * THE VOCABULARY NOW COMES FROM `FulfilmentStateMachine`, AND THE REASON IS A REAL GAP THIS
+         * TEST HAD — found 2026-11-25 by the agent that built that class, and fixed here because
+         * the flaw is in this file.
+         *
+         * It used to read `Order.php`, seek to `order_status_change`, and TRUNCATE TO 6,000
+         * CHARACTERS before matching `$order_status == '...'`. Two things were wrong with that.
+         *
+         *   (1) `delivered` was ALREADY OUTSIDE THE WINDOW, at roughly offset 6,045. So the parse
+         *       returned five words, not six, and **this census has never asserted anything about
+         *       the `delivered` arm** — the single most important move on the board. It read as a
+         *       complete check of the vocabulary and was not one.
+         *   (2) The premise that was supposed to catch exactly that, `assertGreaterThanOrEqual(5,
+         *       ...)`, passed on five. A floor one below the true count cannot detect a missing
+         *       word. It is the same shape CLAUDE.md records for censuses satisfied by prose: the
+         *       guard was calibrated to what the parse happened to return.
+         *
+         * A character window over a source file is not a vocabulary. `FulfilmentStateMachine`
+         * holds the transition matrix once, as data, and the writer asks it — so reading
+         * `matrix()`'s own keys cannot drift from the writer, cannot be truncated, and grows
+         * automatically if an arm is added.
+         */
+        /* `matrix()` is keyed by FROM-state with the permitted words as values, so the vocabulary
+         * is the union of the values, not the keys. Read from the class rather than assumed --
+         * my first attempt took the keys and the premise below caught it immediately, which is
+         * what these premises are for. */
+        $accepts = array_values(array_unique(array_merge(
+            ...array_values(\App\Support\Orders\FulfilmentStateMachine::matrix())
+        )));
 
         $this->assertContains('confirmed', $accepts,
-            'premise: the writer was located and its branches parsed');
-        $this->assertGreaterThanOrEqual(5, count($accepts),
-            'premise: the parse found the writer\'s full vocabulary, not a fragment of it');
+            'premise: the state machine was located and its matrix read');
+        $this->assertContains('delivered', $accepts,
+            'premise: the vocabulary includes `delivered`. This is the assertion the old '
+            . '6,000-character window silently failed to make, so it is named explicitly here.');
+        foreach (['cancel', 'confirmed', 'pickedup', 'shipped', 'delivered', 'return'] as $word) {
+            $this->assertContains($word, $accepts, sprintf(
+                'premise: `%s` is missing from the matrix, so this census is measuring a fragment '
+                . 'of the vocabulary rather than all of it -- exactly the defect the old window had',
+                $word
+            ));
+        }
 
         preg_match('/<select[^>]+name="delivered"[^>]*>(.*?)<\/select>/s', $body, $sel);
         $this->assertNotEmpty($sel, 'premise: the board renders a move select');

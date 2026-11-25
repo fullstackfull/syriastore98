@@ -698,13 +698,13 @@ $order_array['tax_price_formatted']   = order_currency_format_with_sym($order->t
         $order_status = $date['order_status'];
         $order = Order::find($order_id);
         if (!empty($order)) {
+            /* THE FULFILMENT STATE MACHINE, ASKED ONCE, BEFORE ANY ARM WRITES. GAP-135. The
+               account, and what it deliberately does not restrict, is on the method below. */
+            if (($refusal = self::refuseIllegalTransition($order, $order_status)) !== null) {
+                return ['status' => 'error', 'message' => $refusal];
+            }
+
 if ($order_status == 'cancel') {
-    if ($order->delivered_status != 0) {
-        $return['status'] = 'error';
-        $return['message'] = 'The order has been delivered. So you cannot cancel the order.';
-        return $return;
-    }
-    
     $order->cancel_date = now();
     $order->delivered_status = 2;
 
@@ -801,12 +801,9 @@ if ($order_status == 'cancel') {
                 return $return;
             }
             if ($order_status == 'return') {
-                if ($order->delivered_status == 0) {
-                    $return['status'] = 'error';
-                    $return['message'] = 'Your order has not been delivered. You can return the order after delivery.';
-                    return $return;
-                }
-
+                /* The "not delivered yet" rule that stood here is now one row of
+                   `FulfilmentStateMachine::PERMITTED`, asked at the top of this method with the
+                   same message. One definition, not two. */
                 $order->return_date = now();
                 $order->delivered_status = 3;
                 $order->return_status = 1;
@@ -887,6 +884,69 @@ if ($order_status == 'cancel') {
             $return['message'] = 'Order not found.';
             return $return;
         }
+    }
+
+    /**
+     * WHY THIS TRANSITION IS REFUSED, OR NULL WHEN IT IS ALLOWED. GAP-135 / `P04-P4-03`.
+     * =============================================================================================
+     *
+     * `order_status_change()` above is the writer FIVE doors share -- the merchant web screen and
+     * the order board, the storefront customer's own order
+     * (`Api\ApiController::order_status_change`), `OrderReplacement::cancelAndReplace()`, the
+     * vendored `LotteryPrizes` order screen, and the `PartialPayments` / `PreOrder` arms inside it
+     * -- and it carried exactly TWO transition rules, one inside its cancellation arm and one
+     * inside its return arm. The four progression arms asked NOTHING about where the order already
+     * was: they assigned the integer and saved.
+     *
+     * SO A SETTLED ORDER COULD BE RE-OPENED, AND THE CONSEQUENCE IS MONEY. `product_return()`
+     * refuses unless `delivered_status == 1` (:1064) and then REDUCES `final_price` (:1453); the
+     * storefront refund request is gated on delivery the same way
+     * (`AccountProfileController:1461-1467`). So a CANCELLED order -- one whose merchant
+     * entitlement `OrderEntitlementReversal` has already walked back, and whose goods the cancel
+     * door has already credited -- could be marked delivered and walked straight into that
+     * workflow. P4-F036 names the same leg from the shopper's end. A RETURNED order could be made
+     * deliverable again, for a second pass at the same goods. Both measured at HEAD, and falsified
+     * by neutralising this call, in `tests/Feature/Commerce/OrderFulfilmentStateMachineTest`.
+     *
+     * THE TWO OLD RULES ARE NOT DUPLICATED -- THEY MOVED, into
+     * `App\Support\Orders\FulfilmentStateMachine`, which answers with their EXACT established
+     * strings. Both are keys in `resources/lang/en.json` and `ar.json`; a new string there would
+     * have gone out untranslated to every Arabic merchant and shopper and broken any client
+     * matching the text. The two arms' own `if`s are gone rather than left as a second copy, which
+     * is why neutralising this one call turns off all of the rules at once.
+     *
+     * WHAT IT DOES NOT GOVERN. The machine answers for exactly the six status words this writer's
+     * branch chain matches, so `pre_order`, the `PartialPayments` vocabulary and an unrecognised
+     * value all fall through to the arms below as before -- F81's "that order status is not
+     * recognised" included (`OrderStatusUnknownValueTest`). A backwards move AMONG the in-flight
+     * states also stays permitted: restricting a merchant correcting a mis-click is a business-rule
+     * change, which CLAUDE.md puts in the escalate-to-owner set, not a defect.
+     *
+     * THE RAW COLUMN VALUE IS PASSED, NOT A CAST ONE, and that is deliberate: one shipped handler
+     * writes the literal `-` into this column (`Api\ApiController:10471`), and under PHP 8 a cast
+     * would have made such a row cancellable when it is not today. The machine reproduces the
+     * writer's own loose comparisons for the two pre-existing rules.
+     *
+     * THE ONE DOOR THIS CANNOT REACH is `Api\DashboardController::updateStatus()`, which writes
+     * `delivered_status` directly instead of calling this method. It grew its own cancellation and
+     * return rules under P4-F104/F105 and still has none on the other four arms. Routing it through
+     * here is the remainder of GAP-135, recorded rather than done.
+     *
+     * KEPT SHORT AT THE CALL SITE ON PURPOSE. `OrderKanbanTest` parses the first 6,000 characters
+     * of `order_status_change()` to read its status vocabulary out of the source, so prose inside
+     * that window pushes the later branches out of the parse -- measured: a long comment at the
+     * call site broke that test's own premise assertion. All of the account therefore lives here,
+     * below the writer, where it cannot move anything.
+     *
+     * @param  \App\Models\Order  $order
+     * @param  mixed  $order_status  the raw status word, exactly as the caller supplied it
+     */
+    private static function refuseIllegalTransition($order, $order_status): ?string
+    {
+        return \App\Support\Orders\FulfilmentStateMachine::refusalFor(
+            $order->delivered_status,
+            $order_status
+        );
     }
 
     /**
@@ -1341,17 +1401,58 @@ if ($order_status == 'cancel') {
         $Order->product_json = json_encode($product_json);
         $Order->save();
 
-        $qty = 0;
         $return_price = 0;
-        $rp = [];
         if (!empty($Order->product_json)) {
             $product_json = json_decode($Order->product_json, true);
             foreach ($product_json as $key => $product) {
-
-                $qty += $product['qty'];
-                if ($product['return'] == 1) {
-                    $rp[] = $product['final_price'];
-                    $return_price += $product['final_price'];
+                /*
+                 * THREE UNDEFENDED READS, AND THIS LOOP RUNS **AFTER** THE FLAG HAS BEEN SAVED.
+                 * =====================================================================================
+                 *
+                 * What stood here was:
+                 *
+                 *     $qty += $product['qty'];
+                 *     if ($product['return'] == 1) {
+                 *         $rp[] = $product['final_price'];
+                 *         $return_price += $product['final_price'];
+                 *
+                 * `$qty` AND `$rp` WERE DEAD. Measured over the whole method: both were assigned
+                 * here and read nowhere by anything. They are gone rather than defended, because
+                 * `$qty += $product['qty']` is a **TypeError** under PHP 8 for a non-numeric
+                 * quantity ("Unsupported operand types: int + string") -- an uncaught 500 whose
+                 * only purpose was to compute a number no line of code ever looked at.
+                 *
+                 * THE METHOD'S OWN PRECONDITION DOES NOT COVER ANY OF THE THREE.
+                 * `linesAreReturnable()` (:1035-1048) requires `product_id` and `qty` to EXIST on
+                 * every line. It does not require `qty` to be a number, and it says nothing about
+                 * `return` or `final_price`. So a sibling line this call does not even touch could
+                 * break it.
+                 *
+                 * AND THE ORDERING IS WHAT MAKES A 500 INTO LOST MONEY. `$Order->product_json` is
+                 * written with this call's `return => 1` and SAVED at :1400-1401, before this loop;
+                 * the money write is at the end. A throw in between leaves the line permanently
+                 * marked returned with no `return_price` and no `final_price` adjustment -- and the
+                 * replay guard at :1144-1155 then answers "The product has already been returned."
+                 * for every retry. Goods recorded as returned, customer never credited, no
+                 * UI-reachable recovery.
+                 *
+                 * `?? 0` IS NOT A CHOICE MADE HERE -- IT IS THE SIBLING'S ANSWER.
+                 * `returnedAmountOf()` (:1064-1069) is documented as "THE SAME FORMULA AS THE
+                 * SUMMATION IN product_return()", with `SecondReturnTotalTest` pinning the two so
+                 * they cannot drift, and it has always read `(float) ($line['final_price'] ?? 0)`.
+                 * On a flagged line carrying no `final_price` the two disagreed in the worst way:
+                 * one answered 0, the other raised. They now agree. The replay guard above already
+                 * reads `($line['return'] ?? 0)` for the same reason.
+                 *
+                 * LATENT FOR EVERY SHIPPED WRITER, and that is why this is hardening rather than an
+                 * incident: `Cart::cart_list`'s `product_list` and `ProductController::addToCart`
+                 * both always set `qty`, `final_price` and `return`. Non-canonical stored shapes do
+                 * exist, though -- `StoreCurrencyConversionService:161-163` carries a branch for a
+                 * `product_json` that decoded to a single associative line rather than a list.
+                 * Measured, both directions, by `OrderReturnMalformedLineTest`.
+                 */
+                if ((int) ($product['return'] ?? 0) === 1) {
+                    $return_price += (float) ($product['final_price'] ?? 0);
                 }
             }
         }
