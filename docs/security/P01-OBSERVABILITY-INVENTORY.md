@@ -502,7 +502,7 @@ which selects no rows, and this line is what distinguishes that deliberate refus
 that genuinely has no data.
 
 **Where it lands:** the application log, via `Log::warning` — the same channel and the same message
-text as its finance sibling at `StoreFinanceController:367`, deliberately, so a reader grepping one
+text as its finance sibling at `StoreFinanceController:365`, deliberately, so a reader grepping one
 finds both halves of the same rule.
 
 **Who reads it, and what to do when it fires:** nobody needs to act on a single occurrence — it is

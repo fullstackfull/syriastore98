@@ -595,6 +595,22 @@ run_one verify-saas-revenue-on-mysql \
   "SAASREV_MYSQL_SOCKET=${SOCK}" "SAASREV_MYSQL_HOST=${HOST}" "SAASREV_MYSQL_PORT=${PORT}" \
   "SAASREV_MYSQL_DATABASE=saasrev_verify" "SAASREV_MYSQL_USERNAME=${USER_NAME}" "SAASREV_MYSQL_PASSWORD=${PASS}"
 
+# GAP-150 / `P05-02` -- the store's inventory valuation, moved out of `StoreFinanceController::index()`
+# into the metric layer. Its precision disclosure is a CLAIM ABOUT COLUMN TYPES, and those differ by
+# engine: `products.cost_price` is `decimal(15,2)` (exact, no caveat) while `products.price`,
+# `sale_price` and `product_variants.price` are all `double` (caveat). The tables here are built from
+# the MEASURED production types rather than from the migration text -- which matters because
+# Laravel's `float()` emits a MySQL `double`, and reading the migration instead of the server
+# attached a precision caveat elsewhere in this repository that had to be withdrawn the same day.
+#
+# It also drives the two cases most likely to diverge by engine: the operator's TWO-STORE scope with
+# a variant row of store B hanging off store A's product, which must be excluded; and cost 0.10
+# against retail 0.30, where the profit must be 0.20 and not 0.19999999999999998.
+run_one verify-store-inventory-valuation-on-mysql \
+  "SESSION_DRIVER=array" \
+  "INVMETRIC_MYSQL_SOCKET=${SOCK}" "INVMETRIC_MYSQL_HOST=${HOST}" "INVMETRIC_MYSQL_PORT=${PORT}" \
+  "INVMETRIC_MYSQL_DATABASE=inv_metric_verify" "INVMETRIC_MYSQL_USERNAME=${USER_NAME}" "INVMETRIC_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then
