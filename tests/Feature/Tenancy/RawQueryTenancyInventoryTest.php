@@ -708,7 +708,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            matters. `DB::table()` and not Eloquent is deliberate and the class says why: `Product`
            registers `StoreScope` but is ABSENT from `scoped_models`, so the scope would add no
            predicate anyway, and 79 of the 95 models are `Cachable`. */
-        $this->assertSame(['app' => 227, 'packages' => 45], $perDir,
+        /* 227 -> 228 [GAP-140]: `OrderRefundController::markRefundedLinesRestored()` re-reads
+           `orders.product_json` RAW inside its stock transaction. Raw deliberately and for two
+           stated reasons -- `Order` is `Cachable`, so an Eloquent read can serve the pre-write row,
+           and the write then goes back THROUGH the model so the cache is flushed. It carries an
+           explicit `where('store_id', $order->store_id)` read at the call site when re-pointing
+           this count, and that `$order` was itself selected on `getCurrentStore()`, so the
+           predicate is session-derived rather than caller-supplied. */
+        $this->assertSame(['app' => 228, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -839,8 +846,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            266 -> 268 [the same review's finding 9]: `needingAPerson()` and `acknowledge()`
            (223 + 45).
            268 -> 270 [the two reviews of that change]: the four acknowledgement methods above,
-           net +2 (225 + 45). */
-        $this->assertSame(272, array_sum($perDir));
+           net +2 (225 + 45).
+           272 -> 273 [GAP-140]: the refund door's in-transaction `product_json` re-read
+           (228 + 45). */
+        $this->assertSame(273, array_sum($perDir));
     }
 
     /**
@@ -1000,7 +1009,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // 8 -> 10 [GAP-156]: `CustomerMoneyFigures::hasDirectOrders()` and `::guestOrderIds()`.
             // The UNSCOPED half does not move -- both write `orders.store_id` at the call site --
             // and that is the column this row exists to ratchet.
-            'orders' => [10, 1],
+            // 10 -> 11 [GAP-140]: the refund door's in-transaction `product_json` re-read. The
+            // UNSCOPED half does not move -- it writes `orders.store_id` at the call site -- and
+            // that is the column this row exists to ratchet.
+            'orders' => [11, 1],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -1271,7 +1283,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 195 -> 196 [2026-11-25, GAP-221 / ANA-002]: `TopSellersByOrderCount`'s products read,
         // also scoped -- the per-table note beside `products` above carries the reasoning. The
         // UNSCOPED sum below does not move, which is the half that matters.
-        $this->assertSame(196, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 196 -> 197 [2026-11-25, GAP-140]: the refund door's in-transaction `orders` re-read,
+        // also scoped, and the unscoped sum again does not move.
+        $this->assertSame(197, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
