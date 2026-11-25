@@ -511,7 +511,18 @@ class ResidualTenancyExposureTest extends TestCase
             // exactly as written. What changed in `slugs()` is a refusal of one reserved word
             // (`Store::RESERVED_SLUGS`), which narrows what may be minted and touches neither the
             // query nor its tenancy.
-            'app/Models/User.php:187',
+            // :187 -> :247 on 2026-11-25, when the domain audit's STAGE 4 landed in `slugs()`, which
+            // again sits ABOVE this method: the unusable-slug fallback moved below the ASCII pass
+            // (it could never fire for an Arabic name while it sat above it) and the suffix loop
+            // gained a final `return 'store-' . uniqid();` instead of falling off the end into null.
+            //
+            // RE-READ AT THE MOVE, per this file's own rule that a drifting line is the moment to
+            // check the CLAIM rather than the number. `getRelatedSlugs()` is byte-for-byte
+            // unchanged -- `git diff app/Models/User.php` shows no `getRelatedSlugs` or `DB::table`
+            // line touched -- and it still takes a table name and a slug and still carries NO store
+            // predicate, so the finding recorded above stands exactly as written. What changed in
+            // `slugs()` narrows what may be MINTED and touches neither this query nor its tenancy.
+            'app/Models/User.php:247',
 
             // ------------------------------------------------------------------------------
             // Utility::cookies(). `DB::table('settings')` filtered on `created_by`, NOT on
