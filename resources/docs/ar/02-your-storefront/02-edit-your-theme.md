@@ -3,6 +3,7 @@ title: عدّل قالبك
 order: 2
 summary: غيّر الأقسام والنصوص والصور والألوان من لوحة التحكّم.
 related: your-storefront/preview-and-publish, your-storefront/restore-an-earlier-version
+updated: 2026-11-25
 ---
 
 ## أين المحرّر

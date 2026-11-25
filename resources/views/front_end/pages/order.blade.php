@@ -5,7 +5,8 @@
 @endsection
 
 @section('content')
-<main>
+{{-- GAP-095: this element was a nested main landmark. A document may hold only one, and the one that exists on EVERY storefront page -- and that the skip link targets -- is the layout's, so this one is a div. Nothing in any theme stylesheet or script selects the element: measured zero `main` selectors across all three. --}}
+<div class="ss-page">
     @if ($themeSettings['order_banner_status'] && $themeSettings['order_banner_status'] == '1')
     <!-- Common Banner Section -->
     <section class="banner-section relative lg:py-16 py-10 bg-cover bg-center"
@@ -61,7 +62,7 @@
       </div>
     </section>
     @endif
-</main>
+</div>
 @endsection
 
 @push('page-script')

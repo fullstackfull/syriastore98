@@ -3,6 +3,7 @@ title: Variants and options
 order: 2
 summary: One product, several sizes or colours — and how stock and price follow.
 related: products/stock-and-availability
+updated: 2026-11-25
 ---
 
 ## When to use a variant

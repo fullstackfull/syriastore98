@@ -3,6 +3,7 @@ title: Add a product
 order: 1
 summary: The fields that matter, and the ones that can wait.
 related: products/variants-and-options, products/import-from-a-file
+updated: 2026-11-25
 ---
 
 ## The fields that matter

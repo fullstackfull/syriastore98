@@ -3,6 +3,7 @@ title: المعاينة والنشر
 order: 3
 summary: اطّلع على المسوّدة على انفراد، ثمّ اجعلها مباشرة بخطوة واحدة.
 related: your-storefront/edit-your-theme, your-storefront/restore-an-earlier-version
+updated: 2026-11-25
 ---
 
 ## المعاينة

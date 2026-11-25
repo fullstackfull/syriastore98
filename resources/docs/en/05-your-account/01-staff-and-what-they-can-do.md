@@ -3,6 +3,7 @@ title: Staff and what they can do
 order: 1
 summary: Roles, permissions, and why sharing a sign-in is a bad idea.
 related: your-account/plan-limits, your-account/keeping-your-account-safe
+updated: 2026-11-25
 ---
 
 ## Give people their own sign-in

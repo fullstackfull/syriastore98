@@ -3,6 +3,7 @@ title: Choose a theme
 order: 1
 summary: What a theme is, and what changing one does to your content.
 related: your-storefront/edit-your-theme, getting-started/choose-a-plan
+updated: 2026-11-25
 ---
 
 ## What a theme is

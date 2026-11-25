@@ -3,6 +3,7 @@ title: How an order moves
 order: 1
 summary: From placed to delivered, and who is told what.
 related: orders/payment-and-delivery, products/stock-and-availability
+updated: 2026-11-25
 ---
 
 ## The shape of it

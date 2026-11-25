@@ -3,6 +3,7 @@ title: الحفاظ على أمان حسابك
 order: 3
 summary: العادات القليلة التي تهمّ أكثر من غيرها.
 related: your-account/staff-and-what-they-can-do
+updated: 2026-11-25
 ---
 
 ## كلمة مرور لك وحدك

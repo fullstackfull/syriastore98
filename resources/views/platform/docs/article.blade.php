@@ -37,6 +37,37 @@
                         <p class="ss-ps-lede">{{ $article['summary'] }}</p>
                     @endif
 
+                    {{-- GAP-108. HOW OLD THIS PAGE IS. Nothing in the centre carried a date, so a
+                         merchant reading how an order moves could not tell whether it described the
+                         product as it is or as it was a year ago.
+
+                         THE ISO VALUE AND THE READABLE ONE ARE THE SAME VALUE. The `datetime`
+                         attribute is what a machine reads and must stay ISO; the visible text is
+                         the same string, because a localised month name would need Arabic calendar
+                         data this application does not ship, and a date rendered in the wrong
+                         language is worse than one rendered unambiguously in neither.
+
+                         GUARDED ON EMPTY, because `DocumentationLibrary` empties the field rather
+                         than hiding an article whose front matter is mistyped — an unguarded render
+                         would emit `datetime=""`, which no parser accepts. The guard is not a
+                         licence to ship an article without a date:
+                         `DocumentationArticleFreshnessTest` fails on any file that has none.
+
+                         `dir="ltr"` on the value: an ISO date is a left-to-right sequence, and
+                         inside an Arabic paragraph the bidirectional algorithm would otherwise be
+                         free to reorder the hyphen-separated groups. --}}
+                    {{-- `.ss-ps-help` RATHER THAN A NEW CLASS. It is the platform stylesheet's own
+                         muted supporting line — `--ss-fg-subtle` at `--ss-text-sm` — so the colour
+                         pair is one the platform site's token work already validated in light and
+                         dark. A new class would have meant an unstyled full-size date or a rule in
+                         a stylesheet this change has no reason to touch. --}}
+                    @if ($article['updated'] !== '')
+                        <p class="ss-ps-help">
+                            {{ __('Last Updated') }}:
+                            <time datetime="{{ $article['updated'] }}" dir="ltr">{{ $article['updated'] }}</time>
+                        </p>
+                    @endif
+
                     @if (count($toc) > 1)
                         <nav class="ss-ps-toc" aria-labelledby="ss-ps-toc-title">
                             <h2 class="ss-ps-toc__title" id="ss-ps-toc-title">{{ __('On this page') }}</h2>

@@ -21,6 +21,19 @@
    @else
     <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/main-style.css') }}">
    @endif
+
+  {{-- GAP-095. The keyboard layer: the skip link's styling and a visible focus indicator.
+       AFTER the theme sheet ON PURPOSE -- the theme sheets set `outline: none` with no replacement
+       and Tailwind's runtime CDN injects `outline-none` later still, so an earlier sheet of equal
+       specificity loses on source order.
+
+       THIS LAYOUT LOADS NEITHER `store-syria-ds.css` NOR the appearance script -- it is the only
+       one of the four that omits `front_end.partials.appearance`, measured 2026-11-25 -- so the
+       `--ss-*` tokens are undefined here and the layer's `var()` fallbacks are what paint. The
+       ring is still visible; it just does not re-theme. Not corrected here: adding the design
+       system to a layout that `Theme::set()` makes unreachable (config('theme.active') is always
+       set, so a theme root is always prepended) would be an unmeasurable change. --}}
+  <link rel="stylesheet" href="{{ asset('css/storefront-keyboard.css') }}">
   <script src="{{ asset('themes/' . $currentTheme . '/assets/js/tailwind.js') }}"></script>
  
     <meta name="mobile-wep-app-capable" content="yes">
@@ -58,6 +71,8 @@
 </head>
 
 <body>
+    {{-- GAP-095. FIRST IN THE BODY, so Tab reaches it before the header. WCAG 2.4.1. --}}
+    @include('front_end.partials.skip-link')
    @include('front_end.partison.header')
     @if(isset($pixelScript))
         @foreach ($pixelScript as $script)
@@ -65,7 +80,13 @@
         @endforeach
     @endif
 
+    {{-- GAP-095. THE MAIN LANDMARK. `@yield('content')` sat directly in <body> in all four
+         layout copies, so the skip link had no target and a screen reader's landmark list was
+         empty. `tabindex="-1"` is what makes the skip link move the KEYBOARD POSITION and not
+         only the viewport. --}}
+    <main id="ss-main" tabindex="-1">
     @yield('content')
+    </main>
     @include('front_end.partison.footer')
 
     @include('front_end.jQueryRoute')

@@ -5,7 +5,8 @@
 @endsection
 
 @section('content')
-    <main>
+    {{-- GAP-095: this element was a nested main landmark. A document may hold only one, and the one that exists on EVERY storefront page -- and that the skip link targets -- is the layout's, so this one is a div. Nothing in any theme stylesheet or script selects the element: measured zero `main` selectors across all three. --}}
+    <div class="ss-page">
         <!-- Hero Slider Section -->
         @if (isset($themeSettings['slider_status']) && $themeSettings['slider_status'] == 1)
             <section class="section-spacing pb-0">
@@ -387,6 +388,6 @@
                 </div>
             </section>
         @endif
-    </main>
+    </div>
 @endsection
 

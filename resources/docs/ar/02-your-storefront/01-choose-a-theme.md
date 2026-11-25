@@ -3,6 +3,7 @@ title: اختر قالباً
 order: 1
 summary: ما هو القالب، وماذا يفعل تغييره بمحتواك.
 related: your-storefront/edit-your-theme, getting-started/choose-a-plan
+updated: 2026-11-25
 ---
 
 ## ما هو القالب

@@ -3,6 +3,7 @@ title: Stock and availability
 order: 3
 summary: What happens as stock falls, and at zero.
 related: products/variants-and-options, orders/how-an-order-moves
+updated: 2026-11-25
 ---
 
 ## Stock falls when an order is placed

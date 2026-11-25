@@ -3,6 +3,7 @@ title: الدفع والتوصيل
 order: 2
 summary: ضبط طريقة تقاضيك وطريقة وصول البضاعة إلى الزبون.
 related: orders/how-an-order-moves
+updated: 2026-11-25
 ---
 
 ## الدفع

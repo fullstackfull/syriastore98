@@ -61,7 +61,8 @@ final class DocumentationLibrary
      *
      * An article is:
      *   ['id','slug','category','title','summary','order','related' => [...ids],
-     *    'body' => raw markdown, 'locale' => the locale it was actually READ from]
+     *    'updated' => ISO date or '', 'body' => raw markdown,
+     *    'locale' => the locale it was actually READ from]
      */
     public static function all(): array
     {
@@ -296,8 +297,39 @@ final class DocumentationLibrary
                 'trim',
                 explode(',', (string) ($meta['related'] ?? ''))
             ))),
+            /* GAP-108 (P03-D-05). WHEN THIS ARTICLE WAS LAST LOOKED AT, as an ISO date.
+               A reader had no way to tell whether an article described the product as it is or as
+               it was a year ago, and nothing in the centre carried a date of any kind.
+
+               A MALFORMED OR MISSING VALUE EMPTIES THE FIELD; IT DOES NOT HIDE THE ARTICLE. A
+               missing `title` makes a file invisible on purpose (half a heading is worse than no
+               article), but a reader came for the BODY: refusing to serve working help because its
+               date is mistyped would be the cure being worse than the disease. The empty string is
+               what the view guards on, and `DocumentationArticleFreshnessTest` is what stops the
+               fallback being silent — it asserts a valid date on every shipped file, in both
+               locales, so an article can never reach production without one.
+
+               NOT A VERSION, and that is measured rather than preferred: this application carries
+               no release identifier anywhere (no `version` in `composer.json`, none in
+               `config/app.php`), so the gap's other option would have meant inventing a release
+               number, which on a help page looks authoritative and means nothing. */
+            'updated'  => self::isoDate((string) ($meta['updated'] ?? '')),
             'body'     => $meta['__body'],
         ];
+    }
+
+    /** An ISO `YYYY-MM-DD` that is also a real calendar date, or the empty string. */
+    private static function isoDate(string $value): string
+    {
+        $value = trim($value);
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) !== 1) {
+            return '';
+        }
+
+        /* `2026-02-31` matches the pattern and is not a date. `checkdate` is what stops the view
+           emitting a `datetime` attribute no parser will accept. */
+        return checkdate((int) $m[2], (int) $m[3], (int) $m[1]) ? $value : '';
     }
 
     /**
@@ -309,6 +341,7 @@ final class DocumentationLibrary
      * summary: One sentence.
      * order: 1
      * related: getting-started/choose-a-plan, themes/edit-your-theme
+     * updated: 2026-11-25
      * ---
      * # Body markdown…
      * ```

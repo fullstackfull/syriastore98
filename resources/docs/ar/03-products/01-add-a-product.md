@@ -3,6 +3,7 @@ title: أضف منتجاً
 order: 1
 summary: الحقول التي تهمّ، والتي يمكن أن تنتظر.
 related: products/variants-and-options, products/import-from-a-file
+updated: 2026-11-25
 ---
 
 ## الحقول التي تهمّ

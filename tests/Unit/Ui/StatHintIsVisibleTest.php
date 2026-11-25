@@ -424,10 +424,45 @@ class StatHintIsVisibleTest extends TestCase
         // `MerchantAnalyticsFigures::visitCoverageNote()` records: a permanent "may be incomplete"
         // note on every render is wallpaper, not a disclosure.
         // The file count stays at ten because this file already carried four hints.
-        $this->assertCount(34, $hits,
+        // 34 -> 35 and 10 -> 11 files [GAP-195 / OPS-002]: `superadmin/platform_resources.blade.php`,
+        // the platform operator's resource measurements, carries ONE `:hint` -- inside a `@foreach`
+        // over the processor rows, so one occurrence in the source serves four tiles. It is here
+        // for the same reason as the other thirty-four: to stop a figure being misread. Three of
+        // those four tiles are load averages, which mean nothing without the processor count beside
+        // them, and every row's hint also carries the sentence for the state this screen has and
+        // the others do not -- the host REFUSED the measurement, which must read as "we cannot say"
+        // and never as a zero. The hint is assembled in the view from the producer's `reason`,
+        // `hint` and `source`, because `x-ss.stat` has one visible hint slot and the producer keeps
+        // the three apart so that its own tests can assert a reason exists for every withheld
+        // figure.
+        //
+        // THE MEMORY AND DISK BLOCKS ON THAT SCREEN ADD NOTHING TO THIS COUNT, and the reason is
+        // the one already recorded above for `devices` and `Estimated gross profit`: they are
+        // TABLES, whose disclosure is a `<p class="ss-stat__hint">` in a row of its own rather than
+        // a `:hint` on the component, so they are invisible to this census by construction. A
+        // reader comparing "fourteen figures shipped" with "one hint added" would otherwise suspect
+        // thirteen missing disclosures.
+        // 35 -> 38 and 11 -> 12 files [GAP-192 / SAAS-007]:
+        // `superadmin/platform_revenue.blade.php` carries THREE, one per tile, and they are the
+        // reason this screen exists separately from `platform/analytics` rather than as two more
+        // tiles on it. MRR's hint says the figure is what merchants pay the platform and NOT what
+        // shoppers pay merchants — the separation is the recovered requirement itself, and a
+        // reader who mistakes one for the other has the whole screen backwards. ARR's says it is a
+        // restatement of the same subscriptions and not a forecast, so nobody reads a growth
+        // projection into an identity. The subscriber count's says that every subscription which
+        // is NOT live, paid and recurring is counted in its own row below rather than folded in,
+        // which is what stops the headline figure from quietly settling a commercial question
+        // nobody has been asked.
+        //
+        // THE SUBSCRIPTION-KIND AND RECEIPTS TABLES ON THAT SCREEN ADD NOTHING HERE, for the
+        // reason already recorded twice above: a table's disclosure is a standalone
+        // `<p class="ss-stat__hint">` rather than a `:hint` on the component, so it is invisible
+        // to this census by construction. That screen carries eight bucket sentences and four
+        // table-level ones in that shape.
+        $this->assertCount(38, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
-        $this->assertCount(10, array_unique($hits),
-            'x-ss.stat hints should span ten files: ' . implode(', ', array_unique($hits)));
+        $this->assertCount(12, array_unique($hits),
+            'x-ss.stat hints should span twelve files: ' . implode(', ', array_unique($hits)));
     }
 }
