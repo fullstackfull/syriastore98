@@ -72,6 +72,13 @@ branch name does not narrow it.
 >
 > #### TASK #204 — P06-2B, THE DISABLED-APPLICATION PAYMENT BOUNDARY. **DONE 2026-11-25.**
 >
+> | | |
+> |---|---|
+> | commit | **`9acca689`**, published as a fast-forward `512fa880..9acca689` |
+> | its CI run | ci.yml **#645** ([run 45604074657](https://github.com/fullstackfull/syriastore98/actions/runs/45604074657)) — **READ THE RUN**; it was in flight when this line was written |
+> | the head before it | `512fa880`, ci.yml **#644** ([run 45575129709](https://github.com/fullstackfull/syriastore98/actions/runs/45575129709)), **conclusion `success`**, all seven jobs read job by job: both REQUIRED Tests jobs with *"The Feature outcome set must match the record"* green, the merge-base regression gate including *"Compare failing test identities"*, static checks including *"packages/workdo/ is unmodified"*, the secret scan, `composer audit` and the PayHere report |
+> | local gate on `9acca689` | Unit **6,218 passed + 1 declared skip**; Contract **45 passed**; Feature **11,818 passed, 1 declared failure, 1 declared skip**, and `assert-known-test-outcomes.php` reports the observed set matches the manifest **exactly**. MariaDB: **15 + 16 checks, 0 failed** |
+>
 > Both halves were built, with their mandatory independent reviews, and the records below were
 > brought into agreement with the code. **The two owner decisions that were open are still open and
 > were not inferred.**
