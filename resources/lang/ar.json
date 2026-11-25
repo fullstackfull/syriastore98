@@ -4658,5 +4658,15 @@
     "This order is closed, so its status cannot be changed.": "هذا الطلب مُغلق، لذلك لا يمكن تغيير حالته.",
     "This order cannot be moved to that status.": "لا يمكن نقل هذا الطلب إلى تلك الحالة.",
     "Your order has not been delivered. You can return the order after delivery.": "لم يُسلَّم طلبك بعد. يمكنك إرجاع الطلب بعد التسليم.",
-    ":duration (no longer offered)": ":duration (لم تعد معروضة)"
+    ":duration (no longer offered)": ":duration (لم تعد معروضة)",
+    "Page sections, in the order they appear": "أقسام الصفحة، بالترتيب الذي تظهر به",
+    "Position :n of :total": "الموضع :n من :total",
+    "Move :section up": "نقل :section إلى أعلى",
+    "Move :section down": "نقل :section إلى أسفل",
+    ":section moved to position :n of :total": "تم نقل :section إلى الموضع :n من :total",
+    "Attribute options, in the order they appear": "خيارات السمة، بالترتيب الذي تظهر به",
+    "Move :option up": "نقل :option إلى أعلى",
+    "Move :option down": "نقل :option إلى أسفل",
+    ":option moved to position :n of :total": "تم نقل :option إلى الموضع :n من :total",
+    "Drag an option, or use its move buttons, to change the order customers see it in.": "اسحب أي خيار، أو استخدم أزرار النقل الخاصة به، لتغيير ترتيب ظهوره للعملاء."
 }

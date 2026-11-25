@@ -50,7 +50,7 @@
 
     <x-ss.help :title="__('Note')" class="mb-4">
         <ul class="ss-help__list">
-            <li>{{ __('Drag an option to change the order customers see it in.') }}</li>
+            <li>{{ __('Drag an option, or use its move buttons, to change the order customers see it in.') }}</li>
         </ul>
     </x-ss.help>
 

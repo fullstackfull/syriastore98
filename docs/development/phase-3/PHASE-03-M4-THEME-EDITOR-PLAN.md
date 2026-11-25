@@ -297,6 +297,29 @@ Three measured facts argue against building a drag-and-drop section reorderer in
 
 Plus: `order.blade.php:89` pulls jQuery UI from a third-party demo host while the identical library sits at `public/js/jquery-ui.min.js` and `attribute_option/index.blade.php` uses the local copy correctly; and **neither first-party sortable has any keyboard path** (`keydown` count 0 in both), a WCAG 2.1.1 and 2.5.7 failure for any reorder UI shipped as-is.
 
+> **BOTH SORTABLES ANSWERED 2026-11-25 (`5608bd54` and the batch that follows it). The sentence
+> above is left exactly as measured, because it was true when written and a planning record that
+> gets edited to match the present cannot be used as evidence of anything.** `theme_customize/
+> order.blade.php` and `attribute_option/index.blade.php` both now carry native `<button>` move
+> controls — a visually-hidden name giving direction and row, `aria-describedby` to a per-row
+> `Position n of N`, `aria-disabled` rather than `disabled` so the end stops stay in the tab
+> order, focus restored after a move, and a polite live region — all driving the same persistence
+> the drag drives, through a single writer. **Buttons and not a key handler, deliberately:** this
+> sentence names 2.5.7 as well as 2.1.1, and 2.5.7 wants a non-dragging POINTER alternative that
+> an arrow-key handler does not give. Verified keyboard-only in Chromium in both directions —
+> 44 checks on the first screen, 68 on the second, 0 failed — and pinned by four test files and
+> 47 caught mutants.
+>
+> **`keydown` IS NOT THE INSTRUMENT ANY MORE, and re-running it reads as a pass for the wrong
+> reason.** `grep -c keydown` now returns 1 on the first view and 0 on the second; the 1 is
+> entirely PROSE in a comment quoting this very sentence. There are still zero listeners, which
+> the Unit tests prove by stripping `{{-- --}}` first. Ask the question the fix actually answers:
+> does each row carry a named, described, focusable move control, and does it drive the same
+> writer as the drag.
+>
+> Not covered: only `resources/views/` was censused (exactly these two sortables), so neither
+> `packages/workdo/` nor the storefront `themes/` was examined for reorder UI of their own.
+
 **Do in M4:** vendor jQuery UI locally; fix the `$orders` null dereference at `order.blade.php:55`/`:57` and the undefined `$theme_json` at `ThemeCustomizeController.php:268`; validate `updateOrder()`'s posted `page_slug` and `orders` against the theme's own `pages.json` rather than trusting the hidden input the client filled, and route it through the versioned path.
 **Do not do in M4:** a new reorder UI. See §5 Q2.
 

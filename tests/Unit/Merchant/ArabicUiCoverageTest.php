@@ -101,6 +101,25 @@ class ArabicUiCoverageTest extends TestCase
         'resources/views/customer_segments/*.blade.php',
         // MKT-007, added with the surface itself for the same reason as the line above.
         'resources/views/recovery_queue/*.blade.php',
+
+        // ADDED 2026-11-25, GAP-100 / P03-B-07, and this pair is the clearest case this list has
+        // ever had for the warning it already repeats twice.
+        //
+        // `theme_customize/` holds the theme editor's section-order screen. Commit 5608bd54 gave
+        // that screen its keyboard path and introduced FIVE user-visible strings, every one of
+        // them correctly wrapped in `__()` — and no glob here matched the directory, so all five
+        // rendered in ENGLISH for an Arabic merchant and nothing said so. `__()` does not warn.
+        // MEASURED before this line was added: four of the five absent from ar.json (the fifth,
+        // ':section moved to position :n of :total', is invisible to `collectKeys()` because keys
+        // beginning with a colon are skipped as non-literals — see the note on that skip below).
+        //
+        // `attribute_option/` is the design-system pilot screen and the second of the two
+        // sortables GAP-100 names. MEASURED before adding: all 24 of its `__()` strings already
+        // have Arabic, so that glob closes a LATENT gap rather than a live one — it is added in
+        // the same change that puts new strings on the screen, which this file's own comments
+        // call the only time the list has ever been widened before a gap existed.
+        'resources/views/theme_customize/*.blade.php',
+        'resources/views/attribute_option/*.blade.php',
     ];
 
     /**
@@ -158,8 +177,25 @@ class ArabicUiCoverageTest extends TestCase
                     }
                     $key = str_replace(["\\'", '\\"'], ["'", '"'], $raw);
 
-                    // `__($variable)` and `__(':placeholder')` are not literal strings to translate.
-                    if (str_starts_with($key, ':')) {
+                    /*
+                     * A BARE PLACEHOLDER IS NOT A STRING TO TRANSLATE. A KEY THAT MERELY BEGINS
+                     * WITH ONE IS.
+                     *
+                     * TIGHTENED 2026-11-25. This was `str_starts_with($key, ':')`, which skipped
+                     * every key whose first character is a colon — and that is a hole, not a
+                     * filter. MEASURED across all 18 globs above: TEN keys were being skipped,
+                     * including ':count left, above the low-stock level of :threshold.',
+                     * ':n notifications you have not read' and the two reorder announcements this
+                     * change adds. All ten happen to be translated already, so closing the hole
+                     * turns nothing red — but a sentence that opens with a value is an ordinary
+                     * sentence, and until now this census was blind to the whole class of them.
+                     *
+                     * `__($variable)` never reached here in the first place: the pattern above
+                     * only matches a QUOTED literal, so a variable argument never produces a key.
+                     * What is genuinely not translatable is a literal that is nothing but a
+                     * placeholder, e.g. `__(':duration')`, and that is what this now skips.
+                     */
+                    if (preg_match('/^:[a-zA-Z_][a-zA-Z0-9_]*$/', $key) === 1) {
                         continue;
                     }
 

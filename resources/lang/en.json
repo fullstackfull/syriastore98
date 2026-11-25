@@ -4664,5 +4664,15 @@
     "This order is closed, so its status cannot be changed.": "This order is closed, so its status cannot be changed.",
     "This order cannot be moved to that status.": "This order cannot be moved to that status.",
     "Your order has not been delivered. You can return the order after delivery.": "Your order has not been delivered. You can return the order after delivery.",
-    ":duration (no longer offered)": ":duration (no longer offered)"
+    ":duration (no longer offered)": ":duration (no longer offered)",
+    "Page sections, in the order they appear": "Page sections, in the order they appear",
+    "Position :n of :total": "Position :n of :total",
+    "Move :section up": "Move :section up",
+    "Move :section down": "Move :section down",
+    ":section moved to position :n of :total": ":section moved to position :n of :total",
+    "Attribute options, in the order they appear": "Attribute options, in the order they appear",
+    "Move :option up": "Move :option up",
+    "Move :option down": "Move :option down",
+    ":option moved to position :n of :total": ":option moved to position :n of :total",
+    "Drag an option, or use its move buttons, to change the order customers see it in.": "Drag an option, or use its move buttons, to change the order customers see it in."
 }
