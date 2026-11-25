@@ -131,11 +131,41 @@ final class ProductActionOverlayTest extends TestCase
     {
         $block = $this->wrapperBlock();
 
-        foreach (['--ss-bg-elevated', '--ss-fg', '--ss-radius-md', '--ss-space-2'] as $token) {
+        /*
+         * THE TOKEN MUST BE DECLARED, NOT MERELY NAMED, AND THIS CASE USED TO ASSERT ONLY THE NAME.
+         *
+         * It listed `--ss-bg-elevated`, which was DECLARED NOWHERE IN THE REPOSITORY -- so this
+         * assertion passed on a token that does not exist, while `var(--ss-bg-elevated, #ffffff)`
+         * painted the literal white fallback in dark mode and the conversion actions measured
+         * **1.21:1**, i.e. invisible. The case's own message said the colour "must be a token
+         * because the dark values are re-declared under [data-ss-theme=dark]"; that was true of
+         * `--ss-fg` and false of the one it was checking. A name is not a declaration, and the
+         * difference is the whole defect.
+         *
+         * The same block named `--ss-focus` for its ring, also undeclared, and the two MASKED each
+         * other: with the surface wrongly white, the hard-coded `#2563eb` fallback measured 5.17:1
+         * and passed, so correcting the surface alone would have dropped the ring to 2.75:1 on
+         * `#262b33` -- below WCAG 1.4.11's 3:1. Both are now the declared tokens
+         * (`--ss-surface` 11.81:1, `--ss-focus-ring` 7.60:1).
+         *
+         * `DesignSystemTokensAreDeclaredTest` is the general ratchet over every `var(--ss-*)` in the
+         * design system; this case asks the narrower question it exists for -- that THIS block uses
+         * tokens rather than hexes -- and now asks it in a form a nonexistent token cannot satisfy.
+         */
+        $declarations = $this->readWithoutCssComments(self::DS);
+
+        foreach (['--ss-surface', '--ss-fg', '--ss-focus-ring', '--ss-radius-md', '--ss-space-2'] as $token) {
             $this->assertStringContainsString($token, $block,
                 'The wrapper does not use the ' . $token . ' token, so it will not follow dark '
                 . 'mode -- every colour on this surface must be a token because the dark values '
                 . 'are re-declared under [data-ss-theme="dark"] and nowhere else.');
+
+            $this->assertMatchesRegularExpression('/' . preg_quote($token, '/') . '\s*:/', $declarations, sprintf(
+                '`%s` is used on this block and DECLARED NOWHERE, so the hard-coded fallback paints '
+                . 'in every theme and the surface never switches. That is exactly how this block '
+                . 'reached 1.21:1 in dark mode while this very case was green.',
+                $token
+            ));
         }
 
         $this->assertStringContainsString('min-height: 2.75rem', $block,

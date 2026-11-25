@@ -4000,14 +4000,21 @@ a.ss-setup__item:focus-visible {
    `--ss-onbrand` RATHER THAN `var(--ss-fg)`, and rather than a literal. The fill here is the
    BRAND colour, not a surface, so the ink that belongs on it is the one custom.css already
    derives for exactly that job (`custom.css:5073` and two siblings use
-   `var(--ss-onbrand, #fff)` on filled brand controls). `--ss-fg` is theme-switching and would
+   `var(--ss-on-brand, #fff)` on filled brand controls). `--ss-fg` is theme-switching and would
    go dark-on-blue in light mode -- the `--ss-fg` / `--ss-grey-900` trap the handoff warns
    about, in its other direction. A literal `#ffffff` was the first attempt and
    `DarkPageSurfaceTest` refused it: this block is a token system, and a hex here would be the
-   one value that stops following the merchant's chosen brand. */
+   one value that stops following the merchant's chosen brand.
+
+   THE TOKEN NAME WAS `--ss-onbrand` AND THE DECLARED ONE IS `--ss-on-brand` -- one hyphen, and it
+   cost a dark-mode contrast failure on every active sidebar and list item. With the name wrong the
+   `#fff` fallback painted, and the dark brand is `--ss-cyan-500` `#2ac3e5`: measured **2.09:1**,
+   against AA's 4.5:1. `--ss-on-brand` is `#ffffff` in light (so light mode is byte-identical at
+   6.42:1) and `#04222a` in dark, which gives **7.92:1**. Found by
+   `DesignSystemTokensAreDeclaredTest`, on its first run, in files nobody was looking at. */
 [data-ss-theme="dark"] .dash-content .list-group-item.active,
 [data-ss-theme="dark"] .dash-content .list-group-item-action.active {
-    color: var(--ss-onbrand, #fff);
+    color: var(--ss-on-brand, #fff);
 }
 
 /* AND THE HEADING ON THAT CARD, which the background census could not see. Removing the
@@ -5072,7 +5079,7 @@ a.ss-setup__item:focus-visible {
 .ss-upload-hint {
     display: block;
     margin-block-start: var(--ss-space-2, 0.5rem);
-    font-size: var(--ss-font-size-sm, 0.8125rem);
+    font-size: var(--ss-text-sm, 0.8125rem);
     line-height: 1.5;
 }
 
@@ -7535,8 +7542,30 @@ td.dataTables-empty:has(.ss-empty) {
    LOGICAL PROPERTIES ONLY, because the storefront is bilingual and the card mirrors in Arabic.
    `StorefrontAppearanceFoundationTest` already pins that convention for the appearance control.
 
-   EVERY COLOUR IS A TOKEN, so dark mode needs no second rule here: `--ss-bg-elevated` and
-   `--ss-fg` are re-declared under `[data-ss-theme="dark"]` further up this file.
+   EVERY COLOUR IS A TOKEN, so dark mode needs no second rule here -- and this paragraph USED TO
+   NAME TWO TOKENS THAT DO NOT EXIST, which is the whole reason the rule below was broken. It read
+   "`--ss-bg-elevated` and `--ss-fg` are re-declared under `[data-ss-theme="dark"]` further up this
+   file". `--ss-fg` is (:370 light, :569 dark, :624 auto). **`--ss-bg-elevated` was DECLARED NOWHERE
+   IN THIS REPOSITORY**, so `var(--ss-bg-elevated, #ffffff)` painted the literal white fallback in
+   every theme while `--ss-fg` correctly flipped to `#e8eaed` -- measured 1.21:1 in dark mode, with
+   the repository's own `docs/design-system/tools/check-contrast.py`, i.e. the conversion actions on
+   every product card were effectively invisible. There is no `*-elevated` token in this file at all;
+   the surface family is `--ss-surface` / `--ss-surface-hover` / `--ss-surface-sunken`, and
+   `--ss-surface` is `#262b33` under dark, which gives **11.81:1**.
+
+   AND THE FOCUS RING HAD THE SAME DEFECT, MASKING ITSELF BEHIND THE FIRST ONE. `var(--ss-focus,
+   #2563eb)` names another token that is declared nowhere; the real one is `--ss-focus-ring`
+   (`--ss-blue-500` light, `--ss-cyan-400` dark). While the background was wrongly white, the
+   hard-coded `#2563eb` measured 5.17:1 and passed -- so fixing the SURFACE alone would have dropped
+   the ring to **2.75:1 on `#262b33`, below WCAG 1.4.11's 3:1 minimum for a non-text indicator**, and
+   a change that fixed one accessibility defect would have introduced another. `--ss-focus-ring`
+   gives 7.60:1 there. The two had to be fixed together, which is why they are in one change.
+
+   THIS IS A RECURRENCE, not a new class of mistake: the comment at
+   `resources/views/front_end/partials/appearance.blade.php:97-102` records GAP-095 fixing
+   `--ss-focus` -> `--ss-focus-ring` on the appearance toggle, and names the real token. That comment
+   is also the ONLY `--ss-focus:` text anywhere in the repository, so a census that reads source
+   without stripping comments scores the token as DECLARED and misses the defect.
    --------------------------------------------------------------------------------------------- */
 
 .ss-product-actions {
@@ -7546,7 +7575,7 @@ td.dataTables-empty:has(.ss-empty) {
     align-items: center;
     padding: var(--ss-space-2, 0.5rem);
     border-radius: var(--ss-radius-md, 0.5rem);
-    background: var(--ss-bg-elevated, #ffffff);
+    background: var(--ss-surface, #ffffff);
     color: var(--ss-fg, #1b1f25);
     box-shadow: var(--ss-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.08));
 }
@@ -7564,6 +7593,6 @@ td.dataTables-empty:has(.ss-empty) {
 
 .ss-product-actions a:focus-visible,
 .ss-product-actions button:focus-visible {
-    outline: 2px solid var(--ss-focus, #2563eb);
+    outline: 2px solid var(--ss-focus-ring, #4f77c0);
     outline-offset: 2px;
 }

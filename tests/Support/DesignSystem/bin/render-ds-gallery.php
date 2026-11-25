@@ -284,7 +284,10 @@ $doc = <<<HTML
          font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
   .ss-gallery__item { margin-bottom: 28px; }
   .ss-gallery__name { margin: 0 0 8px; font-size: 11px; letter-spacing: .02em;
-                      color: var(--ss-text-muted, #5b6665); font-family: ui-monospace, monospace; }
+                      color: var(--ss-fg-muted, #5b6665); /* `--ss-fg-muted`, not `--ss-text-muted`: the latter is
+                         declared nowhere, so the #5b6665 fallback painted on the dark gallery's
+                         --ss-bg #1b1f25 at 2.78:1 -- in the very captures used as design-system
+                         sign-off evidence. The real token is 7.18:1 there. */ font-family: ui-monospace, monospace; }
   .ss-gallery__stage { padding: 16px; border: 1px dashed var(--ss-border, #cfd9e3); border-radius: 10px; }
 </style>
 </head>

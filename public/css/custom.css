@@ -5070,7 +5070,7 @@ html[data-ss-theme="dark"] body .table {
    so this rule cannot quietly take over that decision. */
 html[data-ss-theme="dark"] body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link,
 html[data-ss-theme="dark"] body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link .dash-mtext {
-    color: var(--ss-onbrand, #fff) !important;
+    color: var(--ss-on-brand, #fff) !important;
 }
 
 /* =============================================================================================
@@ -5098,7 +5098,7 @@ body .dash-sidebar .dash-navbar > .dash-item:focus > .dash-link,
 body .dash-sidebar.light-sidebar .dash-navbar > .dash-item.active > .dash-link,
 body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:hover > .dash-link,
 body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:focus > .dash-link {
-    color: var(--ss-onbrand, #fff) !important;
+    color: var(--ss-on-brand, #fff) !important;
 }
 
 body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link i,
@@ -5110,7 +5110,7 @@ body .dash-sidebar .dash-navbar > .dash-item:focus > .dash-link .dash-mtext,
 body .dash-sidebar.light-sidebar .dash-navbar > .dash-item.active > .dash-link i,
 body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:hover > .dash-link i,
 body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:focus > .dash-link i {
-    color: var(--ss-onbrand, #fff) !important;
+    color: var(--ss-on-brand, #fff) !important;
 }
 
 
@@ -5144,7 +5144,7 @@ body .btn-primary,
 body .btn-primary:hover,
 body .btn-primary:focus,
 body .btn-primary:active {
-    color: var(--ss-onbrand, #fff);
+    color: var(--ss-on-brand, #fff);
 }
 
 /* ============================================================================
