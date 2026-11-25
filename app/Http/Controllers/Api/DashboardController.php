@@ -4511,6 +4511,24 @@ public function DeleteReview($id)
         // and multi-store merchants working.
         $admin = $this->resolveManageableUser($request->user_id);
 
+        /*
+         * GAP-251 / P4-F120 — A COLLEAGUE PANEL-ACCOUNT TAKEOVER VECTOR.
+         *
+         * Measured: an unpermissioned staff member rewrote another panel user's `users.email` and
+         * `name`. That e-mail is what `adminlogin` authenticates on and where the web password reset
+         * sends, so this points a colleague's login at an attacker-controlled address.
+         *
+         * BOUNDED, and the bound is measured rather than assumed: the reach is every panel user the
+         * MERCHANT created, and the store OWNER is NOT reachable — their `created_by` is the
+         * operator, not themselves, so `resolveManageableUser()` refuses them. That is the
+         * difference between this and an account takeover of the tenant.
+         *
+         * `Edit User` is the web twin's name (`UserController:232`) and is seeded.
+         */
+        if (! empty($admin) && ! $this->callerMayActInStore(['Edit User'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         if (!empty($admin)) {
             if (!empty($request->name)) {
                 $admin->name = $request->name;
@@ -4571,6 +4589,49 @@ public function DeleteReview($id)
         // The read is moved inside the guard, which is what the existing
         // `!empty($admin)` branch was always for.
         $admin = $this->resolveManageableUser($request->user_id);
+
+        /*
+         * GAP-251 / P4-F120 — A LATERAL CREDENTIAL WRITE BETWEEN COLLEAGUES, AND THIS ONE REUSES
+         * THE WEB'S POLICY RATHER THAN INVENTING A PERMISSION NAME.
+         *
+         * Measured in all three directions: an unpermissioned staff member COULD set a sibling
+         * staff member's password (same tenant root), the store OWNER's row was refused, and a
+         * foreign tenant was refused. No permission was consulted anywhere — the only controls were
+         * `resolveManageableUser()` (tenancy) and `Hash::check($old_password)`, so the attack is
+         * held back only by knowing the colleague's current password. That makes it a real lateral
+         * credential write and NOT an account takeover of the tenant, which is why it is reported
+         * as the former.
+         *
+         * THE WEB DOES NOT USE A PERMISSION NAME HERE EITHER. `UserController::updatePassword()`
+         * calls `$this->authorize('resetPassword', $user)`, and `UserPolicy::resetPassword()` is a
+         * complete control already: operator first, then `Reset Password`, then it refuses an
+         * OPERATOR as the target however the `type` row is spelled (a MySQL collation subtlety that
+         * cost a real finding), then `sameTenant()`. Porting that is strictly better than choosing a
+         * name by analogy, and it means the two surfaces cannot drift.
+         *
+         * `Gate::forUser()->allows()` rather than `authorize()`, because `authorize()` throws an
+         * `AuthorizationException` whose 403 is an HTML error page the shipped Flutter app does not
+         * parse. The refusal keeps this API's own envelope.
+         *
+         * THE SELF EXCEPTION IS NOT A WEAKENING, AND IT WAS A REGRESSION I CAUSED AND CAUGHT.
+         *
+         * This endpoint serves TWO purposes: a user changing their OWN password, and a privileged
+         * user resetting someone else's. The policy alone refuses the first, because
+         * `UserPolicy::resetPassword()` requires the `Reset Password` permission after its operator
+         * limb -- so the first version of this gate refused an ordinary staff member changing their
+         * own password, which the shipped app certainly does. The behavioural census's own pin
+         * caught it: its leg (i) drives exactly that and went red.
+         *
+         * `$admin->id === Auth::id()` admits only the caller's own row, and `Hash::check(
+         * $old_password)` below still applies to it -- so self-service needs the current password
+         * exactly as before. Nothing else is admitted that the policy would refuse: the lateral
+         * write between COLLEAGUES, which is what this row is about, is a different id.
+         */
+        if (! empty($admin)
+            && (int) $admin->id !== (int) \Auth::id()
+            && ! \Illuminate\Support\Facades\Gate::forUser(\Auth::user())->allows('resetPassword', $admin)) {
+            return $this->storePermissionDenied();
+        }
 
         if (!empty($admin)) {
             $current_password = $admin->password;
@@ -6417,6 +6478,50 @@ public function changeProfile(Request $request)
         // so any valid token rewrote any driver's name, email and contact.
         $deliveryboy = $this->resolveManageableDeliveryBoy($request->id);
 
+        /*
+         * GAP-251 / P4-F120 — A DRIVER ACCOUNT-TAKEOVER VECTOR. Measured: an unpermissioned staff member
+         * rewrote `delivery_boys.email` and `name`. That e-mail is the identifier
+         * `deliveryLogin` authenticates on, so rewriting it points the driver's login at an
+         * address the attacker controls. The password hash is NOT written by this handler
+         * (measured), so this is a takeover VECTOR rather than a credential write — stated that
+         * way so the finding is not overstated.
+         *
+         * TWO DOORS ONTO ONE ACCOUNT, ONE GATED: the sibling `deliveryboysUpdate/{id}` already
+         * requires `Edit Deliveryboy` and `deliveryboysReset-password` requires
+         * `Reset password Deliveryboy` (both closed 2026-11-25). This one was missed because it
+         * lives on a different controller surface.
+         *
+         * `resolveManageableDeliveryBoy()` above settles TENANCY (it replaced a bare
+         * `DeliveryBoy::find($request->id)` that reached every tenant). It settles nothing about
+         * who INSIDE the store may do this, so every employee could.
+         *
+         * The store comes from the RESOLVED DRIVER, not from request input — the same direction the
+         * review deleter uses (GAP-242), and necessary here because this handler never resolves a
+         * `$store` of its own. A driver with a null `store_id` resolves no store and is refused.
+         *
+         * THE DRIVER'S OWN ROW IS EXEMPT, AND THAT IS NOT A WEAKENING — IT IS THE LIMB THIS HELPER
+         * EXISTS FOR. `resolveManageableDeliveryBoy()` admits a caller acting on THEMSELVES first
+         * (`:5375-5379`, a `DeliveryBoy` on the `deliveryboy` guard), which is how a driver signs
+         * themselves out and maintains their own profile from the driver app. A merchant permission
+         * cannot be held by a `DeliveryBoy` at all, so the limb below would refuse every driver on
+         * their own account. `DeliveryAndOrderApiAuthorizationTest::test_a_driver_can_still_log_
+         * themselves_out` names that self-service limb and caught this when the first version of
+         * these gates omitted the exemption. The permission is required only when the caller is
+         * acting on SOMEONE ELSE.
+         */
+        if (! empty($deliveryboy)) {
+            $self = auth('deliveryboy')->user();
+            $actingOnSelf = $self && (int) $self->id === (int) $deliveryboy->id;
+
+            if (! $actingOnSelf) {
+                $driverStore = \App\Models\Store::find($deliveryboy->store_id);
+
+                if (empty($driverStore) || ! $this->callerMayActInStore(['Edit Deliveryboy'], $driverStore->id)) {
+                    return $this->storePermissionDenied();
+                }
+            }
+        }
+
         $dir        = 'uploads';
 
         if (!empty($deliveryboy)) {
@@ -6463,6 +6568,51 @@ public function changeProfile(Request $request)
         // service against a delivery fleet from one request body field.
         $user = $this->resolveManageableDeliveryBoy($request->user_id);
 
+        /*
+         * GAP-251 / P4-F120 — AN AVAILABILITY WRITE: revokes ANY tenant driver's tokens, repeatedly.
+         * Measured: an unpermissioned staff member deleted a target driver's
+         * `personal_access_tokens` rows, signing them out of the shipped driver app.
+         * `$request->user_id` is not even validated as present.
+         *
+         * `Edit Deliveryboy` IS CHOSEN BY ANALOGY AND THAT IS FLAGGED, because it is the only
+         * name here not copied from a web twin: there is no standalone driver-logout action on
+         * the web at all. The web revokes a driver's tokens only INSIDE a password reset
+         * (`DeliveryBoyController:251`, gated on `Reset password Deliveryboy`). Acting on a
+         * driver's account is what `Edit Deliveryboy` governs on the two sibling doors, so it is
+         * the closest existing right; if the owner would rather this needed the reset
+         * permission, it is a one-word change and the test names the choice.
+         *
+         * `resolveManageableDeliveryBoy()` above settles TENANCY (it replaced a bare
+         * `DeliveryBoy::find($request->id)` that reached every tenant). It settles nothing about
+         * who INSIDE the store may do this, so every employee could.
+         *
+         * The store comes from the RESOLVED DRIVER, not from request input — the same direction the
+         * review deleter uses (GAP-242), and necessary here because this handler never resolves a
+         * `$store` of its own. A driver with a null `store_id` resolves no store and is refused.
+         *
+         * THE DRIVER'S OWN ROW IS EXEMPT, AND THAT IS NOT A WEAKENING — IT IS THE LIMB THIS HELPER
+         * EXISTS FOR. `resolveManageableDeliveryBoy()` admits a caller acting on THEMSELVES first
+         * (`:5375-5379`, a `DeliveryBoy` on the `deliveryboy` guard), which is how a driver signs
+         * themselves out and maintains their own profile from the driver app. A merchant permission
+         * cannot be held by a `DeliveryBoy` at all, so the limb below would refuse every driver on
+         * their own account. `DeliveryAndOrderApiAuthorizationTest::test_a_driver_can_still_log_
+         * themselves_out` names that self-service limb and caught this when the first version of
+         * these gates omitted the exemption. The permission is required only when the caller is
+         * acting on SOMEONE ELSE.
+         */
+        if (! empty($user)) {
+            $self = auth('deliveryboy')->user();
+            $actingOnSelf = $self && (int) $self->id === (int) $user->id;
+
+            if (! $actingOnSelf) {
+                $driverStore = \App\Models\Store::find($user->store_id);
+
+                if (empty($driverStore) || ! $this->callerMayActInStore(['Edit Deliveryboy'], $driverStore->id)) {
+                    return $this->storePermissionDenied();
+                }
+            }
+        }
+
         if (!empty($user)) {
             return $this->success([
                 'message' => __('User Logout'),
@@ -6494,6 +6644,44 @@ public function changeProfile(Request $request)
         // holder of any valid token DELETED any delivery boy account on the
         // platform. Irreversible.
         $user = $this->resolveManageableDeliveryBoy($request->user_id);
+
+        /*
+         * GAP-251 / P4-F120 — IRREVERSIBLE: deletes a `delivery_boys` row. Measured: an unpermissioned
+         * staff member deleted a driver account and got `{status:1}` "User Deleted
+         * successfully". The sibling `deliveryboysDestroy/{id}` already requires
+         * `Delete Deliveryboy` (closed 2026-11-25); this is the same capability on a second,
+         * ungated door.
+         *
+         * `resolveManageableDeliveryBoy()` above settles TENANCY (it replaced a bare
+         * `DeliveryBoy::find($request->id)` that reached every tenant). It settles nothing about
+         * who INSIDE the store may do this, so every employee could.
+         *
+         * The store comes from the RESOLVED DRIVER, not from request input — the same direction the
+         * review deleter uses (GAP-242), and necessary here because this handler never resolves a
+         * `$store` of its own. A driver with a null `store_id` resolves no store and is refused.
+         *
+         * THE DRIVER'S OWN ROW IS EXEMPT, AND THAT IS NOT A WEAKENING — IT IS THE LIMB THIS HELPER
+         * EXISTS FOR. `resolveManageableDeliveryBoy()` admits a caller acting on THEMSELVES first
+         * (`:5375-5379`, a `DeliveryBoy` on the `deliveryboy` guard), which is how a driver signs
+         * themselves out and maintains their own profile from the driver app. A merchant permission
+         * cannot be held by a `DeliveryBoy` at all, so the limb below would refuse every driver on
+         * their own account. `DeliveryAndOrderApiAuthorizationTest::test_a_driver_can_still_log_
+         * themselves_out` names that self-service limb and caught this when the first version of
+         * these gates omitted the exemption. The permission is required only when the caller is
+         * acting on SOMEONE ELSE.
+         */
+        if (! empty($user)) {
+            $self = auth('deliveryboy')->user();
+            $actingOnSelf = $self && (int) $self->id === (int) $user->id;
+
+            if (! $actingOnSelf) {
+                $driverStore = \App\Models\Store::find($user->store_id);
+
+                if (empty($driverStore) || ! $this->callerMayActInStore(['Delete Deliveryboy'], $driverStore->id)) {
+                    return $this->storePermissionDenied();
+                }
+            }
+        }
 
         if (!empty($user)) {
             $user->delete();

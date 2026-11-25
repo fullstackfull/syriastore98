@@ -1377,15 +1377,45 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
             'password' => 'census4-colleague',
             'password_confirmation' => 'census4-colleague',
         ]);
-        $this->assertAdmitted(
+        /*
+         * CONVERTED 2026-11-25 (GAP-251 / P4-F120). The lateral write between colleagues is now
+         * refused: the gate ports `UserPolicy::resetPassword` -- the policy the WEB's own
+         * `UserController::updatePassword` uses -- rather than choosing a permission name by
+         * analogy.
+         *
+         * WITH A SELF EXCEPTION, and leg (i) above is why. This endpoint serves two purposes, and
+         * the first version of the gate refused an ordinary staff member changing their OWN
+         * password -- a self-service regression the shipped app would have hit. This pin caught it.
+         */
+        $this->assertRefused(
             $sideways,
-            'unpermissioned staff changing a COLLEAGUE\'s password (UNGATED on the permission '
-            . 'axis — pinned, awaiting a decision)'
+            'unpermissioned staff changing a COLLEAGUE\'s password (GAP-251: gated via '
+            . 'UserPolicy::resetPassword, which requires `Reset Password` after its operator limb)'
+        );
+        $this->assertSame(
+            $colleagueHash,
+            (string) DB::table('users')->where('id', $colleague->id)->value('password'),
+            'the sideways credential write LANDED: one staff member set a colleague\'s password.'
+        );
+
+        /* AND THE GRANT IS WHAT MAKES THE DIFFERENCE -- a holder of `Reset Password` still resets,
+         * because that is exactly what the ported policy admits. */
+        $permitted = $this->staffIn($merchant, $store);
+        $this->grantPermission(User::find($permitted->id), 'Reset Password');
+        $this->assertAdmitted(
+            $this->as(User::find($permitted->id))->postJson('/api/admin/updatepassword', [
+                'store_id' => $store->id,
+                'user_id' => $colleague->id,
+                'old_password' => $known,
+                'password' => 'census4-legit-reset',
+                'password_confirmation' => 'census4-legit-reset',
+            ]),
+            'a holder of `Reset Password` was refused, so the ported policy admits nobody'
         );
         $this->assertNotSame(
             $colleagueHash,
             (string) DB::table('users')->where('id', $colleague->id)->value('password'),
-            'the sideways credential write did not land, so this row is not measuring what it claims.'
+            'the permitted reset did not land'
         );
 
         // (iv) A FOREIGN tenant's merchant may not reach this store at all.
