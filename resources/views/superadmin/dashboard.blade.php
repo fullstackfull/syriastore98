@@ -26,7 +26,19 @@
     <div class="row">
         <div class="col-sm-12 superadmin-wrp">
             <div class="row g-4 mb-4">
-                <x-dashboard-card :count="$platformTotals['stores']" :label="__('Total Store')" :icon="$total_user_icon"
+                {{-- `$platformTotals['stores']` is `User::countCompany()` -- `where('type','admin')
+                     ->where('created_by', creatorId())->count()`, a count of MERCHANT user rows.
+                     `stores` is a separate table and `User::stores()` is a `hasMany`, so one
+                     merchant owns N stores and the two numbers differ by construction.
+
+                     THE LABEL WAS WHAT WAS WRONG, NOT THE FIGURE. This card opens `stores.index`,
+                     whose handler lists type-`admin` USERS, and whose own breadcrumb already reads
+                     `__('Users')`; so the number, the destination and that screen's own heading all
+                     describe merchants. Changing the figure to `Store::count()` would have made the
+                     card disagree with the screen it opens and dropped the merchant count, which
+                     nothing else here states. The per-merchant tiles further down DO count real
+                     stores and keep the words "Total Store" for that reason. --}}
+                <x-dashboard-card :count="$platformTotals['stores']" :label="__('Total Merchants')" :icon="$total_user_icon"
                     :url="route('stores.index')" columnClass="col-xl-4 col-md-6 col-12" />
                 {{-- `PlanOrder::total_orders()` is a bare row count of the SaaS SUBSCRIPTION table, and this
                      card links to `plan.index`, not to any customer order screen. On an operator
@@ -38,7 +50,12 @@
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />
                 <x-dashboard-card :count="$platformTotals['plans']" :label="__('Total Plans')" :icon="$total_plan_icon"
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />
-                <x-dashboard-card :count="$couponName" :label="__('Total Coupon')" :icon="$coupon_icon"
+                {{-- `$couponName` is a coupon NAME, not a count, so "Total Coupon" described
+                     neither its value nor anything on this screen. Relabelled to match the
+                     `Popular Plan` sibling immediately below, which is the same idiom -- a card
+                     whose value is the name of the most-used row -- and is already labelled that
+                     way. Every other "Total X" card here really is a count. --}}
+                <x-dashboard-card :count="$couponName" :label="__('Popular Coupon')" :icon="$coupon_icon"
                     :url="route('plan-coupon.index')" columnClass="col-xl-4 col-md-6 col-12" />
                 <x-dashboard-card :count="$plan_order" :label="__('Popular Plan')" :icon="$plan_order_icon"
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />

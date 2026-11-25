@@ -4544,5 +4544,7 @@
     "People who can be recognised again, counted once each across the whole platform. Every order is counted whatever its payment status. One person with accounts in two stores is counted in each, because nothing links the two accounts.": "الأشخاص الذين يمكن التعرّف عليهم مرة أخرى، ويُحسب كل منهم مرة واحدة على مستوى المنصة بأكملها. وكل طلب محسوب أيًا كانت حالة دفعه. والشخص الواحد الذي لديه حسابان في متجرين يُحسب في كلٍّ منهما، لأن لا شيء يربط الحسابين.",
     "Repeat purchase is measured over the period the financial record can vouch for, and no store has such a period yet. Nothing is reconstructed.": "يُقاس الشراء المتكرر على الفترة التي يمكن للسجل المالي أن يشهد لها، ولا يوجد بعد متجر له مثل هذه الفترة. ولا يُعاد بناء أي شيء.",
     "The period shown is the latest start among the stores included, because a rate across stores is only as complete as its least complete contributor.": "الفترة المعروضة هي أحدث تاريخ بداية بين المتاجر المشمولة، لأن النسبة المحسوبة عبر المتاجر لا تكون أكمل من أقل المتاجر المساهمة اكتمالًا.",
-    "This figure is in :wallet, and your store currency is :store. The two are not converted.": "هذا الرقم بعملة :wallet، وعملة متجرك :store. ولا يُجرى أي تحويل بينهما."
+    "This figure is in :wallet, and your store currency is :store. The two are not converted.": "هذا الرقم بعملة :wallet، وعملة متجرك :store. ولا يُجرى أي تحويل بينهما.",
+    "Total Merchants": "إجمالي التجار",
+    "Popular Coupon": "الكوبون الشعبي"
 }

@@ -254,16 +254,67 @@ class HomeController extends Controller
             ->get();
 
         $plan_order = Plan::most_purchese_plan();
-        $coupons = PlanCoupon::get();
-        $maxValue = 0;
-        $couponName = '';
-        foreach ($coupons as $coupon) {
-            $max = $coupon->used_coupon();
-            if ($max > $maxValue) {
-                $maxValue = $max;
-                $couponName = $coupon->name;
-            }
-        }
+        /*
+         * ONE QUERY FOR THE COUPON RANKING, NOT ONE PER COUPON -- AND NOT A CACHED AGGREGATE.
+         *
+         * This was `PlanCoupon::get()` and then `$coupon->used_coupon()` inside a `foreach`.
+         * `used_coupon()` is `hasMany(PlanUserCoupon::class, ...)->count()` -- it returns an int,
+         * not a relation, so it runs its own `select count(*)` and cannot be eager-loaded.
+         * MEASURED at exactly 12 queries against `plan_user_coupons` for 12 coupons, on every load
+         * of the operator's landing page, unbounded by the number of coupons the platform has.
+         *
+         * THE FIRST FIX FOR THAT WAS `PlanCoupon::withCount('planUserCoupons')`, AND IT WAS WRONG.
+         * `PlanCoupon` is `Cachable`, so a `withCount` aggregate is cached under the model being
+         * queried -- `plan_coupons`. A redemption writes `plan_user_coupons`, which invalidates
+         * that model's cache and NOT this one, so the ranking kept naming the previous winner.
+         * MEASURED on MySQL with the array store: after two further redemptions moved the lead,
+         * `withCount` still answered the old coupon at its old count, while the `used_coupon()` it
+         * replaced answered correctly. The old code was accidentally FRESH because its count was a
+         * query on `PlanUserCoupon` itself.
+         *
+         * So the ranking is grouped on `PlanUserCoupon` -- THE TABLE THE REDEMPTIONS ARE WRITTEN
+         * TO, which is the part that fixes it. A query on that model caches under
+         * `plan_user_coupons`, and a redemption write invalidates exactly that, so the figure
+         * follows the data for the same reason the original loop did.
+         *
+         * `toBase()` IS DEFENSIVE AND NOT WHAT MAKES IT FRESH -- measured, because a mutation that
+         * removed it SURVIVED `PlanCouponRankingFreshnessTest`. It is kept for two other reasons:
+         * it avoids hydrating an Eloquent `PlanUserCoupon` out of a row that holds only
+         * `coupon_id` and a count, and it is the shape
+         * `PlatformAnalyticsFigures::topStoresByPageViews()` already uses for a ranking on this
+         * screen. Nothing in the suite pins it; removing it would not be a defect.
+         *
+         * `toBase()` drops Eloquent global scopes, which is safe here and was checked rather than
+         * assumed: `PlanUserCoupon` has NO global scopes and is not in `config/tenancy.php`'s
+         * `scoped_models`, as these SaaS tables are platform-level and this handler is reached only
+         * by the operator. `Plan::most_purchese_plan()` does the same for the card beside this one,
+         * so the two figures on this screen are now the same shape.
+         *
+         * `used_coupon()` IS UNTOUCHED. It is called from about 120 sites -- every payment
+         * controller's exhaustion check -- and `PlanCouponRefusalPersistsNothingTest` and
+         * `verify-plan-coupon-refusal-ordering-on-mysql.php` both pin its platform-wide meaning.
+         *
+         * BOTH SEMANTICS OF THE ORIGINAL ARE PRESERVED, and both are pinned by
+         * `OperatorDashboardCardLabelsTest`:
+         *   - A coupon nobody has redeemed never wins. The loop started `$maxValue = 0` and used
+         *     `>`, so a zero count never set a name; a coupon with no rows is not in the GROUP BY
+         *     at all, which is the same outcome by construction.
+         *   - A tie goes to the lowest id. `>` never displaces an equal count and `get()` returns
+         *     primary-key order, so the FIRST of a tie won; hence `orderBy('coupon_id')`.
+         * `PlanCouponRankingFreshnessTest` pins the staleness this replaced.
+         */
+        $mostRedeemed = \App\Models\PlanUserCoupon::query()
+            ->selectRaw('coupon_id, COUNT(*) as redemptions')
+            ->groupBy('coupon_id')
+            ->orderByDesc('redemptions')
+            ->orderBy('coupon_id')
+            ->limit(1)
+            ->toBase()
+            ->first();
+
+        $couponName = $mostRedeemed === null
+            ? ''
+            : (string) (PlanCoupon::find((int) $mostRedeemed->coupon_id)?->name ?? '');
 
         /*
          * P05-14 / P05-19 (GAP-162, GAP-167). THE ONE DELIBERATELY CROSS-TENANT MONEY FIGURE ON

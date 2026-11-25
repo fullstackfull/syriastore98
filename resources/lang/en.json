@@ -4548,5 +4548,7 @@
     "People who can be recognised again, counted once each across the whole platform. Every order is counted whatever its payment status. One person with accounts in two stores is counted in each, because nothing links the two accounts.": "People who can be recognised again, counted once each across the whole platform. Every order is counted whatever its payment status. One person with accounts in two stores is counted in each, because nothing links the two accounts.",
     "Repeat purchase is measured over the period the financial record can vouch for, and no store has such a period yet. Nothing is reconstructed.": "Repeat purchase is measured over the period the financial record can vouch for, and no store has such a period yet. Nothing is reconstructed.",
     "The period shown is the latest start among the stores included, because a rate across stores is only as complete as its least complete contributor.": "The period shown is the latest start among the stores included, because a rate across stores is only as complete as its least complete contributor.",
-    "This figure is in :wallet, and your store currency is :store. The two are not converted.": "This figure is in :wallet, and your store currency is :store. The two are not converted."
+    "This figure is in :wallet, and your store currency is :store. The two are not converted.": "This figure is in :wallet, and your store currency is :store. The two are not converted.",
+    "Total Merchants": "Total Merchants",
+    "Popular Coupon": "Popular Coupon"
 }
