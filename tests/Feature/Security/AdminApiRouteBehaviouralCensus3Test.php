@@ -119,6 +119,17 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
 
     private Store $outsiderStore;
 
+    /**
+     * The unlimited plan `seedPlan()` puts every principal on.
+     *
+     * HELD ON THE INSTANCE BECAUSE `staffIn()` IS ALSO CALLED FROM TESTS, after that one-off
+     * `users` update, and `AddProduct` dereferences `Plan::find($user->plan_id)->max_products`
+     * with no null check -- so a staff member minted inside a test answered
+     * `Attempt to read property "max_products" on null` AFTER passing the gate, which reads as a
+     * gate refusing everybody. Measured while inverting the `addproduct` pin on 2026-11-25.
+     */
+    private ?int $planId = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -166,6 +177,11 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     {
         $staff = $this->makeStaff($owner);
         $staff->current_store = $store->id;
+
+        if ($this->planId !== null) {
+            $staff->plan_id = $this->planId;
+        }
+
         $staff->save();
 
         if ($permission !== null) {
@@ -221,6 +237,8 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
 
         DB::table('users')->update(['plan_id' => $planId]);
         (new User)->flushCache();
+
+        $this->planId = $planId;
 
         foreach (['operator', 'merchant', 'staff', 'colleague', 'outsider'] as $property) {
             $this->{$property} = User::find($this->{$property}->id);
@@ -404,7 +422,7 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     // ╔══════════════════════════════════════════════════════════════════════════════════════════════╗
-    // ║  1. addcategory — UNGATED (reaches the INSERT and dies on a NOT NULL column)                 ║
+    // ║  1. addcategory — GATED 2026-11-25 (and the INSERT is still broken, separately)              ║
     // ╚══════════════════════════════════════════════════════════════════════════════════════════════╝
 
     private function addCategory(User $u, int $storeId, string $name): TestResponse
@@ -420,65 +438,75 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     /**
-     * MEASUREMENT AWAITING A FIX — `AddCategory` (`DashboardController:1883`) asks only
-     * `resolveOwnedStore()`, which is TENANCY. There is no permission limb, so an unpermissioned staff
-     * member is admitted all the way to the `INSERT`.
+     * GATED 2026-11-25 by `callerMayActInStore(['Create Product Category'])` -> explicit 403.
      *
-     * HOW "ADMITTED" IS PROVED HERE WITHOUT A ROW. The insert fails: `categories.slug` is
-     * `NOT NULL` with no default (`2023_12_25_093024_create_categories_table.php:17`) and the handler
-     * never sets it — so the request ends in an integrity-constraint 500 for EVERY principal, the
-     * owner included. **Reaching that 500 is itself the proof of admission**, because every refusal in
-     * this handler returns before the insert. The staff member and the owner are measured to get the
-     * SAME answer, which is the whole finding: the gate is not there.
+     * WHAT THIS PINNED BEFORE: `AddCategory` asked only a tenancy predicate, so an unpermissioned
+     * staff member was admitted all the way to the `INSERT`. The name the gate took is the web
+     * twin's own -- `CategoryController::store()` gates on `Create Product Category` (`:54`) and
+     * the screen on `Manage Product Category` (`:26`), both seeded by `Utility.php`. (An earlier
+     * draft of this docblock said `Create Main Category` / `MaincategoryController`; neither
+     * exists, which is the same class of mistake as the token census this file replaces, so the
+     * names were checked against `Utility.php` and against the controller rather than guessed from
+     * the route's wording.)
      *
-     * The second, separate finding this pins: **`AddCategory` cannot create a category on any engine
-     * that enforces NOT NULL**, which this repository's MariaDB does (STRICT_TRANS_TABLES). Both the
-     * missing permission limb and the missing slug are reported, not fixed — this file owns no app code.
+     * THE SECOND FINDING IS UNCHANGED AND IS STILL PINNED HERE: **`AddCategory` cannot create a
+     * category on any engine that enforces NOT NULL.** `categories.slug` is `NOT NULL` with no
+     * default (`2023_12_25_093024_create_categories_table.php:17`) and the handler never sets it,
+     * so every principal the gate ADMITS ends in an integrity-constraint 500 -- the owner included,
+     * and production's MariaDB enforces it (STRICT_TRANS_TABLES). The permission gate does not
+     * touch that and must not be reported as touching it.
      *
-     * The web twin is `CategoryController`, which gates `store()` on `Create Product Category`
-     * (`:54`) and the screen on `Manage Product Category` (`:26`) — both seeded by `Utility.php`.
-     * Those are the names a fix should use. (An earlier draft of this docblock said
-     * `Create Main Category` / `MaincategoryController`; neither exists, which is the same class of
-     * mistake as the token census this file replaces, so the names here were checked against
-     * `Utility.php` and against the controller rather than guessed from the route's wording.)
+     * SO THE ADMITTED LEGS ARE 500 AND THAT IS THE PROOF OF ADMISSION, because every refusal in
+     * this handler returns before the insert. The message is asserted so a DIFFERENT 500 cannot
+     * stand in for it. What changed is the STAFF leg: 500 (admitted) -> 403 (refused).
      */
-    public function test_UNGATED_addcategory_admits_unpermissioned_staff_to_the_insert(): void
+    public function test_GATED_addcategory(): void
     {
         $before = DB::table('categories')->count();
 
         $staffResponse = $this->addCategory($this->staff, $this->store->id, 'CENSUS-STAFF-CATEGORY');
 
-        $this->assertSame(500, $staffResponse->status(),
-            'addcategory no longer answers 500 for unpermissioned staff. If it now answers 403, a '
-            . 'permission gate has been added and this census row should become an assertRefused() '
-            . 'case. If it now answers success, categories.slug has been fixed and the route is '
-            . 'ungated AND working. Body: ' . $this->body($staffResponse));
+        $this->assertSame(403, $staffResponse->status(),
+            'addcategory admitted unpermissioned staff. A 500 here means the gate is gone and the '
+            . 'caller reached the INSERT again. Body: ' . $this->body($staffResponse));
+        $this->assertRefused($staffResponse, 'addcategory');
+        $this->assertSame($before, DB::table('categories')->count(),
+            'the refused call still created a category');
 
-        /* EITHER ENGINE'S WORDING. SQLite says `NOT NULL constraint failed: categories.slug`; MySQL in
-           STRICT_TRANS_TABLES says `Field 'slug' doesn't have a default value`. The suite runs on
-           SQLite, but this file's finding is about production's MariaDB, so the assertion accepts the
-           message either engine would produce rather than pinning the test to the weaker one. */
-        $this->assertMatchesRegularExpression(
-            "/categories\.slug|Field 'slug'/",
-            (string) $staffResponse->getContent(),
-            'the 500 is no longer the missing-slug write failure, so it is no longer evidence that '
-            . 'the handler reached its INSERT. Body: ' . $this->body($staffResponse)
-        );
+        /* THE CONTROL, ON BOTH LIMBS OF THE GATE: a colleague who differs only in holding the name,
+           and the store's own owner, who holds no permission at all and must not be locked out.
+           EITHER ENGINE'S WORDING is accepted for the insert failure -- SQLite says
+           `NOT NULL constraint failed: categories.slug`, MySQL in STRICT_TRANS_TABLES says
+           `Field 'slug' doesn't have a default value` -- because this file's finding is about
+           production's MariaDB and pinning the weaker message would hide the stronger one. */
+        foreach ([
+            'staff granted `Create Product Category`'
+                => $this->staffIn($this->merchant, $this->store, 'Create Product Category'),
+            "the store's own owner" => $this->merchant,
+        ] as $who => $principal) {
+            $response = $this->addCategory($principal, $this->store->id, 'CENSUS-ADMITTED-CATEGORY');
 
-        /* The owner gets the identical answer — that is what makes the above a missing gate rather
-           than a staff-specific refusal. */
-        $ownerResponse = $this->addCategory($this->merchant, $this->store->id, 'CENSUS-OWNER-CATEGORY');
-        $this->assertSame(500, $ownerResponse->status(),
-            'the owner no longer reaches the same INSERT, so the two legs no longer compare');
+            $this->assertSame(500, $response->status(),
+                $who . ' no longer reaches the INSERT. A 403 here is a LOCKOUT, not a gate; a '
+                . 'success means categories.slug has been fixed and this leg should assert the row '
+                . 'instead. Body: ' . $this->body($response));
+            $this->assertMatchesRegularExpression(
+                "/categories\.slug|Field 'slug'/",
+                (string) $response->getContent(),
+                $who . ': the 500 is no longer the missing-slug write failure, so it is no longer '
+                . 'evidence that this principal reached the insert. Body: ' . $this->body($response)
+            );
+        }
 
         $this->assertSame($before, DB::table('categories')->count(),
             'a category row landed despite the NOT NULL failure');
 
-        /* TENANCY HOLDS: the outsider never reaches the insert. */
+        /* TENANCY HOLDS, and keeps its own answer: the gate sits BELOW the tenancy predicate, so an
+           outsider still gets `Store not found!` rather than a permission refusal. */
         $outsiderResponse = $this->addCategory($this->outsider, $this->store->id, 'CENSUS-OUTSIDER-CATEGORY');
         $this->assertSame(200, $outsiderResponse->status());
         $this->assertSame(0, $this->envelope($outsiderResponse),
-            'another tenant\'s merchant was not refused by resolveOwnedStore()');
+            'another tenant\'s merchant was not refused by the tenancy predicate');
         $this->assertSame('Store not found!', $outsiderResponse->json('data.message'));
     }
 
@@ -521,7 +549,7 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     // ╔══════════════════════════════════════════════════════════════════════════════════════════════╗
-    // ║  3. addproduct — UNGATED, and it is a PRICE write                                            ║
+    // ║  3. addproduct — GATED 2026-11-25 (it is a PRICE write)                                      ║
     // ╚══════════════════════════════════════════════════════════════════════════════════════════════╝
 
     private function addProduct(User $u, int $storeId, string $name, float $price): TestResponse
@@ -542,37 +570,58 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     /**
-     * MEASUREMENT AWAITING A FIX — `AddProduct` (`DashboardController:3323`) checks
-     * `OperatorCatalogueWrite::refuses()` (the PLATFORM OPERATOR only) and `resolveOwnedStore()`
-     * (tenancy). It asks nothing about what the caller may do inside the store, so an unpermissioned
-     * staff member publishes a sellable product — with its own `price` and `product_stock`.
+     * GATED 2026-11-25 by `callerMayActInStore(['Create Product'])` -> explicit 403.
      *
-     * THIS IS THE MONEY ROW OF THIS GROUP. `products.price` is what a shopper is charged, and the
-     * assertion below reads the written price back rather than trusting the success envelope, because
-     * `success()` and `error()` are both HTTP 200 here.
+     * WHAT THIS PINNED BEFORE, AND IT WAS THE MONEY ROW OF THIS GROUP: `AddProduct` checked
+     * `OperatorCatalogueWrite::refuses()` (the PLATFORM OPERATOR only -- the opposite axis) and a
+     * tenancy predicate, and asked nothing about what the caller may do inside the store. So an
+     * unpermissioned staff member published a sellable product with its own `price` and
+     * `product_stock`, and `products.price` is what a shopper is charged.
      *
-     * The web twin is `ProductController`, which gates creation on `Create Product` (`:571`, `:614`)
-     * and the catalogue screen on `Manage Products` (`:475`). Those are the names a fix should use.
+     * `Create Product` is the web twin's own name: `ProductController::store()` gates creation on
+     * it (`:571`, `:614`), while the catalogue SCREEN uses `Manage Products` (`:475`) and the
+     * EDITOR uses the plural `Edit Products`, which is what the sibling `UpdateProduct` took
+     * (GAP-250). Three names, three doors, each read from the twin rather than chosen.
+     *
+     * THE GATE IS BELOW THE F206 OPERATOR REFUSAL, so the platform operator keeps
+     * `OperatorCatalogueWrite`'s own answer here -- that was an owner decision and must not be
+     * reworded into a permission refusal. `OperatorCatalogueWriteTest` pins it.
+     *
+     * The write legs read the ROW back rather than trusting the envelope, because `success()` and
+     * `error()` are both HTTP 200 here.
      */
-    public function test_UNGATED_addproduct_lets_unpermissioned_staff_publish_a_priced_product(): void
+    public function test_GATED_addproduct(): void
     {
         $response = $this->addProduct($this->staff, $this->store->id, 'CENSUS-STAFF-PRODUCT', 1234.5);
 
-        $this->assertSame(1, $this->envelope($response),
-            'addproduct now refuses unpermissioned staff — a gate has been added, which is the fix '
-            . 'this row was waiting for. Body: ' . $this->body($response));
+        $this->assertSame(403, $response->status(),
+            'addproduct admitted unpermissioned staff: ' . $this->body($response));
+        $this->assertRefused($response, 'addproduct');
+        $this->assertSame(0, DB::table('products')->where('name', 'CENSUS-STAFF-PRODUCT')->count(),
+            'UNPERMISSIONED STAFF PUBLISHED A PRICED PRODUCT through api/admin/addproduct');
 
-        $row = DB::table('products')->where('name', 'CENSUS-STAFF-PRODUCT')->first();
+        /* THE CONTROL: a colleague of the same store differing only in holding the name. Without
+           it the refusal above is equally satisfied by a gate that admits nobody. */
+        $permitted = $this->addProduct(
+            $this->staffIn($this->merchant, $this->store, 'Create Product'),
+            $this->store->id,
+            'CENSUS-PERMITTED-PRODUCT',
+            11.0
+        );
+        $this->assertSame(1, $this->envelope($permitted),
+            'addproduct refused the holder of `Create Product`: ' . $this->body($permitted));
+
+        $row = DB::table('products')->where('name', 'CENSUS-PERMITTED-PRODUCT')->first();
         $this->assertNotNull($row,
-            'the success envelope is not matched by a row, so this case no longer measures a write');
+            'the permitted caller got a success envelope and no product landed, so this door '
+            . 'cannot publish at all and the refusal above measures nothing');
         $this->assertSame((int) $this->store->id, (int) $row->store_id);
-        $this->assertEqualsWithDelta(1234.5, (float) $row->price, 0.01,
-            'UNPERMISSIONED STAFF SET A SELLING PRICE through api/admin/addproduct');
-        $this->assertSame(7, (int) $row->product_stock,
-            'UNPERMISSIONED STAFF SET STOCK through api/admin/addproduct');
+        $this->assertEqualsWithDelta(11.0, (float) $row->price, 0.01);
+        $this->assertSame(7, (int) $row->product_stock);
 
         $owner = $this->addProduct($this->merchant, $this->store->id, 'CENSUS-OWNER-PRODUCT', 10.0);
         $this->assertSame(1, $this->envelope($owner), 'the owner was refused: ' . $this->body($owner));
+        $this->assertSame(1, DB::table('products')->where('name', 'CENSUS-OWNER-PRODUCT')->count());
 
         $outsider = $this->addProduct($this->outsider, $this->store->id, 'CENSUS-OUTSIDER-PRODUCT', 10.0);
         $this->assertSame(0, $this->envelope($outsider), 'another tenant published into this store');
@@ -580,7 +629,7 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     // ╔══════════════════════════════════════════════════════════════════════════════════════════════╗
-    // ║  4. addproductbrand — UNGATED                                                                ║
+    // ║  4. addproductbrand — GATED 2026-11-25                                                       ║
     // ╚══════════════════════════════════════════════════════════════════════════════════════════════╝
 
     private function addProductBrand(User $u, int $storeId, string $name): TestResponse
@@ -595,26 +644,38 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     /**
-     * MEASUREMENT AWAITING A FIX — `AddProductBrand` (`:6569`) resolves the store and nothing else.
-     * An unpermissioned staff member creates a brand, uploads its logo (consuming the OWNER's plan
-     * storage quota through `Utility::updateStorageLimit($user->creatorId(), …)`) and stamps it with
-     * `store_id = getCurrentStore()`.
+     * GATED 2026-11-25 by `callerMayActInStore(['Create Product Brand'])` -> explicit 403, the name
+     * the web twin `ProductBrandController::store()` already used (`:41`, `:53`; the screen uses
+     * `Manage Product Brand`, `:18`).
      *
-     * The web twin is `ProductBrandController`, which gates `store()` on `Create Product Brand`
-     * (`:41`, `:53`) and the screen on `Manage Product Brand` (`:18`).
+     * WHAT THIS PINNED BEFORE: the handler resolved the store and nothing else, so an
+     * unpermissioned staff member created a brand and uploaded its logo -- consuming the OWNER's
+     * plan storage quota through `Utility::updateStorageLimit($user->creatorId(), …)`.
      */
-    public function test_UNGATED_addproductbrand_lets_unpermissioned_staff_create_a_brand(): void
+    public function test_GATED_addproductbrand(): void
     {
         $response = $this->addProductBrand($this->staff, $this->store->id, 'CENSUS-STAFF-BRAND');
 
-        $this->assertSame(1, $this->envelope($response),
-            'addproductbrand now refuses unpermissioned staff — the fix this row was waiting for. '
-            . 'Body: ' . $this->body($response));
-        $this->assertSame(1, DB::table('product_brands')->where('name', 'CENSUS-STAFF-BRAND')->count(),
-            'the success envelope is not matched by a row, so this case no longer measures a write');
+        $this->assertSame(403, $response->status(),
+            'addproductbrand admitted unpermissioned staff: ' . $this->body($response));
+        $this->assertRefused($response, 'addproductbrand');
+        $this->assertSame(0, DB::table('product_brands')->where('name', 'CENSUS-STAFF-BRAND')->count(),
+            'the refused call still created a brand');
+
+        $permitted = $this->addProductBrand(
+            $this->staffIn($this->merchant, $this->store, 'Create Product Brand'),
+            $this->store->id,
+            'CENSUS-PERMITTED-BRAND'
+        );
+        $this->assertSame(1, $this->envelope($permitted),
+            'addproductbrand refused the holder of `Create Product Brand`: ' . $this->body($permitted));
+        $this->assertSame(1, DB::table('product_brands')->where('name', 'CENSUS-PERMITTED-BRAND')->count(),
+            'the permitted caller was admitted and no brand landed, so the refusal above measures '
+            . 'nothing');
 
         $owner = $this->addProductBrand($this->merchant, $this->store->id, 'CENSUS-OWNER-BRAND');
         $this->assertSame(1, $this->envelope($owner), 'the owner was refused: ' . $this->body($owner));
+        $this->assertSame(1, DB::table('product_brands')->where('name', 'CENSUS-OWNER-BRAND')->count());
 
         $outsider = $this->addProductBrand($this->outsider, $this->store->id, 'CENSUS-OUTSIDER-BRAND');
         $this->assertSame(0, $this->envelope($outsider), 'another tenant created a brand in this store');
@@ -622,7 +683,7 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     // ╔══════════════════════════════════════════════════════════════════════════════════════════════╗
-    // ║  5. addproductlable — UNGATED                                                                ║
+    // ║  5. addproductlable — GATED 2026-11-25                                                       ║
     // ╚══════════════════════════════════════════════════════════════════════════════════════════════╝
 
     private function addProductLabel(User $u, int $storeId, string $name): TestResponse
@@ -635,22 +696,36 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     /**
-     * MEASUREMENT AWAITING A FIX — `AddProductLable` (`:6801`) resolves the store, validates a name
-     * and writes. No permission limb. The web twin is `ProductLabelController`, which gates the
-     * screen on `Manage Product Label` (`:16`) and creation on `Create Product Label`.
+     * GATED 2026-11-25 by `callerMayActInStore(['Create Product Label'])` -> explicit 403, the name
+     * the web twin `ProductLabelController::store()` already used (the screen uses
+     * `Manage Product Label`, `:16`).
+     *
+     * WHAT THIS PINNED BEFORE: the handler resolved the store, validated a name and wrote. No
+     * permission limb.
      */
-    public function test_UNGATED_addproductlable_lets_unpermissioned_staff_create_a_label(): void
+    public function test_GATED_addproductlable(): void
     {
         $response = $this->addProductLabel($this->staff, $this->store->id, 'CENSUS-STAFF-LABEL');
 
-        $this->assertSame(1, $this->envelope($response),
-            'addproductlable now refuses unpermissioned staff — the fix this row was waiting for. '
-            . 'Body: ' . $this->body($response));
-        $this->assertSame(1, DB::table('product_labels')->where('name', 'CENSUS-STAFF-LABEL')->count(),
-            'the success envelope is not matched by a row');
+        $this->assertSame(403, $response->status(),
+            'addproductlable admitted unpermissioned staff: ' . $this->body($response));
+        $this->assertRefused($response, 'addproductlable');
+        $this->assertSame(0, DB::table('product_labels')->where('name', 'CENSUS-STAFF-LABEL')->count(),
+            'the refused call still created a label');
+
+        $permitted = $this->addProductLabel(
+            $this->staffIn($this->merchant, $this->store, 'Create Product Label'),
+            $this->store->id,
+            'CENSUS-PERMITTED-LABEL'
+        );
+        $this->assertSame(1, $this->envelope($permitted),
+            'addproductlable refused the holder of `Create Product Label`: ' . $this->body($permitted));
+        $this->assertSame(1, DB::table('product_labels')->where('name', 'CENSUS-PERMITTED-LABEL')->count(),
+            'the permitted caller was admitted and no label landed');
 
         $owner = $this->addProductLabel($this->merchant, $this->store->id, 'CENSUS-OWNER-LABEL');
         $this->assertSame(1, $this->envelope($owner), 'the owner was refused: ' . $this->body($owner));
+        $this->assertSame(1, DB::table('product_labels')->where('name', 'CENSUS-OWNER-LABEL')->count());
 
         $outsider = $this->addProductLabel($this->outsider, $this->store->id, 'CENSUS-OUTSIDER-LABEL');
         $this->assertSame(0, $this->envelope($outsider), 'another tenant created a label in this store');
@@ -658,7 +733,7 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     // ╔══════════════════════════════════════════════════════════════════════════════════════════════╗
-    // ║  6. addreview — UNGATED, and it fabricates a review in a named customer's name               ║
+    // ║  6. addreview — GATED 2026-11-25; the FABRICATED AUTHOR is a second, still-open finding      ║
     // ╚══════════════════════════════════════════════════════════════════════════════════════════════╝
 
     private function addReview(User $u, int $storeId, int $productId, int $customerId, string $title): TestResponse
@@ -675,39 +750,58 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     /**
-     * MEASUREMENT AWAITING A FIX — `AddReview` (`:4001`) resolves the store, checks the product
-     * belongs to it, and writes a `Testimonial`. No permission limb.
+     * GATED 2026-11-25 by `callerMayActInStore(['Create Testimonial'])` -> explicit 403, the name
+     * the web twin `TestimonialController::store()` already used (`:55`; the screen uses
+     * `Manage Testimonial`, `:25`). Both are seeded by `Utility.php`, and the twin writes the same
+     * `Testimonial` model.
      *
-     * WHAT MAKES THIS WORSE THAN A CATALOGUE WRITE: `user_id` is taken STRAIGHT FROM REQUEST INPUT and
-     * is a `customers.id`. So an unpermissioned staff member publishes a live, 5-star, `status = 1`
-     * review ATTRIBUTED TO A REAL SHOPPER of that store, and `Testimonial::AvregeRating()` folds it
-     * into the product's displayed `average_rating`.
+     * WHAT THIS PINNED BEFORE, AND WHY IT WAS WORSE THAN A CATALOGUE WRITE: `user_id` is taken
+     * STRAIGHT FROM REQUEST INPUT and is a `customers.id`, so an unpermissioned staff member
+     * published a live, 5-star, `status = 1` review ATTRIBUTED TO A REAL SHOPPER of that store, and
+     * `Testimonial::AvregeRating()` folded it into the product's displayed `average_rating`.
      *
-     * The web twin is `TestimonialController` — the same `Testimonial` model — which gates `store()`
-     * on `Create Testimonial` (`:55`) and the screen on `Manage Testimonial` (`:25`). Those are the
-     * names a fix should use; both are seeded by `Utility.php`.
+     * THE ATTRIBUTION HALF IS NOT FIXED BY THIS GATE and keeps its own case below: a PERMITTED
+     * caller can still name any `user_id`, including another tenant's customer or none at all. A
+     * permission gate is not a validation rule and must not be reported as one.
      */
-    public function test_UNGATED_addreview_lets_unpermissioned_staff_publish_a_review_as_a_customer(): void
+    public function test_GATED_addreview(): void
     {
         $productId = $this->seedProduct($this->store);
         $customerId = $this->seedCustomer($this->store);
 
         $response = $this->addReview($this->staff, $this->store->id, $productId, $customerId, 'CENSUS-STAFF-REVIEW');
 
-        $this->assertSame(1, $this->envelope($response),
-            'addreview now refuses unpermissioned staff — the fix this row was waiting for. '
-            . 'Body: ' . $this->body($response));
+        $this->assertSame(403, $response->status(),
+            'addreview admitted unpermissioned staff: ' . $this->body($response));
+        $this->assertRefused($response, 'addreview');
+        $this->assertSame(0, DB::table('testimonials')->where('title', 'CENSUS-STAFF-REVIEW')->count(),
+            'UNPERMISSIONED STAFF PUBLISHED A REVIEW IN A NAMED CUSTOMER\'S NAME');
 
-        $row = DB::table('testimonials')->where('title', 'CENSUS-STAFF-REVIEW')->first();
-        $this->assertNotNull($row, 'the success envelope is not matched by a row');
-        $this->assertSame($customerId, (int) $row->user_id,
-            'UNPERMISSIONED STAFF PUBLISHED A REVIEW IN A NAMED CUSTOMER\'S NAME — user_id came '
-            . 'straight from request input');
-        $this->assertSame(1, (int) $row->status, 'the fabricated review was published live, not held for moderation');
+        /* THE CONTROL: the same request by a colleague who differs only in holding the name. The
+           row is read back, because the fabricated attribution is the property that makes this
+           door worth gating and a success envelope alone does not show it. */
+        $permittedProduct = $this->seedProduct($this->store);
+        $permitted = $this->addReview(
+            $this->staffIn($this->merchant, $this->store, 'Create Testimonial'),
+            $this->store->id,
+            $permittedProduct,
+            $customerId,
+            'CENSUS-PERMITTED-REVIEW'
+        );
+        $this->assertSame(1, $this->envelope($permitted),
+            'addreview refused the holder of `Create Testimonial`: ' . $this->body($permitted));
+
+        $row = DB::table('testimonials')->where('title', 'CENSUS-PERMITTED-REVIEW')->first();
+        $this->assertNotNull($row,
+            'the permitted caller was admitted and no review landed, so the refusal above measures '
+            . 'nothing');
+        $this->assertSame($customerId, (int) $row->user_id);
+        $this->assertSame(1, (int) $row->status, 'the review was published live, not held for moderation');
 
         $ownerProduct = $this->seedProduct($this->store);
         $owner = $this->addReview($this->merchant, $this->store->id, $ownerProduct, $customerId, 'CENSUS-OWNER-REVIEW');
         $this->assertSame(1, $this->envelope($owner), 'the owner was refused: ' . $this->body($owner));
+        $this->assertSame(1, DB::table('testimonials')->where('title', 'CENSUS-OWNER-REVIEW')->count());
 
         $outsiderProduct = $this->seedProduct($this->store);
         $outsider = $this->addReview($this->outsider, $this->store->id, $outsiderProduct, $customerId, 'CENSUS-OUTSIDER-REVIEW');
@@ -716,29 +810,37 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     }
 
     /**
-     * AND `user_id` IS NOT CHECKED AGAINST ANYTHING AT ALL — a second finding on the same handler,
-     * separated out so that a fix for the permission limb cannot be mistaken for a fix for this.
+     * AND `user_id` IS STILL NOT CHECKED AGAINST ANYTHING AT ALL — a second finding on the same
+     * handler, separated out so that the permission gate above cannot be mistaken for a fix for
+     * this. STILL OPEN after 2026-11-25.
      *
-     * `AddReview` validates `user_id` as `required` and nothing more: no `exists:customers,id`, and no
-     * `store_id` predicate against the customer. The PRODUCT is checked (`where('store_id', $store->id)`)
-     * and the duplicate test is store-scoped, so the tenancy control on the subject of the review is
-     * real — but the ATTRIBUTED AUTHOR is free text. Measured below: an unpermissioned staff member of
-     * store A publishes a review on store A's product in the name of store B's customer id.
+     * `AddReview` validates `user_id` as `required` and nothing more: no `exists:customers,id`, and
+     * no `store_id` predicate against the customer. The PRODUCT is checked
+     * (`where('store_id', $store->id)`) and the duplicate test is store-scoped, so the tenancy
+     * control on the SUBJECT of the review is real — but the ATTRIBUTED AUTHOR is free text.
      *
-     * Why that matters beyond tidiness: `testimonials.user_id` is what a storefront joins on to print
+     * DRIVEN BY A PERMITTED PRINCIPAL NOW, and that rewrite is the point rather than a convenience:
+     * this case used to drive the unpermissioned staff member, so the gate made it red. A case that
+     * merely asserted "it is now refused" would have lost the finding — the missing validation is a
+     * property of the handler for EVERY caller it admits, so the holder of `Create Testimonial` is
+     * the principal that still demonstrates it.
+     *
+     * Why it matters beyond tidiness: `testimonials.user_id` is what a storefront joins on to print
      * the reviewer, and `Customer` IS a `scoped_models` member — so the row written here is one the
      * owning store can neither see nor moderate, pointing at a person who is not their customer.
      */
-    public function test_UNGATED_addreview_accepts_a_user_id_from_another_tenant(): void
+    public function test_addreview_still_accepts_a_user_id_from_another_tenant(): void
     {
+        $author = $this->staffIn($this->merchant, $this->store, 'Create Testimonial');
         $productId = $this->seedProduct($this->store);
         $foreignCustomerId = $this->seedCustomer($this->outsiderStore);
 
-        $response = $this->addReview($this->staff, $this->store->id, $productId, $foreignCustomerId, 'CENSUS-FOREIGN-AUTHOR');
+        $response = $this->addReview($author, $this->store->id, $productId, $foreignCustomerId, 'CENSUS-FOREIGN-AUTHOR');
 
         $this->assertSame(1, $this->envelope($response),
-            'addreview now refuses either the unpermissioned staff member or the foreign user_id — '
-            . 'both are fixes this row was waiting for. Body: ' . $this->body($response));
+            'addreview now refuses either the holder of `Create Testimonial` or the foreign '
+            . 'user_id. The first would be a LOCKOUT; the second is the fix this row is waiting '
+            . 'for. Body: ' . $this->body($response));
 
         $row = DB::table('testimonials')->where('title', 'CENSUS-FOREIGN-AUTHOR')->first();
         $this->assertNotNull($row, 'the success envelope is not matched by a row');
@@ -753,10 +855,16 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
         $this->assertSame(0, DB::table('customers')->where('id', $absent)->count(), 'fixture: that id exists');
 
         $second = $this->seedProduct($this->store);
-        $ghost = $this->addReview($this->staff, $this->store->id, $second, $absent, 'CENSUS-GHOST-AUTHOR');
+        $ghost = $this->addReview($author, $this->store->id, $second, $absent, 'CENSUS-GHOST-AUTHOR');
         $this->assertSame(1, $this->envelope($ghost),
             'addreview now rejects a user_id that matches no customer — the exists: rule has been added');
         $this->assertSame($absent, (int) DB::table('testimonials')->where('title', 'CENSUS-GHOST-AUTHOR')->value('user_id'));
+
+        /* AND THE GATE ABOVE IS STILL THERE, so this case cannot be read as "the door reopened". */
+        $this->assertSame(403,
+            $this->addReview($this->staff, $this->store->id, $this->seedProduct($this->store), $absent, 'CENSUS-UNGATED-AUTHOR')
+                ->status(),
+            'an unpermissioned staff member reached this handler again');
     }
 
     // ╔══════════════════════════════════════════════════════════════════════════════════════════════╗
@@ -1806,6 +1914,13 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
      * The names are each handler's own, read from the source and not invented: `Create Coupon`,
      * `Create Tax`, `Create Shipping Class`, `Manage Order` (twice — `assignOrder` and `orderCancel`),
      * `Create DeliveryBoy`, `Reset password Deliveryboy`, `Manage Setting`.
+     *
+     * SCOPE, STATED SO THE METHOD NAME STAYS TRUE. These are the eight gates this file inherited.
+     * The five added on 2026-11-25 — `addcategory`, `addproduct`, `addproductbrand`,
+     * `addproductlable`, `addreview` — carry this same control INSIDE their own `test_GATED_*`
+     * case, because each needed the permitted leg to read a row back rather than only to flip an
+     * envelope. So the property holds for every gated route in this file; it is measured in two
+     * places rather than one, and a case that lost its permitted leg would fail there.
      */
     public function test_every_gated_route_is_opened_by_the_permission_its_handler_names(): void
     {
@@ -1900,12 +2015,12 @@ class AdminApiRouteBehaviouralCensus3Test extends SecurityTestCase
     public function test_every_one_of_the_thirty_one_routes_has_a_case(): void
     {
         $census = [
-            'addcategory' => 'test_UNGATED_addcategory_admits_unpermissioned_staff_to_the_insert',
+            'addcategory' => 'test_GATED_addcategory',
             'addcoupon' => 'test_GATED_addcoupon',
-            'addproduct' => 'test_UNGATED_addproduct_lets_unpermissioned_staff_publish_a_priced_product',
-            'addproductbrand' => 'test_UNGATED_addproductbrand_lets_unpermissioned_staff_create_a_brand',
-            'addproductlable' => 'test_UNGATED_addproductlable_lets_unpermissioned_staff_create_a_label',
-            'addreview' => 'test_UNGATED_addreview_lets_unpermissioned_staff_publish_a_review_as_a_customer',
+            'addproduct' => 'test_GATED_addproduct',
+            'addproductbrand' => 'test_GATED_addproductbrand',
+            'addproductlable' => 'test_GATED_addproductlable',
+            'addreview' => 'test_GATED_addreview',
             'addshipping' => 'test_GATED_addshipping',
             'addtax' => 'test_GATED_addtax',
             'addvariant' => 'test_addvariant_is_inert_and_refuses_every_principal',

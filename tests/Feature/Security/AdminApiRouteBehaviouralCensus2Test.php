@@ -62,20 +62,27 @@ use PHPUnit\Framework\Attributes\DataProvider;
  *     `flushCache()` or the handler's own Eloquent read would serve the previous principal's row
  *     and the next write would read as "no change".
  *
- * WHAT THE CENSUS FOUND, IN ONE SENTENCE: 19 of these 31 routes answer SUCCESS to a staff member
- * holding no permission at all, three of those 19 LAND A WRITE, and one of them serves the order
+ * WHAT THE CENSUS FOUND, IN ONE SENTENCE: 19 of these 31 routes answered SUCCESS to a staff member
+ * holding no permission at all, three of those 19 LANDED A WRITE, and one of them served the order
  * document — customer name, e-mail, telephone, billing and delivery address, `payment_status` and
- * `final_price` — on a route whose sibling `vieworder` refuses the same principal 403.
+ * `final_price` — on a route whose sibling `vieworder` refused the same principal 403.
+ *
+ * AND ON 2026-11-25 TEN OF THOSE NINETEEN WERE GATED, which is what this file was for. The rows
+ * below now record 21 GATED, 9 UNGATED and 1 row-level, and the ten that moved are collected in
+ * their own dated block with the web twin each permission name came from. The nine that remain are
+ * enumerated in `test_the_ungated_total_is_nine`, with the reason each is still open; three of
+ * them have no single web twin to take a name from, which makes gating them an owner decision.
  *
  * EVERY `UNGATED` ROW IS A MEASUREMENT OF PRESENT BEHAVIOUR, PINNED SO IT CANNOT DRIFT SILENTLY,
  * AND NOT AN ENDORSEMENT. The suite must stay green (`.github/known-test-outcomes.json` asserts
  * the outcome SET in both directions, so a deliberately failing test would break the gate), so
- * each one asserts what the route does TODAY. When a gate is added, THIS TEST WILL FAIL, and that
- * failure is the signal to move the row from `UNGATED` to `GATED` — which is the whole point of
- * recording the census as a test rather than as a document.
+ * each one asserts what the route does TODAY. When a gate is added, THIS TEST FAILS, and that
+ * failure is the signal to move the row from `UNGATED` to `GATED` in the SAME change as the gate —
+ * which is the whole point of recording the census as a test rather than as a document, and is
+ * exactly how the ten rows above moved.
  *
- * SCOPE: this file only measures. It changes no handler, and the fixes it argues for are reported,
- * not applied.
+ * SCOPE: this file only measures. The gates themselves, and the three legs that make each one a
+ * gate rather than a lockout, live in `AdminApiWithinTenantPermissionTest`.
  */
 class AdminApiRouteBehaviouralCensus2Test extends SecurityTestCase
 {
@@ -130,6 +137,49 @@ class AdminApiRouteBehaviouralCensus2Test extends SecurityTestCase
                 'Same. A WRITE on a GET verb, and no write lands for any User token.'],
 
             // ---------------------------------------------------------------------------------
+            // GATED 2026-11-25 — the WITHIN-TENANT PERMISSION AXIS, closed on these ten.
+            //
+            // Every one of them answered SUCCESS to an unpermissioned staff member of the owning
+            // store until that change, which is what the rows below used to record. Each gate took
+            // its permission name from the route's merchant-web TWIN rather than from a choice made
+            // in engineering, each sits BELOW the tenancy control so the cross-tenant answers are
+            // unchanged, and each is driven on three legs — refused for unpermissioned staff,
+            // ADMITTED for a colleague who differs only in holding the name, admitted for the
+            // owner — in `AdminApiWithinTenantPermissionTest`, which also pins that the platform
+            // operator is not locked out by any of the three gate shapes.
+            // ---------------------------------------------------------------------------------
+            ['order-detail', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                'callerMayActInStore([Show Order, Manage Order]) with a DRIVER limb above it, so the '
+                . 'assigned driver keeps the driver app\'s order screen. Twin: vieworder, which refused '
+                . 'this same principal all along.'],
+            ['getStoreInfo', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                "refuseUnlessMayAdministerStoreSettings(). Twin: SettingController::settingForm/"
+                . "BusinessSettings. The owner's users.email is the password-reset target."],
+            ['getloyalitysetting', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                'refuseUnlessMayAdministerStoreSettings() — the predicate its own writer '
+                . 'LoyalitySetting already used, so the read and the write finally agree.'],
+            ['view-used-coupon', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                'callerMayActInStore([Manage Coupon, Create Coupon]) — BOTH, because the web spells '
+                . 'this one screen with two names (CouponController::show vs the coupon list).'],
+            ['reviewlist', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                'callerMayActInStore([Manage Testimonial]). Twin: TestimonialController::index.'],
+            ['shippinglist', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                'callerMayActInStore([Manage Shipping Class]). Twin: ShippingController::index. The '
+                . 'sibling list endpoints in the same block had their gate already.'],
+            ['taxlist', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                'callerMayActInStore([Manage Tax]). Twin: TaxController::index.'],
+
+            // The three toggles that WRITE on a GET verb. The verb is unchanged — a shipped client
+            // calls all three — and the write no longer lands for an unpermissioned staff member.
+            ['product-brand-status', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                'callerMayActInStore([Edit Product Brand]) — the name the WEB twin of this exact '
+                . 'toggle already required (ProductBrandController::resolveOwnedBrand).'],
+            ['product-brand-popular', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                'Same gate, same twin. WRITE: product_brands.is_popular.'],
+            ['product-label-status', 'GATED', 403, false, true, self::TENANT_REFUSED,
+                'callerMayActInStore([Edit Product Label]) — twin ProductLabelController::changeStatus.'],
+
+            // ---------------------------------------------------------------------------------
             // GATED, ROW-LEVEL — the request is admitted and the ROWS are filtered.
             // ---------------------------------------------------------------------------------
             ['notification', 'GATED_ROW_LEVEL', 200, true, true, self::TENANT_N_A,
@@ -139,20 +189,8 @@ class AdminApiRouteBehaviouralCensus2Test extends SecurityTestCase
             // UNGATED — success for a staff member holding nothing. `resolveOwnedStore()` is the
             // only control, and it is a TENANT control.
             // ---------------------------------------------------------------------------------
-            ['order-detail', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
-                'resolveChangeableOrder() = tenancy only. Serves customer PII + money. Sibling `vieworder` refuses.'],
-            ['getStoreInfo', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
-                "Serves the store OWNER's name and login e-mail, their mobile, and the store address."],
-            ['getloyalitysetting', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
-                'Reads two names StoreSettingsAccess calls RESTRICTED; its writer LoyalitySetting IS gated.'],
-            ['view-used-coupon', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
-                'Coupon redemptions: which customer redeemed what, for how much, on which order.'],
             ['viewproduct', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
                 'Admitted; `cost_price` alone is unset. price, sale_price and product_stock are served.'],
-            ['reviewlist', 'UNGATED', 200, true, true, self::TENANT_REFUSED, 'Testimonials for a product.'],
-            ['shippinglist', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
-                'Sibling of orderlist/productlist in the same block; those got the gate, this did not.'],
-            ['taxlist', 'UNGATED', 200, true, true, self::TENANT_REFUSED, 'Same block, same omission.'],
             ['productdropdown', 'UNGATED', 200, true, true, self::TENANT_REFUSED, 'Category names.'],
             ['getActivePaymentMethods', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
                 'Which gateways the store has switched on.'],
@@ -166,13 +204,6 @@ class AdminApiRouteBehaviouralCensus2Test extends SecurityTestCase
                 'Global geography table. No store, no tenant, nothing sensitive — the benign end.'],
             ['getCitiesByState', 'UNGATED', 200, true, true, self::TENANT_N_A, 'Same.'],
 
-            // UNGATED **WRITES**. All three land a real column change for unpermissioned staff.
-            ['product-brand-status', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
-                'WRITE: product_brands.status. The column the storefront filters on.'],
-            ['product-brand-popular', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
-                'WRITE: product_brands.is_popular.'],
-            ['product-label-status', 'UNGATED', 200, true, true, self::TENANT_REFUSED,
-                'WRITE: product_labels.status.'],
         ];
 
         $named = [];
@@ -630,18 +661,30 @@ class AdminApiRouteBehaviouralCensus2Test extends SecurityTestCase
     }
 
     /**
-     * THE HEADLINE, as one assertion: 19 of the 31 answer success to a staff member with nothing.
+     * THE HEADLINE, as one assertion: NINE of the 31 still answer success to a staff member with
+     * nothing. It was NINETEEN until 2026-11-25, when the within-tenant permission axis was closed
+     * on ten of them.
      *
      * Recorded as a COUNT as well as per route so that a change in the overall posture cannot hide
      * inside thirty-one green rows — moving one route from `UNGATED` to `GATED` has to move this
-     * number too, which makes the edit deliberate.
+     * number too, which makes the edit deliberate. It did exactly that job on that date: the ten
+     * row edits and this number were made in the same change as the gates, because a census row
+     * that still asserts admission after a gate lands is a lie in the opposite direction.
+     *
+     * WHAT THE REMAINING NINE ARE, so the number is not read as nine more findings of the same
+     * weight: `viewproduct` withholds `cost_price` by field and admits deliberately (P1-SEC-46);
+     * `getStatesByCountry` and `getCitiesByState` serve the global geography tables and resolve no
+     * store; `getAvailableLanguages`, `getCurrenciesApi` and `getCurrentLanguageAndCurrency` are
+     * display chrome; and `productdropdown`, `getActivePaymentMethods` and `indexAllPlan` are the
+     * three that have no single web twin to take a name from — gating them is an owner decision,
+     * not an engineering one, and inventing a name for them would be inventing a business rule.
      */
-    public function test_the_ungated_total_is_nineteen(): void
+    public function test_the_ungated_total_is_nine(): void
     {
         $verdicts = array_count_values(array_map(static fn ($row) => $row[1], self::census()));
 
-        $this->assertSame(19, $verdicts['UNGATED'] ?? 0, 'the UNGATED total moved');
-        $this->assertSame(11, $verdicts['GATED'] ?? 0, 'the GATED total moved');
+        $this->assertSame(9, $verdicts['UNGATED'] ?? 0, 'the UNGATED total moved');
+        $this->assertSame(21, $verdicts['GATED'] ?? 0, 'the GATED total moved');
         $this->assertSame(1, $verdicts['GATED_ROW_LEVEL'] ?? 0, 'the row-level total moved');
     }
 
@@ -650,59 +693,100 @@ class AdminApiRouteBehaviouralCensus2Test extends SecurityTestCase
     // =============================================================================================
 
     /**
-     * RANK 1 — `order-detail` SERVES CUSTOMER PII AND ORDER MONEY TO UNPERMISSIONED STAFF.
+     * RANK 1 — `order-detail` NO LONGER SERVES CUSTOMER PII AND ORDER MONEY TO UNPERMISSIONED
+     * STAFF. The asymmetry this case was written to record is CLOSED (2026-11-25).
      *
-     * MEASUREMENT AWAITING A FIX. The only gate is `resolveChangeableOrder()`
-     * (`Api/DashboardController`), which admits the assigned driver, the operator, or ANY actor
-     * whose tenant owns the order's store — `ownedStoreIds()`, with no permission anywhere in it.
-     * The SIBLING `vieworder` serves the same document behind
-     * `MerchantPermissions([Show Order, Manage Order])` and refuses this same principal 403, and
-     * its own docblock records an asymmetry it was not asked to resolve. This is the other half.
+     * WHAT IT RECORDED. The only control was `resolveChangeableOrder()`, which admits the assigned
+     * driver, the operator, or ANY actor whose tenant owns the order's store — `ownedStoreIds()`,
+     * with no permission anywhere in it. The SIBLING `vieworder` served the same document behind
+     * `MerchantPermissions([Show Order, Manage Order])` and refused this same principal 403.
      *
-     * The fix is one line of the shape `vieworder` already carries; it is REPORTED, not applied —
-     * this file may not edit a handler.
+     * WHAT CHANGED. `orderDetail()` now asks `callerMayActInStore(['Show Order', 'Manage Order'])`
+     * — `vieworder`'s own two names, not a choice made in engineering — with a DRIVER limb above
+     * it, because a `DeliveryBoy` is not a Laratrust subject and a merchant permission alone would
+     * refuse every driver on the platform. Both halves are driven here and in
+     * `AdminApiWithinTenantPermissionTest`.
+     *
+     * THE DISCLOSURE ASSERTIONS ARE KEPT, IN THE POSITIVE DIRECTION, and that is the point of the
+     * rewrite rather than a courtesy: an absence assertion alone is satisfied by an empty fixture,
+     * by a 404 and by a door that refuses everybody. The owner leg reads every field this case used
+     * to find in the staff member's answer, so the fixture is proven to carry the PII that the
+     * staff member is now refused.
      */
-    public function test_order_detail_hands_unpermissioned_staff_the_customers_name_email_and_phone(): void
+    public function test_order_detail_no_longer_hands_unpermissioned_staff_the_customers_name_email_and_phone(): void
     {
         $w = $this->world();
         $staff = User::find($w['staffA']->id);
 
         $response = $this->drive($staff, 'order-detail');
-        $body = $response->json();
 
-        $this->assertTrue($this->admitted($response), 'premise: the route admits this principal');
+        $this->assertSame(403, $response->getStatusCode(),
+            'order-detail answered an unpermissioned staff member something other than 403. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+        $this->assertFalse($this->admitted($response));
+
+        foreach ([
+            "the buyer's name" => 'Nadia Haddad',
+            "the buyer's e-mail" => 'nadia.buyer@example.test',
+            "the buyer's telephone" => '+963911111111',
+            'the billing address' => '14 Straight Street',
+            'the order money' => '123.45',
+            'the payment status' => 'Paid',
+        ] as $what => $needle) {
+            $this->assertStringNotContainsString($needle, (string) $response->getContent(),
+                'LEAK: ' . $what . ' reached a staff member holding no order permission');
+        }
+
+        // THE CONTROL, and the proof that the fixture really carries all of it.
+        $owner = $this->asProductionMerchant($w['merchantA']);
+        $body = $this->drive($owner, 'order-detail')->json();
 
         $this->assertSame('Nadia Haddad', $body['data']['billing_informations']['name']);
         $this->assertSame('nadia.buyer@example.test', $body['data']['billing_informations']['email']);
         $this->assertSame('+963911111111', $body['data']['billing_informations']['phone']);
         $this->assertSame('14 Straight Street', $body['data']['billing_informations']['address']);
         $this->assertSame('Nadia Haddad', $body['data']['delivery_informations']['name']);
-
-        // …and the money, which is what `orderlist` and `vieworder` are both gated for.
         $this->assertSame('Paid', $body['data']['payment_status']);
         $this->assertSame('123.45', $body['data']['final_price']);
 
-        // THE ASYMMETRY, DRIVEN: the same principal, the same order, the gated sibling.
+        // THE TWO SIBLINGS NOW AGREE, which is the whole finding: the same principal, the same
+        // order, both doors.
         $this->assertSame(403, $this->drive($staff, 'vieworder')->getStatusCode(),
-            '`vieworder` is the gate `order-detail` is missing; if this stops being 403 the '
-            . 'comparison in this test no longer says anything');
+            '`vieworder` was the gate `order-detail` was missing; both must refuse this principal '
+            . 'or the pair has drifted apart again');
     }
 
     /**
-     * RANK 2 — `getStoreInfo` hands unpermissioned staff the store OWNER's login e-mail.
+     * RANK 2 — `getStoreInfo` NO LONGER hands unpermissioned staff the store OWNER's login e-mail
+     * (gated 2026-11-25).
      *
-     * MEASUREMENT AWAITING A FIX. `users.email` is the address the password-reset flow sends to,
-     * so this is the first half of an account-takeover chain rather than a directory listing. The
-     * handler's own docblock records closing the CROSS-TENANT hole here
-     * (NEW-ADMINAPI-UNOWNED-STORE-01) and says nothing about the intra-tenant one.
+     * `users.email` is the address the password-reset flow sends to, so this was the first half of
+     * an account-takeover chain rather than a directory listing. The handler's own note recorded
+     * closing the CROSS-TENANT hole (NEW-ADMINAPI-UNOWNED-STORE-01) and said nothing about the
+     * intra-tenant one; `refuseUnlessMayAdministerStoreSettings()` is the predicate the web reads
+     * these same fields behind (`SettingController::settingForm()`, and `BusinessSettings()` which
+     * writes them), so the two surfaces now agree.
+     *
+     * The owner leg keeps every assertion this case used to make about the staff member's answer:
+     * without it, "the e-mail is absent" would also be satisfied by a door that serves nobody.
      */
-    public function test_get_store_info_hands_unpermissioned_staff_the_owners_login_email(): void
+    public function test_get_store_info_no_longer_hands_unpermissioned_staff_the_owners_login_email(): void
     {
         $w = $this->world();
         $staff = User::find($w['staffA']->id);
         $owner = User::find($w['merchantA']->id);
 
-        $body = $this->drive($staff, 'getStoreInfo')->json();
+        $response = $this->drive($staff, 'getStoreInfo');
+
+        $this->assertSame(403, $response->getStatusCode(),
+            'getStoreInfo answered an unpermissioned staff member something other than 403. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+        $this->assertFalse($this->admitted($response));
+        $this->assertStringNotContainsString($owner->email, (string) $response->getContent(),
+            "PII LEAK: the store owner's login e-mail reached a staff member holding no settings "
+            . 'permission');
+
+        $body = $this->drive($this->asProductionMerchant($w['merchantA']), 'getStoreInfo')->json();
 
         $this->assertSame('success', $body['status']);
         $this->assertSame($owner->email, $body['data']['owner']['email']);
@@ -711,21 +795,29 @@ class AdminApiRouteBehaviouralCensus2Test extends SecurityTestCase
     }
 
     /**
-     * RANK 3 — THREE WRITES LAND FOR A PRINCIPAL HOLDING NOTHING, and the WEB twins are gated.
+     * RANK 3 — THE THREE WRITES NO LONGER LAND FOR A PRINCIPAL HOLDING NOTHING, and the API now
+     * asks what its WEB twins always asked (gated 2026-11-25).
      *
-     * MEASUREMENT AWAITING A FIX, and the most quotable row in the census: the web routes for
-     * exactly these three toggles require `Edit Product Brand` / `Edit Product Label`
-     * (`BrandLabelStatusAuthorizationTest`), while the API siblings require no permission at all.
-     * Somebody closed one surface. `product_brands.status` is the column the storefront filters
-     * on, so flipping it removes a brand from the shop.
+     * This was the most quotable row in the census: the web routes for exactly these three toggles
+     * require `Edit Product Brand` / `Edit Product Label`
+     * (`ProductBrandController::resolveOwnedBrand()`, `ProductLabelController::changeStatus()`,
+     * pinned by `BrandLabelStatusAuthorizationTest`), while the API siblings required no permission
+     * at all. Somebody had closed one surface; the gates take the web's own names and close the
+     * other. `product_brands.status` is the column the storefront filters on, so flipping it
+     * removes a brand from the shop.
+     *
+     * BOTH DIRECTIONS PER TOGGLE, because "the column did not move" is also what a door that
+     * refuses everybody produces, and because the verb is a GET that WRITES — a shipped client
+     * calls all three, so the write path has to be proven still live for a permitted caller.
      *
      * Rows are read with `DB::table()`: both models are `Cachable` and an Eloquent read here can
      * serve the pre-write row.
      */
-    public function test_three_catalogue_toggles_land_a_write_for_unpermissioned_staff(): void
+    public function test_three_catalogue_toggles_no_longer_land_a_write_for_unpermissioned_staff(): void
     {
         $w = $this->world();
         $staff = User::find($w['staffA']->id);
+        $owner = $this->asProductionMerchant($w['merchantA']);
 
         foreach ([
             ['product-brand-status', 'product_brands', $w['brand']->id, 'status', 1, 0],
@@ -737,62 +829,107 @@ class AdminApiRouteBehaviouralCensus2Test extends SecurityTestCase
             $this->assertSame($before, (int) $this->raw($table, $id, $column),
                 "premise: {$table}.{$column} starts at {$before}, so a successful write is visible");
 
-            $response = $this->drive($staff, $key);
+            $refused = $this->drive($staff, $key);
 
-            $this->assertSame('success', $response->json('status'),
-                "api/admin/{$key} refused — if a gate was added, move its census row to GATED");
+            $this->assertSame(403, $refused->getStatusCode(),
+                "api/admin/{$key} answered an unpermissioned staff member something other than "
+                . '403. Body: ' . substr((string) $refused->getContent(), 0, 300));
+            $this->assertSame($before, (int) $this->raw($table, $id, $column),
+                "api/admin/{$key}: {$table}.{$column} moved for a principal holding nothing");
 
+            // THE CONTROL. The production merchant holds `Edit Product Brand` / `Edit Product
+            // Label` through the global role, and is the store's owner besides.
+            $permitted = $this->drive($owner, $key);
+
+            $this->assertSame('success', $permitted->json('status'),
+                "api/admin/{$key} refused a permitted principal, so the refusal above is a "
+                . 'lockout rather than a gate. Body: '
+                . substr((string) $permitted->getContent(), 0, 300));
             $this->assertSame($after, (int) $this->raw($table, $id, $column),
-                "api/admin/{$key} answered success but {$table}.{$column} did not move; the "
-                . 'census would then be reporting a write that never happens');
+                "api/admin/{$key} answered success to a permitted principal but "
+                . "{$table}.{$column} did not move, so the refusal above measures nothing");
         }
     }
 
     /**
-     * RANK 4 — `view-used-coupon` hands unpermissioned staff the coupon redemption ledger.
+     * RANK 4 — `view-used-coupon` NO LONGER hands unpermissioned staff the coupon redemption
+     * ledger (gated 2026-11-25).
      *
-     * MEASUREMENT AWAITING A FIX. Every row names the CUSTOMER who redeemed
-     * (`user_coupons.user_id`, which points at `customers` since the 2024_05_29 migration), the
-     * amount discounted and the order. The sibling `couponlist` carries
-     * `refuseWithoutPermission([Manage Coupon])`; this one carries only `resolveOwnedStore()`.
+     * Every row names the CUSTOMER who redeemed (`user_coupons.user_id`, which points at
+     * `customers` since the 2024_05_29 migration), the amount discounted and the order. The
+     * sibling `couponlist` carried `refuseWithoutPermission([Manage Coupon])` and this one carried
+     * only a tenancy predicate.
+     *
+     * THE GATE NAMES BOTH COUPON PERMISSIONS, because the web spells this one screen with two:
+     * `CouponController::show()` — the screen that renders exactly this ledger — asks for
+     * `Create Coupon`, while the coupon list it is reached from asks for `Manage Coupon`. Both are
+     * driven in `AdminApiWithinTenantPermissionTest`; the control here is the production merchant,
+     * who holds `Manage Coupon` through the global role.
      */
-    public function test_view_used_coupon_hands_unpermissioned_staff_the_redemption_ledger(): void
+    public function test_view_used_coupon_no_longer_hands_unpermissioned_staff_the_redemption_ledger(): void
     {
         $w = $this->world();
         $staff = User::find($w['staffA']->id);
 
-        $body = $this->drive($staff, 'view-used-coupon')->json();
+        $response = $this->drive($staff, 'view-used-coupon');
 
-        $this->assertSame(1, $body['status']);
+        $this->assertSame(403, $response->getStatusCode(),
+            'view-used-coupon answered an unpermissioned staff member something other than 403. '
+            . 'Body: ' . substr((string) $response->getContent(), 0, 300));
+        $this->assertFalse($this->admitted($response));
+        $this->assertStringNotContainsString('"user_id"', (string) $response->getContent(),
+            'the redemption ledger reached a staff member holding no coupon permission');
+
+        $body = $this->drive($this->asProductionMerchant($w['merchantA']), 'view-used-coupon')->json();
+
+        $this->assertSame(1, $body['status'],
+            'a permitted principal is refused the ledger, so the refusal above is a lockout');
         $this->assertSame($w['customerId'], $body['data'][0]['user_id']);
         $this->assertSame($w['coupon']->id, $body['data'][0]['coupon_id']);
         $this->assertEquals(10, $body['data'][0]['amount']);
     }
 
     /**
-     * RANK 5 — `getloyalitysetting` READS two names its own WRITER refuses to let staff write.
+     * RANK 5 — `getloyalitysetting` NO LONGER READS two names its own WRITER refuses to let staff
+     * write (gated 2026-11-25).
      *
-     * MEASUREMENT AWAITING A FIX, and the cleanest demonstration that the gate was applied per
-     * HANDLER rather than per SUBJECT. `loyality_program_enabled` and `reward_point` are both in
+     * This was the cleanest demonstration that the gate had been applied per HANDLER rather than
+     * per SUBJECT. `loyality_program_enabled` and `reward_point` are both in
      * `StoreSettingsAccess::RESTRICTED_EXACT` — that class's own comment calls the reward "what a
-     * point is worth" — and `LoyalitySetting` (the POST) calls
-     * `refuseUnlessMayAdministerStoreSettings()`. The GET next to it does not.
+     * point is worth" — and `LoyalitySetting` (the POST) called
+     * `refuseUnlessMayAdministerStoreSettings()` while the GET next to it did not. It does now, so
+     * the read and the write ask one question.
+     *
+     * THE TWO SIBLING READERS ARE STILL DRIVEN, in the same leg: they are what the gate was
+     * derived from, and if they stop refusing this principal the alignment is gone in the other
+     * direction.
      */
-    public function test_getloyalitysetting_serves_restricted_names_its_own_writer_protects(): void
+    public function test_getloyalitysetting_now_refuses_the_principal_its_two_sibling_readers_refuse(): void
     {
         $w = $this->world();
         $staff = User::find($w['staffA']->id);
 
-        $body = $this->drive($staff, 'getloyalitysetting')->json();
+        foreach (['getloyalitysetting', 'getemailsetting', 'get-stripe-payment'] as $key) {
+            $response = $this->drive($staff, $key);
 
-        $this->assertSame(1, $body['status']);
+            $this->assertSame(403, $response->getStatusCode(),
+                "api/admin/{$key} answered an unpermissioned staff member something other than "
+                . '403, so the three settings readers no longer agree. Body: '
+                . substr((string) $response->getContent(), 0, 300));
+        }
+
+        $this->assertStringNotContainsString('reward_point',
+            (string) $this->drive($staff, 'getloyalitysetting')->getContent(),
+            'the reward point reached a staff member holding no settings permission');
+
+        // THE CONTROL: the production merchant holds `Manage Setting`, and is the owner besides,
+        // so `StoreSettingsAccess::permits()` admits them on both of its relevant limbs.
+        $body = $this->drive($this->asProductionMerchant($w['merchantA']), 'getloyalitysetting')->json();
+
+        $this->assertSame(1, $body['status'],
+            'a permitted principal is refused, so the refusal above is a lockout rather than a gate');
         $this->assertSame('on', $body['data']['loyality_program_enabled']);
         $this->assertSame('7', $body['data']['reward_point']);
-
-        // The two SIBLING settings readers in the same block DO refuse, which is what makes this
-        // an omission rather than a policy: the same principal, the same table, the same store.
-        $this->assertSame(403, $this->drive($staff, 'getemailsetting')->getStatusCode());
-        $this->assertSame(403, $this->drive($staff, 'get-stripe-payment')->getStatusCode());
     }
 
     /**

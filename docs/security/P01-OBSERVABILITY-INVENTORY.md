@@ -94,8 +94,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 237 lines
+### `warning` — 238 lines
 
+> **[2026-11-25, third pass] 237 -> 238.** One `warning` line on the admin order-status door, for a
+> payment status moved on an order that is already cancelled or returned. Its destination and reader
+> are in their own section below.
+>
 > **[2026-11-25, second pass] 235 -> 236.** The independent financial review of #204 found that a
 > refunded Paytm capture still reported `TXN_SUCCESS` and would have been settled days later; the
 > verifier now refuses any refund-shaped field it cannot read as zero, and says so. Its destination
@@ -158,6 +162,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 |---|---|
 | `app/Helper/helper.php:687` | an image upload was refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:323` | Delivery Syria order status transition refused |
+| `app/Http/Controllers/Api/DashboardController.php:1044` | Payment status changed on a settled order |
 | `app/Services/PlatformUploadPolicy.php:314` | a platform upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
@@ -431,6 +436,38 @@ the context keys are the module, the route PATTERN and a boolean.
 | `ModulePaymentLedger:371` | the hourly bound on stored refusals for one module is reached, so further distinct refusals that hour are logged and not stored | the operator. It means anonymous traffic is hitting a disabled module's return URL hard enough to matter, and that a genuine refused payer in that window may be in the log rather than in the list |
 | `PaytmTransactionVerifier:242`, `:248` | the provider's status response was **about a different order or a different merchant** than the one asked about | the operator, and it is never expected behind a validated certificate: it needs Paytm itself to answer the wrong question. Nothing was activated |
 | `PaytmTransactionVerifier:311` | a successful transaction whose response **also mentions a refund**. Nothing was activated, and the intent is left open | the operator. This is how a payment the operator refunded in the Paytm dashboard stops being settled by a later reconciliation run — so it is EXPECTED for a refunded sale, and worth reading because it names the purchase a person has to decide about. It also fires if Paytm ever sends a refund-shaped field this server cannot interpret, which is deliberate: no contract for reading one is established here |
+
+### The row added 2026-11-25 (the settled-order payment echo fix / GAP-257), with its destination and reader
+
+`app/Http/Controllers/Api/DashboardController.php:1044` —
+*Payment status changed on a settled order.*
+
+**Why it exists at all, and why it is a log rather than a refusal.** `updateStatus` now lets an
+echoed `delivered_status` through, because the shipped app sends the order's own value on every
+payment-only change and two guards were reading that echo as a transition — so a merchant could not
+record a payment on a cancelled or returned order at all. The request that is now permitted can
+also move money: `payment_status` reaches `OrderFinancialService::syncFromOrder()` through
+`OrderObserver`, and a `Paid` there runs `markFinancialAsPaid()`.
+
+P4-F124's guard already covers the common case — it returns early when the financial row is already
+`cancelled` or `refunded` — but **not every case**: a RETURNED order's row is moved to `refunded`
+only by the refund door, so a returned-but-unrefunded order's `Paid` credits the full
+`customer_total`. A refusal here would re-break the regression the fix closes, and would leave the
+web twin open regardless: `OrderController::order_payment_status` writes `payment_status` with no
+`delivered_status` predicate of any kind, behind the same `Manage Order` ability. **So the rule
+question is registered as `GAP-257` for an owner decision, and this line is what makes the interval
+reconstructible.**
+
+**Destination.** The default channel, as every other row in this inventory — so whatever
+`LOG_CHANNEL` resolves to on the host, which §2 of this document measures rather than assumes.
+
+**Reader: the merchant's own operator, after the fact, not an alert.** It carries the actor, the
+store, the order both ways round and both payment values, which is exactly the set needed to decide
+whether a credit was legitimate. It is **expected to fire occasionally** — a COD bag handed over on
+a returned order and a bank transfer clearing after a cancellation are ordinary — so it is
+deliberately `warning` and not `critical`: it is the audit trail for a permitted action, not a
+report of a fault. If it fires on an order whose financial row is non-terminal, that is the
+GAP-257 shape and the wallet is worth checking against `payments:reconcile`.
 
 ### The row added 2026-11-24 (P06-2B review F9), with its destination and reader
 

@@ -61,19 +61,27 @@ use Illuminate\Support\Facades\Mail;
  * -------------------------------------------------------------------------------------------------
  * WHAT THE MEASUREMENT FOUND. 31 routes driven; each row is pinned by its own method below.
  *
- * GATED BY A PERMISSION — unpermissioned staff refused, and the owner not refused. 19 routes.
- * ON 15 OF THEM the SAME staff member is then driven again holding the name the gate asks for and
- * is ADMITTED: that counter-measurement is what separates a real gate from a fixture that merely
- * missed, and it is why these verdicts are not inferences. The four without it name their reason:
- * the two wallet routes isolate the permission on the OWNER instead (measured refused without the
- * grant, admitted with it, because `canFinance()` has no owner limb at all), and `stripe-payment`
- * and `updateCurrencyApi` cannot run past their gate under this suite at all — see their
- * docblocks. 19 routes:
+ * GATED BY A PERMISSION — unpermissioned staff refused, and the owner not refused. 26 routes,
+ * NINETEEN of them when this census was written and SEVEN MORE on 2026-11-25, when the
+ * within-tenant permission axis was closed across this surface. ON 22 OF THEM the SAME staff
+ * member is then driven again holding the name the gate asks for and is ADMITTED: that
+ * counter-measurement is what separates a real gate from a fixture that merely missed, and it is
+ * why these verdicts are not inferences. The four without it name their reason: the two wallet
+ * routes isolate the permission on the OWNER instead (measured refused without the grant, admitted
+ * with it, because `canFinance()` has no owner limb at all), and `stripe-payment` and
+ * `updateCurrencyApi` cannot run past their gate under this suite at all — see their docblocks.
  *
  *   orders/notes/create · orders/update-status · searchCustomerByName · searchProductsByName
  *   searchdata · status-change · stripe-payment · testmail · update-customer · updateCurrencyApi
  *   updatecoupon · updateshipping · updatetax · updatevariant · toggle-currency-status
  *   update-currency-rate · deliveryboysUpdate/{id} · wallet/add-balance · wallet/deduct-balance
+ *
+ * and, added 2026-11-25, each taking its permission name from the route's merchant-web TWIN:
+ *
+ *   updateproduct (Edit Products, GAP-250) · searchproduct (Manage Products) · updatereview and
+ *   reviewstatus (Edit Testimonial) · updatecategory (Edit Product Category) · updateproductbrand
+ *   (Edit Product Brand) · updateproductlable (Edit Product Label) · updateStoreLanguage
+ *   (StoreSettingsAccess::permitsStoreScreen)
  *
  * REFUSED, BUT NOT BY A PERMISSION — 2 routes. Nothing a merchant can delegate makes either work
  * for staff, so neither is a hole, and neither is a gate either:
@@ -89,21 +97,16 @@ use Illuminate\Support\Facades\Mail;
  *                        the same tenant root — so a lateral credential write inside the tenant is
  *                        held back only by the `old_password` check, with no permission consulted.
  *
- * **UNGATED IN FACT — 9 routes. Unpermissioned staff ADMITTED and the write landed (or the data
- * was served).** Each method PINS TODAY'S BEHAVIOUR so this file is green, and every one says in
- * its docblock that it is A MEASUREMENT AWAITING A FIX, not an endorsement — whoever adds the gate
- * INVERTS the marked assertion:
+ * **UNGATED IN FACT — 1 route, down from 9.** Eight of the nine were closed in two steps:
+ * `updateproduct` on GAP-250 (`Edit Products`), and the seven listed above on 2026-11-25. Every
+ * one of those pins did its job — it went RED the moment its gate landed and named the route when
+ * it did — and each was INVERTED in the same change as the gate, which is what this file was for.
+ * What remains:
  *
- *   updateproduct        price, sale_price, COST_PRICE, product_stock   ← the worst row in the group
- *   searchproduct        serves every product column, cost_price included
- *   updatereview         public review text, rating, status
- *   reviewstatus         publishes / unpublishes any review
- *   updatecategory       name, slug, images, parent, trending, status
- *   updateproductbrand   name, slug, logo, status
- *   updateproductlable   name, status (and rewrites store_id from `current_store`)
- *   updateStoreLanguage  stores.default_language — what every shopper reads
  *   updateStoreOwnerInfo stores.name — SPLIT ROW: the owner-identity fields ARE gated (403), the
- *                        store profile is not. One verdict would have hidden half of it.
+ *                        store profile is not. One verdict would have hidden half of it, and the
+ *                        split is a recorded decision (P1-SEC-18) rather than an omission, so
+ *                        closing the second half is an owner question and not an engineering one.
  *
  * `VALIDATOR_FIRST` — no row's VERDICT rests on one, because every fixture here supplies a valid
  * `store_id` so that the gate is what gets measured. But the shape exists on five routes and it
@@ -623,16 +626,20 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
     // ══════════════════════════════════════════════════════════════════════════════════ 4. reviewstatus
 
     /**
-     * **UNGATED IN FACT — A MEASUREMENT AWAITING A FIX, NOT AN ENDORSEMENT.**
+     * GATED 2026-11-25 by `callerMayActInStore(['Edit Testimonial'])` -> explicit 403.
      *
-     * `ReviewStatus()` is `resolveOwnedStore($request->store_id)` and then a bare
-     * `Testimonial::where('id',...)->where('store_id', $store->id)` followed by a status TOGGLE and
-     * `save()`. There is no permission check of any kind, and `resolveOwnedStore()` admits the
-     * owner's STAFF by design (`creatorId()` resolves staff to their employer). So any member of
-     * the tenant can publish or unpublish any review in the store.
+     * WHAT THIS PINNED BEFORE: `ReviewStatus()` resolved the store and then toggled a
+     * store-scoped `Testimonial`'s `status` with no permission check of any kind, and the
+     * tenancy predicate admits the owner's STAFF by design. So any member of the tenant could
+     * publish or unpublish any review in the store.
      *
-     * The web twin gates the equivalent action; the API route does not. The assertions below pin
-     * TODAY'S behaviour so the suite stays green, and must be INVERTED by whoever adds the gate.
+     * `Edit Testimonial` is the web twin's own name: `TestimonialController::update()` is where
+     * the web writes `$Testimonial->status`, and there is no separate status screen, so the
+     * editor's name is the twin.
+     *
+     * THE PERMITTED LEG IS THE CONTROL, and it is not optional: the refusal above is equally
+     * satisfied by a gate that admits nobody, so a colleague of the SAME store differing only in
+     * holding the name is driven too, and the row is read back.
      */
     public function test_reviewstatus_POST(): void
     {
@@ -646,13 +653,22 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
             'id' => $reviewId,
         ]);
 
-        // MEASURED: admitted, and the toggle landed.
         $staffResponse = $call($staff);
-        $this->assertAdmitted($staffResponse, 'unpermissioned staff (UNGATED — pinned, awaiting a fix)');
+        $this->assertRefused($staffResponse, 'unpermissioned staff');
+        $this->assertSame(403, $staffResponse->status());
+        $this->assertSame(
+            1,
+            (int) DB::table('testimonials')->where('id', $reviewId)->value('status'),
+            'the review was unpublished by a staff member holding nothing.'
+        );
+
+        $permitted = $call($this->staffIn($merchant, $store, 'Edit Testimonial'));
+        $this->assertAdmitted($permitted, 'staff GRANTED Edit Testimonial');
         $this->assertSame(
             0,
             (int) DB::table('testimonials')->where('id', $reviewId)->value('status'),
-            'UNGATED: the review was unpublished by a staff member holding nothing.'
+            'the grant admits them but the toggle does not land, so the refusal above is a '
+            . 'lockout rather than a gate.'
         );
 
         $this->assertAdmitted($call($merchant), 'the store owner');
@@ -786,16 +802,19 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
     // ══════════════════════════════════════════════════════════════════════════════ 8. searchproduct
 
     /**
-     * **UNGATED IN FACT — A MEASUREMENT AWAITING A FIX.**
+     * GATED 2026-11-25 by `callerMayActInStore(['Manage Products'])` -> explicit 403, and the
+     * margin is withheld.
      *
-     * `SearchProduct()` is `resolveOwnedStore()` and then
+     * WHAT THIS PINNED BEFORE: `SearchProduct()` resolved the store and then answered
      * `Product::where('store_id',…)->where('category_id',…)->get()->toArray()` — EVERY COLUMN,
-     * `cost_price` included. Its sibling one route over, `searchProductsByName`, was gated on
-     * `Manage Products` for exactly this reason (GAP-142 / P4-F111); this one was missed. Same
-     * store, same table, same margin column, no permission.
+     * `cost_price` included, because `App\Models\Product` declares no hidden attributes. Its
+     * sibling one route over, `searchProductsByName`, had been gated on `Manage Products` for
+     * exactly this reason (GAP-142 / P4-F111) and this one was missed: same store, same table,
+     * same margin column, no permission. `Manage Products` is therefore the sibling's name and the
+     * web catalogue screen's name (`ProductController::index()`), not one chosen here.
      *
-     * `category_id` is required, so a caller needs one id — and `productdropdown`, also ungated,
-     * hands them the list.
+     * BOTH DIRECTIONS, because an absence assertion alone is satisfied by a door that serves
+     * nobody: the holder of the name must still get the column.
      */
     public function test_searchproduct_POST(): void
     {
@@ -810,14 +829,22 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
             'category_id' => $categoryId,
         ]);
 
-        // MEASURED: admitted, and the margin was served.
         $staffResponse = $call($staff);
-        $this->assertAdmitted($staffResponse, 'unpermissioned staff (UNGATED — pinned, awaiting a fix)');
-        $this->assertStringContainsString(
+        $this->assertRefused($staffResponse, 'unpermissioned staff');
+        $this->assertSame(403, $staffResponse->status());
+        $this->assertStringNotContainsString(
             '4242.42',
             (string) $staffResponse->getContent(),
-            'UNGATED: cost_price was served to a staff member holding nothing. '
-            . 'When a gate lands, invert this to assertStringNotContainsString.'
+            'MARGIN LEAK: cost_price reached a staff member holding no product right.'
+        );
+
+        $permitted = $call($this->staffIn($merchant, $store, 'Manage Products'));
+        $this->assertAdmitted($permitted, 'staff GRANTED Manage Products');
+        $this->assertStringContainsString(
+            '4242.42',
+            (string) $permitted->getContent(),
+            'the grant admits them but cost_price is absent even then, so the margin assertion '
+            . 'above was not measuring a WITHHELD field at all.'
         );
 
         $this->assertAdmitted($call($merchant), 'the store owner');
@@ -1113,17 +1140,26 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
     // ══════════════════════════════════════════════════════════════════════ 15. updateStoreLanguage
 
     /**
-     * **UNGATED IN FACT — A MEASUREMENT AWAITING A FIX.**
+     * GATED 2026-11-25 by `StoreSettingsAccess::permitsStoreScreen()` -> explicit 403.
      *
-     * `updateStoreLanguage()` is `Auth::user()` plus `resolveOwnedStore()` and then writes the
-     * store's default language. No permission is consulted — while every OTHER settings door in
-     * this controller (`stripe-payment`, `testmail`, `updateCurrencyApi`, `toggle-currency-status`,
-     * `update-currency-rate`) goes through `refuseUnlessMayAdministerStoreSettings()`. The default
-     * language decides what every shopper reads on the storefront.
+     * WHAT THIS PINNED BEFORE: the handler resolved the store and then wrote
+     * `stores.default_language` with no permission consulted — while every OTHER settings door in
+     * this controller (`stripe-payment`, `testmail`, `updateCurrencyApi`,
+     * `toggle-currency-status`, `update-currency-rate`) went through
+     * `refuseUnlessMayAdministerStoreSettings()`. The default language decides what every shopper
+     * reads on the storefront.
      *
-     * NOTE FOR WHOEVER FIXES IT: this route is DECLARED TWICE in `routes/api.php` (:253 and :319)
-     * with identical middleware, and the later declaration is the one that serves. Both must be
-     * read before concluding anything about this path's middleware.
+     * `permitsStoreScreen()` AND NOT `permits()`, because it is the WIDER of the two web twins and
+     * a gate must not be narrower than the product. Two web handlers write this same column:
+     * `SettingController::SystemSettings()` / `BusinessSettings()` behind `permits()` (operator,
+     * tenant owner, `Manage Setting`), and `AppSettingController::ThemeSettings()` — the Store
+     * Setting screen — behind `permitsStoreScreen()`, which is that predicate OR
+     * `Manage Store Setting`. A staff member holding only `Manage Store Setting` may change the
+     * language on the web, so they keep it here; both names are driven below.
+     *
+     * NOTE: this route is DECLARED TWICE in `routes/api.php` (:253 and :319) with identical
+     * middleware, and the later declaration is the one that serves. Both must be read before
+     * concluding anything about this path's middleware.
      */
     public function test_updateStoreLanguage_POST(): void
     {
@@ -1131,22 +1167,40 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
         $staff = $this->staffIn($merchant, $store);
         [$foreign] = $this->foreignTenant();
 
-        $call = fn (User $u) => $this->as($u)
-            ->postJson('/api/admin/updateStoreLanguage?store_id=' . $store->id, [
-                'default_language' => 'ar',
-            ]);
+        $call = function (User $u) use ($store) {
+            DB::table('stores')->where('id', $store->id)->update(['default_language' => 'en']);
+            (new Store)->flushCache();
 
-        // MEASURED: admitted, and the write landed on `stores.default_language`.
+            return $this->as($u)
+                ->postJson('/api/admin/updateStoreLanguage?store_id=' . $store->id, [
+                    'default_language' => 'ar',
+                ]);
+        };
+
         $staffResponse = $call($staff);
-        $this->assertAdmitted($staffResponse, 'unpermissioned staff (UNGATED — pinned, awaiting a fix)');
+        $this->assertRefused($staffResponse, 'unpermissioned staff');
+        $this->assertSame(403, $staffResponse->status());
         $this->assertSame(
-            'ar',
+            'en',
             DB::table('stores')->where('id', $store->id)->value('default_language'),
-            'UNGATED: the storefront language every shopper reads was switched by a staff member '
-            . 'holding nothing. When a gate lands, invert this to the original value.'
+            'the storefront language every shopper reads was switched by a staff member holding '
+            . 'nothing.'
         );
 
+        foreach (['Manage Setting', 'Manage Store Setting'] as $name) {
+            $permitted = $call($this->staffIn($merchant, $store, $name));
+
+            $this->assertAdmitted($permitted, 'staff GRANTED ' . $name);
+            $this->assertSame(
+                'ar',
+                DB::table('stores')->where('id', $store->id)->value('default_language'),
+                'the holder of `' . $name . '` was admitted and the write did not land, so the '
+                . 'refusal above is a lockout rather than a gate.'
+            );
+        }
+
         $this->assertAdmitted($call($merchant), 'the store owner');
+        $this->assertSame('ar', DB::table('stores')->where('id', $store->id)->value('default_language'));
 
         $foreignResponse = $call($foreign);
         $this->assertRefused($foreignResponse, 'a foreign-tenant merchant');
@@ -1212,13 +1266,18 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
     // ═══════════════════════════════════════════════════════════════════════════ 17. updatecategory
 
     /**
-     * **UNGATED IN FACT — A MEASUREMENT AWAITING A FIX.**
+     * GATED 2026-11-25 by `callerMayActInStore(['Edit Product Category'])` -> explicit 403.
      *
-     * `UpdateCategory()` is `resolveOwnedStore()` and a scoped `Category` lookup, then writes
-     * `name`, `slug`, images, `parent_id`, `trending` and `status`. No permission is consulted,
-     * although `Manage Category` / `Edit Category` are seeded names the web screen uses — so the
-     * gate the web has is simply absent here. A category's `status` controls whether its products
-     * are reachable on the storefront.
+     * WHAT THIS PINNED BEFORE: the handler resolved the store, looked the `Category` up scoped to
+     * it, and wrote `name`, `slug`, the images, `parent_id`, `trending` and `status` with no
+     * permission consulted. A category's `status` controls whether its products are reachable on
+     * the storefront.
+     *
+     * THE NAME IS `CategoryController::update()`'s (`:194`), and this docblock used to guess
+     * wrong: it said "`Manage Category` / `Edit Category` are seeded names the web screen uses".
+     * Neither string exists. The real family is `Manage Product Category` / `Create Product
+     * Category` / `Edit Product Category` / `Delete Product Category`, which is why the name was
+     * read from the twin rather than from the route's wording.
      */
     public function test_updatecategory_POST(): void
     {
@@ -1233,13 +1292,22 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
             'name' => $name,
         ]);
 
-        // MEASURED: admitted, and the write landed.
         $staffResponse = $call($staff, self::ATTACKER_MARK);
-        $this->assertAdmitted($staffResponse, 'unpermissioned staff (UNGATED — pinned, awaiting a fix)');
+        $this->assertRefused($staffResponse, 'unpermissioned staff');
+        $this->assertSame(403, $staffResponse->status());
         $this->assertSame(
-            self::ATTACKER_MARK,
+            'census4-original',
             DB::table('categories')->where('id', $categoryId)->value('name'),
-            'UNGATED: the category was renamed by a staff member holding nothing.'
+            'the category was renamed by a staff member holding nothing.'
+        );
+
+        $permitted = $call($this->staffIn($merchant, $store, 'Edit Product Category'), 'census4-permitted');
+        $this->assertAdmitted($permitted, 'staff GRANTED Edit Product Category');
+        $this->assertSame(
+            'census4-permitted',
+            DB::table('categories')->where('id', $categoryId)->value('name'),
+            'the grant admits them and the rename does not land, so the refusal above is a '
+            . 'lockout rather than a gate.'
         );
 
         $this->assertAdmitted($call($merchant, 'census4-owner-rename'), 'the store owner');
@@ -1519,11 +1587,11 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
     // ══════════════════════════════════════════════════════════════════════ 21. updateproductbrand
 
     /**
-     * **UNGATED IN FACT — A MEASUREMENT AWAITING A FIX.**
+     * GATED 2026-11-25 by `callerMayActInStore(['Edit Product Brand'])` -> explicit 403, the name
+     * `ProductBrandController::update()` already used.
      *
-     * `UpdateProductBrand()` is `resolveOwnedStore()` plus
-     * `whereIn('store_id', $this->ownedStoreIds())` and then writes the brand's `name`, `slug`,
-     * `logo` and `status`. No permission is consulted.
+     * WHAT THIS PINNED BEFORE: the handler resolved the store, looked the brand up scoped to the
+     * tenant, and wrote its `name`, `slug`, `logo` and `status` with no permission consulted.
      */
     public function test_updateproductbrand_POST(): void
     {
@@ -1546,13 +1614,22 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
             'name' => $name,
         ]);
 
-        // MEASURED: admitted, and the write landed.
         $staffResponse = $call($staff, self::ATTACKER_MARK);
-        $this->assertAdmitted($staffResponse, 'unpermissioned staff (UNGATED — pinned, awaiting a fix)');
+        $this->assertRefused($staffResponse, 'unpermissioned staff');
+        $this->assertSame(403, $staffResponse->status());
         $this->assertSame(
-            self::ATTACKER_MARK,
+            'census4-brand',
             DB::table('product_brands')->where('id', $brandId)->value('name'),
-            'UNGATED: the brand was renamed by a staff member holding nothing.'
+            'the brand was renamed by a staff member holding nothing.'
+        );
+
+        $permitted = $call($this->staffIn($merchant, $store, 'Edit Product Brand'), 'census4-permitted-brand');
+        $this->assertAdmitted($permitted, 'staff GRANTED Edit Product Brand');
+        $this->assertSame(
+            'census4-permitted-brand',
+            DB::table('product_brands')->where('id', $brandId)->value('name'),
+            'the grant admits them and the rename does not land, so the refusal above is a '
+            . 'lockout rather than a gate.'
         );
 
         $this->assertAdmitted($call($merchant, 'census4-owner-brand'), 'the store owner');
@@ -1567,14 +1644,16 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
     // ══════════════════════════════════════════════════════════════════════ 22. updateproductlable
 
     /**
-     * **UNGATED IN FACT — A MEASUREMENT AWAITING A FIX.**
+     * GATED 2026-11-25 by `callerMayActInStore(['Edit Product Label'])` -> explicit 403, the name
+     * `ProductLabelController::update()` already used.
      *
-     * `UpdateProductLable()` is `resolveOwnedStore()` plus `whereIn('store_id', ownedStoreIds())`
-     * and then writes `name` and `status`. No permission is consulted.
+     * WHAT THIS PINNED BEFORE: the handler resolved the store, looked the label up scoped to the
+     * tenant, and wrote `name` and `status` with no permission consulted.
      *
-     * NOTE: it also rewrites `store_id = getCurrentStore()` unconditionally, so for a caller whose
-     * `current_store` is a DIFFERENT store of the same tenant this route MOVES the label between
-     * stores. That is out of this census's scope but is reported.
+     * NOTE, AND STILL OPEN AFTER THE GATE: it also rewrites `store_id = getCurrentStore()`
+     * unconditionally, so for a caller whose `current_store` is a DIFFERENT store of the same
+     * tenant this route MOVES the label between stores. That is a tenancy-shaped question inside
+     * one tenant, not a permission one, and the gate does not address it.
      */
     public function test_updateproductlable_POST(): void
     {
@@ -1597,13 +1676,22 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
             'name' => $name,
         ]);
 
-        // MEASURED: admitted, and the write landed.
         $staffResponse = $call($staff, self::ATTACKER_MARK);
-        $this->assertAdmitted($staffResponse, 'unpermissioned staff (UNGATED — pinned, awaiting a fix)');
+        $this->assertRefused($staffResponse, 'unpermissioned staff');
+        $this->assertSame(403, $staffResponse->status());
         $this->assertSame(
-            self::ATTACKER_MARK,
+            'census4-label',
             DB::table('product_labels')->where('id', $labelId)->value('name'),
-            'UNGATED: the product label was renamed by a staff member holding nothing.'
+            'the product label was renamed by a staff member holding nothing.'
+        );
+
+        $permitted = $call($this->staffIn($merchant, $store, 'Edit Product Label'), 'census4-permitted-label');
+        $this->assertAdmitted($permitted, 'staff GRANTED Edit Product Label');
+        $this->assertSame(
+            'census4-permitted-label',
+            DB::table('product_labels')->where('id', $labelId)->value('name'),
+            'the grant admits them and the rename does not land, so the refusal above is a '
+            . 'lockout rather than a gate.'
         );
 
         $this->assertAdmitted($call($merchant, 'census4-owner-label'), 'the store owner');
@@ -1618,12 +1706,14 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
     // ══════════════════════════════════════════════════════════════════════════════ 23. updatereview
 
     /**
-     * **UNGATED IN FACT — A MEASUREMENT AWAITING A FIX.**
+     * GATED 2026-11-25 by `callerMayActInStore(['Edit Testimonial'])` -> explicit 403, the name
+     * `TestimonialController::update()` already used.
      *
-     * `UpdateReview()` is `resolveOwnedStore()` plus a store-scoped `Testimonial` lookup, then
-     * writes `user_id`, `category_id`, `product_id`, `rating_no`, `title`, `description` and
-     * `status`, and recomputes the product's average rating. No permission is consulted — so an
-     * unpermissioned staff member can rewrite public review text and move a product's star rating.
+     * WHAT THIS PINNED BEFORE: the handler resolved the store, looked the `Testimonial` up scoped
+     * to it, and wrote `user_id`, `category_id`, `product_id`, `rating_no`, `title`, `description`
+     * and `status`, recomputing the product's average rating — with no permission consulted. So an
+     * unpermissioned staff member could rewrite public review text and move a product's star
+     * rating.
      */
     public function test_updatereview_POST(): void
     {
@@ -1638,13 +1728,22 @@ class AdminApiRouteBehaviouralCensus4Test extends SecurityTestCase
             'description' => $text,
         ]);
 
-        // MEASURED: admitted, and the write landed.
         $staffResponse = $call($staff, self::ATTACKER_MARK);
-        $this->assertAdmitted($staffResponse, 'unpermissioned staff (UNGATED — pinned, awaiting a fix)');
+        $this->assertRefused($staffResponse, 'unpermissioned staff');
+        $this->assertSame(403, $staffResponse->status());
         $this->assertSame(
-            self::ATTACKER_MARK,
+            'original review text',
             DB::table('testimonials')->where('id', $reviewId)->value('description'),
-            'UNGATED: public review text was rewritten by a staff member holding nothing.'
+            'public review text was rewritten by a staff member holding nothing.'
+        );
+
+        $permitted = $call($this->staffIn($merchant, $store, 'Edit Testimonial'), 'census4-permitted-text');
+        $this->assertAdmitted($permitted, 'staff GRANTED Edit Testimonial');
+        $this->assertSame(
+            'census4-permitted-text',
+            DB::table('testimonials')->where('id', $reviewId)->value('description'),
+            'the grant admits them and the rewrite does not land, so the refusal above is a '
+            . 'lockout rather than a gate.'
         );
 
         $this->assertAdmitted($call($merchant, 'census4-owner-text'), 'the store owner');
