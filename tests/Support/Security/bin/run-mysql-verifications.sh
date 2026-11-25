@@ -391,6 +391,29 @@ run_one verify-plan-purchase-intent-on-mysql \
   "F229_MYSQL_SOCKET=${SOCK}" "F229_MYSQL_HOST=${HOST}" "F229_MYSQL_PORT=${PORT}" \
   "F229_MYSQL_DATABASE=f229_verify" "F229_MYSQL_USERNAME=${USER_NAME}" "F229_MYSQL_PASSWORD=${PASS}"
 
+# #204. The plan-payment settlement, driven through the REAL service against a database built by
+# the project's own migrations. It exists because the independent financial review found a defect
+# here that no SQLite test can see: under REPEATABLE READ the loser of a real race read its own
+# transaction snapshot, the intent still looked `pending`, and a lost race was reported AND AUDITED
+# as a mismatching AMOUNT -- a false record, and an exit 1. `lockForUpdate()` is what makes that
+# re-read current, and on SQLite it compiles to nothing, so the suite passes with the fix and
+# without it. The script also caught a defect in the fix for another finding on its first run.
+run_one verify-plan-payment-reconciliation-on-mysql \
+  "PPR_MYSQL_SOCKET=${SOCK}" "PPR_MYSQL_HOST=${HOST}" "PPR_MYSQL_PORT=${PORT}" \
+  "PPR_MYSQL_DATABASE=ppr_verify" "PPR_MYSQL_USERNAME=${USER_NAME}" "PPR_MYSQL_PASSWORD=${PASS}"
+
+# #204. The disabled-application payment boundary. The owner's rule has the word IDEMPOTENT in it,
+# and what makes a payment return idempotent is ONE conditional UPDATE from `initiated` -- which
+# only means something where two writers can really contend. SQLite :memory: is one connection in
+# one process, so the suite can show the claim holds sequentially and cannot show it holds under a
+# race. THIS SCRIPT ALSO FOUND A REAL DEFECT AND CHANGED THE CODE: under `utf8mb4_general_ci` -- the
+# collation the server actually reports -- the completion claim matched a reference differing only in
+# letter case, the P1-INV-18 shape again. `ModulePaymentLedger::isWellFormedReference()` and the
+# column's own collation now close it, and the script asserts the engine-independent half.
+run_one verify-module-payment-boundary-on-mysql \
+  "MPB_MYSQL_SOCKET=${SOCK}" "MPB_MYSQL_HOST=${HOST}" "MPB_MYSQL_PORT=${PORT}" \
+  "MPB_MYSQL_DATABASE=mpb_verify" "MPB_MYSQL_USERNAME=${USER_NAME}" "MPB_MYSQL_PASSWORD=${PASS}"
+
 # E13-F. Two concurrent replacement attempts on one order, which the handoff listed as NOT RUN and
 # which the Feature suite cannot run: SQLite has no row locks worth the name and one PHP process
 # cannot hold two statements in flight. The property under test is narrow and load-bearing --

@@ -219,6 +219,37 @@ class PaytmTransactionVerifier
             return $this->unverifiable('the status response carried a checksum that did not verify');
         }
 
+        /*
+         * IS THIS ANSWER ABOUT THE TRANSACTION THAT WAS ASKED ABOUT?
+         *
+         * Added with the reconciliation surface (#204). `getTxnStatus` is keyed on (MID, ORDERID),
+         * so the answer ought to be about that pair -- but until now nothing checked, and an
+         * authentic, correctly-checksummed `TXN_SUCCESS` naming a DIFFERENT order was returned as
+         * VERIFIED for this one. Behind a validated certificate that needs Paytm itself to answer
+         * the wrong question, so it is defence in depth rather than a live hole; it is still the
+         * only place "transaction ownership" can be checked at all, and a door that settles with
+         * nobody watching should not take it on trust.
+         *
+         * PRESENT AND DIFFERENT REFUSES; ABSENT DOES NOT. Whether Paytm echoes these fields is not
+         * established by any sandbox evidence this project holds (the same caveat as the checksum,
+         * above), so a response that omits them is judged exactly as it was before. A response that
+         * carries one and disagrees has told us it is about something else, and that is not an
+         * answer to the question.
+         *
+         * UNVERIFIABLE, not REFUSED: nothing here says the transaction failed.
+         */
+        if (! $this->echoesTheQuestion($response, 'ORDERID', $reference)) {
+            Log::warning('Paytm transaction status answered for a different order than the one asked about.', ['reference' => $reference]);
+
+            return $this->unverifiable('the status response is about a different order');
+        }
+
+        if (! $this->echoesTheQuestion($response, 'MID', $merchantId)) {
+            Log::warning('Paytm transaction status answered for a different merchant than the one asked about.', ['reference' => $reference]);
+
+            return $this->unverifiable('the status response is about a different merchant');
+        }
+
         $providerStatus = (string) ($response['STATUS'] ?? '');
 
         if ($providerStatus === '') {
@@ -241,6 +272,51 @@ class PaytmTransactionVerifier
             /* Success with no amount cannot be matched against the intent, so it cannot be
                accepted. Requirement 4 wants the amount verified, not assumed from the status. */
             return $this->unverifiable('Paytm reported success without a TXNAMOUNT');
+        }
+
+        /*
+         * ══════════════════════════════════════════════════════════════════════════════════════
+         * A SUCCESS THAT CARRIES ANY SIGN OF A REFUND IS NOT PROOF THE MONEY IS STILL THERE.
+         * ══════════════════════════════════════════════════════════════════════════════════════
+         *
+         * FOUND BY THE INDEPENDENT FINANCIAL REVIEW OF THE RECONCILIATION, and confirmed by
+         * execution: a correctly signed `TXN_SUCCESS` carrying a refund amount settled a purchase.
+         * `STATUS` has four values -- `TXN_SUCCESS`, `TXN_FAILURE`, `PENDING`, `NO_RECORD_FOUND` --
+         * and **none of them says "refunded"**, so a refunded sale keeps reporting success.
+         *
+         * THE CASE THAT MATTERS IS THE ORDINARY ONE, not an attack. `plan-paytm-payment` answers
+         * **419** to Paytm's cross-site POST, so a buyer who pays is shown an error; they complain;
+         * the operator refunds them in the Paytm dashboard. Nothing can close the intent, so it
+         * stays `pending` -- and `payments:reconcile --apply` days later would grant the plan and
+         * record a sale for money that has been given back. The browser return is seconds after
+         * payment and cannot meet this; a reconciliation runs up to `--days` later, on exactly the
+         * buyers who were charged and shown an error.
+         *
+         * NO FIELD CONTRACT IS INVENTED HERE, which is requirement 8 and the reason this is shaped
+         * as it is. This project holds no sandbox evidence for what the legacy `getTxnStatus`
+         * endpoint returns for a refunded sale, and Paytm's own v3 documentation names `refundAmt`
+         * without this server having ever seen one. So the check is not "read `refundAmt`": it is
+         * **any key whose name contains `refund` and whose value is not clearly nothing**, and the
+         * answer is UNVERIFIABLE rather than REFUSED.
+         *
+         * That is deliberately the fail-CLOSED direction and it costs something, which requirement
+         * 8 asks to be stated: a response that mentions a refund of zero in a field this code
+         * cannot interpret blocks a legitimate activation, and the purchase then needs a person.
+         * Granting a plan for refunded money is the worse error, and the intent is left open so
+         * nothing is destroyed.
+         */
+        $refund = $this->refundSignalIn($response);
+
+        if ($refund !== null) {
+            Log::warning('Paytm reported a successful transaction that also mentions a refund; not verifying it.', [
+                'reference' => $reference,
+                'field' => $refund,
+            ]);
+
+            return $this->unverifiable(
+                'Paytm reports success but the response carries a refund value in `' . $refund
+                . '`, and this server holds no verified contract for reading it'
+            );
         }
 
         return [
@@ -275,6 +351,60 @@ class PaytmTransactionVerifier
         return trim((string) config('services.paytm-wallet.env')) === 'production'
             ? self::HOST_PRODUCTION
             : self::HOST_SANDBOX;
+    }
+
+    /**
+     * The name of a field that mentions a refund and does not clearly say "none", or null.
+     *
+     * DELIBERATELY NAME-BASED RATHER THAN CONTRACT-BASED. See the call site: no sandbox evidence in
+     * this project establishes what a refunded sale looks like on this endpoint, so reading one
+     * documented key would be the guess requirement 8 forbids. Any `refund`-shaped key counts, and a
+     * value this code cannot read as zero counts as present -- an unreadable value about money is
+     * not an absence of one.
+     *
+     * `'0'`, `'0.00'`, `''` and `null` are "none". A non-numeric string is NOT, because a status
+     * word in a refund field is exactly the case that should stop an activation.
+     *
+     * @param  array<array-key,mixed>  $response
+     */
+    private function refundSignalIn(array $response): ?string
+    {
+        foreach ($response as $field => $value) {
+            if (! is_string($field) || ! str_contains(strtolower($field), 'refund')) {
+                continue;
+            }
+
+            if ($value === null || (is_scalar($value) && trim((string) $value) === '')) {
+                continue;
+            }
+
+            if (is_numeric($value) && (float) $value == 0.0) {
+                continue;
+            }
+
+            return $field;
+        }
+
+        return null;
+    }
+
+    /**
+     * False only when `$response[$field]` is present, usable, and NOT what was asked. An absent or
+     * empty field is not a disagreement.
+     *
+     * @param  array<array-key,mixed>  $response
+     */
+    private function echoesTheQuestion(array $response, string $field, string $asked): bool
+    {
+        $echoed = $response[$field] ?? null;
+
+        if ($echoed === null || (is_scalar($echoed) && trim((string) $echoed) === '')) {
+            return true;
+        }
+
+        /* A non-scalar where an identifier belongs cannot be compared, and "cannot be compared"
+           is not agreement. */
+        return is_scalar($echoed) && hash_equals($asked, (string) $echoed);
     }
 
     /**

@@ -241,31 +241,45 @@ class DisabledModuleRouteGuardTest extends SecurityTestCase
     }
 
     /**
-     * AN ANONYMOUS ROUTE OF A DISABLED MODULE PASSES THROUGH, DELIBERATELY AND NOT BY OVERSIGHT.
+     * AN ANONYMOUS ROUTE OF A DISABLED MODULE THAT IS NOT A PAYMENT STILL PASSES THROUGH -- and what
+     * this test pins is now NARROWER than it was, on purpose.
      *
-     * 87 of the anonymous module routes are payment-gateway callbacks by
-     * `ModuleRouteManifest::ANONYMOUS_BY_DESIGN`'s own classification. Refusing one can lose a
-     * CAPTURED PAYMENT: if an application is switched off while a transaction is in flight, the
-     * gateway's return or notify URL is how the capture gets recorded. Whether a switched-off
-     * application still records money already taken is a settlement rule and is the owner's.
+     * IT USED TO PIN THE WHOLE ANONYMOUS HALF: `test_an_anonymous_route_of_a_disabled_module_is_not_
+     * refused_pending_an_owner_decision`, written so that "the day the owner answers, the test that
+     * has to change says why". The owner answered the payment part:
      *
-     * This test pins the current, bounded behaviour so that widening it is a DECISION somebody makes
-     * on purpose rather than a side effect -- and so that the day the owner answers, the test that
-     * has to change says why.
+     * > *"Keep a safe, authenticated and idempotent reconciliation mechanism for previously
+     * > initiated payments; do not use it to permit new transactions through disabled applications."*
+     *
+     * So a route that STARTS a payment is now refused for a disabled application and one that
+     * FINISHES a payment is honoured once for an initiation the host recorded -- decided by the
+     * action (`ModulePaymentFlows`), and driven in `DisabledModulePaymentBoundaryTest`.
+     *
+     * WHAT IS STILL OPEN, AND STILL PINNED HERE: `storefront` (the 76 of its 100 keys that are not
+     * on a payment path) and `oauth` (16). Whether switching an application off should take its
+     * shopper-facing pages down, or break an OAuth return already in flight, is the owner's and is
+     * not answered. This route is one of those: anonymous, owned by a disabled module, and no
+     * payment handler. If this test starts failing, somebody widened the boundary past the
+     * decision that was actually given.
      */
     #[Test]
-    public function test_an_anonymous_route_of_a_disabled_module_is_not_refused_pending_an_owner_decision(): void
+    public function test_a_non_payment_anonymous_route_of_a_disabled_module_still_passes_pending_the_owners_decision(): void
     {
         AddOnManager::create(['module' => 'Campaigns', 'name' => 'Campaigns', 'is_enable' => 0]);
 
         $anonymous = $this->moduleRoute('Campaigns', ['web']);
 
         $this->assertFalse(DisabledModuleRouteGuard::requiresAuthentication($anonymous), 'premise');
+        $this->assertNull(
+            \App\Support\Modules\ModulePaymentFlows::roleOf($anonymous),
+            'premise: this probe is not a payment handler, so the payment rule does not reach it'
+        );
         $this->assertSame(
             200,
             $this->drive($anonymous)->getStatusCode(),
-            'The guard was widened to anonymous module routes. 87 of those are payment-gateway '
-            . 'callbacks, and refusing one can lose a captured payment -- that is an owner decision.'
+            'The guard was widened to a disabled module\'s non-payment anonymous routes. Those are '
+            . 'the storefront and OAuth categories, and whether they follow the application off is '
+            . 'an owner decision that has not been given.'
         );
     }
 

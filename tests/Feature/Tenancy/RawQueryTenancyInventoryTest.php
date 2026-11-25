@@ -626,7 +626,47 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            registers no StoreScope and is absent from `config/tenancy.php`'s `scoped_models`, so
            it reaches every tenant's rows. The replacement carries `->where('store_id', $storeId)`,
            so the `products` row below moves 9 -> 10 with its UNSCOPED half unchanged at 3. */
-        $this->assertSame(['app' => 202, 'packages' => 45], $perDir,
+        /*
+           202 -> 204 [2026-11-25, #204 the payment reconciliation surface]: TWO new sites, both in
+           `app/Services/PlanPurchaseIntent.php` -- `awaitingReconciliation()`, the list of
+           `pending` intents a reconciliation run may ask a provider about, and
+           `outsideReconciliationWindow()`, the count of the ones it did not look at.
+
+           NEITHER NAMES `store_id`, FOR THE REASON THE OTHER EIGHT IN THAT FILE DO NOT: the table
+           has no such column, because a SaaS plan is bought by a USER from the platform. Both are
+           read-only, both are reached only from the operator's `payments:reconcile` command and
+           never from a request, and neither discloses a row to anybody but the person with a
+           shell on the server. They are raw for the reason the file's header gives -- a
+           `Cachable` read of this table is how a just-written intent reads as absent -- and they
+           live in the service that owns the table rather than in the command, so the table still
+           has exactly one class that queries it.
+
+           204 -> 217 [the same change, the second half of #204]: THIRTEEN sites in the new
+           `app/Services/ModulePaymentLedger.php`, the host's record that a payment was initiated
+           through a vendored module -- the record the disabled-application boundary needs and the
+           three payment modules do not keep (`module_payment_initiations`' migration has the
+           measurement).
+
+           THIS IS THE LARGEST SINGLE DELTA IN THIS ASSERTION'S HISTORY AND ELEVEN OF THE THIRTEEN
+           NAME NO `store_id`, SO IT IS WORTH BEING EXACT ABOUT WHY THAT IS NOT THE THING THIS FILE
+           EXISTS TO CATCH. Every one of the eleven finds a row by one of three keys: the 128-bit
+           reference the server minted into the payer's own SESSION (four), the module name with a
+           request hash or a time window (three, all refusal bookkeeping), or a primary key or
+           status from the operator's console (four). None reads a store's rows for a caller who
+           names the store. The table does carry `store_id` and both INSERTs write it, as a fact
+           for whoever reads the row later. `ServiceLayerRawQueryInventoryTest` declares each
+           fragment with its reason, and `DisabledModulePaymentBoundaryTest` drives the isolation
+           that actually applies: another session cannot spend a payer's initiation, and one
+           module's reference cannot open another module's writer. */
+        /*
+           217 -> 221 [the same day, the independent financial review of #204]: FOUR more --
+           `PlanPurchaseIntent::findForUpdate()` (a LOCKING re-read, because a plain one answered
+           from the settlement transaction's own snapshot and made a lost race read as a mismatching
+           amount on MariaDB), `recordedProviders()` (a DISTINCT so a mistyped `--provider` is
+           refused rather than reported clean), and the ledger's `reopenInitiation()` and
+           `initiationStore()`. Three name no `store_id`, because neither table has the column;
+           `ServiceLayerRawQueryInventoryTest` declares each with its reason. */
+        $this->assertSame(['app' => 221, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -748,8 +788,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 246 -> 245 [ANA-TOP part 3]: that site removed -- it read through `OrderCurrencyStamp`.
            245 -> 246 [part 3 after review]: and back, as a raw scoped read inside
            `OrderCurrencyStamp` itself, for the reason the per-directory note gives.
-           246 -> 247 [ANA-TOP part 4]: the one `DimensionPeriodRevenue` products read. */
-        $this->assertSame(247, array_sum($perDir));
+           246 -> 247 [ANA-TOP part 4]: the one `DimensionPeriodRevenue` products read.
+           247 -> 249 [2026-11-25, #204]: the two `PlanPurchaseIntent` reconciliation reads noted
+           on the per-directory assertion above (204 + 45). The UNSCOPED sum moves with them, on
+           purpose and for the stated reason: the table has no `store_id` to scope by.
+           249 -> 262 [the same change]: the thirteen `ModulePaymentLedger` sites (217 + 45).
+           262 -> 266 [the review of the same change]: the four above (221 + 45). */
+        $this->assertSame(266, array_sum($perDir));
     }
 
     /**

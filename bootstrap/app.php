@@ -475,8 +475,25 @@ return Application::configure(basePath: dirname(__DIR__))
          * from LandingPage and ProductsPDF. A `web`-only registration would have missed them.
          *
          * No priority entry: unlike the suspension guard this one does not log anybody out, so it
-         * does not matter whether it runs before or after `Authenticate`. It reads the ROUTE, not the
-         * session.
+         * does not matter whether it runs before or after `Authenticate`.
+         *
+         * THE REST OF THIS NOTE USED TO SAY "It reads the ROUTE, not the session", AND THAT IS NO
+         * LONGER TRUE -- corrected after independent review rather than deleted, because the order
+         * now has two measurable consequences and a reader needs both:
+         *
+         *   1. ROUTE-LEVEL MIDDLEWARE RUNS AFTER THIS GROUP'S. Campaigns declares its payment writer
+         *      inside `PlanModuleCheck:Campaigns`, so for that module this guard decides first and
+         *      the module's own entitlement gate refuses afterwards --
+         *      `ModulePaymentFlows::completionIsEntitlementGated()` exists because of it, and
+         *      without it the boundary recorded a payment as honoured that was then refused.
+         *   2. IT RUNS AFTER `LotteryTicketWriteGuard` (:280) AND `CampaignIntentOwnershipGuard`
+         *      (:299), both of which redirect a session-less return before it is reached. So the
+         *      expired-session case this guard records is recorded for Donation only. Moving this
+         *      guard earlier would widen that, and would also move it ahead of two ownership checks
+         *      -- which is a decision, not a tidy-up, and is not taken here.
+         *
+         * It reads the session (the payer's own payment reference) and writes one key of its own,
+         * so it must stay after `StartSession`. Appending to the group puts it there.
          */
         $middleware->appendToGroup('web', \App\Http\Middleware\DisabledModuleRouteGuard::class);
         $middleware->appendToGroup('api', \App\Http\Middleware\DisabledModuleRouteGuard::class);

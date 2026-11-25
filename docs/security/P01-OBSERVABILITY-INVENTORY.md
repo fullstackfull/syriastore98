@@ -45,7 +45,7 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 36 lines
+### `critical` — 37 lines
 
 > **[2026-11-01] THIS COUNT WAS STALE, AND NOT BY THIS CHANGE'S DOING.** It read **21** against a
 > table of **28** rows before F241 and F263 added two more; the `warning` heading read **166**
@@ -58,8 +58,6 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 
 | line | message |
 |---|---|
-| `app/Http/Controllers/PaymentCallbackController.php:188` | Paytm plan callback: the payment is verified and the intent consumed, but the purchaser no longer exists. The plan was NOT activated and this needs a human. |
-| `app/Http/Controllers/PaymentCallbackController.php:203` | Paytm plan callback: the payment is verified and the intent consumed, but assignPlan refused. This needs a human. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:346` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:437` | Stock compensation could not determine whether the order row survived; assuming it did and leaving the stock consumed. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:490` | Stock compensation failed: inventory was consumed and could not be returned. |
@@ -94,9 +92,24 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:174` | gateway reference not recorded: the store id or reference is unusable |
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
+| `app/Http/Controllers/PaymentCallbackController.php:302` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 218 lines
+### `warning` — 236 lines
 
+> **[2026-11-25, second pass] 235 -> 236.** The independent financial review of #204 found that a
+> refunded Paytm capture still reported `TXN_SUCCESS` and would have been settled days later; the
+> verifier now refuses any refund-shaped field it cannot read as zero, and says so. Its destination
+> and reader are in the same section as the other eighteen.
+>
+> **[2026-11-25] 218 -> 235, and `critical` 36 -> 37 (#204).** Seventeen `warning` lines and one
+> `critical` added by the disabled-application payment boundary and the payment reconciliation
+> surface; six existing rows moved and two were deleted because the lines they named are gone. The
+> moves were re-pointed by (file, message), and the deletions are real: the callback's
+> "the purchaser no longer exists" and "assignPlan refused" lines were replaced by one line that
+> covers every way a verified payment fails to settle, because the settlement is now one
+> transaction and the two cases are no longer distinguishable from outside it. Destination and
+> reader for all eighteen are in their own section below.
+>
 > **[2026-11-24] 217 -> 218.** One line added by the P06-2B review follow-up
 > (`ModuleAvailability could not read the enable flag`, with its destination and reader in its own
 > section below). `resync-observability-inventory.py` REFUSED to write it, correctly and for the
@@ -152,9 +165,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/ThemeDraftAccess.php:56` | Theme draft access refused. |
 | `app/Http/Controllers/Api/ApiController.php:6363` | shipping quote refused a cart line naming another store |
 | `app/Models/Cart.php:1331` | flat-rate shipping refused a cart line naming another store |
-| `app/Http/Controllers/PaymentCallbackController.php:106` | Paytm plan callback refused: no usable order reference. |
-| `app/Http/Controllers/PaymentCallbackController.php:131` | Paytm plan callback refused: the provider did not confirm the payment. |
-| `app/Http/Controllers/PaymentCallbackController.php:163` | Paytm plan callback refused at the intent. |
+| `app/Http/Controllers/PaymentCallbackController.php:107` | Paytm plan callback refused: no usable order reference. |
+| `app/Http/Controllers/PaymentCallbackController.php:159` | Paytm plan callback refused: the provider did not confirm the payment. |
+| `app/Http/Controllers/PaymentCallbackController.php:173` | Paytm plan callback refused at the intent. |
 | `app/Http/Controllers/ShippingController.php:148` | shipping class write refused: the platform operator has read rights only |
 | `app/Http/Controllers/TaxMethodController.php:129` | tax method write refused: the platform operator has read rights only |
 | `app/Http/Controllers/PaytmPaymentController.php:270` | Paytm plan purchase refused: the purchase intent could not be recorded. |
@@ -174,9 +187,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PlanPurchaseIntent.php:252` | Plan purchase intent not recorded: no usable purchaser or plan. |
 | `app/Services/PlanPurchaseIntent.php:263` | Plan purchase intent not recorded: the expected amount is not numeric. |
 | `app/Services/PlanPurchaseIntent.php:309` | Plan purchase intent not recorded. |
-| `app/Services/PlanPurchaseIntent.php:702` | Plan purchase intent refusal not recorded. |
-| `app/Services/PlanPurchaseIntent.php:741` | Plan purchase intent recoverable refusal not recorded. |
-| `app/Services/PlanPurchaseIntent.php:762` | Plan purchase intent order not attached. |
+| `app/Services/PlanPurchaseIntent.php:759` | Plan purchase intent refusal not recorded. |
+| `app/Services/PlanPurchaseIntent.php:798` | Plan purchase intent recoverable refusal not recorded. |
+| `app/Services/PlanPurchaseIntent.php:819` | Plan purchase intent order not attached. |
 | `app/Http/Controllers/CyberSourceController.php:122` | CyberSource plan purchase refused: the posted plan id matches no plan. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:159` | Plan purchase refused before any write: the provider has no usable credentials. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:179` | stock evidence not attributed: the order carries no usable id or store |
@@ -365,10 +378,58 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OtpIntegrationController.php:685` | OTP test failed with an exception. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:361` | Customer OTP send did not succeed. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:404` | Customer OTP send threw. |
+| `app/Http/Controllers/PaymentCallbackController.php:243` | Paytm plan callback refused at the intent. |
+| `app/Http/Controllers/PaymentCallbackController.php:260` | Paytm plan callback refused at the intent. |
+| `app/Http/Controllers/PaymentCallbackController.php:274` | Paytm plan callback refused at the intent. |
+| `app/Http/Middleware/DisabledModuleRouteGuard.php:220` | Disabled-module payment return refused: no initiation record is installed and the session holds none of the vendored payment state. |
+| `app/Http/Middleware/DisabledModuleRouteGuard.php:228` | Disabled-module payment return passed through on the vendored session state: the initiation record is not installed. |
+| `app/Http/Middleware/DisabledModuleRouteGuard.php:297` | Disabled-module payment return was allowed and then refused downstream; the initiation was put back. |
+| `app/Http/Middleware/DisabledModuleRouteGuard.php:322` | Disabled-module payment return refused. |
+| `app/Services/ModulePaymentLedger.php:164` | Module payment initiation not recorded. |
+| `app/Services/ModulePaymentLedger.php:187` | Module payment initiation could not be marked abandoned. |
+| `app/Services/ModulePaymentLedger.php:237` | Module payment initiation could not be completed. |
+| `app/Services/ModulePaymentLedger.php:276` | Module payment initiation could not be reopened after a refused request. |
+| `app/Services/ModulePaymentLedger.php:371` | Module payment refusal not stored: the hourly bound for this module is reached. |
+| `app/Services/ModulePaymentLedger.php:392` | Module payment refusal not recorded. |
+| `app/Services/PaytmTransactionVerifier.php:242` | Paytm transaction status answered for a different order than the one asked about. |
+| `app/Services/PaytmTransactionVerifier.php:248` | Paytm transaction status answered for a different merchant than the one asked about. |
+| `app/Services/PaytmTransactionVerifier.php:311` | Paytm reported a successful transaction that also mentions a refund; not verifying it. |
 
 <!-- counts: error=95 info=22 debug=1 -->
 
 ---
+
+### The eighteen rows added 2026-11-25 (#204), with their destination and reader
+
+**One `critical`** — `app/Http/Controllers/PaymentCallbackController.php:280`, *Paytm plan callback:
+the payment is verified but could not be settled. Nothing was activated and this needs a human.*
+
+**Seventeen `warning`** — three more refusal lines in the same controller, four in
+`DisabledModuleRouteGuard`, six in `ModulePaymentLedger`, and two in `PaytmTransactionVerifier`.
+
+**Where they land:** the application log, via `Log::warning` / `Log::critical`.
+
+**WHAT NONE OF THEM CONTAINS, and it is the reason to read this section rather than skim it:** no
+payment reference, no card data, no provider credential and no driver message. The ledger's catch
+blocks log the exception CLASS and not `getMessage()`, because a `QueryException` renders the SQL
+with its bindings — and one of those bindings is the 128-bit reference that authenticates a payer's
+return, so the message would have put a live credential in the log. Independent review found that;
+the context keys are the module, the route PATTERN and a boolean.
+
+**Who reads them, and what they do:**
+
+| line | what it means | the action |
+|---|---|---|
+| `PaymentCallbackController:280` (`critical`) | a Paytm plan payment is **verified by the provider** and could not be settled — a purchaser or plan that no longer exists, a transaction already recorded as somebody's order, or a settlement that raised. Nothing was activated and the intent was left open | the platform operator, and it is **never expected**. `payments:reconcile` lists the same purchase with its reason; the money is real and the entitlement is not |
+| `PaymentCallbackController:107`, `:159`, `:173`, `:221`, `:238`, `:252` | the callback refused: no reference, a provider that did not confirm, or an intent that does not match. Routine for an unopened gate and for probes | nobody, in volume. Read when a buyer reports a Paytm purchase that did not activate — the reason says which of the six it was |
+| `DisabledModuleRouteGuard:322` | a payment return to a **switched-off** application was refused for want of an initiation. **May be a payer whose money was taken and whose session expired** | the operator, through `payments:reconcile`, which lists these with their repeat counts. Caller-driven volume, so the row is what to read, not the log |
+| `DisabledModuleRouteGuard:297` | a return this boundary allowed was then refused further down, so the initiation was put back | the operator. Expected for Campaigns while that module is off (its writer is behind its own entitlement gate) and worth investigating for the other two |
+| `DisabledModuleRouteGuard:220` | a return was refused because **neither** this host's initiation record nor the vendored session state was present | the operator. On an installation where `module_payment_initiations` has not been migrated this is the only control, so a burst means somebody is probing a disabled module's return URL |
+| `DisabledModuleRouteGuard:228` | a return was allowed on the vendored session state alone, because the initiation record is not installed | the operator, **once**: it says the boundary is running in its weaker mode and the migration is outstanding |
+| `ModulePaymentLedger:164`, `:187`, `:237`, `:276`, `:392` | the record could not be written. Every one of these **fails open on purpose** — a failure to record must never become a failure to pay | the operator. Each means the boundary has lost part of its evidence while the payment path keeps working; the action is to make the table readable, not to change any module's flag. Never expected |
+| `ModulePaymentLedger:371` | the hourly bound on stored refusals for one module is reached, so further distinct refusals that hour are logged and not stored | the operator. It means anonymous traffic is hitting a disabled module's return URL hard enough to matter, and that a genuine refused payer in that window may be in the log rather than in the list |
+| `PaytmTransactionVerifier:242`, `:248` | the provider's status response was **about a different order or a different merchant** than the one asked about | the operator, and it is never expected behind a validated certificate: it needs Paytm itself to answer the wrong question. Nothing was activated |
+| `PaytmTransactionVerifier:311` | a successful transaction whose response **also mentions a refund**. Nothing was activated, and the intent is left open | the operator. This is how a payment the operator refunded in the Paytm dashboard stops being settled by a later reconciliation run — so it is EXPECTED for a refunded sale, and worth reading because it names the purchase a person has to decide about. It also fires if Paytm ever sends a refund-shaped field this server cannot interpret, which is deliberate: no contract for reading one is established here |
 
 ### The row added 2026-11-24 (P06-2B review F9), with its destination and reader
 

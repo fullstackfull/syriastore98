@@ -333,6 +333,35 @@ class PlanPurchaseIntent
     }
 
     /**
+     * The intent this reference names, read CURRENT rather than from this transaction's snapshot.
+     *
+     * Added after the independent financial review measured what the difference costs: inside a
+     * transaction under REPEATABLE READ a plain `find()` returns the row as it was when the
+     * transaction began, so a caller asking "did another door consume this while I was working?"
+     * was answered "no" by its own snapshot and reported a false discrepancy. `lockForUpdate()`
+     * waits for the other writer and reads what was committed.
+     *
+     * On SQLite this compiles to nothing and the read is already current, which is why no test in
+     * the suite could tell the two apart.
+     */
+    public static function findForUpdate(string $provider, string $reference)
+    {
+        if (! self::available() || $reference === '') {
+            return null;
+        }
+
+        try {
+            return DB::table(self::TABLE)
+                ->where('provider', $provider)
+                ->where('reference', $reference)
+                ->lockForUpdate()
+                ->first();
+        } catch (\Throwable $theRecordIsUnreadable) {
+            return null;
+        }
+    }
+
+    /**
      * THE WHOLE POINT: verify a provider's attested figures against this intent, and consume it.
      *
      * Returns `[state, intent|null, reason]`. `VERIFIED` is the ONLY state a caller may activate
@@ -540,28 +569,25 @@ class PlanPurchaseIntent
         );
     }
 
-    public static function verifyAndConsume(
-        string $provider,
-        string $reference,
-        $authenticatedUserId,
-        string $reportedAmount,
-        string $reportedCurrency,
-        $providerTxnId = null
-    ): array {
-        if (! self::available()) {
-            return [self::UNVERIFIABLE, null, 'the purchase-intent record is not installed'];
-        }
-
-        $intent = self::find($provider, $reference);
-
-        if ($intent === null) {
-            return [self::UNVERIFIABLE, null, 'no intent exists for this provider and reference'];
-        }
-
-        if (! is_numeric($authenticatedUserId) || (int) $intent->user_id !== (int) $authenticatedUserId) {
-            return [self::REFUSED_MISMATCH, $intent, 'the intent belongs to a different purchaser'];
-        }
-
+    /**
+     * DO A PROVIDER'S ATTESTED FIGURES MATCH THIS INTENT? A pure question: it reads nothing but its
+     * arguments and writes nothing at all.
+     *
+     * Extracted, verbatim, from `verifyAndConsume()` -- which now calls it -- for one reason: the
+     * reconciliation surface (`App\Services\Payments\Reconciliation`) has to report what it WOULD
+     * do before an operator lets it do anything, and a second copy of a money comparison is how two
+     * doors come to disagree about what "the same amount" means. One rule, asked from two places.
+     *
+     * Returns `[state, reason]`: `VERIFIED` when the currency is compatible and the amount is
+     * identical at the comparison scale, `REFUSED_RECOVERABLE` for a present-and-different currency
+     * (see that constant: a platform display label, not something the provider attests), and
+     * `REFUSED_MISMATCH` for anything else. It decides NOTHING about ownership, replay or state --
+     * those stay with the caller, and the consumption stays one conditional UPDATE.
+     *
+     * @return array{0:string,1:string}
+     */
+    public static function compare(object $intent, string $reportedAmount, string $reportedCurrency): array
+    {
         /*
          * AN EMPTY REPORTED CURRENCY IS TOLERATED, AND THIS WAS A 100% TERMINAL FAILURE BEFORE
          * INDEPENDENT REVIEW CAUGHT IT.
@@ -591,13 +617,12 @@ class PlanPurchaseIntent
         if ($intentCurrency !== '' && $reported !== '' && strcasecmp($intentCurrency, $reported) !== 0) {
             return [
                 self::REFUSED_RECOVERABLE,
-                $intent,
                 'currency mismatch: intent ' . $intentCurrency . ', reported ' . $reported,
             ];
         }
 
         if (! is_numeric($reportedAmount)) {
-            return [self::REFUSED_MISMATCH, $intent, 'the reported amount is not numeric'];
+            return [self::REFUSED_MISMATCH, 'the reported amount is not numeric'];
         }
 
         /* SCALED INTEGER STRINGS, compared with ===. Not floats (requirement 3 forbids it) and
@@ -609,7 +634,6 @@ class PlanPurchaseIntent
         if ($expected === null || $reported === null) {
             return [
                 self::REFUSED_MISMATCH,
-                $intent,
                 'an amount could not be compared exactly: intent ' . $intent->expected_amount
                 . ', reported ' . $reportedAmount,
             ];
@@ -618,9 +642,42 @@ class PlanPurchaseIntent
         if ($expected !== $reported) {
             return [
                 self::REFUSED_MISMATCH,
-                $intent,
                 'amount mismatch: intent ' . $intent->expected_amount . ', reported ' . $reportedAmount,
             ];
+        }
+
+        return [self::VERIFIED, ''];
+    }
+
+    public static function verifyAndConsume(
+        string $provider,
+        string $reference,
+        $authenticatedUserId,
+        string $reportedAmount,
+        string $reportedCurrency,
+        $providerTxnId = null
+    ): array {
+        if (! self::available()) {
+            return [self::UNVERIFIABLE, null, 'the purchase-intent record is not installed'];
+        }
+
+        $intent = self::find($provider, $reference);
+
+        if ($intent === null) {
+            return [self::UNVERIFIABLE, null, 'no intent exists for this provider and reference'];
+        }
+
+        if (! is_numeric($authenticatedUserId) || (int) $intent->user_id !== (int) $authenticatedUserId) {
+            return [self::REFUSED_MISMATCH, $intent, 'the intent belongs to a different purchaser'];
+        }
+
+        /* THE COMPARISON LIVES IN `compare()` SO THAT A DOOR WHICH MUST LOOK BEFORE IT ACTS -- the
+           reconciliation's dry run -- asks the SAME question this method answers, not a copy of it.
+           Nothing about the rule moved: the block is the one that stood here, returned as a pair. */
+        [$comparison, $comparisonReason] = self::compare($intent, $reportedAmount, $reportedCurrency);
+
+        if ($comparison !== self::VERIFIED) {
+            return [$comparison, $intent, $comparisonReason];
         }
 
         /* THE ONE WRITE, AND IT IS CONDITIONAL. `where status = pending` is what makes a second
@@ -763,6 +820,79 @@ class PlanPurchaseIntent
                 'reason' => $theOrderWasNotAttached->getMessage(),
                 'provider' => $provider,
             ]);
+        }
+    }
+
+    /**
+     * INTENTS A RECONCILIATION RUN MAY ASK A PROVIDER ABOUT: still `pending`, old enough that the
+     * buyer's own return has had its chance, and young enough to be worth a question.
+     *
+     * `pending` and nothing else. A `consumed` intent has been spent and a `refused` one was closed
+     * by a door that had its reasons; neither is reopened from here, and both stay in
+     * `unreconciled()` for a human. This is the list of purchases that were INITIATED -- the server
+     * minted the reference and recorded plan, purchaser, amount and currency before the buyer left
+     * -- and that nothing has since settled. The row is the durable proof of initiation; without
+     * the table there is no proof and the answer is the empty list, never "everything".
+     *
+     * BOTH TIME BOUNDS ARE THE CALLER'S, AND NEITHER IS A SETTLEMENT RULE. The lower bound exists
+     * so a run does not race a purchase whose buyer is still on the provider's page; the upper one
+     * so a run does not ask a provider about every abandoned checkout the installation has ever
+     * had. An intent outside the window is not judged -- `outsideReconciliationWindow()` counts
+     * them so a report can say how many it did not look at instead of implying it looked at all.
+     *
+     * @return \Illuminate\Support\Collection<int,object>
+     */
+    public static function awaitingReconciliation(int $olderThanMinutes, int $withinDays, ?string $provider = null, ?string $reference = null)
+    {
+        if (! self::available()) {
+            return collect();
+        }
+
+        /*
+         * THIS ONE DOES NOT SWALLOW ITS FAILURE, unlike its read-only siblings below, and the
+         * independent financial review measured why it must not: with the query broken the command
+         * printed *"No pending intent falls inside the window examined"* and exited **0** — a run
+         * that examined nothing reporting as a run that found nothing. The caller turns a throw
+         * into exit 2, which is the difference between "clean" and "could not run".
+         */
+        return DB::table(self::TABLE)
+            ->where('status', self::PENDING)
+            ->where('created_at', '<', now()->subMinutes(max(0, $olderThanMinutes)))
+            ->where('created_at', '>=', now()->subDays(max(1, $withinDays)))
+            ->when($provider !== null && $provider !== '', fn ($query) => $query->where('provider', $provider))
+            ->when($reference !== null && $reference !== '', fn ($query) => $query->where('reference', $reference))
+            ->orderBy('id')
+            ->get();
+    }
+
+    /** The providers any intent has ever been recorded for, so a mistyped `--provider` can be refused. */
+    public static function recordedProviders(): array
+    {
+        if (! self::available()) {
+            return [];
+        }
+
+        try {
+            return DB::table(self::TABLE)->distinct()->pluck('provider')->filter()->values()->all();
+        } catch (\Throwable $theQueryFailed) {
+            return [];
+        }
+    }
+
+    /** How many `pending` intents are OLDER than the window a run examined. Counted, never judged. */
+    public static function outsideReconciliationWindow(int $withinDays): int
+    {
+        if (! self::available()) {
+            return 0;
+        }
+
+        try {
+            return DB::table(self::TABLE)
+                ->where('status', self::PENDING)
+                ->where('created_at', '<', now()->subDays(max(1, $withinDays)))
+                ->count();
+        } catch (\Throwable $theQueryFailed) {
+            return 0;
         }
     }
 

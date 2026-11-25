@@ -120,6 +120,56 @@ class PaytmTransactionVerifierTest extends TestCase
         $this->assertSame('authenticated by the validated TLS certificate of securegw-stage.paytm.in', $answer['reason']);
     }
 
+    /**
+     * AN ANSWER ABOUT A DIFFERENT ORDER DOES NOT VERIFY THIS ONE.
+     *
+     * Added with the reconciliation surface (#204), which settles on this answer with no browser
+     * and no person in the loop, so "is this answer about the transaction I asked about?" has to be
+     * a check rather than an assumption about what a provider echoes.
+     *
+     * Each response below is a PERFECT success -- correctly checksummed by the merchant key,
+     * `TXN_SUCCESS`, the right amount -- for somebody else's order, or from another merchant
+     * account. Before this check both came back VERIFIED.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('answersAboutSomethingElse')]
+    public function test_an_answer_that_names_a_different_order_or_merchant_is_unverifiable(array $echo, string $reason): void
+    {
+        $this->answering($this->signed($echo + [
+            'STATUS' => 'TXN_SUCCESS',
+            'TXNAMOUNT' => '499.00',
+            'TXNID' => '20261031111212800110168659801234567',
+        ]));
+
+        $answer = $this->verifier()->verify(self::REFERENCE);
+
+        $this->assertSame(PaytmTransactionVerifier::UNVERIFIABLE, $answer['state'],
+            'a success for a different transaction was accepted as proof of this one');
+        $this->assertStringContainsString($reason, $answer['reason']);
+        $this->assertNull($answer['amount'], 'an answer about something else must not lend its amount');
+    }
+
+    public static function answersAboutSomethingElse(): array
+    {
+        return [
+            'another order' => [['ORDERID' => 'ffffffffffffffff', 'MID' => self::MID], 'a different order'],
+            'another merchant account' => [['ORDERID' => self::REFERENCE, 'MID' => 'SomebodyElse00000001'], 'a different merchant'],
+        ];
+    }
+
+    /** CONTROL for the case above: the same body, echoing what was asked, verifies. */
+    public function test_an_answer_that_echoes_the_question_is_still_verified(): void
+    {
+        $this->answering($this->signed([
+            'ORDERID' => self::REFERENCE,
+            'MID' => self::MID,
+            'STATUS' => 'TXN_SUCCESS',
+            'TXNAMOUNT' => '499.00',
+            'TXNID' => '20261031111212800110168659801234567',
+        ]));
+
+        $this->assertSame(PaytmTransactionVerifier::VERIFIED, $this->verifier()->verify(self::REFERENCE)['state']);
+    }
+
     public function test_a_success_whose_checksum_does_not_verify_is_unverifiable_and_not_a_refusal(): void
     {
         $this->answering([

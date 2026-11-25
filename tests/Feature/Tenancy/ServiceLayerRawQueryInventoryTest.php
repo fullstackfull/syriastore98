@@ -118,6 +118,67 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
             . 'Read-only, called by no request path, and it decides nothing (requirement 9 forbids '
             . 'acting on it).',
 
+        "DB::table(self::TABLE) ->where('status', self::PENDING)" =>
+            'The two reconciliation reads (#204): the `pending` intents an operator-run '
+            . 'reconciliation may ask a provider about, and a count of the ones older than the '
+            . 'window it examined. Platform-wide for the same reason as the unreconciled query '
+            . 'above -- a plan purchase has no tenant, and the operator reconciling the platform\'s '
+            . 'own receipts must see all of them. Read-only, reached only from the '
+            . '`payments:reconcile` console command and never from a request, and what the '
+            . 'reconciliation then does with a row is bound to that row\'s own purchaser.',
+
+        /* ---- #204: the MODULE payment initiation record. An initiation belongs to a payer's
+           SESSION, not to a store. `module_payment_initiations` does carry `store_id`, and both of
+           its INSERTs write it -- but as a fact about the route a person will read later, never as
+           the thing a row is found by. The reason is in what the record is for: a payer returning
+           from a gateway to a switched-off application must show that THIS BROWSER started the
+           payment, and the only thing a browser holds is the 128-bit reference the server minted
+           into its session. A store id is in the URL and anybody can type one. And a Campaigns
+           initiation has no store at all: a merchant pays the platform.
+           `DisabledModulePaymentBoundaryTest` drives the isolation that matters -- another session
+           cannot spend a payer's initiation, and one module's reference cannot open another's
+           writer. */
+        "DB::table(self::TABLE) ->where('reference', \$" =>
+            'Finding or spending one module payment initiation by the reference held in the '
+            . 'payer\'s own session (supersede, abandon, the open-initiation check and the one '
+            . 'conditional UPDATE that completes it). The reference is 128 bits of server-minted '
+            . 'random and is the isolation boundary; every statement also names the module, so a '
+            . 'reference for one module cannot be spent on another. A store_id predicate would add '
+            . 'a value the caller supplies in the URL to a check that must not depend on one.',
+
+        "DB::table(self::TABLE) ->where('module', \$module)" =>
+            'Refusal bookkeeping for a switched-off module: has this exact refused request been '
+            . 'seen before, and how many distinct refusals has the module gained this hour. A '
+            . 'module is switched off for the WHOLE platform (`add_on_managers.is_enable` is one '
+            . 'row per module), so both the dedupe and the bound are per module by design -- a '
+            . 'per-store bound would let one caller multiply it by the number of stores. Neither '
+            . 'returns a row to any request.',
+
+        "DB::table(self::TABLE)->where('id', \$repeat->id)" =>
+            'Counting a repeated refusal on the row the dedupe read above just resolved. Keyed on '
+            . 'that row\'s primary key and nothing a caller supplied.',
+
+        "DB::table(self::TABLE) ->where('status', self::REFUSED)" =>
+            'The unacknowledged-refusals list. Platform-wide for the operator, like the '
+            . 'unreconciled plan intents: it is about applications switched off for the whole '
+            . 'platform. Read-only and reached only from the `payments:reconcile` console command.',
+
+        "DB::table(self::TABLE) ->whereIn('module', \$modules)" =>
+            'A COUNT of initiations still open for the modules that are currently switched off. '
+            . 'Console-only, discloses no row, and is keyed on module names this application '
+            . 'chooses.',
+
+        "DB::table(self::TABLE) ->where('id', \$id)" =>
+            'Reading or acknowledging ONE refusal by its id, from the console. The id is typed by '
+            . 'the operator who has a shell on the server, both statements require the row to be '
+            . 'a refusal, and the acknowledgement is a conditional UPDATE that can happen once.',
+
+        "DB::table(self::TABLE)->distinct()->pluck('provider')" =>
+            'The providers any plan intent has ever been recorded for, so the reconciliation command '
+            . 'can refuse a mistyped `--provider` instead of examining nothing and reporting success. '
+            . 'A `DISTINCT` over one column of a table with no `store_id`; it discloses no row, and '
+            . 'the only caller is the console command.',
+
         // ---- the tenant RESOLVER. It cannot be tenant-scoped; it is what produces the tenant.
         "DB::table('users')->whereNotNull('deliverysyria_secret')" =>
             'This IS the tenant resolution step for the DeliverySyria integration: given a bearer '
@@ -265,8 +326,62 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
          * `lockForUpdate()`, and a `Cachable` model would serve a pre-write row to the next read
          * in the same request.
          */
+        /*
+         * 46 -> 48 on 2026-11-25 [#204, the payment reconciliation surface]: `PlanPurchaseIntent`
+         * adds TWO -- `awaitingReconciliation()` and `outsideReconciliationWindow()`.
+         *
+         * BOTH ARE STORE-LESS (18 -> 20), like every other statement against that table and for
+         * the same reason: it has no `store_id` column. They are declared in STORE_LESS_BY_DESIGN
+         * under their own fragment rather than riding on an existing one, because they are the
+         * first statements in that file that select MANY purchasers' rows for something that then
+         * ACTS -- the unreconciled query is also platform-wide but nothing acts on it. What makes
+         * that safe is not the query: it is that the only caller is a console command, and that
+         * `PlanPaymentReconciler` settles each row for that row's own purchaser and plan and
+         * takes nothing from any caller.
+         */
+        /*
+         * 48 -> 61 on 2026-11-25 [#204, the disabled-application payment boundary]:
+         * `App\Services\ModulePaymentLedger` adds THIRTEEN.
+         *
+         * TWO NAME `store_id` (28 -> 30) AND ELEVEN DO NOT (20 -> 31), and this is the one delta in
+         * this file where the split is NOT the evidence of anything, so it is said rather than
+         * left to be read the usual way. The two that name it are INSERTs that record the store a
+         * route belonged to; the eleven that do not are every statement that FINDS a row -- by the
+         * session-held reference, by module, or by primary key from the console. The isolation is
+         * per payer session, and STORE_LESS_BY_DESIGN has the argument for each fragment.
+         *
+         * AND THE CLASS WAS MOVED HERE SO THAT THIS CENSUS WOULD SEE IT. It was first written at
+         * `app/Services/Payments/ModulePaymentLedger.php`, and this file's scan is
+         * `glob('app/Services/*.php')` -- not recursive -- so thirteen new raw statements against a
+         * payment record sat outside the ratchet and it stayed green. They belong beside
+         * `GatewayReference`, `PlanPurchaseIntent` and `StockMovement`, which is where they now
+         * are. The blind spot itself is real and pre-existing (`Marketing/NudgeLedger`,
+         * `Theme/ThemeConfigurationService` and `Theme/ThemePublishingService` hold raw statements
+         * this census has never counted) and is recorded as a gap rather than widened here, because
+         * widening it means reading and declaring statements this change did not write.
+         */
+        /*
+         * 61 -> 65 on 2026-11-25 [the independent financial review of #204]: FOUR more, all in
+         * `PlanPurchaseIntent` and all added in response to a measured finding.
+         *
+         *   `findForUpdate()`    a LOCKING re-read. Under REPEATABLE READ a plain `find()` inside the
+         *                        settlement's transaction answered from that transaction's own
+         *                        snapshot, so the loser of a real race read the intent as still
+         *                        `pending` and a lost race was reported AND AUDITED as a mismatching
+         *                        AMOUNT. Measured on MariaDB; invisible to SQLite, where
+         *                        `lockForUpdate()` compiles to nothing.
+         *   `reopenInitiation()` / `initiationStore()`   the module ledger's two halves of
+         *                        put-the-claim-back and complete-in-the-store-it-started-in.
+         *   `recordedProviders()`  a DISTINCT so a mistyped `--provider` is refused rather than
+         *                        reported as a clean run.
+         *
+         * Three name no `store_id` (31 -> 34) for the reason every statement against these two
+         * tables does: neither has the column. `recordedProviders()` is declared in
+         * STORE_LESS_BY_DESIGN; the other three are covered by the reference-keyed and
+         * `(reference, module)` declarations already there.
+         */
         $this->assertSame(
-            46,
+            65,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -278,8 +393,8 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            `store_id` -- so the whole of the +2 lands here and the store-less count below is
            unchanged at 18. That split is the evidence that the change added no cross-tenant
            exposure; the totals above would move either way. */
-        $this->assertSame(28, $scoped, 'statements naming store_id');
-        $this->assertCount(18, $storeLess, 'statements naming store_id nowhere');
+        $this->assertSame(31, $scoped, 'statements naming store_id');
+        $this->assertCount(34, $storeLess, 'statements naming store_id nowhere');
     }
 
     public function test_every_store_less_service_statement_is_declared_with_its_reason(): void

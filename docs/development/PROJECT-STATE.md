@@ -70,73 +70,79 @@ branch name does not narrow it.
 > ([comment 7131474457](https://github.com/fullstackfull/syriastore98/pull/141#issuecomment-7131474457));
 > **do not comment again and do not forge or bypass it.**
 >
-> #### THE EXACT NEXT IMPLEMENTATION SLICE — task #204, the only active incomplete slice
+> #### TASK #204 — P06-2B, THE DISABLED-APPLICATION PAYMENT BOUNDARY. **DONE 2026-11-25.**
 >
-> **P06-2B — widen the disabled-application boundary.** Do not start anything else first.
+> Both halves were built, with their mandatory independent reviews, and the records below were
+> brought into agreement with the code. **The two owner decisions that were open are still open and
+> were not inferred.**
 >
-> *Already done and CI-verified* (`b329e43b`, `b85485ff`, run 45509227165 #639): the boundary refuses
-> a disabled module's routes **that carry their own authentication — 1,012 of 1,464**. Review finding
-> F1 made `requiresAuthentication()` consult `ModuleRouteManifest`, because `gatherMiddleware()`
-> alone missed the 340 ADMINISTRATIVE keys whose authentication comes from group middleware.
+> | | |
+> |---|---|
+> | the prerequisite (P5-FIN-4 / P04-FIN-04 / review finding F13) | **BUILT.** `php artisan payments:reconcile` over `App\Services\Payments\Reconciliation\` — authoritative provider verification, the intent as the durable proof of initiation, exact amount and currency comparison, one settlement per payment in ONE transaction, discrepancies written on the intent and in `audit_logs`. Report-only unless `--apply`. Design: `docs/finance/P204-PAYMENT-RECONCILIATION.md` |
+> | the boundary | **WIDENED, on what a route DOES to a payment** (`App\Support\Modules\ModulePaymentFlows`) rather than on the manifest's `payment-callback` label — the label does not follow the code in either direction, measured in `PHASE-06-DISABLED-APPLICATION-BOUNDARY.md` §4.2. A disabled module cannot START a payment; a payment already initiated is honoured ONCE for the session that started it; a return that cannot show one is refused and written down |
+> | the record the modules do not keep | `module_payment_initiations` + `App\Services\ModulePaymentLedger`. **Development-and-test-only, like its two predecessors**, so the payment half of the boundary is INERT in production until the owner promotes it. Starting a payment through a disabled application is refused either way |
+> | **still the owner's, and untouched** | `storefront` — the **76** of its 100 keys that are not a payment — and `oauth` (**16**). Pinned by `test_a_non_payment_anonymous_route_of_a_disabled_module_still_passes_pending_the_owners_decision` |
 >
-> *The remainder* is the **243 `ANONYMOUS_BY_DESIGN` routes.** Counts re-measured 2026-11-25 against
-> the manifest and matching `PHASE-06-DISABLED-APPLICATION-BOUNDARY.md` §4 exactly — **reconcile
-> against the inventory, never infer a category**:
+> **THE TWO MANDATORY INDEPENDENT REVIEWS FOUND ELEVEN LIVE ITEMS BETWEEN THEM, ALL FIXED**, and
+> that is the part worth carrying forward rather than the clean figures. Neither found an
+> authorization hole in the new code; both found that it did less than its own docblocks claimed.
 >
-> | tag | routes | disposition |
-> |---|---|---|
-> | `storefront` | 100 | **OWNER DECISION — still open** |
-> | `payment-callback` | 87 | **DECIDED by the owner's clarification** (below) |
-> | `guarded` | 22 | orthogonal — another host guard owns ownership |
-> | `oauth` | 16 | **OWNER DECISION — still open** |
-> | `inert` | 8 | unreachable by construction |
-> | `own-credential` | 6 | settled — authenticated by its own credential |
-> | `webhook` | 2 | **DECIDED** with `payment-callback` |
-> | `owner-exemption` | 2 | already an explicit owner exemption |
+> | | |
+> |---|---|
+> | the financial/data-integrity review | three HIGH, five MEDIUM. **A refunded capture still settled** (`STATUS` has four values and none says "refunded", and the buyers this reaches are exactly the ones charged and shown the 419). **A days-old payment was applied as if it had just happened** — a three-day-old intent DOWNGRADED a buyer who had since bought a dearer plan and switched off two of their three stores. **A verified capture that failed to settle was written nowhere** and the run went green once it aged out. Plus: the model cache flushed inside the transaction, so a reader cached the pre-settlement row; `ALREADY_SETTLED` was unreachable on MariaDB and a lost race was audited as a mismatching AMOUNT; a provider retry logged CRITICAL for a working payment; "written once" was keyed on reason text; and exit 0 when nothing was examined. Full account: `docs/finance/P204-PAYMENT-RECONCILIATION.md` §5.2 |
+> | the `tenant-authz-reviewer` pass | **route middleware runs AFTER group middleware**, so a disabled Campaigns return was marked `completed` and then refused by the module's own gate — and its PowerTranz relay CAPTURES before reaching a writer it cannot reach. Plus: a payment could be completed in a different store; with no record installed one anonymous request still wrote a donation; and anonymous traffic could suppress and misattribute refusal records. Full account: `PHASE-06-DISABLED-APPLICATION-BOUNDARY.md` §4.5 |
 >
-> `ADMINISTRATIVE` (340) by rule: `auth` 171, `store-row` 81, `settings` 33, `operator` 28, `owner`
-> 26, `tenant-store` 1.
+> **AND BOTH REVIEWS SHOWED MY TESTS COULD NOT HAVE CAUGHT ANY OF IT.** Every boundary case drove a
+> synthetic route and called the guard directly, so middleware ordering was invisible; every request
+> used a slug that resolved to no store, so every store-shaped assertion was vacuous; and the
+> canonical-reference case passed with its control deleted. Fixed, and the reasons are in the test
+> docblocks rather than only here.
 >
-> **OWNER ANSWER ALREADY GIVEN, not yet reflected in the repository.** The boundary document still
-> records the whole anonymous half as *"PARTIAL by design — the owner has the counts and the
-> question."* The owner's clarification answers the payment part and must be written in:
+> **THREE DEFECTS IN ALREADY-COMMITTED CODE WERE FOUND BY BUILDING IT**, all fixed, all with a test
+> that failed against the unchanged code first:
 >
-> > *"Implement effective, immediate account and application suspension."* · *"Preserve all existing
-> > data, orders, balances and audit records. Disabling is not deletion."* · *"Keep a safe,
-> > authenticated and idempotent reconciliation mechanism for previously initiated payments; do not
-> > use it to permit new transactions through disabled applications."* · *"Do not stop for these same
-> > three questions again."*
+> 1. **The F241 provider callback could never have verified a payment.** It read the Paytm merchant
+>    key from config, and the only writer of that key runs `if (\Auth::check())` — while that route
+>    is outside the session group by design. So every real callback met an empty key and recorded a
+>    **terminal** refusal against a captured payment. Its nineteen tests could not see it: they set
+>    the config directly, a state production cannot reach.
+> 2. **The same callback activated plans and wrote no `plan_orders` row**, leaving every successful
+>    activation as a false alarm in `unreconciled()`'s captured-payment-with-nothing-to-show clause.
+> 3. **`PaytmTransactionVerifier` did not check the answer was about the order it asked about.**
 >
-> So `payment-callback` + `webhook` are **decided**: continuity for an already-initiated payment,
-> refusal for anything that would start a new one. **`storefront` (100) and `oauth` (16) remain the
-> owner's** — whether switching off a merchant *application* should also take down shopper-facing
-> pages, or break an in-flight OAuth return, is not inventable. **Do not re-ask the three settled
-> questions.**
+> **AND THE TWO MySQL HARNESSES EACH CHANGED THE CODE.**
+> `verify-module-payment-boundary-on-mysql.php` (16 checks): under `utf8mb4_general_ci` the
+> completion claim matched a reference differing only in letter case — the P1-INV-18 shape,
+> invisible to SQLite. `verify-plan-payment-reconciliation-on-mysql.php` (15 checks, driving the
+> REAL settlement against a database built by the project's own migrations): it pins the
+> `ALREADY_SETTLED` fix that no SQLite test can fail, **and it caught a defect in one of the review
+> fixes on its first run** — the entitlement check counted the intent's own order, so a retry read
+> as a discrepancy. Both registered in `run-mysql-verifications.sh`.
 >
-> **THE PREREQUISITE IS A BUILD, NOT A FLAG.** Review finding F13, confirmed independently
-> 2026-11-25: **P5-FIN-4's reconciliation capability DOES NOT EXIST.** `app/Console/Commands/` holds
-> twelve commands and none reconciles payments (`CheckMetricThresholds`, `CreatePackage`,
-> `DetectRecoveryCandidates`, `DownloadExposureReport`, `FindDuplicateRouteNames`,
-> `MakePackageComponent`, `PackageMigrate`, `PackageSeed`, `SendScheduledAnalyticsReports`,
-> `TokenInventoryReport`, `ZidProcessEvents`, `ZidRefreshTokens`). The pattern to copy is
-> `app/Services/PaytmTransactionVerifier.php`: it asks the provider server-to-server over a channel
-> it authenticates itself, **owns its transport** because the vendored SDK disables
-> `CURLOPT_SSL_VERIFYHOST`/`VERIFYPEER`, and refuses when it cannot verify. Relevant models:
-> `PlanOrder` (`payment_status`, `txn_id`, nullable indexed `store_id`), `store_order_financials`.
+> Records resynced in the same change, with the half that moved named in each: `P04-FIN-04`
+> NOT IMPLEMENTED → **PARTIALLY IMPLEMENTED** (the surface exists; the order↔wallet axis does not),
+> `GAP-124` likewise, and the two summary tables that count them. **No row was promoted to VERIFIED
+> COMPLETE and the project-wide 170 verified is unchanged** — a payment surface that has never seen
+> a live provider handshake is not a verified requirement.
 >
-> **Widening the refusal before that surface exists would lose captured payments** — the exact risk
-> `PHASE-06-DISABLED-APPLICATION-BOUNDARY.md` §4 names. Order of work: (1) build the authenticated,
-> idempotent reconciliation surface; (2) widen the boundary on the manifest's **category** rather
-> than on `requiresAuthentication()`, which closes F1/F2 structurally; (3) correct the boundary
-> document so *"pending an owner decision"* names only `storefront` and `oauth`; (4) carry F7 (
-> `PackageServiceProvider` force-loads `LandingPage` and `LynomiaChat` irrespective of any
-> `add_on_managers` row) and F6 (LynomiaChat schedules six of its own reconcilers, which keep running
-> for a switched-off module — **owner's**) with the widening. The current bounded behaviour is pinned
-> by `test_an_anonymous_route_of_a_disabled_module_is_not_refused_pending_an_owner_decision`, so the
-> test that must change says why.
+> #### WHAT IS NOT DONE, and is the next executable work
 >
-> **This is a financial slice: the independent financial/data-integrity review is mandatory before
-> commit, and settlement rules must not be invented.**
+> **The entire remaining project-wide backlog, in the owner's priority order** (security and tenant
+> isolation · financial and data correctness · missing approved functionality · cross-phase
+> dependencies · UX, accessibility and bilingual parity). The pointers below are canonical; the
+> figures in them are recorded checkpoints and not a guarantee that every row is current.
+>
+> Carried forward from #204 itself, none of it blocking:
+>
+> | | |
+> |---|---|
+> | **F7** | `PackageServiceProvider` force-*loads* `LandingPage` and `LynomiaChat` irrespective of any row, and three other first-party mechanisms keep saying LandingPage is on. A row that exists and says `0` would make its 275 routes refuse while they disagree. Recoverable (the module screen is a host route, pinned by a test), so an inconsistency rather than a lockout |
+> | **F6** | LynomiaChat schedules six of its own reconcilers, which keep running for a switched-off module. For a bundled first-party integration that is probably right; it is a decision and it is unstated. **The owner's** |
+> | the wallet axis of `P04-FIN-04` | needs `report-settlement-entitlement.php` run against a restored copy of production, which is owner/operator work |
+> | **no acknowledgement for PLAN intents** | `--acknowledge` is module-only, so one definite provider NO on the list makes every later run exit 1 and the status stops carrying information. A surface, not a line |
+> | **the browser return still closes an intent terminally on an unobtainable answer** | `PaytmPaymentController:471`. The callback and the reconciliation now keep it open; three doors, two policies. Changing the oldest one changes a live purchase path |
+> | **`payment_type` spellings** | the return stores `__('paytm')`, translated per locale; the replay sweep covers the language files' current and historical spellings but not `trans('paytm')`. Pre-existing, measured on MariaDB by the review |
+> | promoting the three dev-only payment migrations | `plan_purchase_intents`, `order_gateway_references`, `module_payment_initiations`. **The owner's** |
 >
 > #### Project-wide backlog and decision registers — the canonical pointers
 >
@@ -182,8 +188,11 @@ branch name does not narrow it.
 > #### What could not be transferred
 >
 > Nothing was lost. The held P1-SEC-81 branch stays local and unpublished **by owner decision**, not
-> by accident. Task #204's code is not started — only its measurement, dispositions and order of work
-> are recorded above.
+> by accident.
+>
+> *(That paragraph used to end "Task #204's code is not started — only its measurement, dispositions
+> and order of work are recorded above." It was true at the transfer; #204 was executed on
+> 2026-11-25 and the block above records it.)*
 
 ---
 

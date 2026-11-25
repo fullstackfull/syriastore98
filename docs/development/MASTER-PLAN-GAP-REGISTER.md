@@ -34,6 +34,11 @@ status, because their text was unavailable. **199 in total.**
 The original 181 are unchanged: not renumbered, not recategorised, none closed. The 18 are held in
 their own category **R** below precisely so that the two sets stay distinguishable.
 
+> **2026-11-25 (#204).** `GAP-124` moves NOT IMPLEMENTED -> PARTIALLY IMPLEMENTED (39 / 83). **It is
+> not closed**, and the row says which half moved: the reconciliation surface was built, the
+> order-versus-wallet axis the gap is named for was not. No gap was closed and none was
+> recategorised.
+
 | category | meaning | count |
 |---|---|---|
 | **A** | **Must be completed before release.** | **56** |
@@ -44,8 +49,8 @@ their own category **R** below precisely so that the two sets stay distinguishab
 
 | status | count |
 |---|---|
-| PARTIALLY IMPLEMENTED | 82 |
-| NOT IMPLEMENTED | 40 |
+| PARTIALLY IMPLEMENTED | 83 |
+| NOT IMPLEMENTED | 39 |
 | VERIFIED COMPLETE | 1 |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | 19 |
 | OWNER-APPROVED DEFERRED | 17 |
@@ -99,7 +104,7 @@ their own category **R** below precisely so that the two sets stay distinguishab
 | `GAP-119` | `P04-CH-01` | 04 Commerce (P4-0  | NOT IMPLEMENTED | Both the requirement's meaning and any work against it. | Ask the owner what 'channels' means in the Decision Register; it cannot be recovered from this repository, and the EX-001..EX-012 exclusions that would say whether it was excluded are lost. |
 | `GAP-120` | `P04-COD-01` | 04 Commerce (P4-0  | PARTIALLY IMPLEMENTED | No table, no write path, no UI — so no COD order can ever be settled through the approved mechanism. Phase 04 did not touch this despite COD being a named scope element. | Owner decision: create cod_collection_events (a NEW table, outside the GATE F production-alignment set) and build the collection-recording surface, or state that COD settlement stays unavailable. |
 | `GAP-121` | `P04-EV-01` | 04 Commerce (P4-0  | PARTIALLY IMPLEMENTED | Coupon allocation, tax banding, refund totals and the new transaction boundary have no MySQL verification; production is MySQL with CACHE_STORE=database. | Add MySQL harnesses for the four money paths this phase changed, following the existing verify-*-on-mysql.php pattern. |
-| `GAP-124` | `P04-FIN-04` | 04 Commerce (P4-0  | NOT IMPLEMENTED | No order↔wallet reconciliation anywhere; this is one of the four rows the final report says Phase 05 analytics must not be built on. | Build the reconciliation as P5-FIN-4 before any revenue metric reads store_wallets. |
+| `GAP-124` | `P04-FIN-04` | 04 Commerce (P4-0  | PARTIALLY IMPLEMENTED | **Re-measured 2026-11-25 (#204): the reconciliation SURFACE now exists and the wallet axis does not.** `payments:reconcile` reconciles previously initiated PLAN payments against their provider — authoritative verification, one settlement per payment in one transaction, discrepancies on the intent and in `audit_logs` — and is the first reader `PlanPurchaseIntent::unreconciled()` has ever had. The order↔wallet divergence this row is named for is still detectable only by the read-only `report-settlement-entitlement.php`, which has never produced a result on real data. | Run that reporter against a restored copy of production (owner/operator — no replica is reachable from here), then decide whether the wallet axis gets its own reconciliation leg or stays a report. Evidence for the built half: `docs/finance/P204-PAYMENT-RECONCILIATION.md`. |
 | `GAP-125` | `P04-FL-01` | 04 Commerce (P4-0  | PARTIALLY IMPLEMENTED | F114's 401 force-logout; no end-to-end Flutter commerce journey is driven by any suite. | Fix F114 with a staff-token test, and add contract coverage for the Flutter order/cancel/status journey. |
 | `GAP-128` | `P04-P1-02` | 04 Commerce (P4-0  | NOT IMPLEMENTED | The bilingual cart/checkout harness, which is half of P4-1's stated acceptance. | Build the two-language cart+checkout harness, or record an explicit owner decision that the 5-case locale pin is sufficient. |
 | `GAP-131` | `P04-P1-06` | 04 Commerce (P4-0  | NOT IMPLEMENTED | Cross-tenant stock disclosure on a live storefront API route. | Scope the lookup to the resolved store and add a negative test driving a foreign product id. |

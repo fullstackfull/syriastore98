@@ -85,12 +85,20 @@ against a pre-reorganization original.
 > IMPLEMENTED 41 -> 39; Phase 05/06 2 -> 1 verified. Where what remained was a rule rather than
 > work, it went to the owner's register as `D-N35`...`D-N40`. **No row was promoted to VERIFIED
 > COMPLETE.**
+>
+> **2026-11-25 (#204).** `P04-FIN-04` moves NOT IMPLEMENTED -> PARTIALLY IMPLEMENTED (35 / 86), and
+> that is the only figure that changed. Its reconciliation SURFACE now exists -- `payments:reconcile`,
+> the first reader `PlanPurchaseIntent::unreconciled()` has ever had -- while the wallet-versus-order
+> axis the row is named for is still a read-only reporter that has never run against real data. The
+> row says which half is which. **No row was promoted to VERIFIED COMPLETE**, and the project-wide
+> 170 verified is unchanged: a surface that has never seen a live provider handshake is not a
+> verified requirement.
 
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **170** |
-| PARTIALLY IMPLEMENTED | **85** |
-| NOT IMPLEMENTED | **36** |
+| PARTIALLY IMPLEMENTED | **86** |
+| NOT IMPLEMENTED | **35** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **19** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -4052,16 +4060,16 @@ against a pre-reorganization original.
 
 ### `P04-FIN-04` — Order / wallet reconciliation
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
 
 - **Requirement (original wording / faithful reference):** P4-F128 — 'the wallet can be moved without the order, in both directions, with no reconciliation anywhere'.
 - **Source:** `docs/development/phase-4/PHASE-04-FINAL-REPORT.md §4; docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §0 ('P4-F128 reconciliation + finance-screen audit — outstanding')`
 - **Owner decisions:** Owner principle 4 covers the direction; no implementation decision has closed it.
 - **Expected behaviour:** Wallet movements reconcile against orders; a movement without an order is detectable.
-- **Actual behaviour:** OPEN. No reconciliation surface exists: app/Console/Commands/ holds no reconciliation command, and the only reconciliation artefacts are OrderTotalReconciler (per-order totals, not wallet-vs-order) and the read-only F032 procedure. The project's own task ledger shows P5-FIN-4 'F128 separate settlement from entitlement + reconciliation' as PENDING.
-- **Gap:** No order↔wallet reconciliation anywhere; this is one of the four rows the final report says Phase 05 analytics must not be built on.
+- **Actual behaviour:** *Re-measured 2026-11-25 (#204).* **PARTIALLY IMPLEMENTED, and the two halves of this row are now in different states.** THE RECONCILIATION SURFACE NOW EXISTS: `php artisan payments:reconcile` (`App\Console\Commands\ReconcileInitiatedPayments` over `App\Services\Payments\Reconciliation\`) asks each provider that can be asked authoritatively about every previously initiated PLAN payment, settles a confirmed and matching one exactly once in one transaction through the existing engine, records a discrepancy on the intent and in `audit_logs`, and lists what only a person can resolve — and it is the FIRST READER `PlanPurchaseIntent::unreconciled()` has ever had (that query had zero readers in `app/`, `routes/` and `resources/views`, so the surface the F229 design 'points a human at' pointed at nobody). It is report-only unless `--apply`. THE WALLET-VERSUS-ORDER AXIS THIS ROW NAMES IS STILL NOT CLOSED: that remains the read-only reporter `report-settlement-entitlement.php`, which has never been run against real data because no production replica is reachable from here. The sentence 'app/Console/Commands/ holds no reconciliation command' was true when written and is now false.
+- **Gap:** The order↔wallet reconciliation this row is about — a wallet movement with no order behind it — is still detectable only by the read-only reporter, and that reporter has never produced a result on real data. What #204 closed is the PLAN half and the surface the wallet half will need; it did not change what the finance screen does or what a wallet movement means.
 - **Responsible:** Phase 05 (P5-FIN-4), on a Phase 04 finding
-- **Next action:** Build the reconciliation as P5-FIN-4 before any revenue metric reads store_wallets.
+- **Next action:** Run `report-settlement-entitlement.php` against a restored copy of production (owner/operator: no replica is reachable from here), and decide whether the wallet axis gets its own `payments:reconcile` leg or stays a report. **Evidence for the part that is built:** `docs/finance/P204-PAYMENT-RECONCILIATION.md`; `tests/Feature/Payments/PlanPaymentReconciliationTest` (32 cases); `verify-module-payment-boundary-on-mysql.php` (16 checks).
 
 ### `P04-FL-01` — Flutter end-to-end compatibility
 
