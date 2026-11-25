@@ -51,12 +51,19 @@ use App\Models\ProductVariant;
  * without, takes a `MetricWindow` and says what it did with it, carries `MetricCaveat` keys, and
  * exposes its own notes -- the four things §11 asks a figure to state that apply to it.
  *
- * ONE CONSEQUENCE IS RECORDED HERE RATHER THAN HIDDEN: because this class declares no
- * `definition()`, `MetricDefinitionsAreDocumentedTest` does not require the definitions document to
- * carry an inventory section, and the document does not have one -- its numbered sections run 0a, 0
- * and 1..15 with no stock figure among them. **The right fix is a new section in that document, and
- * it is a documentation change this slice was not scoped to make.** Until it exists, the authority
- * for what these figures mean is this docblock and
+ * THE DOCUMENTED CENSUS NOW COVERS THIS FIGURE, AND IT DID NOT WHEN THIS CLASS WAS WRITTEN. An
+ * earlier version of this paragraph recorded the gap, and it was real: declaring no `definition()`
+ * kept `MetricDefinitionsAreDocumentedTest` from requiring an inventory section, and the document
+ * had none -- its numbered sections ran 0a, 0 and 1..15 with no stock figure among them. That
+ * section exists as of 2026-11-25: `PHASE-05-METRIC-DEFINITIONS.md` **§16**, written from this
+ * docblock and re-measured against this code, and the method below cites it.
+ *
+ * CITING IT COSTS THIS CLASS NONE OF THE REASONING ABOVE. The census pairs a section with whichever
+ * class DECLARES a citation, not with whatever extends `Metric` -- so this class is cited while
+ * remaining what it is, and §16 states in the document's own voice why inventory is not one of the
+ * three records. Both directions are now enforced: a citation pointing at a missing section fails,
+ * and a §16 whose `Computed by` line stopped naming this class fails the other way. The authority
+ * for what these figures mean is §16 first, then this docblock and
  * `tests/Feature/Reports/StoreInventoryValuationMetricTest`.
  *
  * -------------------------------------------------------------------------------------------------
@@ -321,6 +328,20 @@ final class StoreInventoryValuation
         private readonly array $caveats,
         private readonly array $notes,
     ) {
+    }
+
+    /**
+     * WHERE THESE FIGURES ARE DEFINED IN PROSE, in the form every other cited class uses.
+     *
+     * `MetricDefinitionsAreDocumentedTest` INVOKES this by reflection rather than regexing the
+     * source for it -- deliberately, because reading the source with comments intact is the census
+     * failure this repository keeps paying for, and a docblock carrying the declaration's shape
+     * would otherwise supply a citation for a class declaring none. So the string below is the
+     * whole claim, and it is checked in both directions against §16.
+     */
+    public function definition(): string
+    {
+        return 'PHASE-05-METRIC-DEFINITIONS.md §16';
     }
 
     /** The ordinary merchant case: one tenant, all of its stock as it stands right now. */

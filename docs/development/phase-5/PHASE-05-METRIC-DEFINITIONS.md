@@ -744,3 +744,184 @@ one both ways, refusing the divergence case, never crossing tenants, and leaving
 selection unchanged; the dropdown's field names matching the filter's exactly; and the API carrying
 both figures with their notes, keeping `total_spend` unchanged, sending `null` rather than 0.00 for
 an unreadable figure, listing no other tenant's customer, and refusing another tenant's store.
+
+## 16. Stock on hand, valued at cost and at retail
+
+**Computed by.** `App\Support\Metrics\StoreInventoryValuation`.
+
+**Definition.** What the merchant is holding **right now**, counted in sellable items and valued
+twice: at what it cost to acquire, and at what it would fetch at today's prices. Seven figures from
+one read — `units`, `cost`, `retail_value`, `potential_profit`, `valued_products`,
+`uncosted_products`, `uncosted_retail`.
+
+**It measures none of §11 rule 1's three records, and the class is therefore not a `Metric`.**
+Settlement is `orders`, entitlement is `store_order_financials`, movement is
+`store_wallet_transactions`. Stock is the **catalogue** — `products` and `product_variants`, two
+tables no accessor on `Metric` reaches, carrying no order, no payment and no currency column at all.
+`MetricResult::make()` throws on any source but those three, so naming one of them would put a false
+statement into the result and send a reader to reconcile this figure against a ledger it never came
+from. The class keeps §11's discipline without the inheritance: a `MetricScope` it cannot be
+constructed without, a `MetricWindow` it says what it did with, `MetricCaveat` keys, and its own
+`notes()`. `notes()['source']` is `catalogue` and `toArray()['dated_by']` is `null`, so a dumped
+figure says what it was taken from. **This is still a metric section for census purposes** —
+`MetricDefinitionsAreDocumentedTest` pairs a section with whichever class *declares* `definition()`,
+not with whatever extends `Metric`, which is why this section needs no entry in
+`PRESENTER_FIGURE_SECTIONS`.
+
+**Source.** `products` for a simple product; `products` joined to `product_variants` for a variant
+one. **Two queries, never 1 + N** — the implementation this replaced read every product of the store
+into memory and walked each one's variants in a nested PHP loop on a money surface. Both legs
+aggregate **in the database**, and the only SQL used is `SUM`, `COUNT`, `COUNT(DISTINCT …)`,
+`CASE WHEN` and `COALESCE`. Measured over the comment-free source: 9 `SUM`, 1 `COUNT(*)`,
+2 `COUNT(DISTINCT`, 5 `CASE WHEN`, 15 `COALESCE`, no `GROUP BY`, and **zero** of the MySQL-only
+constructs that make most of `ReportController` answer HTTP 500 under the suite. Every one of these
+is in SQLite, so the tests really reach the SQL instead of proving something about PHP. The only
+arithmetic left in PHP is adding the two result rows together and rounding.
+
+**THE WINDOW IS IGNORED, AND THE FIGURE SAYS SO.** Stock on hand is a running quantity with no date
+column to filter on — the treatment §7 gives `store_wallets.available_balance`, for the same reason.
+`products.updated_at` is not a substitute: a window over it reports *the stock of products edited
+this month*, which means nothing. No table in this schema records what stock used to be, so a
+historical valuation is not computable from here by any query. A window is **accepted rather than
+refused**, so that a caller cannot pass one and never find out: `notes()['running_quantity']` is
+always true, and `notes()['window_ignored']` is true whenever the window handed in was not all-time.
+
+**Includes.** Only stock that is actually there. A simple product counts when `product_stock > 0`. A
+variant product (`variant_product = 1`) is valued from its **in-stock variants and from nothing
+else** — its own parent `price`, `sale_price` and `product_stock` are ignored, so a product declaring
+itself a variant product while holding stock on its parent row and owning no variants contributes
+nothing. Its `cost_price` **is** used, because cost lives on the product and not on the variant;
+that is why a variant product with no recorded cost discloses the whole of its variants' retail
+value.
+
+**Excludes.** Out-of-stock rows, and every other tenant's catalogue — see the predicate below.
+
+**The two branches pick a selling price by different rules, and both rules are the product's own.** A
+simple product uses `sale_price` only when it is **greater than zero**, which is this product's
+existing convention for "is there a sale price" (`Product.php`, `product_price.blade.php`,
+`preview.blade.php`, `ApiController`). The `sale_price ?? price` spelling it replaced could never
+reach its second operand — `??` fires on `NULL` alone and `products.sale_price` is
+`NOT NULL DEFAULT 0` — so a product simply not on sale was valued at **0** while still contributing
+its full cost, and Potential Profit rendered as `0 − cost`, negative, in debit red. A negative
+`sale_price` therefore falls through to the list price, and that limb is load-bearing rather than
+defensive: the host validators enforce `min:0`, but three module writers of the same column do not —
+`ImportExport`'s `ProductsImportData` (`required|numeric`), `AuctionProduct`'s controller and
+`DigitalProduct`'s (`required` alone). A variant instead uses
+`COALESCE(variation_price, price, 0)`, because `product_variants.variation_price` really is nullable
+and the fall-through really works there: a stored `0` is a price of 0. One spelling, two column
+definitions; a repair that "corrected" both would break the working half.
+
+**TENANCY IS THIS FIGURE'S OWN JOB — NO SCOPE WILL DO IT.** §11 rule 2 in its sharpest form.
+`Product` carries `StoreScope` **and is absent from `config/tenancy.php`'s `scoped_models`** (11
+models, and neither product table is among them), so `StoreScope::isActiveFor()` short-circuits and
+the scope adds **no predicate for any principal**, platform operator included;
+`getGlobalScopes()` answering `[StoreScope]` is the wrong question to ask. `ProductVariant` carries
+no scope at all, and `null_tenant => 'open'` adds nothing for an unresolved tenant either. A
+forgotten predicate here would not error and would not return nothing — it would report the **whole
+platform's capital under one merchant's heading**. So the predicate is carried explicitly: one
+`whereIn` on `products.store_id` in the simple branch, and in the variant branch three constraints,
+all kept — `whereIn` on `products.store_id`, `whereIn` on `product_variants.store_id`, and a
+`whereColumn` requiring the two to **agree**. Those two store columns are independent and nothing in
+the schema forces them to match, so a join written from `product_id` alone values another tenant's
+variant row into this merchant's capital. The scope is built from the authenticated principal and
+never from request input, and `MetricScope` cannot be built empty — `whereIn('store_id', [])`
+compiles to `0 = 1` and would be indistinguishable from a store holding no stock.
+
+**`cost_price` CANNOT SAY "UNKNOWN", SO THE FIGURE SAYS IT INSTEAD.** `products.cost_price` is
+`decimal(15,2) NOT NULL DEFAULT 0.00` — read from a restored production copy on 2026-10-24
+(`docs/GATE-F-VERIFIED-SCHEMA.md`; 45 rows, 36 of them `0.00`) and re-measured on MariaDB 10.11.
+"This item cost nothing" and "nobody entered a cost" are therefore the **same stored value**, and
+the figure is not corrected, because the data to correct it with is absent.
+`MetricCaveat::COST_UNKNOWN` is attached **conditionally** — only when at least one *valued* product
+reads 0, which is §8's own rule for the same caveat on the same column's order-time snapshot. It is
+self-adjusting: it falls silent as merchants fill cost in, and `notes()['uncosted_products']` and
+`notes()['uncosted_retail']` carry the count and the exact retail amount resting on it, so a surface
+can quantify the gap instead of printing a fixed sentence. A product valued at zero cost contributes
+its **whole** retail value to potential profit with nothing subtracted. Making the column nullable to
+separate the two states is a change to a live money column and remains the owner's call.
+
+**TWO LIMITS OF THAT CAVEAT, stated because neither is visible from the key, and because a definition
+that omits its own limits is what this document exists to prevent.**
+
+- **Its message is written for §8 and not for this section.** `COST_UNKNOWN`'s sentence is *"Cost
+  price was not recorded for some **orders**, so margin is overstated for those **rows**"* — the
+  right machine key for this condition and the wrong noun for this surface, which counts
+  **products** and knows nothing about orders. `MetricCaveat` belongs to §8 and is not re-worded
+  from here. `/finance` renders its own already translated sentence from `uncostedProducts()` and
+  `uncostedRetail()`, so no merchant is shown the order-flavoured wording; a future consumer that
+  prints `caveatMessages()` raw would be.
+- **A deliberate zero is disclosed as unknown.** A genuinely free item, entered as `cost_price = 0`
+  on purpose, is counted in `uncosted_products` and its retail value in `uncosted_retail`, because
+  the column cannot tell a deliberate zero from an unentered one. The disclosure therefore errs
+  towards reporting the gap as larger than it is — the right direction for a figure a merchant may
+  act on, but an overstatement, not a measurement. It is a limit rather than a defect: resolving it
+  needs the nullable column above. (The mirror case exists on the selling side and is equally
+  unresolvable: `sale_price = 0` means both "free" and "never set", so a genuinely free product is
+  valued at its list price here.)
+
+**PRECISION: ONE OF THESE FOUR MONEY FIGURES IS EXACT AND THREE ARE NOT.** Measured with
+`SHOW CREATE TABLE` against MariaDB 10.11 — **not** read off the migrations, because Laravel's
+`float()` emits a MySQL `double` and a caveat has already been attached and withdrawn in this
+repository on the strength of a migration's wording:
+
+| column | declared | **measured** on MariaDB 10.11 |
+|---|---|---|
+| `products.cost_price` | `decimal('cost_price', 15, 2)->default(0)` | `decimal(15,2) NOT NULL DEFAULT 0.00` — **exact** |
+| `products.price` | `float('price')->default(0)` | `double NOT NULL DEFAULT 0` |
+| `products.sale_price` | `float('sale_price')->default(0)` | `double NOT NULL DEFAULT 0` |
+| `product_variants.price` | `double('price', 10, 2)` | `double NOT NULL` — the precision arguments are **dropped** |
+| `product_variants.variation_price` | `double('variation_price', 10, 2)->nullable()` | `double DEFAULT NULL` |
+
+The consequence is observable rather than theoretical: on that server, the same
+`SUM(column * stock)` over three units of `2500000.49` returns `'7500001.47'` off the decimal column
+and `7500001.470000001` off the double. So `cost` is summed from an exact column and carries **no**
+precision caveat, while `retail_value`, `potential_profit` and `uncosted_retail` rest on `double`
+columns and do. The caveat is `MetricCaveat::MONEY_FLOAT_PRECISION` — the **plural** form, for the
+reason that constant exists: a row carrying four money figures cannot be qualified by a sentence
+beginning *"This figure"*. `notes()['float_precision_figures']` and `notes()['exact_figures']` name
+which are which, so the plural caveat is not the last word. Attaching it to `cost` as well would be
+false, and a caveat that is on everything distinguishes nothing. (MySQL also returns `SUM()` over a
+`DECIMAL` as a **string**, visible above; the metric normalises both engines' return types in one
+place, so every money figure reaches a view as a float and every counter as an int.)
+
+**CURRENCY IS NOT RECORDED, AND NOTHING IS CONVERTED.** Neither `products` nor `product_variants` has
+a currency column — measured, not assumed — so there is no per-currency bucket to build and no rate
+to apply. The figures are denominated in whatever currency the merchant typed their prices in, which
+is the store's own setting, and the surface prints them under that heading. §11 rule 3 forbids
+conversion and nothing here converts; `notes()['currency_recorded']` is `false` rather than a guess,
+because a figure that silently adopts a unit it was never measured in is the defect that rule exists
+to prevent. On a cross-store (operator) scope this matters more, not less: the totals are added
+across stores that may price in different currencies, and nothing in these two tables can detect it.
+
+**Potential profit is `retail_value − cost`, and it is not margin.** It subtracts no shipping, no
+tax, no payment fee and no discount the merchant has yet to give, and for any product whose cost
+reads 0 it counts the whole retail value as profit — which is what `COST_UNKNOWN` is attached for.
+Cost and retail are each rounded to the cent first and the difference is taken from the **rounded**
+pair, which is where the implementation it replaced rounded.
+
+**Verification test.** `StoreInventoryValuationMetricTest` (10 tests) — the fixture proved to
+exercise both branches and both stores before anything is asserted of it; the one premise it rests on
+(`product_variants.stock` is `NOT NULL` as declared, so the null-stock case is a stored `0` and the
+null limb is unreachable through this schema) measured rather than assumed; all seven figures equal
+to the values the inline loop produced, measured before the extraction, and their **types** asserted
+separately from their values; no part of a foreign catalogue valued into this merchant's figures; a
+variant row of store B hung off store A's product excluded; the cost gap disclosed only when there is
+one and silent when there is not; the precision caveat naming the `double` figures and not the
+`decimal` one; a `cost_price` edit reaching the figure on the **next** load rather than being served
+from the model cache; profit rounded after the subtraction; and an empty catalogue reading `0` and
+`0.00` of the right type rather than the `NULL` a `SUM` over no rows returns.
+
+**Verified against a real server as well**, because the precision claim above is a claim about MySQL
+column types and the suite runs on SQLite:
+`tests/Support/Security/bin/verify-store-inventory-valuation-on-mysql.php` — **19 checks**, re-run on
+MariaDB 10.11.14 for this section and all 19 passed, over tables built from the measured types
+above: every figure agreeing with the SQLite suite to the cent, `MONEY_FLOAT_PRECISION` present and
+the singular `FLOAT_PRECISION` absent, the two-store operator scope excluding the cross-paired
+variant row, and `0.30 − 0.10` giving `0.20`.
+
+**Not built, and not inferred:** a historical or point-in-time valuation, stock ageing, dead-stock
+and turnover ratios, a reorder point, and any inventory-valuation convention (FIFO, LIFO, weighted
+average). The first group needs a stock history no table in this schema keeps, and would be an
+invented number if derived from `updated_at`; the last is an accounting choice this document does not
+hold, and §11's rule applies — the quantities are supplied and the choice is left to whoever is
+entitled to make it.
