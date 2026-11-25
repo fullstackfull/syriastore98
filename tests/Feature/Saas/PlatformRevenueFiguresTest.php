@@ -842,4 +842,70 @@ final class PlatformRevenueFiguresTest extends SecurityTestCase
             ));
         }
     }
+
+    /**
+     * A DURATION THIS PRODUCT DOES NOT DEFINE MUST NOT BE COUNTED AS MONTHLY — a 12x overstatement.
+     *
+     * `Plan::$arrDuration` defines exactly `Unlimited`, `Month` and `Year`. The producer branched
+     * `$duration === 'Year' ? $price / 12 : $price`, so EVERY other spelling went down the monthly
+     * branch AT ITS WHOLE PRICE: a plan priced 1200 a year whose duration reads `Yearly` reported
+     * MRR 1200 instead of 100.
+     *
+     * REACHABLE, AND MEASURED RATHER THAN ASSUMED: `plans.duration` is
+     * `$table->string('duration')->nullable()`, and `PlanController`'s validation for store and
+     * update names `name`, `price`, `max_stores`, `max_products`, `max_users` and `storage_limit`
+     * and does not mention `duration`. The form is a `Form::select`, which constrains the UI and
+     * not the request; an import or a direct edit does not even need the request.
+     *
+     * `Yearly` IS THE FIXTURE ON PURPOSE. It is the most likely wrong value in real data — a near
+     * miss of the right word — and it is the one that costs the most, because the overstatement is
+     * the full twelvefold. A fixture of `banana` would pass a fix that merely lower-cased and
+     * matched a synonym list.
+     */
+    public function test_a_duration_this_product_does_not_define_is_not_counted_as_monthly(): void
+    {
+        $plan = $this->makePlan(['price' => 1200, 'duration' => 'Yearly']);
+        $this->subscriber($plan, '2030-01-01');
+
+        $figures = SaasRevenueFigures::forPlatform($this->now());
+        $buckets = $this->buckets($figures);
+
+        $this->assertSame(0.0, $figures['recurring']['mrr']['raw'], sprintf(
+            'MRR is %s for ONE subscription to a 1200-a-year plan whose duration is spelled '
+            . '`Yearly`. Counting an unreadable duration as monthly at its whole price overstates '
+            . 'the platform\'s own revenue twelvefold.',
+            var_export($figures['recurring']['mrr']['raw'], true)
+        ));
+
+        $this->assertSame(1, $buckets['duration_unreadable'] ?? null,
+            'the subscription is not in the named bucket for an unreadable duration, so it has '
+            . 'been dropped from the screen rather than reported — and a merchant paying 1200 a '
+            . 'year appears nowhere at all');
+
+        $this->assertSame(0, $buckets['monthly'] ?? null,
+            'the subscription is still counted as a live MONTHLY one, which is the claim that '
+            . 'produced the twelvefold figure');
+    }
+
+    /**
+     * THE PREMISE FOR THE CASE ABOVE: the right spelling still reaches MRR.
+     *
+     * Without this, a producer that bucketed EVERY subscription as unreadable — or one that simply
+     * returned 0.0 — would pass it. The two cases differ only in the duration string.
+     */
+    public function test_the_defined_yearly_spelling_still_reaches_the_recurring_figure(): void
+    {
+        $plan = $this->makePlan(['price' => 1200, 'duration' => 'Year']);
+        $this->subscriber($plan, '2030-01-01');
+
+        $figures = SaasRevenueFigures::forPlatform($this->now());
+        $buckets = $this->buckets($figures);
+
+        $this->assertSame(100.0, $figures['recurring']['mrr']['raw'],
+            'a plan whose duration IS one of the three this product defines must still be counted, '
+            . 'at a twelfth of its price per month');
+        $this->assertSame(1, $buckets['yearly'] ?? null, 'the yearly bucket lost the subscription');
+        $this->assertSame(0, $buckets['duration_unreadable'] ?? null,
+            'the defined spelling was bucketed as unreadable, so the guard is refusing everything');
+    }
 }

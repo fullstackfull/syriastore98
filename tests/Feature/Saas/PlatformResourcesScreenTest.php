@@ -124,19 +124,38 @@ final class PlatformResourcesScreenTest extends SecurityTestCase
     {
         $total = @disk_total_space(storage_path());
 
-        if ($total === false) {
-            $this->markTestSkipped('this host does not report disk space for the storage path');
-        }
-
-        $expected = \App\Services\UploadLimits::humanKb((int) round($total / 1024));
-
         $operator = $this->makePlatformAdmin();
 
         $html = $this->actingAs($operator->fresh())->get(self::URI)->assertStatus(200)->getContent();
 
-        $this->assertStringContainsString($expected, $html,
-            'the total size of the filesystem the application writes to is not on the page, so '
-            . 'whatever is on it did not come from disk_total_space()');
+        /*
+         * BOTH BRANCHES ARE ASSERTED AND NEITHER IS SKIPPED, which is a correctness requirement of
+         * this repository and not a preference. This case used to call `markTestSkipped()` when the
+         * host refused `disk_total_space()`. `.github/known-test-outcomes.json` declares the Feature
+         * suite's accepted outcome SET IN BOTH DIRECTIONS -- an undeclared skip fails the required
+         * gate, and a declared one that stops skipping fails it too -- so a HOST-DEPENDENT skip
+         * cannot be declared truthfully: it would be correct on the hosts that refuse and a lie on
+         * the hosts that answer. The skip was also the weaker test, because on a refusing host it
+         * asserted nothing at all about what the page then shows.
+         *
+         * So each branch asserts the page's own contract for that case: a figure the test re-derives
+         * from the same call, or the stated refusal -- never a number the producer invented.
+         */
+        if ($total === false) {
+            $this->assertStringContainsString(
+                __('The filesystem holding :path did not answer disk_total_space() or disk_free_space() on this host.',
+                    ['path' => storage_path()]),
+                $html,
+                'this host refuses disk_total_space() for the storage path, and the page neither '
+                . 'states that nor explains it -- so whatever figure it shows was not measured');
+        } else {
+            $expected = \App\Services\UploadLimits::humanKb((int) round($total / 1024));
+
+            $this->assertStringContainsString($expected, $html,
+                'the total size of the filesystem the application writes to is not on the page, so '
+                . 'whatever is on it did not come from disk_total_space()');
+        }
+
         $this->assertStringContainsString(storage_path(), $html,
             'the page does not say which path it measured, so the figure cannot be re-derived');
     }

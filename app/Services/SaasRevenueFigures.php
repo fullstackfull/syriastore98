@@ -269,6 +269,7 @@ final class SaasRevenueFigures
             'in_trial' => 0,
             'lapsed' => 0,
             'no_expiry_recorded' => 0,
+            'duration_unreadable' => 0,
             'plan_missing' => 0,
         ];
 
@@ -318,6 +319,34 @@ final class SaasRevenueFigures
 
             if ($row->expiry !== 'live') {
                 $counts['lapsed'] += $subscribers;
+
+                continue;
+            }
+
+            /*
+             * A DURATION THIS PRODUCT DOES NOT DEFINE IS NOT A MONTHLY ONE, and the line below used
+             * to say that it was: `$duration === 'Year' ? $price / 12 : $price` sent EVERY other
+             * spelling down the monthly branch at its WHOLE price. A plan priced 1200 a year whose
+             * duration reads `Yearly` reported MRR 1200 instead of 100 -- a TWELVEFOLD
+             * OVERSTATEMENT of the platform's own revenue, in the one figure that is supposed to be
+             * the honest one.
+             *
+             * REACHABLE, MEASURED: `plans.duration` is `$table->string('duration')->nullable()` --
+             * free text -- and `PlanController`'s validation rules for store and update cover
+             * `name`, `price`, `max_stores`, `max_products`, `max_users` and `storage_limit` and
+             * DO NOT MENTION `duration` at all. The form is a `Form::select` over
+             * `Plan::$arrDuration`, so the UI offers only the three words, but a select is not a
+             * server-side rule and any POST can carry any string. An import or a direct edit needs
+             * no POST.
+             *
+             * REFUSING TO COUNT IT IS THE ANSWER, not guessing which word was meant. A synonym
+             * table mapping `Yearly`/`year`/`annual` onto `Year` would be this class inventing the
+             * figure it exists to stop inventing -- and it would be wrong the first time somebody
+             * adds a quarterly plan. The bucket is named and visible on the screen, so an operator
+             * can see which subscription is uncounted and correct the plan row.
+             */
+            if ($duration !== 'Month' && $duration !== 'Year') {
+                $counts['duration_unreadable'] += $subscribers;
 
                 continue;
             }
@@ -381,6 +410,10 @@ final class SaasRevenueFigures
             'no_expiry_recorded' => [
                 __('No expiry recorded'),
                 __('A recurring plan with no expiry date. Every path in this product writes one, so these rows cannot be dated and are reported rather than assumed to be live.'),
+            ],
+            'duration_unreadable' => [
+                __('Duration not recognised'),
+                __('The plan\'s duration is not one of the three this product defines, so how often it is paid cannot be read. It is reported here rather than counted as monthly, which would multiply a yearly price by twelve.'),
             ],
             'plan_missing' => [
                 __('Plan no longer exists'),

@@ -159,13 +159,25 @@ final class PlatformResourceMeasurementTest extends TestCase
             $os = array_map('floatval', array_slice(preg_split('/\s+/', trim((string) file_get_contents('/proc/loadavg'))), 0, 3));
         }
 
-        if ($os === null) {
-            $this->markTestSkipped('this host exposes no load average at all');
-        }
-
         $probe = new SaasResourceProbe();
 
         $measured = $probe->loadAverage();
+
+        /*
+         * THE NO-LOAD-AVERAGE HOST IS ASSERTED, NOT SKIPPED. A skip here proves nothing on the one
+         * host where the probe's refusal path is the thing under test, and the sibling Feature case
+         * cannot be skipped at all (the known-outcome gate declares the Feature skip set in both
+         * directions). So the branch asserts the refusal instead: null, and a source that names why.
+         */
+        if ($os === null) {
+            $this->assertNull($measured,
+                'this host exposes no load average, yet the probe produced one -- so the figure is '
+                . 'not the operating system\'s');
+            $this->assertNotSame('', $probe->loadAverageSource(),
+                'the probe refused to measure and did not say why');
+
+            return;
+        }
 
         $this->assertIsArray($measured, 'the probe reported no load average on a host that has one');
         $this->assertSame([1, 5, 15], array_keys($measured),

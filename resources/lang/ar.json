@@ -4652,5 +4652,7 @@
     "Three screens that read every tenant at once. Each is for the platform operator only.": "ثلاث شاشات تقرأ كل المتاجر معًا. وكل منها لمشغّل المنصة وحده.",
     "MRR and ARR: what merchants pay Store Syria for their plans.": "MRR و ARR: ما يدفعه التجار إلى Store Syria مقابل باقاتهم.",
     "Orders, buyers and payments across every store: what shoppers pay merchants.": "الطلبات والمشترون والمدفوعات في كل متجر: ما يدفعه المشترون للتجار.",
-    "What the machine reports about itself: load, memory and disk.": "ما يُعلنه الجهاز عن نفسه: التحميل والذاكرة والقرص."
+    "What the machine reports about itself: load, memory and disk.": "ما يُعلنه الجهاز عن نفسه: التحميل والذاكرة والقرص.",
+    "Duration not recognised": "مدة غير معروفة",
+    "The plan's duration is not one of the three this product defines, so how often it is paid cannot be read. It is reported here rather than counted as monthly, which would multiply a yearly price by twelve.": "مدة الخطة ليست إحدى المدد الثلاث التي يعرّفها هذا المنتج، لذلك لا يمكن معرفة وتيرة سدادها. تُدرَج هنا بدلاً من احتسابها شهرية، وهو ما كان سيضرب السعر السنوي في اثني عشر."
 }

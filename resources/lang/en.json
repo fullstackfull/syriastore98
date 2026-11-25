@@ -4658,5 +4658,7 @@
     "Three screens that read every tenant at once. Each is for the platform operator only.": "Three screens that read every tenant at once. Each is for the platform operator only.",
     "MRR and ARR: what merchants pay Store Syria for their plans.": "MRR and ARR: what merchants pay Store Syria for their plans.",
     "Orders, buyers and payments across every store: what shoppers pay merchants.": "Orders, buyers and payments across every store: what shoppers pay merchants.",
-    "What the machine reports about itself: load, memory and disk.": "What the machine reports about itself: load, memory and disk."
+    "What the machine reports about itself: load, memory and disk.": "What the machine reports about itself: load, memory and disk.",
+    "Duration not recognised": "Duration not recognised",
+    "The plan's duration is not one of the three this product defines, so how often it is paid cannot be read. It is reported here rather than counted as monthly, which would multiply a yearly price by twelve.": "The plan's duration is not one of the three this product defines, so how often it is paid cannot be read. It is reported here rather than counted as monthly, which would multiply a yearly price by twelve."
 }
