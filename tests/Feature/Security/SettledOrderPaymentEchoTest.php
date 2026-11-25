@@ -86,7 +86,16 @@ final class SettledOrderPaymentEchoTest extends SecurityTestCase
         ], $extra));
     }
 
-    /** The door, driven as the shipped app drives it: a bearer token on the `admin` API. */
+    /**
+     * The door, driven as the shipped app drives it: a bearer token on the `admin` API.
+     *
+     * NO `store_id` IN THE BODY, deliberately. The handler takes the store from
+     * `getCurrentStore()` -- the session -- and resolves the order by `product_order_id` AND
+     * `store_id`, so a `store_id` in the payload is read by nothing. An earlier draft sent one, and
+     * in a codebase with four separate defects from a tenant predicate built out of caller-supplied
+     * input, a parameter that LOOKS like the tenant and does nothing is worth removing rather than
+     * leaving for the next reader to wonder about.
+     */
     private function push(Order $order, array $payload)
     {
         $bearer = $this->merchant->createToken('echo-test')->plainTextToken;
@@ -94,7 +103,6 @@ final class SettledOrderPaymentEchoTest extends SecurityTestCase
         return $this->withHeader('Authorization', 'Bearer ' . $bearer)
             ->postJson(self::DOOR, array_merge([
                 'product_order_id' => $order->product_order_id,
-                'store_id' => $this->store->id,
             ], $payload));
     }
 
@@ -198,6 +206,49 @@ final class SettledOrderPaymentEchoTest extends SecurityTestCase
             . '`restoreCancelledOrderStock()` and `OrderEntitlementReversal::reverseOrLog()` ran '
             . 'again for an order that was already cancelled. The echo must skip the delivery '
             . 'write arm, not merely the refusals.');
+    }
+
+    /**
+     * AND AN ECHO NO LONGER RE-STAMPS `delivery_date`, WHICH IS THE CUSTOMER'S RETURN WINDOW.
+     *
+     * NOT A SIDE NOTE, AND NOT CAUGHT BY ANY OTHER CASE HERE. `Order::getReturnDateAttribute()`
+     * computes the shopper's remaining return window as `delivery_date + return_order_dutation`
+     * days, and only for `delivered_status == 1` (`app/Models/Order.php:321-323`). The old code ran
+     * the write arm whenever the field was merely PRESENT, so `case 1` stamped `delivery_date =
+     * now()` -- meaning a merchant recording a payment on a delivered order, with the app echoing
+     * `delivered_status = 1` as it always does, silently EXTENDED that window by however long the
+     * order had already been delivered. A customer's right to return is not something a payment
+     * entry should move, in either direction.
+     *
+     * This is the one arm of the change that TIGHTENS rather than fixes a refusal, which is exactly
+     * why it needs its own case: the other six here would all pass against a revert of this arm.
+     * Raised by the independent review of this change, not by me.
+     */
+    public function test_an_echo_does_not_re_stamp_the_delivery_date(): void
+    {
+        $stamped = '2020-01-01 00:00:00';
+
+        $order = $this->orderAt(1, ['delivery_date' => $stamped]);
+
+        $this->assertSame($stamped, (string) DB::table('orders')->where('id', $order->id)->value('delivery_date'),
+            'premise: the fixture really carries the past delivery date');
+
+        $response = $this->push($order, ['delivered_status' => 1, 'payment_status' => 'Paid']);
+
+        $this->assertTrue((bool) $response->json('success'), sprintf(
+            'premise: a payment on a DELIVERED order is accepted -- `PERMITTED[STATE_DELIVERED]` '
+            . 'holds `delivered`, so this echo was never refused and this case is about the write '
+            . 'arm, not the guards. Refused with: %s', (string) $response->json('message')
+        ));
+
+        $this->assertSame('Paid', $this->storedPaymentStatus($order->id),
+            'premise: the payment the merchant actually came to record did land');
+
+        $this->assertSame($stamped, (string) DB::table('orders')->where('id', $order->id)->value('delivery_date'),
+            'THE DELIVERY DATE WAS RE-STAMPED BY AN ECHO. `Order::getReturnDateAttribute()` computes '
+            . 'the customer\'s return window from this column, so recording a payment on a '
+            . 'delivered order just extended that window by the order\'s whole age. The write arm '
+            . 'must not run when the delivery status did not change.');
     }
 
     /**

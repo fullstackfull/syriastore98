@@ -65,7 +65,7 @@ namespace App\Support\Orders;
  * =================================================================================================
  *
  * `orders.delivered_status` is written as the literal `'-'` by one shipped handler
- * (`Api\ApiController:10471`), and `OrderDataTable:334` already branches on `null` and `''`, so
+ * (`Api\ApiController:10495`), and `OrderDataTable:334` already branches on `null` and `''`, so
  * rows outside the vocabulary exist. {@see self::stateOf()} therefore answers `null` for a value
  * that is not one of the nine, and an unrecognised state is NOT GOVERNED for the four progression
  * arms -- it stays as movable as it is today, because making such a row unmovable would be a new
@@ -270,7 +270,7 @@ final class FulfilmentStateMachine
      * nor any other known state: `cancel` was refused on it (`'' != 0` is true) and `return` was
      * permitted on it. Reading it as Pending here would have refused that return -- a behaviour
      * change dressed as a tidy-up. So `''` answers `null`, unrecognised, exactly like the `'-'`
-     * one shipped handler writes (`Api\ApiController:10471`) and anything else outside 0..8.
+     * one shipped handler writes (`Api\ApiController:10495`) and anything else outside 0..8.
      */
     public static function stateOf($raw): ?int
     {

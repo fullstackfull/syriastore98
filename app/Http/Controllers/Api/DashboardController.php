@@ -638,9 +638,13 @@ $storeId = getCurrentStore();
          * P4-F145, PART 3 -- AN ECHO IS NOT A TRANSITION ON THE DELIVERY COLUMN EITHER.
          * =========================================================================================
          *
-         * Part 1 above drops an echoed `payment_status` before the validator sees it, because "a
-         * request that asks for the state the order is already in is asking for NOTHING". THE SAME
-         * CLIENT DOES THE SAME THING WITH THIS COLUMN and the rules below did not know it: the
+         * PART 1, BELOW THIS ONE, drops an echoed `payment_status` because "a request that asks for
+         * the state the order is already in is asking for NOTHING". (It is below, and it runs
+         * AFTER the validator rather than before it -- the `in:Paid,Unpaid` rule had to move out of
+         * the rule array precisely because the stored value is not known at validation time. An
+         * earlier draft of this paragraph said the opposite of both, and comments here are
+         * load-bearing: a census reads them.) THE SAME CLIENT DOES THE SAME THING WITH THIS COLUMN
+         * and the rules below did not know it: the
          * payment sheet fills `delivered_status` with the order's own stored value on a
          * payment-only change (`payment_status_bottom_sheet.dart:177` -> `getDeliveredStatus`).
          *
@@ -668,12 +672,24 @@ $storeId = getCurrentStore();
          * TWO CONSEQUENCES DISCLOSED RATHER THAN DISCOVERED LATER, both traced through the code:
          *
          *   `case 3` of the write arm also sets `return_status = 1`, and an echo no longer reaches
-         *   it. That loses nothing: ALL THREE writers of `delivered_status = 3` set `return_status`
-         *   in the same breath -- this handler's own `case 3`, `Order::order_status_change()`'s
-         *   `return` arm (Order.php:807-808) and the courier webhook
-         *   (`DeliverySyriaOrderController:358,447`) -- so `delivered_status = 3` with
-         *   `return_status = 0` is not reachable through any shipped path, and repairing it by
-         *   echo was never a control anyway.
+         *   it. THAT LOSES NOTHING, BECAUSE AN ECHO NEVER REACHED IT: an echo of 3 from a row at 3
+         *   passes both local guards and then meets `refusalForLeaving(3)` -- 3 is in `TERMINAL` --
+         *   and, in every version that shipped before that predicate existed, `refusalFor(3,
+         *   'return')` refused it too, because `PERMITTED[STATE_RETURN]` is empty. So the arm was
+         *   unreachable on an echo at this door throughout.
+         *
+         *   AN EARLIER DRAFT GAVE A DIFFERENT REASON AND IT WAS FALSE, which is worth leaving
+         *   recorded: it claimed `delivered_status = 3` with `return_status = 0` is unreachable
+         *   because every writer of 3 sets `return_status` in the same breath. There is a FOURTH
+         *   writer -- `Api\ApiController`'s `ordersave` assigns `delivered_status` straight from
+         *   unvalidated request input (its rule array has two keys, neither of them this one) and
+         *   writes no `return_status` at all, so a store's own customer can create exactly that row.
+         *   A census over writers is the shape CLAUDE.md warns about, and this one had already
+         *   missed one. The reason above needs no census: it is two predicates in one file.
+         *
+         *   For the record, `(3, 0)` is workflow-stuck rather than money-exposed either way:
+         *   `order_return_request`'s restock guard is `return_status !== 2`, not `!== 0`, so `1` is
+         *   what the web's Approve/Reject controls are gated on, not the idempotency marker.
          *
          *   A row holding the literal `'-'` that `Api\ApiController` writes casts to 0, so a
          *   request naming `0` now reads as an echo and the write arm no longer normalises the
@@ -885,7 +901,8 @@ $storeId = getCurrentStore();
                 $deliveredStatusChanges,
                 $newDeliveredStatus,
                 $hasPaymentStatus,
-                $newPaymentStatus
+                $newPaymentStatus,
+                $oldPaymentStatus
             ) {
                 if ($deliveredStatusChanges) {
                     $order->delivered_status = $newDeliveredStatus;
@@ -995,6 +1012,46 @@ $storeId = getCurrentStore();
                 }
 
                 if ($hasPaymentStatus) {
+                    /*
+                     * AN AUDIT LINE, NOT A REFUSAL, AND THE DISTINCTION IS DELIBERATE.
+                     * =============================================================================
+                     *
+                     * Letting an echoed `delivered_status` through is what makes recording a
+                     * payment on a settled order possible at all -- the whole point of PART 3
+                     * above -- and a refusal here would re-break it. But the request that is now
+                     * permitted can also move money: `$order->save()` reaches `OrderObserver` ->
+                     * `OrderFinancialService::syncFromOrder()`, and a `Paid` there runs
+                     * `markFinancialAsPaid()`.
+                     *
+                     * THE CONTROL IS ALREADY THERE AND IS NAMED FOR THIS: P4-F124's guard in
+                     * `OrderFinancialService` returns early when the financial row is already
+                     * `cancelled` or `refunded`, its own docblock saying "a late `Paid` on a
+                     * cancelled order would reach `markFinancialAsPaid()` and CREDIT the merchant a
+                     * second time". It does NOT cover every case -- a RETURNED order's financial row
+                     * is moved to `refunded` only by the refund door, and a cancellation whose
+                     * reversal threw leaves the row non-terminal -- and this is NOT new: the web
+                     * twin, `OrderController::order_payment_status`, writes `payment_status` with no
+                     * `delivered_status` predicate at all, behind the SAME `Manage Order` ability.
+                     * What changed is that the shipped app can now do what the panel always could.
+                     *
+                     * So: no refusal, and a trace instead, because an operator reconstructing a
+                     * double credit should not have to infer that this request happened. Registered
+                     * as a gap rather than silently accepted.
+                     */
+                    if (in_array((int) $order->delivered_status, [2, 3], true)
+                        && strcasecmp((string) $newPaymentStatus, (string) $oldPaymentStatus) !== 0
+                    ) {
+                        Log::warning('Payment status changed on a settled order', [
+                            'order_id' => $order->id,
+                            'product_order_id' => $order->product_order_id,
+                            'store_id' => $order->store_id,
+                            'actor_id' => auth()->id(),
+                            'delivered_status' => (int) $order->delivered_status,
+                            'old_payment_status' => $oldPaymentStatus,
+                            'new_payment_status' => $newPaymentStatus,
+                        ]);
+                    }
+
                     $order->payment_status = $newPaymentStatus;
                 }
 
