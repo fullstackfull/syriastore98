@@ -9534,11 +9534,41 @@ public function getCustomerOrdersApi(Request $request)
             ], 401);
         }
 
-        $id = $request->query('id');
-        \Validator::make(['id' => $id], ['id' => 'required|integer|exists:customers,id'])->validate();
-
         $storeId = $request->query('store_id');
         \Validator::make(['store_id' => $storeId], ['store_id' => 'required|integer|exists:stores,id'])->validate();
+
+        /*
+         * GAP-249 — THE `exists` RULE IS SCOPED TO THE STORE, AND THE TWO VALIDATORS SWAPPED ORDER.
+         *
+         * This was `exists:customers,id` — unscoped, and ABOVE the store validator. So it answered a
+         * question about the WHOLE `customers` table before the caller had been shown to own
+         * anything, and the two answers were distinguishable: MEASURED, a foreign tenant's customer
+         * id came back **404** (it passed the validator, then the handler's own
+         * `where('store_id', $storeId)` found nothing) while an id existing nowhere came back
+         * **422** from the validator. Any admin-API token holder could walk the id space — an
+         * unpermissioned staff member of a one-customer store, or a merchant of an unrelated
+         * tenant. Only a boolean crossed, so this is hardening rather than a disclosure, and it was
+         * pre-existing: the permission limb below neither worsened nor closed it.
+         *
+         * THE ORDERING OF THE GATES IS UNCHANGED, deliberately. The tempting fix — hoisting the
+         * permission limb above the validators — would break the refusal a foreign-tenant caller
+         * must keep getting: three shipped suites assert the STORE status, and
+         * `AdminApiCustomerReadPermissionTest::test_another_tenants_staff_still_gets_the_tenancy_refusal`
+         * pins it on the body saying "this store" rather than "perform this action". Only the two
+         * validators swapped, so `$storeId` is known before the customer rule needs it.
+         *
+         * `$storeId` here is the caller's own request value and is NOT relied on as a tenant check —
+         * `resolveOwnedStore()` immediately below still decides ownership. All the scoping does is
+         * stop the validator speaking about rows outside the store named in the same request, which
+         * makes a foreign id and an absent id both 422. Pinned by
+         * `AdminApiCustomerExistenceOracleTest`, whose two defect cases drive BOTH legs in one
+         * assertion because the defect IS the difference between them.
+         */
+        $id = $request->query('id');
+        \Validator::make(
+            ['id' => $id],
+            ['id' => 'required|integer|exists:customers,id,store_id,' . (int) $storeId]
+        )->validate();
 
         $store = $this->resolveOwnedStore($storeId);
         if (!$store) {

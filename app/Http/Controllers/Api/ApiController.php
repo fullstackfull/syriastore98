@@ -5864,6 +5864,30 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
                     $data['product_Review'] = $review_array;
                 }
                 if ($product['variant_product'] == 1) {
+                    /*
+                     * GAP-247 / P3-F118 — INITIALISED HERE, BECAUSE `$option` IS READ UNCONDITIONALLY
+                     * AT THE END OF THIS BLOCK AND ASSIGNED ONLY INSIDE THE BRANCH BELOW.
+                     *
+                     * A product flagged `variant_product = 1` whose `product_attribute` is empty or
+                     * null skipped the branch, left `$option` undefined, and the unconditional
+                     * `$data['variant'] = $option;` raised an ErrorException -- HTTP 500 on an
+                     * ordinary product page. MEASURED, for both `null` and `''`.
+                     *
+                     * `[]` is the guest twin's own answer (`product_detail_guest` initialises
+                     * `$data['variant'] = []`), so the two now agree rather than one of them
+                     * crashing. Chosen over moving the assignment inside the branch, which would
+                     * drop the `variant` KEY for such a product and change the payload shape a
+                     * shipped client reads.
+                     *
+                     * Reachability, stated because it is why this was a row and not an emergency:
+                     * the panel always writes `product_attribute` alongside `variant_product = 1`
+                     * (`ProductController:848`, `:1100`, `:1168`, `:2363`), so this state comes from
+                     * the importer, the API, or a partial write. No fixture in the suite set
+                     * `variant_product => 1` on this path before `StorefrontProductDetailVariantCrashTest`,
+                     * which is why 12,040 Feature tests never drove it.
+                     */
+                    $option = [];
+
                     if (!empty($product['product_attribute'])) {
                         $variant_data = [];
                         $variant = json_decode($product['product_attribute']);
