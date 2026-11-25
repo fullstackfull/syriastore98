@@ -445,6 +445,7 @@ run_one verify-order-replacement-concurrency-on-mysql \
 # shown for "last month" and keeps negative controls for an out-of-period order and another
 # tenant's order, so a widened bound cannot pass it.
 run_one verify-report-window-boundary-on-mysql \
+  "SESSION_DRIVER=array" \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
@@ -454,6 +455,7 @@ run_one verify-report-window-boundary-on-mysql \
 # correct top five must exclude two, and spells one payment method four ways so a case-sensitive
 # grouping shows up as four bars competing for five slots.
 run_one verify-top-five-reports-on-mysql \
+  "SESSION_DRIVER=array" \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
