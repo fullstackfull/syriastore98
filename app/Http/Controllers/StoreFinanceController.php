@@ -2,8 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Product;
-use App\Models\ProductVariant;
 use App\Models\Setting;
 use App\Models\StoreWallet;
 use App\Models\StoreWalletTransaction;
@@ -1012,164 +1010,55 @@ class StoreFinanceController extends Controller
          |--------------------------------------------------------------------------
          | Inventory
          |--------------------------------------------------------------------------
+         |
+         | GAP-150 item 1 / owner decision `P05-02`: **no controller computes money inline** --
+         | the metric layer is the single definition. These six figures were computed here, in a
+         | nested PHP loop over every product of the store and, for a variant product, over every
+         | one of its variants: one query for the catalogue plus one per variant product, with the
+         | arithmetic, the branch choice, the rounding and the tenant predicate all inline on a
+         | money surface.
+         |
+         | They are now read from `App\Support\Metrics\StoreInventoryValuation`, which aggregates
+         | them in the DATABASE in two queries, carries the `store_id` predicate on both sides of
+         | its variant join, and states its own caveats -- that `products.cost_price` cannot
+         | distinguish a cost of zero from a cost nobody entered (measured
+         | `decimal(15,2) NOT NULL DEFAULT 0.00`), and that the retail figures rest on `double`
+         | columns while the cost figure does not (both measured on MariaDB, not read off a
+         | migration). Read-only; it writes nothing.
+         |
+         | THE SCOPE IS DERIVED FROM THE AUTHENTICATED PRINCIPAL AND NEVER FROM REQUEST INPUT.
+         | `$storeId` is `getCurrentStore()`, and the two guards above have already refused a
+         | principal who resolves no store at all and an operator who has chosen no merchant --
+         | so by this line the tenant is the caller's own. `MetricScope` cannot be built empty,
+         | which matters because `whereIn('store_id', [])` compiles to `0 = 1` and would report a
+         | figure indistinguishable from a store holding no stock.
+         |
+         | EVERY FIGURE IS UNCHANGED, and that is the whole point of the change rather than a
+         | hope: `tests/Feature/Reports/StoreInventoryValuationMetricTest` pins all seven against
+         | the values the loop produced, measured before the extraction, over a fixture that
+         | drives both branches, a zero-stock product, a product with no recorded cost, a variant
+         | product with no variants, and a second store -- including a variant row of that second
+         | store hung off this store's product.
          */
 
-        $products = Product::where(
-            'store_id',
-            $storeId
-        )->get();
+        $inventory = \App\Support\Metrics\StoreInventoryValuation::forStore((int) $storeId);
 
-        $inventoryUnits = 0;
-        $inventoryCost = 0;
-        $inventoryRetailValue = 0;
+        $inventoryUnits = $inventory->units();
+        $inventoryCost = $inventory->cost();
+        $inventoryRetailValue = $inventory->retailValue();
+        $inventoryPotentialProfit = $inventory->potentialProfit();
 
         /*
-         | P5-10 / ANA-006 -- "do NOT claim precise profitability when cost or fee data is
-         | missing". `products.cost_price` is `decimal(15,2) NOT NULL DEFAULT 0.00`, so a cost
-         | that was never entered reads 0.00 and is arithmetically indistinguishable from an
-         | item that genuinely cost nothing. Such a product contributes its WHOLE retail value
-         | to "Potential Profit" with nothing subtracted.
-         |
-         | The figure cannot be corrected without the missing data, so it is qualified instead,
-         | with a MEASURED count and the exact amount exposed -- not a fixed sentence. It
-         | self-adjusts as merchants fill cost in and falls silent on its own.
-         |
-         | Only products that are actually VALUED are counted: an out-of-stock product
-         | contributes nothing to the tiles, so it must not appear in the caveat that qualifies
-         | them.
+         | ANA-006's disclosure, from the same read rather than a second pass. Only products the
+         | figures actually VALUED are counted: an out-of-stock product contributes nothing to the
+         | tiles, so it must not appear in the caveat that qualifies them. The count and the amount
+         | are measured and self-adjusting -- they shrink as merchants fill cost in and the
+         | disclosure disappears on its own -- which is why the view branches on the count rather
+         | than printing a fixed sentence.
          */
-        $inventoryValuedProducts = 0;
-        $inventoryUncostedProducts = 0;
-        $inventoryUncostedRetail = 0;
-
-        foreach ($products as $product) {
-
-            $costPrice =
-                (float) ($product->cost_price ?? 0);
-
-            $productUnits = 0;
-            $productRetail = 0;
-
-            if ($product->variant_product == 1) {
-
-                $variants = ProductVariant::where(
-                        'product_id',
-                        $product->id
-                    )
-                    ->where(
-                        'store_id',
-                        $storeId
-                    )
-                    ->get();
-
-                foreach ($variants as $variant) {
-
-                    $stock =
-                        (int) ($variant->stock ?? 0);
-
-                    if ($stock <= 0) {
-                        continue;
-                    }
-
-                    $inventoryUnits += $stock;
-
-                    $inventoryCost +=
-                        ($costPrice * $stock);
-
-                    $sellingPrice = (float) (
-                        $variant->variation_price
-                        ?? $variant->price
-                        ?? 0
-                    );
-
-                    $inventoryRetailValue +=
-                        ($sellingPrice * $stock);
-
-                    $productUnits += $stock;
-                    $productRetail +=
-                        ($sellingPrice * $stock);
-                }
-
-            } else {
-
-                $stock =
-                    (int) ($product->product_stock ?? 0);
-
-                if ($stock <= 0) {
-                    continue;
-                }
-
-                $inventoryUnits += $stock;
-
-                $inventoryCost +=
-                    ($costPrice * $stock);
-
-                /*
-                 | P5-10. THIS WAS `$product->sale_price ?? $product->price ?? 0` AND THE SECOND
-                 | OPERAND COULD NEVER BE REACHED. `??` fires on NULL alone, and
-                 | `products.sale_price` is `float NOT NULL DEFAULT 0` (create_products_table:32),
-                 | so a product that is simply not on sale carried 0 here: it contributed NOTHING
-                 | to retail value while still contributing its full cost above, and the
-                 | "Potential Profit" tile rendered `0 - cost`, negative, in debit red.
-                 |
-                 | NOT the same defect as the variant branch ~20 lines up, which keeps `??`
-                 | because `product_variants.variation_price` IS nullable and its fallthrough
-                 | works. One spelling, two column definitions.
-                 |
-                 | The replacement is the product's own convention for "is there a sale price",
-                 | not a new judgement: Product.php:323 `!empty($product->sale_price)`,
-                 | product_price.blade.php:4 the same, preview.blade.php:59
-                 | `(float) ($product->sale_price ?? 0) > 0`, ApiController 499/781/804
-                 | `!empty(...) ? ... : 0`.
-                 |
-                 | Pinned by tests/Feature/Merchant/FinanceInventoryValuationTest.
-                 */
-                $salePrice = (float) ($product->sale_price ?? 0);
-
-                $sellingPrice = $salePrice > 0.0
-                    ? $salePrice
-                    : (float) ($product->price ?? 0);
-
-                $inventoryRetailValue +=
-                    ($sellingPrice * $stock);
-
-                $productUnits += $stock;
-                $productRetail +=
-                    ($sellingPrice * $stock);
-            }
-
-            /*
-             | ANA-006 accounting, once per product. `$productUnits > 0` is what restricts this
-             | to products the tiles actually valued. (The simple branch's `continue` above
-             | skips this tail for an out-of-stock product; that is the same outcome, since
-             | `$productUnits` would be 0.)
-             */
-            if ($productUnits > 0) {
-
-                $inventoryValuedProducts++;
-
-                if ($costPrice <= 0.0) {
-                    $inventoryUncostedProducts++;
-                    $inventoryUncostedRetail += $productRetail;
-                }
-            }
-        }
-
-        $inventoryCost =
-            round($inventoryCost, 2);
-
-        $inventoryRetailValue =
-            round($inventoryRetailValue, 2);
-
-        $inventoryPotentialProfit = round(
-            $inventoryRetailValue - $inventoryCost,
-            2
-        );
-
-        $inventoryUncostedRetail = round(
-            $inventoryUncostedRetail,
-            2
-        );
+        $inventoryValuedProducts = $inventory->valuedProducts();
+        $inventoryUncostedProducts = $inventory->uncostedProducts();
+        $inventoryUncostedRetail = $inventory->uncostedRetail();
 
         /*
          | P5-16 / owner decisions D1 and D2. `Payments received` and `Estimated gross profit`, read
