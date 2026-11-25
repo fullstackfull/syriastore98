@@ -695,7 +695,20 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            invariant recorded above -- every statement against this table belongs to the service that
            owns it, so the table has exactly one class that queries it -- and put the table into the
            per-table exposure map as a literal for the first time. */
-        $this->assertSame(['app' => 225, 'packages' => 45], $perDir,
+        /* 225 -> 227 [2026-11-25, GAP-221 / ANA-002]: the two statements in
+           `App\Support\Reports\TopSellersByOrderCount`, which replaced `ReportController::
+           top_product()`'s `SUBSTRING_INDEX` join against a generated 1..100 series -- the reason
+           that screen answered HTTP 500 under the whole Feature suite and had no executable
+           evidence at all. BOTH CARRY AN EXPLICIT `store_id` PREDICATE, read at :137 and :163 when
+           re-pointing this count rather than assumed: `DB::table('products')->where('store_id',
+           $storeId)` resolves every product the orders name in one query, and
+           `DB::table($table)->where('store_id', $storeId)` resolves the dimension LABELS, where
+           `$table` is `categories` or `product_brands` chosen by the caller, never by request input.
+           So the unscoped halves of every table below are unchanged, which is the assertion that
+           matters. `DB::table()` and not Eloquent is deliberate and the class says why: `Product`
+           registers `StoreScope` but is ABSENT from `scoped_models`, so the scope would add no
+           predicate anyway, and 79 of the 95 models are `Cachable`. */
+        $this->assertSame(['app' => 227, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -827,7 +840,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            (223 + 45).
            268 -> 270 [the two reviews of that change]: the four acknowledgement methods above,
            net +2 (225 + 45). */
-        $this->assertSame(270, array_sum($perDir));
+        $this->assertSame(272, array_sum($perDir));
     }
 
     /**
@@ -1022,7 +1035,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
             // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
-            'products' => [10, 3],    // 9 -> 10 [2026-11-23, ANA-TOP part 4]: `DimensionPeriodRevenue::forOrders()` resolves every product the orders name in ONE query WITH a store_id predicate, replacing a `Product::find()` per ORDER LINE in eight report branches. That `find()` is why a line naming another tenant's product was attributed by the FOREIGN catalogue's category_id/brand_id -- `Product` registers no StoreScope and is absent from scoped_models. THE UNSCOPED HALF STAYS AT 3. 10 -> 9 [2026-11-22, P1-SEC-69 c after review]: the guard's two ownership limbs became one `exists()` when the product rule became "one canonical id" -- see the per-directory note above. The unscoped half is unchanged at 3, as it was when they arrived. 8 -> 10 total [2026-11-22, P1-SEC-69 c] with CampaignIntentOwnershipGuard's two ownership limbs over the product ids a campaign names. BOTH carry a `store_id` comparison -- built from the store the caller was just authorised for, never from request input -- so THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters. 7 -> 8 total [2026-11-11, P1-SEC-61] with AuctionBidIdentityGuard::logSlugCollision()'s twin lookup, WITH a store_id predicate -- it asks whether the ROUTED store holds its own product under the colliding slug, so THE UNSCOPED HALF STAYS AT 3, which is again the assertion that matters. 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
+            'products' => [11, 3],    // 10 -> 11 [2026-11-25, GAP-221 / ANA-002]: `TopSellersByOrderCount:136`'s dimension-by-product lookup, WITH a `store_id` predicate at :137, so THE UNSCOPED HALF STAYS AT 3 -- which is the assertion that matters. Only ONE of that class's two statements lands here: the other names its table through a `$table` VARIABLE (`categories` or `product_brands`), so it is not a literal this per-table map can key on, and it is counted in the per-directory total above instead. It too carries a `store_id` predicate. 9 -> 10 [2026-11-23, ANA-TOP part 4]: `DimensionPeriodRevenue::forOrders()` resolves every product the orders name in ONE query WITH a store_id predicate, replacing a `Product::find()` per ORDER LINE in eight report branches. That `find()` is why a line naming another tenant's product was attributed by the FOREIGN catalogue's category_id/brand_id -- `Product` registers no StoreScope and is absent from scoped_models. THE UNSCOPED HALF STAYS AT 3. 10 -> 9 [2026-11-22, P1-SEC-69 c after review]: the guard's two ownership limbs became one `exists()` when the product rule became "one canonical id" -- see the per-directory note above. The unscoped half is unchanged at 3, as it was when they arrived. 8 -> 10 total [2026-11-22, P1-SEC-69 c] with CampaignIntentOwnershipGuard's two ownership limbs over the product ids a campaign names. BOTH carry a `store_id` comparison -- built from the store the caller was just authorised for, never from request input -- so THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters. 7 -> 8 total [2026-11-11, P1-SEC-61] with AuctionBidIdentityGuard::logSlugCollision()'s twin lookup, WITH a store_id predicate -- it asks whether the ROUTED store holds its own product under the colliding slug, so THE UNSCOPED HALF STAYS AT 3, which is again the assertion that matters. 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
             'settings' => [18, 5],   // 17 -> 18 [ANA-TOP part 3 AFTER REVIEW]: `OrderCurrencyStamp::configuredCodeFor()` reads a NAMED store's `defult_currancy` then `currency` with an explicit store_id predicate and `orderByDesc('id')` (readers serve the newest duplicate). Raw and not `GetValueByName` for the measured reason the DocumentDirection::ownRow entry below gives -- that helper falls through to `Utility::Setting()`, which ignores its store id when Auth::check() is true and reads the VIEWER's store. The UNSCOPED half holds at 5. 18 -> 17 [ANA-TOP part 3]: the earlier site REMOVED -- `primaryCurrency()` reads through `OrderCurrencyStamp::configuredCodeFor($storeId)`, whose own `Utility::GetValueByName()` carries the `store_id` predicate, so the scoping moved rather than went away and the unscoped half still holds at 5. 17 -> 18 [ANA-TOP]: TopSellersByRevenue::primaryCurrency() read this store's `defult_currancy` with a raw query, WITH a store_id predicate. Its note said the alternative was "a helper that resolves `getCurrentStore()` -- the bug GAP-156 fixed on the customer timeline"; that is only true of a helper called WITHOUT a store id, and passing the reported store's id is the difference. 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [15, 0],   // 16 -> 15 [P05-19]: the operator dashboard's whole-table read is gone (see the entry-point note). It was counted "aware" here while filtering nothing -- LIMIT 1, in the flesh.
             'side_menus_option' => [28, 0],
@@ -1255,7 +1268,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 193 -> 194 [part 3 after review]: and back, in OrderCurrencyStamp. Same table, same
         // predicate, different file; see the note above the per-directory assertion.
         // 194 -> 195 [ANA-TOP part 4]: the `DimensionPeriodRevenue` products read, scoped.
-        $this->assertSame(195, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 195 -> 196 [2026-11-25, GAP-221 / ANA-002]: `TopSellersByOrderCount`'s products read,
+        // also scoped -- the per-table note beside `products` above carries the reasoning. The
+        // UNSCOPED sum below does not move, which is the half that matters.
+        $this->assertSame(196, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
