@@ -3504,6 +3504,40 @@ public function UpdateProduct(Request $request)
         return $this->error(['message' => __('Store not found!')]);
     }
 
+    /*
+     * GAP-250 / P4-F119 — AND THEN WHETHER THIS PRINCIPAL MAY WRITE THE CATALOGUE AT ALL.
+     *
+     * Measured by the behavioural route census of 2026-11-25: an unpermissioned staff member of the
+     * owning store rewrote `price` 100 -> 1, `sale_price` 90 -> 1, **`cost_price` 40 -> 1** and
+     * `product_stock` 50 -> 0, and got `{status:1}` "Product Updated Successfully!". A money write
+     * by a principal granted nothing.
+     *
+     * NEITHER CONTROL ABOVE IS THIS ONE, which is why it survived both. `OperatorCatalogueWrite`
+     * withdraws the door from the platform OPERATOR (F206) -- the opposite axis, and its own comment
+     * records that this door "had no permission check of any kind". `resolveOwnedStore()` settles
+     * TENANCY and admits the owner's staff by design.
+     *
+     * THE SHARPEST FACT: `searchProductsByName`, one route over, was gated on `Manage Products` the
+     * same day PRECISELY BECAUSE IT READS `cost_price` (GAP-142 / P4-F111). The route that WRITES
+     * `cost_price` was not in that work, because it came from a list of nine named families rather
+     * than a measurement of the population. This row is the cost of that difference.
+     *
+     * `Edit Products` is the PLURAL seeded name the web twin uses (`ProductController:1646`); the
+     * singular `Edit Product` is seeded nowhere and would admit nobody a merchant can grant.
+     *
+     * BELOW both existing controls, so the operator keeps `OperatorCatalogueWrite`'s own refusal
+     * (F206 was a decision and must not be reworded into a permission refusal) and a foreign tenant
+     * keeps `Store not found!`. Both are pinned by `AdminApiProductWritePermissionTest`.
+     *
+     * NOTE FOR WHOEVER TAKES `AddProduct`: it carries the IDENTICAL two-control block, which is why
+     * an anchor on that block alone matched twice and this insertion is rooted at the handler
+     * declaration instead. AddProduct was not in this census group and is NOT gated here -- it
+     * needs its own measurement, not an assumption.
+     */
+    if (! $this->callerMayActInStore(['Edit Products'], $store->id)) {
+        return $this->storePermissionDenied();
+    }
+
     $validator = \Validator::make(
         $request->all(),
         [
