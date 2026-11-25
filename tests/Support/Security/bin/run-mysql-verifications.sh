@@ -568,6 +568,31 @@ run_one verify-analytics-breakdowns-on-mysql \
   "BREAKDOWN_MYSQL_SOCKET=${SOCK}" "BREAKDOWN_MYSQL_HOST=${HOST}" "BREAKDOWN_MYSQL_PORT=${PORT}" \
   "BREAKDOWN_MYSQL_DATABASE=breakdowns_verify" "BREAKDOWN_MYSQL_USERNAME=${USER_NAME}" "BREAKDOWN_MYSQL_PASSWORD=${PASS}"
 
+# GAP-192 / SAAS-007 -- the PLATFORM's own revenue (what merchants pay Store Syria), which was the
+# one financial surface in this repository with no MySQL harness beside it. An independent financial
+# review said so; this is that evidence. Its receipts half groups `plan_orders` in the database on
+# `payment_status`, `price_currency` and `is_refund`, and all three behave differently on the two
+# engines.
+#
+# IT REFUTED ITS OWN AUTHOR'S FINDING ON THE FIRST RUN, which is the reason to run it rather than to
+# reason about it: `plan_orders.price` is declared `$table->float('price')`, so a money figure summed
+# off it looked like GAP-217's float-precision basis, and `MetricCaveat::FLOAT_PRECISION` had already
+# been attached to the figure. Laravel 11's `float()` emits a MySQL **`double`** -- `2500000.49` at
+# SYP scale stores and reads back exactly, while a hand-written `float` column on the same server
+# loses the minor units. The caveat came back out. Check [6] carries both halves so the next reader
+# does not repeat it.
+#
+# It also measures, side by side on the same rows in one run, that MySQL folds `Succeeded` and
+# `succeeded` into ONE group where SQLite returns TWO -- the claim `planOrderGroups()`'s docblock
+# makes in prose and nothing executed.
+#
+# Like its neighbours it prints `  FAIL  <what>`, which `run_one`'s `[FAIL]` grep does not match, so
+# the EXIT CODE is the live detector.
+run_one verify-saas-revenue-on-mysql \
+  "SESSION_DRIVER=array" \
+  "SAASREV_MYSQL_SOCKET=${SOCK}" "SAASREV_MYSQL_HOST=${HOST}" "SAASREV_MYSQL_PORT=${PORT}" \
+  "SAASREV_MYSQL_DATABASE=saasrev_verify" "SAASREV_MYSQL_USERNAME=${USER_NAME}" "SAASREV_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

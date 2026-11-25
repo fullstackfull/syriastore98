@@ -1265,6 +1265,42 @@ Route::get(
         ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
         ->name('platform.analytics.export');
 
+    /*
+     * GAP-195 / OPS-002 — REAL RESOURCE MEASUREMENTS, for the platform operator only.
+     *
+     * Declared here, beside the cross-tenant analytics screen, because it is the same kind of
+     * surface and takes the same gate for the same reason: `PlatformOperatorOnly` and NOT a
+     * permission name, because a merchant creates their own roles and a permission is therefore
+     * substantially self-assignable, while the subject of this screen is the machine every tenant
+     * shares. Inside the same `auth` group, so an anonymous caller is redirected to sign in by
+     * `auth` — which runs first — rather than told 403 by the operator check; and 403 and never
+     * 401 for a signed-in non-operator, because repo B maps any 401 to a forced logout.
+     *
+     * NO PARAMETER, ON PURPOSE. The handler reads nothing from the request, and a `path` segment
+     * on a screen that calls `disk_free_space()` would hand the caller an arbitrary-filesystem
+     * probe. `PlatformResourcesScreenTest` asserts that a query string changes nothing.
+     */
+    Route::get('platform/resources', [\App\Http\Controllers\SuperAdminResourcesController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.resources');
+
+    /*
+     * GAP-192 / SAAS-007 — THE PLATFORM'S OWN REVENUE (MRR/ARR), SEPARATE FROM MERCHANT SALES.
+     *
+     * A SEPARATE SCREEN FROM `platform/analytics` ON PURPOSE, because the separation IS the
+     * recovered requirement: "فصل إيرادات المنصة MRR/ARR عن GMV ومبيعات التجار". Two more tiles on
+     * the analytics screen would put an MRR next to a cross-tenant GMV, which is how somebody
+     * eventually adds them — they are different money, from different payers, in different
+     * currencies, and `plans.price` has no currency column at all.
+     *
+     * Same gate as its two neighbours and for the same reason: `PlatformOperatorOnly`, not a
+     * permission name, because a merchant creates their own roles. This screen reports what every
+     * merchant on the platform pays, so it is commercial information about third parties.
+     */
+    Route::get('platform/revenue', [\App\Http\Controllers\SuperAdminRevenueController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.revenue');
+
     // Report
     Route::resource('reports', ReportController::class);
     Route::get('reports-chart', [ReportController::class, 'reports_chart'])->name('reports.chart');

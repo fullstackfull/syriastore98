@@ -62,6 +62,66 @@
                 <x-dashboard-card :count="$plan_requests" :label="__('Total Plan Request')" :icon="$plan_requests_icon"
                     :url="route('plan-request.index')" columnClass="col-xl-4 col-md-6 col-12" />
             </div>
+
+            {{--
+                THE THREE CROSS-TENANT SCREENS, REACHABLE. Until this panel existed, none of them
+                was linked from anywhere: `grep -rn 'platform.analytics' resources/views/` found
+                exactly one hit, the export button INSIDE the analytics screen, so P5-7's screen
+                had been reachable only by typing its URL since it shipped — and GAP-195's and
+                GAP-192's would have shipped the same way. A built screen nobody can find is not
+                delivered.
+
+                THE OPERATOR'S SIDEBAR IS SOMEBODY ELSE'S FILE. It is built by
+                `app/Listeners/SuperAdminMenuListener.php` and `app/Services/MerchantPageDirectory.php`,
+                neither of which belongs to this workstream in this phase, so the links go where
+                they can be put correctly today and a sidebar entry is recorded as a cross-agent
+                dependency.
+
+                NOT `<x-dashboard-card>`, for two reasons. A card's shape is a LABEL and a COUNT,
+                and these are not figures — a borrowed number or a zero in that typography would
+                state something false. And `tests/Unit/Ui/DashboardCardIconLinkHasANameTest`
+                asserts this dashboard renders EXACTLY SIX of them as the premise for its
+                accessible-name assertions, so a seventh would redden another workstream's ratchet
+                to add a navigation link.
+
+                EACH LINK CARRIES THE SENTENCE THAT TELLS IT FROM ITS NEIGHBOUR. "Platform
+                revenue" and "Platform analytics" are one word apart and measure different money,
+                from different payers, in different currencies, out of different tables. Keeping
+                them apart is the recovered requirement SAAS-007 itself, so the distinction is
+                stated where an operator chooses between them, not only on the screens.
+            --}}
+            <div class="row g-4 mb-4 ss-platform-links">
+                <div class="col-12">
+                    <h2 class="h5 mb-1">{{ __('Across the whole platform') }}</h2>
+
+                    <p class="ss-muted mb-3">
+                        {{ __('Three screens that read every tenant at once. Each is for the platform operator only.') }}
+                    </p>
+
+                    <ul class="list-unstyled mb-0">
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.revenue') }}">{{ __('Platform revenue') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('MRR and ARR: what merchants pay Store Syria for their plans.') }}
+                            </span>
+                        </li>
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.analytics') }}">{{ __('Platform analytics') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('Orders, buyers and payments across every store: what shoppers pay merchants.') }}
+                            </span>
+                        </li>
+                        <li>
+                            <a class="ss-link" href="{{ route('platform.resources') }}">{{ __('Platform resources') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('What the machine reports about itself: load, memory and disk.') }}
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <!-- ss-platform-links-end -->
+
             <div class="row g-4 mb-4">
                 <div class="col-xl-4 col-12">
                     {{-- orders chart --}}
