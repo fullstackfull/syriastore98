@@ -637,7 +637,37 @@ class CartController extends Controller
             $response = Cart::cart_list_cookie($request->all(), $store->id);
             $response = json_decode(json_encode($response));
         } else {
-            $address = DeliveryAddress::find($request->billing_address_id);
+            /*
+             * GAP-243 / P3-F116 — THE ADDRESS MUST BE THE AUTHENTICATED SHOPPER'S OWN.
+             *
+             * This was `DeliveryAddress::find($request->billing_address_id)`: a liveness check on
+             * an id the caller chose, not an identity check. `DeliveryAddress` is NOT in
+             * `config/tenancy.php`'s `scoped_models` and carries no scope, so EVERY address row in
+             * the database answered -- another shopper's in this store, or another tenant's
+             * customer's. The three merged values then feed `cart_list()`, which selects the
+             * merchant's tax methods BY JURISDICTION, so the quote's tax block reads the foreign
+             * row's country/state/city back out.
+             *
+             * Found by the independent review of the API fix (GAP-235,
+             * `ApiController::apply_coupon:5447`), which went looking for the same statement
+             * elsewhere: this is it, byte-for-byte, on the web storefront.
+             *
+             * THE PREDICATE IS THE CUSTOMER, NOT THE STORE. This statement is inside the `else` arm
+             * of `auth('customers')->guest()`, so a Customer is on the guard by construction -- the
+             * next line already dereferences `auth('customers')->user()->id` to key `cart_list()`,
+             * which is the identity the quote is computed for. A `store_id` predicate would be
+             * weaker: `delivery_addresses.store_id` is nullable, and a NEIGHBOUR IN THE SAME STORE
+             * is this store's row, so a store predicate admits it. Same shape as
+             * `ApiController::update_address()`/`delete_address()`.
+             *
+             * Only the lookup changes: the merge, and everything after it, is untouched, so a
+             * client sending its own address id is unaffected. Pinned by
+             * `StorefrontShippingMethodAddressTenancyTest` (cross-tenant, same-store neighbour, and
+             * the shopper's own address as the control).
+             */
+            $address = DeliveryAddress::where('id', $request->billing_address_id)
+                ->where('customer_id', auth('customers')->user()->id)
+                ->first();
             if ($address) {
                 $parms['billing_info']['delivery_country'] = $address->country_id;
                 $parms['billing_info']['delivery_state'] = $address->state_id;

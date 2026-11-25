@@ -163,7 +163,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/ThemeVersionController.php:341` | Theme publication refused. |
 | `app/Http/Middleware/ThemeEditorAccess.php:59` | Theme editor access refused. |
 | `app/Http/Middleware/ThemeDraftAccess.php:56` | Theme draft access refused. |
-| `app/Http/Controllers/Api/ApiController.php:6363` | shipping quote refused a cart line naming another store |
+| `app/Http/Controllers/Api/ApiController.php:6518` | shipping quote refused a cart line naming another store |
 | `app/Models/Cart.php:1331` | flat-rate shipping refused a cart line naming another store |
 | `app/Http/Controllers/PaymentCallbackController.php:107` | Paytm plan callback refused: no usable order reference. |
 | `app/Http/Controllers/PaymentCallbackController.php:159` | Paytm plan callback refused: the provider did not confirm the payment. |
@@ -196,29 +196,29 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:208` | stock evidence incomplete: fewer movements recorded than stock decrements applied |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:230` | stock evidence not attributed: stock moved for this request and no row now owns the order |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:240` | stock evidence not attributed: the attempt threw |
-| `app/Http/Controllers/Api/ApiController.php:3712` | Storefront order intake refused as a duplicate submission |
-| `app/Http/Controllers/Api/ApiController.php:4292` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
-| `app/Http/Controllers/Api/ApiController.php:4430` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:10417` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
-| `app/Http/Controllers/Api/ApiController.php:10466` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:9670` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:3746` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:4326` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
+| `app/Http/Controllers/Api/ApiController.php:4464` | Storefront intake claim could not be released; it will expire on its own. |
+| `app/Http/Controllers/Api/ApiController.php:10719` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
+| `app/Http/Controllers/Api/ApiController.php:10768` | Storefront intake claim could not be released; it will expire on its own. |
+| `app/Http/Controllers/Api/ApiController.php:9972` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/PaymentController.php:2174` | Web checkout intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:135` | Coupon refused: the basket could not be priced |
-| `app/Http/Controllers/Api/ApiController.php:3519` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7649` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7740` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:8716` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:8742` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9356` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9518` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:3553` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7928` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8019` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:8995` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:9021` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9658` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9820` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:84` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:356` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:398` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:262` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:315` | product_cart: refused a product belonging to another store |
-| `app/Http/Controllers/CartController.php:1523` | abandoned-cart e-mail nudge failed |
-| `app/Http/Controllers/CartController.php:1726` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/CartController.php:1553` | abandoned-cart e-mail nudge failed |
+| `app/Http/Controllers/CartController.php:1756` | abandoned-cart WhatsApp nudge failed |
 | `app/Http/Controllers/WishlistController.php:316` | abandoned-wishlist e-mail nudge failed |
 | `app/Http/Controllers/WishlistController.php:734` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Services/Reports/ScheduledReportRunner.php:197` | scheduled analytics report: stored recipient differs from the owner address; using the owner |

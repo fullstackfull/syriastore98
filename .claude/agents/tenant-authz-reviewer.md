@@ -45,9 +45,32 @@ Ask: *where did this store_id come from?* If the answer is the request, there is
 
 ### 3. Relying on the global scope for isolation
 
-`config/tenancy.php` allowlists models in `scoped_models`; **not all models are scoped**
-(`Customer` is; `Store`, `DeliveryBoy`, `Order` are not). And **`null_tenant => 'open'`** — when no
-tenant resolves the scope adds *no* predicate.
+`config/tenancy.php` allowlists models in `scoped_models`; **not all models are scoped**. **ELEVEN
+are** — `Customer`, `Cart`, `DeliveryBoy`, `Menu`, `SupportTicket`, `SupportConversion`,
+`FlashSaleCondition`, `ThemeCustomizeOrder`, `NotifyUser`, `OrderRefund`, `OrderNote` — and
+`Store`, `Order`, `Product`, `Category`, `Testimonial`, `ProductImage`, `Wishlist`,
+`DeliveryAddress` and `User` are **not**. This paragraph said `DeliveryBoy` was unscoped until
+2026-11-25; it is scoped and does filter, corrected against `tests/Unit/Tenancy/
+ClaudeMdScopedModelClaimTest`, which re-measures every row against the booted container in both
+directions. **Do not quote this list from memory — it has been wrong in both directions. Read
+`config/tenancy.php` or that test.**
+
+**Two different kinds of absence, and the first one is a trap**, because the model *looks* scoped:
+
+- **`Product` and `Category` each carry `StoreScope` (via `BelongsToStore`) and are NOT in the
+  allowlist**, so `StoreScope::isActiveFor()` short-circuits and they add **no predicate for any
+  principal** — not a customer, not a merchant, not the operator. `getGlobalScopes()` on either
+  returns `[StoreScope]`, so checking *that* answers the wrong question. `Product`'s inert scope
+  produced a live cross-tenant stock drain (S19); `Category`'s is why `sub_category` needed its own
+  predicate (GAP-234).
+- **`Testimonial`, `ProductImage`, `DeliveryAddress`, `Order`, `Store`, `Wishlist` and `User` carry
+  no scope at all** — which is what made a bare `find($id)` on each of the first three a real
+  defect (P4-F115 deleted any store's review, P3-F116 priced a quote from any customer's address,
+  GAP-233).
+
+All of the above measured against the booted container on 2026-11-25, not read off this file.
+
+And **`null_tenant => 'open'`** — when no tenant resolves the scope adds *no* predicate.
 
 So isolation that "works" may be the scope doing it by accident for one principal and not another.
 A control that works by accident is not a control. Flag any handler whose only tenant protection is

@@ -4,8 +4,15 @@
 question nobody has been asked. Requested by the owner directive of 2026-11-25 §9.
 
 **What this file is NOT.** It is not a new plan, not a status report, and not a list of engineering
-work. Anything engineering can decide for itself is absent by design. Every entry below blocks real
-work, and the work it blocks is named.
+work. Anything engineering can decide for itself is absent by design.
+
+**Every entry names what it blocks — and for some the honest answer is "nothing".** The header said
+"every entry below blocks real work" until section G was added, and that would have been a reason to
+overstate three new entries or to leave them out. Both are worse than the entry. A decision belongs
+here when **engineering must not pick the answer** — because it would contradict a decision the
+owner already took, invent policy the platform does not have, or change a contract a shipped client
+reads. Whether work is waiting on it is a separate fact, stated per entry. G1 and G3 block nothing
+and are still the owner's; the alternative was shipping an answer under the owner's name.
 
 **Standing rule this file obeys:** engineering does not invent financial, commercial, legal, consent
 or authorization policy. Where an option would do that, it is marked and not taken.
@@ -223,12 +230,52 @@ For a bundled first-party integration that is probably right. It is a decision a
 **Recommendation:** leave them running and say so in the module's record, since a chat integration
 going silent mid-conversation is worse than one that keeps reconciling.
 
+## G. Decisions raised by the 2026-11-25 admin-API and storefront gating batch
+
+These three came out of fixing nine authorization families in one batch. All three are cases where
+**engineering could pick an answer and must not**, because each one either contradicts a decision
+already taken on the merchant web, invents a rule the platform does not have, or changes a payload a
+shipped client reads.
+
+### G1 — The admin API now admits the platform operator to coupon, tax and shipping writes. The merchant web refuses them on all nine.
+
+| | |
+|---|---|
+| **Where it stands** | Nine handlers were gated in this batch: 3 coupon writers (P4-F065) and 6 tax/shipping writers (P4-F075). The gate is the project's standard two-limb shape, which means `MerchantPermissions::allowsAny()` — and that returns `WILDCARD` for the platform operator, so **the operator is admitted**. |
+| **The contradiction** | On the merchant web, the operator is **refused on all nine**. Two different reasons, and the difference matters: `ShippingController::shippingWriteRefusal()` refuses them **by name**, consistent with the F157 coupon precedent the owner set on 2026-10-28 — a deliberate decision. `TaxController` refuses them as a **by-product** of bare `isAbleTo()` with no operator limb (`:50`, `:172`, `:218`) — nobody decided that; it is the shape of the call. The independent review drew this distinction and it changes the question. |
+| **The choice** | (a) Admit the operator on the API, and fix the web to match — i.e. treat F157 as superseded. (b) Refuse the operator on the API, matching the web and extending F157 to tax and shipping. (c) Admit on the API, refuse on the web, deliberately, and record why two surfaces differ. |
+| **Recommendation** | **(b).** F157 is an existing owner decision about exactly this question (may the platform operator write a merchant's commercial terms), and the API should not quietly reverse it. It is also the conservative direction: refusing is reversible, whereas admitting leaves writes in merchants' ledgers. |
+| **Why it is yours** | F157 was an owner decision. Engineering cannot overturn it by porting a different default into a second surface. |
+| **What is blocked** | Nothing is blocked — the nine handlers are gated and tested either way. But **two test names currently carry the open question rather than an answer**: `test_the_platform_operator_still_writes_coupons_PENDING_AN_OWNER_DECISION` and `test_the_platform_operator_still_writes_PENDING_AN_OWNER_DECISION`. They were renamed because their old names read as an APPROVAL of behaviour the owner had explicitly withheld on the other surface. On answer (a) or (c) they lose the suffix; on (b) the expectation flips and the web gains a named refusal for tax. |
+
+### G2 — What may a storefront product payload contain? It currently includes `products.cost_price` and a `users.email`.
+
+| | |
+|---|---|
+| **Where it stands** | GAP-233 closed the CROSS-TENANT read on `product-detail`/`product-detail-guest`. It did **not** close what the endpoint serves at the owning store's own slug, which any token holder may name. `Product` has no `$hidden`, so `$product->toArray()` includes **`cost_price`** — the merchant's margin — plus `created_by` and stock internals. The review payload also emits `user_email` from `Testimonial::UserData()`, a `hasOne(User::class, 'id', 'user_id')`: a **`users`** address, where `testimonials.user_id` defaults to **1** (the platform operator) and the storefront's own writer puts a **customers** id in it. |
+| **The choice** | What belongs in a public product payload? At minimum: does `cost_price` leave the server at all, and should `user_email` be dropped, or sourced from the `customers` row the writer actually references? |
+| **Recommendation** | Add `cost_price` to `Product::$hidden` and drop `user_email` from both twins. A reviewer's display name is the product requirement; their e-mail address is not, and `cost_price` has no storefront use at all. |
+| **Why it is yours** | It is a payload contract on a storefront surface, and a shipped client cannot be redeployed alongside the server. Narrowing a payload is a compatibility decision, not a bug fix — which is why this was NOT folded into the tenancy fix. |
+| **One thing to know before answering** | The GAP-233 control test currently **pins** the disclosure: `StorefrontProductDetailTenancyTest:258-263` asserts the merchant's e-mail IS present for a store's own review. That was a defensible scoping choice when the test was written, but it means a narrowing must edit that test — it will not simply go green. |
+| **What is blocked** | GAP-244. |
+
+### G3 — None of the three review handlers has a permission check. Should they?
+
+| | |
+|---|---|
+| **Where it stands** | `DeleteReview` had **no predicate at all** and deleted any store's review for any bearer token (GAP-242, fixed in this batch with an ownership predicate). Its two siblings, `AddReview` and `UpdateReview`, have the ownership predicate but — like the fixed deleter — **no permission check**. So any staff member of the store can write and delete reviews. |
+| **The choice** | Should the review handlers require a permission (e.g. a `Manage Testimonial` family), or is store membership the intended boundary for moderating one's own reviews? |
+| **Recommendation** | Leave as-is for now and decide with the F113 family, not separately. A permission added to one handler of three invents a rule; added to all three it is a product decision about who moderates social proof, and it should be made once, with the name chosen from whatever the merchant web uses for the same screen. |
+| **Why it is yours** | It is a new permission family, i.e. new product surface — not a port of an existing web gate, which is what every other row in this batch was. |
+| **What is blocked** | Nothing. The destructive defect is closed; this is the residual policy question, recorded so it is not mistaken for an oversight. |
+
 ---
 
 ## What is NOT in this file, deliberately
 
 - Anything engineering can decide. The `OrderList` owner-limb asymmetry, the storefront API's
-  remaining unscoped reads, the eight ungated admin-API families, the `substr`→`mb_substr` sweep and
+  remaining unscoped reads, the **four remaining** ungated admin-API families (eight until
+  2026-11-25; F106, F109, F065, F075 and F110 are now gated), the `substr`→`mb_substr` sweep and
   the missing `empty($store)` guards are all engineering and are in the gap register.
 - Production deployment, credential rotation, live-host changes, repository visibility and merging
   the stacked PR chain. Those are owner actions, not decisions, and the standing restrictions already

@@ -101,16 +101,16 @@ Each of these has produced a real defect. Do not assume the framework default.
 | `Cart` | yes | yes | **yes** |
 | `DeliveryBoy` | yes | yes | **yes** |
 | `Menu`, `SupportTicket`, `SupportConversion`, `FlashSaleCondition`, `ThemeCustomizeOrder`, `NotifyUser`, `OrderRefund`, `OrderNote` | yes | yes | **yes** |
-| `Product` | yes | **no** | **NO** |
-| `Order`, `Store`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog`, `Testimonial` | no | no | no |
+| `Product`, `Category` | yes | **no** | **NO** |
+| `Order`, `Store`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog`, `Testimonial`, `ProductImage` | no | no | no |
 
 **Wrong about `DeliveryBoy` and silent about eight more until 2026-11-24, when an adversarial verifier refused it; `tests/Unit/Tenancy/ClaudeMdScopedModelClaimTest` now re-measures every row against the booted container, in both directions.**
 
 `StoreScope::isActiveFor()` short-circuits for a model that is not in `config/tenancy.php`'s
-`scoped_models`, so **`Product` adds no predicate for any principal** — not a customer, not a
-merchant, not the operator, not an admin-context request. `Product::find($id)` reaches every
-tenant's catalogue, which produced a live cross-tenant stock drain (S19) that the `customer_id`
-sweep missed because it was looking at the wrong identifier.
+`scoped_models`, so **`Product` and `Category` add no predicate for ANY principal** — yet
+`getGlobalScopes()` answers `[StoreScope]` for both, so checking *that* asks the wrong question.
+`Product::find($id)` reaches every tenant's catalogue (the S19 stock drain) and `Category` is why
+`sub_category` needed a predicate (GAP-234); **no scope at all** is how a bare `find($id)` deleted any store's review (GAP-242) and priced a quote from any customer's address (GAP-243/235).
 
 The ELEVEN that *do* filter matter for **assertions** (this said "two"): a plain
 `Customer::find()`, `Cart::find()` or `SupportTicket::find()` in a test answers against whichever

@@ -4,7 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\DeliveryBoy;
-use App\Models\Store; 
+use App\Models\Store;
+use App\Services\MerchantPermissions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -75,6 +76,113 @@ class DeliveryBoyApiController extends Controller
         return null;
     }
 
+    /**
+     * GAP-142 / P4-F109 — MAY THIS PRINCIPAL, INSIDE A TENANT IT BELONGS TO, DO THIS?
+     * =============================================================================================
+     *
+     * `refuseUnlessOperatorOwns()` above answers a DIFFERENT question: WHOSE store is it. It is a
+     * tenant check and nothing more, and it was the only gate on this controller -- so every staff
+     * member of the merchant's own tenant, holding a role with NO permissions at all, could read the
+     * whole driver roster with its login addresses, create a driver credential, REPOINT A DRIVER'S
+     * LOGIN E-MAIL, destroy a driver, and SET A DRIVER'S PASSWORD.
+     *
+     * `DeliveryBoy` is an authentication model with its own guard and its own Sanctum tokens, so an
+     * e-mail or password write on one is an ACCOUNT-TAKEOVER PRIMITIVE rather than a privacy row:
+     * whoever holds the address holds recovery, and whoever sets the password holds the account.
+     * That is why this ranked first of GAP-142's remaining rows.
+     *
+     * THE NAMES ARE THE WEB SCREENS' OWN, ONE PER ROUTE, AND NOTHING IS INVENTED HERE.
+     * `Utility::addNewData()` seeds exactly five delivery-driver names, and it seeds the SAME five
+     * both into the row-creating array and into the grant list of the shared global `admin` role
+     * every merchant holds. There is NO plural delivery family at all -- unlike the order family,
+     * where the platform block spells `Manage Orders` and the merchant block the singular, a
+     * divergence that cost P4-F106 a correction. `DeliveryBoyController` -- the merchant WEB screens
+     * for these same five operations -- maps them method for method, and this copies that mapping
+     * rather than reasoning by analogy:
+     *
+     *     Manage Deliveryboy          web index / datatable   ->  index
+     *     Create DeliveryBoy          web create / store      ->  store
+     *     Edit Deliveryboy            web edit / update       ->  update
+     *     Delete Deliveryboy          web destroy             ->  destroy
+     *     Reset password Deliveryboy  web reset password      ->  resetPassword
+     *
+     * The casing is load-bearing: `Create DeliveryBoy` carries a capital B and the other four do
+     * not, that is the seeded spelling, and `MerchantPermissions::held()` compares with
+     * `in_array(..., true)`. One name per route, exactly as the web, so a staff member's grants mean
+     * the same thing in both products; widening a credential write to also admit the roster-reading
+     * name would be a product decision, not a port.
+     *
+     * THROUGH `MerchantPermissions`, NEVER `isAbleTo()`. Laratrust runs with
+     * `permissions_as_gates => false` and this codebase has NO super-admin bypass -- operator status
+     * is a string comparison on `users.type` -- so `isAbleTo('Manage Deliveryboy')` REFUSES the
+     * platform operator, who holds no roles. The five names are not even in the super-admin grant
+     * list, so a fully seeded platform install grants the operator none of them. `allowsAny()` tests
+     * operator status first and answers `WILDCARD`. It also scopes a staff member's names to THIS
+     * store, which `allPermissions()` does not -- and `$storeId` here is the store
+     * `refuseUnlessOperatorOwns()` has already admitted the caller to, not `current_store`.
+     *
+     * THE OWNER LIMB IS NOT REDUNDANT, and this family has already broken on it. A merchant does not
+     * implicitly hold these names, and the register records an order gate in the same family
+     * refusing the store's own owner; `DeliveryAndOrderApiAuthorizationTest` still carries the
+     * message written for it -- "The predicate is too tight -- that is a defect, not a fix." It is
+     * not an escalation either: the owner is the principal who creates the roles and grants the
+     * permissions in their own tenant, so refusing them is a live breakage with no security gain.
+     *
+     * CALLED BELOW `refuseUnlessOperatorOwns()` IN EVERY HANDLER, deliberately. Tenancy answers
+     * first, so a foreign tenant still gets the same 404 it got before -- three shipped suites
+     * assert that exact status (`CredentialBoundaryTest`, `DeliveryBoyScopeTest`,
+     * `TenantRootSinksTest`) and a permission check placed above would have turned them into 403s.
+     * The permission question is only ever asked about a store the caller is already admitted to.
+     *
+     * 403, NEVER 401, AND NEVER `ApiResponser::error()`, which answers HTTP 200 with `{status: 0}`
+     * -- a refusal no client distinguishes from success. The shipped Flutter admin app force-clears
+     * its session on any 401, so a 401 here would log merchants out of the whole product.
+     *
+     * @return \Illuminate\Http\JsonResponse|null  a refusal, or null when the caller may proceed
+     */
+    private function refuseWithoutDeliveryPermission(string $permission, $storeId)
+    {
+        if ($this->callerIsStoreOwner($storeId)) {
+            return null;
+        }
+
+        if (MerchantPermissions::allowsAny(auth()->user(), [$permission], $storeId)) {
+            return null;
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => __('You do not have permission to perform this action.'),
+        ], 403);
+    }
+
+    /**
+     * The tenant ROOT, not the tenant.
+     *
+     * `$store->created_by === $user->id` AND NOT `creatorId()`, which returns the OWNER's id for a
+     * staff member too -- a `creatorId()` comparison here would admit every employee and dissolve
+     * the permission gate above entirely. The owner's own id is the only spelling that separates the
+     * two. Same shape as `Api\DashboardController::callerIsStoreOwner()`.
+     *
+     * The platform operator is not handled here: `MerchantPermissions::allowsAny()` already answers
+     * the wildcard for them, which is where that decision belongs.
+     *
+     * `Store` is NOT in `config/tenancy.php`'s `scoped_models`, so this read adds no predicate and
+     * answers about the real row for every principal.
+     */
+    private function callerIsStoreOwner($storeId): bool
+    {
+        $user = auth()->user();
+
+        if (! $user instanceof \App\Models\User || empty($storeId)) {
+            return false;
+        }
+
+        $store = Store::where('id', $storeId)->first();
+
+        return $store !== null && (int) $store->created_by === (int) $user->id;
+    }
+
 
 public function index(Request $request)
 {
@@ -117,6 +225,13 @@ public function index(Request $request)
         return $refusal;
     }
 
+    // AND THEN WHO INSIDE THAT TENANT MAY READ THE ROSTER. The line above settles whose store it
+    // is; `Manage Deliveryboy` is the name the merchant's own web roster screen gates on, and
+    // without it any staff member read every driver's login address.
+    if ($refusal = $this->refuseWithoutDeliveryPermission('Manage Deliveryboy', $store_id)) {
+        return $refusal;
+    }
+
     $deliveryboys = DeliveryBoy::where('store_id', $store_id)->get();
 
     return response()->json([
@@ -156,6 +271,12 @@ public function index(Request $request)
     // the store the caller named is real -- it said nothing about whether the caller owns it, and
     // nothing about whether the caller is an administrator at all.
     if ($refusal = $this->refuseUnlessOperatorOwns($store_id)) {
+        return $refusal;
+    }
+
+    // AND THEN WHETHER THIS PRINCIPAL MAY MINT A CREDENTIAL IN IT. Checked BEFORE the validator so
+    // an unpermitted caller gets the refusal rather than a field-level 422 that reveals the rules.
+    if ($refusal = $this->refuseWithoutDeliveryPermission('Create DeliveryBoy', $store_id)) {
         return $refusal;
     }
 
@@ -214,6 +335,14 @@ public function update(Request $request, $id)
     // `store_id` arrives in the query string, so the predicate below compared the caller's own two
     // values and authorised nothing.
     if ($refusal = $this->refuseUnlessOperatorOwns($store_id)) {
+        return $refusal;
+    }
+
+    // AND THEN WHETHER THIS PRINCIPAL MAY REWRITE A DRIVER'S LOGIN ADDRESS. `Edit Deliveryboy` is
+    // the name the merchant's own web edit screen gates on. Without it, a staff member holding a
+    // role with no permissions could repoint any of the tenant's driver accounts at an address they
+    // control, which is account recovery and therefore the account.
+    if ($refusal = $this->refuseWithoutDeliveryPermission('Edit Deliveryboy', $store_id)) {
         return $refusal;
     }
 
@@ -284,6 +413,13 @@ public function update(Request $request, $id)
         return $refusal;
     }
 
+    // AND THEN WHETHER THIS PRINCIPAL MAY DESTROY ONE. `Delete Deliveryboy` is the name the
+    // merchant's own web screen gates on. There is no soft delete on DeliveryBoy and no audit row
+    // on this path, so the driver and their earnings history are simply gone.
+    if ($refusal = $this->refuseWithoutDeliveryPermission('Delete Deliveryboy', $store_id)) {
+        return $refusal;
+    }
+
     $deliveryBoy = \App\Models\DeliveryBoy::where('id', $id)
                                           ->where('store_id', $store_id)
                                           ->first();
@@ -350,6 +486,14 @@ public function update(Request $request, $id)
         return $refusal;
     }
 
+    // AND THEN WHETHER THIS PRINCIPAL MAY SET A DRIVER'S PASSWORD. `Reset password Deliveryboy` is
+    // the name the merchant's own web reset screen gates on, and it is a separate grant there for
+    // the obvious reason: setting the password IS taking the account. Checked before the validator
+    // so an unpermitted caller never learns the password rules.
+    if ($refusal = $this->refuseWithoutDeliveryPermission('Reset password Deliveryboy', $store_id)) {
+        return $refusal;
+    }
+
     $deliveryBoy = \App\Models\DeliveryBoy::where('id', $id)
                                           ->where('store_id', $store_id)
                                           ->first();
@@ -362,7 +506,7 @@ public function update(Request $request, $id)
     }
 
         $validator = Validator::make($request->all(), [
-            'password' => 'required|string|min:6|confirmed', 
+            'password' => 'required|string|min:6|confirmed',
         ]);
 
         if ($validator->fails()) {

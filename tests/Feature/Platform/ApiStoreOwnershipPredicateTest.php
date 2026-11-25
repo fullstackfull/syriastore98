@@ -95,15 +95,24 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
      * `AdminApiPermissionExposureTest::test_the_merchant_role_really_holds_every_permission_the_dashboard_gates_on`
      * pins that premise.
      */
-    private function grantGatedPermissions(\App\Models\User $merchant): void
+    private function grantGatedPermissions(\App\Models\User $user): void
     {
         foreach ([
             'Manage Order',
             'Manage Products',
             'Manage Coupon',
             'Manage Store Analytics',
+            /*
+             * ADDED 2026-11-25 with GAP-142's last two families. `customerlist` and
+             * `searchCustomerByName` now require `Manage Customer` below their tenancy gate, so a
+             * fixture granting nothing measures the PERMISSION refusal rather than the ownership
+             * predicate these cases are about. Both names are seeded
+             * (`Utility.php:3085-3086`, granted to the global `admin` role at `:3336-3337`).
+             */
+            'Manage Customer',
+            'Show Customer',
         ] as $permission) {
-            $this->grantPermission(\App\Models\User::find($merchant->id), $permission);
+            $this->grantPermission(\App\Models\User::find($user->id), $permission);
         }
     }
 
@@ -252,6 +261,27 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
 
         [$merchant, $store] = $this->makeTenant();
         $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+
+        /*
+         * THE GRANT IS NEW (2026-11-25) AND IT IS NOT A WEAKENING OF THIS CASE.
+         *
+         * This test is about the OWNERSHIP predicate: `creatorId()` must resolve a staff user to
+         * its owning merchant, or staff are locked out of their own merchant's store
+         * (NEW-OWNERSHIP-STAFF-LOCKOUT-01). When it was written, reaching the handler needed
+         * nothing else. `searchProductsByName` and `customerlist` have since gained a PERMISSION
+         * limb BELOW that tenancy gate (GAP-142 / P4-F111 and F113), so an ungranted staff fixture
+         * now gets a 403 from the permission limb and this case would measure that instead --
+         * passing or failing for a reason that has nothing to do with ownership.
+         *
+         * Granting the names restores what the case measures. The permission axis is pinned
+         * separately and in the opposite direction by
+         * `AdminApiCustomerReadPermissionTest::test_an_unpermissioned_staff_member_is_refused_on_every_read`,
+         * which asserts 403 for exactly this principal WITHOUT a grant -- so the two files together
+         * cover both limbs, and neither one's claim is diluted. Do not drop the gate for this test.
+         */
+        $this->grantGatedPermissions($staff);
+        $staff = \App\Models\User::find($staff->id);
+
         $staffToken = $staff->createToken('auth_token')->plainTextToken;
 
         // Fixture sanity, kept from the pinned version: the staff row must really belong to the
@@ -281,6 +311,14 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
 
         [$merchant, $store] = $this->makeTenant();
         $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+
+        /* The same grant, for the same reason as the catalogue case above: `customerlist` gained a
+         * `Manage Customer` limb below its tenancy gate on 2026-11-25, and this case is about the
+         * ownership predicate. The permission axis is pinned without a grant, asserting 403, in
+         * `AdminApiCustomerReadPermissionTest`. */
+        $this->grantGatedPermissions($staff);
+        $staff = \App\Models\User::find($staff->id);
+
         $staffToken = $staff->createToken('auth_token')->plainTextToken;
 
         $this->withHeader('Authorization', 'Bearer ' . $staffToken)

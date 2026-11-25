@@ -264,14 +264,82 @@ branch name does not narrow it.
 > recommendation, the consequence of each option and the work it blocks. Nothing in it stops
 > independent work, and anything engineering can decide for itself is deliberately absent.
 >
+> #### BATCH 2 — THE ADMIN-API AUTHORIZATION SWEEP. Committed 2026-11-25, awaiting its CI run.
+>
+> Four concurrent implementation agents on disjoint files, plus the coordinator. **Eight of the nine
+> ungated admin-API permission families under `GAP-142` are closed**, and reviewing those fixes found
+> **two live defects worse than several of them**, both fixed in the same batch.
+>
+> | what | state |
+> |---|---|
+> | `GAP-142` F106 order detail · F108 driver assignment (a money write) · F109 five driver-credential routes · F110 order notes · F112 whole-order dumps · F113 delete half · F065 coupon writes · F075 six tax/shipping writers | **GATED**, each operator-first through `MerchantPermissions::allowsAny()` with a store-owner limb, refusing with an explicit **403** — never 401 (the shipped app force-clears its session on one) and never `$this->error()` (HTTP 200). F109 carries **14/14 mutants caught with per-mutant exclusivity measured** |
+> | `GAP-142` F113 read half · F111 `cost_price` | **ALSO GATED** — the family is complete. Four handlers that all had the tenancy gate and no permission limb: the whole customer book with **total spend** and postal addresses, one customer's orders with a **full delivery address**, the same book behind a search term, and `products.cost_price`. Three mutants each caught by exactly one case. **`P04-P7-01` is NOT promoted**: per the directive's §7, implemented-but-awaiting-consolidated-verification is recorded as such, and the full gate has not run on the combined batch |
+| `GAP-246` | **RAISED AND WITHDRAWN THE SAME DAY — IT WAS FALSE.** I reported that the core product permission family is seeded nowhere in this repository, and the independent review refuted it: `"Manage Products"` is seeded at `Utility.php:2941` and granted at `:3271`/`:3377-3378`, in DOUBLE quotes, which my single-quote-only extraction pattern could not see. The "measured" framing made a tokeniser bug read as evidence. Three existing artefacts already said so, including the ratchet I cited as my authority. No code was wrong — the gate is correct and the name IS grantable, so staff can be delegated it — but the register row, two docblocks and a commit message all carried the false claim and were corrected. A new premise test now runs the real seeder and reads the `permissions` table, so it cannot recur silently |
+| `GAP-242` / P4-F115 | **FIXED.** `DELETE api/admin/deletereview/{id}` carried **no predicate of any kind** — any bearer token deleted any store's review: a shopper's, a driver's, a competitor's. Found by a reviewer following the MODEL rather than the diff. The fix derives the store from the review because **the shipped app sends no `store_id`** |
+| `GAP-243` / P3-F116 | **FIXED.** `CartController::get_shipping_method:640` held the same `DeliveryAddress::find($request->…)` statement repaired on the API side as GAP-235, byte-for-byte, on the web storefront. Found by the review of that fix **sweeping for the statement elsewhere** |
+| `GAP-244`, `GAP-245`, `GAP-247`, `GAP-248` | **RAISED, NOT FIXED, and that is the right call for each** — a storefront payload disclosing `products.cost_price` and a `users.email` at the owning store's own slug (a payload contract, so the owner's); the registered `cart-list` read route that 500s on a stale basket line (inherits GAP-241's commerce decision, and a second pre-flight would make the read and the write disagree); a latent `product_detail` 500 for a variant product with an empty `product_attribute` (no suite fixture reaches it, so the fixture is the work); and a forced driver password reset that leaves `remember_token` standing (pre-existing, orthogonal to the permission axis, and three sibling writers should be checked before one is fixed) |
+| One review finding declined, with the reviewer's own reasoning | Agent A's F7 asked that `product_detail`'s dependent lookups key on `$product['id']` rather than the raw request value. **Not taken.** The enclosure was verified mechanically — brace-counted and indentation-checked in both twins — the tests catch the enclosure being broken, and the reviewer itself marked it *"Not required"*. A cosmetic edit inside a slice already under review buys nothing and costs a re-verification |
+>
+> **THE REVIEWS ARE WHAT MADE THIS BATCH WORTH ANYTHING, and two of their findings were about my own
+> tests rather than the code.** One control case **could not fail in two independent ways at once**:
+> its only needle was a street address the handler never reads, *and* it supplied no basket, so the
+> handler returned before reaching the branch the case was named after. A second case posted an
+> empty payload that the fix's own first limb refuses, so nothing store-related was reached while its
+> comment claimed a keying distinction was under test. Both are rewritten and now **mutation-measured
+> in both directions** — including one mutant that is **NOT** caught, stated in the docblock, because
+> bounding what a test is worth is the point.
+>
+> **Four `assertSame(200, …)` "controls" on handlers where 200 is also the refusal code** were
+> strengthened to pair every admitted 200 with a row read. They would have passed if somebody
+> narrowed a gate *and* converted its refusal to `error()`.
+>
+> **A reconciliation hazard specific to concurrent agents, recorded because it produced a wrong
+> record before it was caught:** the first draft of the `GAP-142` row credited five closures and
+> missed three, because no single agent report describes the tree. It was corrected by grepping every
+> named handler for a gate limb. Two line numbers in the original row had drifted ~500 lines, so a
+> name grep found what a line lookup would have missed. **A suite run taken while another agent is
+> mid-write is also not evidence:** one agent reported five undeclared state-changing GET routes; that
+> census is reflection-based and passes on the settled tree.
+>
+> **Three decisions went to the owner rather than being answered** ([`OWNER-DECISION-PACKAGE.md`
+> §G](OWNER-DECISION-PACKAGE.md)): the API now admits the platform operator to coupon/tax/shipping
+> writes while the merchant web refuses them on all nine (and F157 is an existing owner decision
+> about exactly that) — two test names carry a `_PENDING_AN_OWNER_DECISION` suffix until it is
+> answered, because their old names read as an approval; what a storefront product payload may
+> contain; and whether the three review handlers need a permission family at all.
+>
+> #### THE MANDATORY INDEPENDENT REVIEW OF BATCH 2, AND WHAT IT CHANGED
+>
+> It found **no cross-tenant hole, no privilege escalation and no guard-class trap** in any of the
+> five slices — and then found four things that mattered more than a hole would have, two of them
+> about my own work rather than the code.
+>
+> | finding | what it changed |
+> |---|---|
+> | **`Manage Products` IS seeded — my "measured" claim was false** | The worst error of the batch, and the cause is reusable: my extraction script matched **single quotes only**, and `Utility.php` writes `"Manage Products"`, `"Create Product"` and `"Edit Products"` in DOUBLE quotes while the customer names beside them are single-quoted. The search therefore returned exactly the subset that confirmed the wrong conclusion, and calling it "measured" made a tokeniser bug read as evidence. **Three artefacts in this repository already said so** — `ProductController:3452-3454` in prose, `AdminApiPermissionExposureTest:566-577` by running the seeder, and `DashboardPermissionNamesTest:162`, the very ratchet I cited as my authority, in its own failure message. GAP-246 withdrawn; the register keeps the row as the record of the failure mode. No code was wrong: the gate was right either way, but its ARGUMENT was weaker than the truth — staff really can be granted the name |
+> | **Two existing tests asserted the exact opposite of the new gate** | `ApiStoreOwnershipPredicateTest:249` and `:278` build an unpermissioned staff member and assert they are **not** refused. Both failed — undeclared, so a hard known-outcome-gate block. My regression ran `Security` + `Tenancy`; these live in `Platform`. **Third time this session** that "re-run the suites that NAME the file" would have caught something. Fixed by granting the names in those two fixtures, with a comment in each saying why that is not a weakening — the permission axis is pinned in the opposite direction, without a grant, in the new file |
+> | **`Show Customer` on the two list routes handed over money the web withholds** | My parity argument cited one line for "the web admits either on a customer READ". True of the DETAIL screen (`show():335` → `:339-341`), **false of the LIST** (`index():312` → `:314`, `Manage Customer` only) — and the citation pointed at neither (`:52` is `store()`, `:525` is `customerTimeline()`). The web keeps `Payments Collected` / `Net Retained` on the list behind `Manage Customer` while the `Show Customer` detail screen shows no money at all, and these payloads carry `total_spend`, `aov`, the `ledger` block and the postal address. **Narrowed `customerlist` and `searchCustomerByName` to `['Manage Customer']`**; `customer/orders` keeps the pair, because its analogue really is `show()` |
+> | **My premise test measured the harness, not the seeders** | It asserted `allowsAny($staff, ['Manage Customer'])` while its NAME claimed it had established which names are grantable. `grantPermission()` is a `firstOrCreate` — it creates the row, so the assertion holds for any string. It now runs `Utility::addNewData()` and reads the `permissions` table for all three names, which is the test that would have caught the false claim above. The missing control it also named — staff GRANTED `Manage Products` — is added, and it is the one case that falsifies the claim I made |
+>
+> Plus six citation corrections (three handler line numbers in my own docblocks had drifted), one
+> comment that **contradicted its own next line** (it claimed to avoid `actingAs($c, 'customers')`
+> and then called it — the measurement stands, the comment did not), and one `404` that is really a
+> 200 because `ApiResponser::error()` takes the status as its *third* argument. `GAP-249` records a
+> pre-existing platform-wide customer-existence oracle the new gate neither worsens nor closes.
+>
+> **Two findings were declined with reasons rather than applied:** agent A's F7 hardening (the
+> reviewer itself marked it "not required" and the enclosure is verified mechanically), and moving
+> the permission limb above the validators to close `GAP-249` (tenancy must answer first, and three
+> shipped suites assert that).
+>
 > #### Project-wide backlog and decision registers — the canonical pointers
 >
 > | what | where |
 > |---|---|
 > | the plan itself (immutable — do not edit, shorten or recreate) | [`master-plan/README.md`](master-plan/README.md), [`MASTER-PRODUCT-PLAN-v1.0-BASE.md`](master-plan/MASTER-PRODUCT-PLAN-v1.0-BASE.md), [`…-WITH-AMENDMENTS.md`](master-plan/MASTER-PRODUCT-PLAN-v1.0-WITH-AMENDMENTS.md), [`DECISION-ID-REGISTER.md`](master-plan/DECISION-ID-REGISTER.md) (181 ids, 12 `EX-*` exclusions) |
 > | can the plan even be checked | [`MASTER-PLAN-SOURCE-VERIFICATION.md`](MASTER-PLAN-SOURCE-VERIFICATION.md) — **NOT FULLY VERIFIED**; 3 texts (1 GOV, 2 ARCH) still missing and **must not be invented** |
-> | requirement-by-requirement | [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) — **350 recovered, 170 VERIFIED COMPLETE, 180 not**; project-wide **370 known, 170 verified, 200 not** |
-> | the gaps | [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) — **GAP-001…GAP-232** |
+> | requirement-by-requirement | [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) — **350 recovered, 172 VERIFIED COMPLETE, 178 not**; project-wide **370 known, 172 verified, 198 not**. *(This line read 170/180 and 170/200 until 2026-11-25; the document itself had said 172 since the GAP-114 and GAP-131 promotions. A pointer table that restates a figure goes stale silently — prefer the document.)* |
+> | the gaps | [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) — **GAP-001…GAP-249** (249 rows). *(This pointer said GAP-232, then GAP-245, then GAP-249 in one day, and the middle value was stale within the hour because four more rows were added after it. The register's own header carries the authoritative count — prefer it, and expect this line to lag.)* |
 > | security queue | [`../security/P01-SECURITY-WORK-QUEUE.md`](../security/P01-SECURITY-WORK-QUEUE.md) |
 > | Phase 05 remaining + its `D-N` register | [`phase-5/`](phase-5/) |
 > | Phase 06 scope, the `D-P6-01…D-P6-51` package, owner answers | [`phase-6/`](phase-6/) |
@@ -548,12 +616,16 @@ distinct from whether the engineering passed:
 | document | what it answers |
 |---|---|
 | [`MASTER-PLAN-SOURCE-VERIFICATION.md`](MASTER-PLAN-SOURCE-VERIFICATION.md) | **Can the original plan even be checked?** Answer: **NOT FULLY VERIFIED** — the Decision Register v1.0 was never committed to this repository. |
-| [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) | **350 requirements recovered. 170 VERIFIED COMPLETE. 180 are not.** Project-wide, including the recovered-and-untracked: **370 known, 170 verified, 200 not.** |
-| [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) | **GAP-001…GAP-232.** 181 open gaps out of the 350, plus 18 recovered 2026-11-16 and 2 more on 2026-11-24. Of the 181: 56 category A (must complete before release), 16 B, 73 C, 11 D, 25 E; the 20 recovered are deliberately `COVERAGE NOT ASSESSED`. |
+| [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) | **350 requirements recovered. 172 VERIFIED COMPLETE. 178 are not.** Project-wide, including the recovered-and-untracked: **370 known, 172 verified, 198 not.** *(Corrected 2026-11-25. This is the SECOND copy of the same figure in this file; the first, in the canonical-pointers table above, was corrected earlier the same day and this one was missed — which is the argument against restating a figure at all.)* |
+| [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) | **GAP-001…GAP-249** (249 rows). 181 open gaps out of the 350, plus 18 recovered 2026-11-16, 2 more on 2026-11-24, and **48 raised by the work of 2026-11-25** (`GAP-200`…`GAP-249`, one of which — `GAP-246` — was withdrawn the same day as a false finding and is kept as the record of its cause). Of the original 181: 56 category A (must complete before release), 16 B, 73 C, 11 D, 25 E; the 20 recovered are deliberately `COVERAGE NOT ASSESSED`, and the 48 later rows carry no status term at all. |
 
-> **Corrected 2026-11-25.** This table read *"169 VERIFIED COMPLETE / 181 are not"* and *"181 open
-> gaps"*, which disagreed with the documents it cites — the matrix states 170/180 and the register
-> now runs to GAP-232. The figures above were re-read from those two files. No requirement status
+> **Corrected 2026-11-25, TWICE, and the second time is the lesson.** This table read *"169
+> VERIFIED COMPLETE / 181 are not"* and *"181 open gaps"*, which disagreed with the documents it
+> cites. Re-read from those files, it became 170/180 and GAP-232. Both figures were stale AGAIN
+> within the same day — 172/178 after two promotions, and GAP-249 after 17 more rows — and the
+> second staleness was found only by a deliberate sweep comparing every restated figure in this file
+> against the document that owns it. **Four copies of two numbers existed in this one file.** The
+> figures above were re-read from those two files. No requirement status
 > was changed; only this summary was brought back into agreement with its sources.
 
 **CI success does not establish product-scope completeness.** See `CLAUDE.md` §4.1 for the rule and

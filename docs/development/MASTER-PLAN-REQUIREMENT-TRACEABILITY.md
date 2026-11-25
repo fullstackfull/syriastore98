@@ -110,6 +110,36 @@ against a pre-reorganization original.
 > and what it pins without fixing (a plan downgrade does not force a store off an excluded theme).
 > The requirement's other two halves — storefront session behaviour and the merchant-to-store
 > relationship — are still covered only indirectly, and the row says so.
+>
+> **2026-11-25 (the admin-API authorization batch) — NINE FAMILIES GATED AND THE COUNTS DO NOT MOVE.
+> That is correct, and it is recorded here because it looks like an error.** In one batch, eight of
+> the nine ungated admin-API permission families under `GAP-142` were closed (`P4-F106` order
+> detail, `F108` driver assignment, `F109` five driver-credential routes, `F110` order notes,
+> `F112` whole-order dumps, `F113`'s delete half, `F065` coupon writes, `F075` six tax/shipping
+> writers), plus two live defects found by reviewing those fixes (`GAP-242`, a review deleter with
+> **no predicate of any kind** reachable by any bearer token; `GAP-243`, the web twin of the coupon
+> address read). None of that changes a single figure above, for two separate reasons, and both
+> matter more than the arithmetic:
+>
+> 1. **These are FINDINGS, not requirements.** `P4-F1xx`/`P3-F1xx` are finding labels from the phase
+>    findings documents, not Decision IDs from the 181-id register. Only a recovered *requirement*
+>    changes the 370 (that is what took it 368 -> 370 on 2026-11-24). A fixed finding changes a gap
+>    row.
+> 2. **The requirement they sit under is still PARTIALLY IMPLEMENTED.** `GAP-142` maps to
+>    `P04-P7-01`, and **two half-rows remain open** — `F113`'s read half (`CustomerList`,
+>    `searchCustomerByName`, `getCustomerOrdersApi`, which serves a full delivery address) and
+>    `F111` (`searchProductsByName`, which serves `products.cost_price`). Eight of nine is not nine.
+>    Promoting `P04-P7-01` now would be exactly the silent scope reduction this document exists to
+>    prevent.
+>
+> **A correction belonging to this entry.** The first draft of the `GAP-142` row credited five
+> closures and missed three, because three implementation agents worked the same two controllers
+> concurrently and the row was reconciled from their summary reports rather than from the code. It
+> was corrected by grepping every named handler for a gate limb before publishing. The lesson is
+> narrower than "check the code": **a batch of concurrent agents produces a reconciliation hazard
+> that a sequential one does not**, because no single report describes the tree. Two line numbers in
+> the original row had also drifted by ~500 lines (`assignOrder` `:10288` -> `:10791`), so a
+> line-number lookup would have missed the handler that a name grep found.
 
 | status | count |
 |---|---|
