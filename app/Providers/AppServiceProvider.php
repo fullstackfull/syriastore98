@@ -146,6 +146,20 @@ class AppServiceProvider extends ServiceProvider
          */
         Event::listen(NormaliseRewardRedemptionFlag::EVENT, NormaliseRewardRedemptionFlag::class);
 
+        /*
+         * P06-EVENT-DUP -- every provider extending Laravel's base `EventServiceProvider` registers
+         * `Registered -> SendEmailVerificationNotification` AGAIN, because that base's guard
+         * inspects its OWN `$listen` rather than the application's listener list. MEASURED at four
+         * identical listeners here and four `VerifyEmail` notifications per event; the figure is
+         * `1 + (booted base-extending providers)`, and all 70 module providers under
+         * `packages/workdo/` qualify.
+         *
+         * Queued rather than run, and nested rather than plain, because `PackageServiceProvider`
+         * loads database-enabled modules from its own `$app->booted()` callback -- which is queued
+         * AFTER this provider's. The measurement and the mechanism are in the class docblock.
+         */
+        \App\Support\Events\NormaliseDuplicateEventListeners::queue($this->app);
+
         $cachePath = storage_path('framework/cache/data');
 
         if (! File::exists($cachePath)) {
