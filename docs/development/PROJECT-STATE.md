@@ -241,6 +241,29 @@ branch name does not narrow it.
 > left because the handler name is in the log context and changing the message means hand-editing a
 > 273-row observability inventory the resync script will not touch.
 >
+> #### ACCELERATED PARALLEL EXECUTION — owner directive of 2026-11-25
+>
+> The owner amended the **methodology**, not the scope or the standards. What changed: stop running
+> the full Unit/Contract/Feature/merge-base set after every small change (focused tests during
+> implementation, broader suites per integration batch, the complete set on the final candidate);
+> fewer, larger pushes rather than a green CI run per intermediate commit; up to eight concurrent
+> workstreams with isolated workspaces and non-overlapping file ownership; shorter progress
+> narratives. What did **not** change: product requirements, security controls, financial integrity,
+> approved business rules, mandatory independent specialist review of security and financial slices,
+> failing-first discipline, and the standing production restrictions.
+>
+> **Worktree isolation is not usable in this container and the equivalent is recorded here so nobody
+> re-tries it:** `vendor/` is gitignored, so a fresh `git worktree` has no dependencies and cannot
+> run `php artisan test` — and verification matters more than the isolation mechanism. The equivalent
+> in use is **strictly disjoint single-file ownership in the shared tree**, with implementation
+> agents forbidden from running any git command (the coordinator owns the index and commits) and each
+> running only its own focused tests. 4 CPUs, so 4 concurrent implementation agents.
+>
+> **Genuinely unresolved owner decisions are consolidated in one place:**
+> [`OWNER-DECISION-PACKAGE.md`](OWNER-DECISION-PACKAGE.md) — each with the exact choice, a
+> recommendation, the consequence of each option and the work it blocks. Nothing in it stops
+> independent work, and anything engineering can decide for itself is deliberately absent.
+>
 > #### Project-wide backlog and decision registers — the canonical pointers
 >
 > | what | where |
