@@ -1019,6 +1019,88 @@ if ($order_status == 'cancel') {
     }
 
     /**
+     * How many of this line's units a RETURN door may credit: the units still on the line.
+     *
+     * GAP-140 / P4-F083. `qty` is read out of a JSON blob, so it is neither typed nor validated:
+     * a negative value would SUBTRACT stock through a restore path and a non-numeric one was
+     * silently coerced to 0. Both answer 0 here, which is also the answer for the case this
+     * helper exists for -- a line whose units a refund request has already taken off (`qty` 0,
+     * `refunded_qty` N). Crediting 0 units is not a credit, so the caller must not then claim the
+     * goods are back: see the two call sites in `product_return()`.
+     *
+     * The same rule the two sibling doors already apply (`restoreReturnedStock()` skips a line
+     * with `qty <= 0`; `restoreCancelledOrderStock()` skips one with a non-numeric or non-positive
+     * `qty`), expressed once so the three cannot drift.
+     *
+     * @param  array<string, mixed>  $line
+     */
+    public static function creditableReturnQty(array $line): int
+    {
+        $qty = $line['qty'] ?? null;
+
+        if (! is_numeric($qty)) {
+            return 0;
+        }
+
+        return max(0, (int) $qty);
+    }
+
+    /**
+     * The stored lines with `LINE_STOCK_RESTORED` added at the given `product_json` keys.
+     *
+     * HOW THE MARKER IS SET, IN ONE PLACE, SO EVERY DOOR SETS IT THE SAME WAY. The SELECTION --
+     * which lines a door really did credit -- stays with each door, because each answers it
+     * differently: `markCancelledLinesRestored()` resolves (product_id, variant_id) pairs against
+     * the stored lines because `order_detail()` hands it a derived copy, while
+     * `OrderRefundController::RefundStock()` asks which lines a product's credit left with nothing
+     * outstanding. Sharing the selection would merge two different questions.
+     *
+     * NEVER STAMP A LINE THAT WAS SKIPPED. The marker means "these goods are already back in", and
+     * every return, cancel and refund surface reads it as evidence -- so claiming it for goods that
+     * never came back blocks a legitimate credit later. `markCancelledLinesRestored()`'s docblock
+     * records that rule and `MerchantCancelRestockTest` pins the figure beside the marker because a
+     * draft that stamped without crediting passed a marker-only assertion.
+     *
+     * PURE, AND THE PERSISTENCE IS THE CALLER'S. Each door reads and writes `product_json` under
+     * its own freshness rules -- the refund door re-reads the committed column inside its
+     * transaction, the cancel loop works from the instance it already holds -- and this method is
+     * the decision they share, so it is asserted without a database by
+     * `tests/Unit/Commerce/OrderReturnMarkerHonestyTest` while the writes are asserted through the
+     * real doors by `tests/Feature/Commerce/RefundStockCrossDoorTest`.
+     *
+     * A line that is ALREADY stamped is not a change: re-encoding the column for no state change is
+     * a write, an `updated_at` bump and an observer pass for nothing.
+     *
+     * @param  array<int|string, mixed>  $lines
+     * @param  array<int, int|string>  $keys
+     * @return array<int|string, mixed>|null  the lines to store, or null when nothing would change
+     */
+    public static function linesWithStockRestoredStamp(array $lines, array $keys): ?array
+    {
+        if ($keys === [] || $lines === []) {
+            return null;
+        }
+
+        $wanted = array_fill_keys(array_map('strval', $keys), true);
+        $changed = false;
+
+        foreach ($lines as $key => $line) {
+            if (! is_array($line) || ! isset($wanted[(string) $key])) {
+                continue;
+            }
+
+            if (self::lineStockAlreadyRestored($line)) {
+                continue;
+            }
+
+            $lines[$key][self::LINE_STOCK_RESTORED] = 1;
+            $changed = true;
+        }
+
+        return $changed ? $lines : null;
+    }
+
+    /**
      * Can this return workflow read these lines at all?
      *
      * The test is for the two keys the restock needs -- `product_id` and a quantity -- on every
@@ -1324,7 +1406,23 @@ if ($order_status == 'cancel') {
                         // same `$product_json` this method is about to save, so the sibling
                         // endpoint's loop can see that these goods are already back in. See
                         // Order::LINE_STOCK_RESTORED. P1-INV-15 (E), owner decision 5.
-                        if (!empty($stockProduct) && ! self::lineStockAlreadyRestored($product_json[$key])) {
+                        //
+                        // AND NOT STAMPED FOR A LINE THAT GAVE BACK NOTHING. GAP-140 / P4-F083.
+                        // `self::creditableReturnQty()` is why: a line whose units a refund
+                        // request has already taken off reads `qty: 0` here, and this branch
+                        // credited 0 and stamped the marker anyway -- a false claim that the
+                        // goods are back, which the refund door now reads as evidence and would
+                        // answer by crediting nothing at all, so the units the line really lost
+                        // would never return to the shelf. Both siblings already refuse to stamp
+                        // a line they skipped (`restoreReturnedStock()` skips `qty <= 0`;
+                        // `markCancelledLinesRestored()`'s docblock states the rule), so this is
+                        // the third door being made consistent with them rather than a new
+                        // policy. Pinned in both directions by
+                        // `RefundStockCrossDoorTest::test_a_refund_after_a_zero_quantity_return_still_credits_what_the_line_lost`
+                        // and `OrderReturnMarkerHonestyTest`.
+                        if (!empty($stockProduct)
+                            && self::creditableReturnQty($line) > 0
+                            && ! self::lineStockAlreadyRestored($product_json[$key])) {
                             /* E13-C residual: RECORDED, not merely performed. Threaded INSIDE
                                the model rather than at the three call sites, because one caller is
                                vendored (packages/workdo/LotteryPrizes) and must not be edited.
@@ -1362,8 +1460,13 @@ if ($order_status == 'cancel') {
                                 ->first();
                         // P1-INV-05: the variant twin of the restock above, same read-modify-write
                         // and same remedy. See that comment for the census and the MySQL evidence.
-                        // The variant twin of the marker above, same reason.
-                        if (!empty($ProductStock) && ! self::lineStockAlreadyRestored($product_json[$key])) {
+                        // The variant twin of the marker above, same reason -- and the variant twin
+                        // of the zero-credit rule, GAP-140, for the same reason again. `$product`
+                        // is this line (the loop variable), so the two branches read the same
+                        // quantity through the same helper.
+                        if (!empty($ProductStock)
+                            && self::creditableReturnQty($product) > 0
+                            && ! self::lineStockAlreadyRestored($product_json[$key])) {
                             app(\App\Services\ProductStockService::class)
                                 ->restoreVariantStock($ProductStock->id, (int) $product['qty'], [
                                     'store_id' => $orderStoreId,

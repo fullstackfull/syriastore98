@@ -577,9 +577,63 @@ class OrderRefundController extends Controller
      * variants were partly returned. Measured: a record claiming 500 units restocked 500 against a counter of 1.
      *
      * A counter that EXISTS is now authoritative -- the sum over the counted lines bounds the product, and the
-     * legacy lines contribute nothing rather than erasing the bound. Only a product whose lines are ALL legacy
-     * is unknown, which is the residual criterion 5 permits ("they may be wrong; they must not be able to
-     * inflate"). Same rule as `restorationPlan()`, so the cancel path and the restock path agree.
+     * legacy lines contribute nothing rather than erasing the bound.
+     *
+     * TWO SENTENCES STOOD HERE AND GAP-140 MADE BOTH FALSE; they are corrected rather than left to
+     * mislead. (1) "Only a product whose lines are ALL legacy is unknown" -- no longer true: a
+     * product with a MARKED line is bounded at 0 even when every line is legacy, which is the whole
+     * of the GAP-140 read half below. (2) "Same rule as `restorationPlan()`, so the cancel path and
+     * the restock path agree" -- no longer true either: `restorationPlan()` reads neither marker.
+     * That is deliberate and not an oversight to fix here, because the cancel path restores `qty`
+     * (the units still on the line) while this path credits the units a refund took OFF it, so the
+     * two ask different questions; making them agree is a separate decision. The residual criterion
+     * 5 permits is unchanged ("they may be wrong; they must not be able to inflate").
+     *
+     * GAP-140 / P4-F083 -- A LINE WHOSE GOODS ARE ALREADY BACK ON THE SHELF LENDS THIS PRODUCT NOTHING.
+     *
+     * This is the whole of the refund door's entry into the cross-door stock protocol, and it is deliberately
+     * made HERE rather than as a second guard in the restock loop: the allowance is already the one place that
+     * decides how many units a record may honestly give back, and the two markers are evidence about exactly
+     * that. Before this, `OrderRefundController` referenced neither of them -- measured at HEAD: zero
+     * occurrences of `LINE_STOCK_RESTORED`, `lineStockAlreadyRestored` or `LINE_STOCK_CARRIED` in this file --
+     * although the constant's own docblock (app/Models/Order.php) asserts "a refund or return reads it as
+     * evidence". A merchant marking a delivered line returned (+3) and then restocking the shopper's refund of
+     * that same line credited the three units TWICE: 16 where 13 was due, measured through the real doors by
+     * `RefundStockCrossDoorTest`.
+     *
+     *   LINE_STOCK_RESTORED  these goods have already been credited, by this line's return, by a whole-order
+     *                        return approval, by any of the six cancel doors, or by an earlier refund restock.
+     *   LINE_STOCK_CARRIED   these goods never left and never will: the line was reissued by
+     *                        `OrderReplacement::cancelAndReplace()`, whose cancel-and-reissue pair must net -N.
+     *                        Crediting it invents stock. Read here for the same reason the cancel loop reads it.
+     *
+     * A MARKED LINE IS EVIDENCE, SO IT ALSO MAKES THE PRODUCT **BOUNDED** rather than leaving it unknown. That
+     * closes the null-permissive hole for exactly the shape this gap is about: a marked line carrying no
+     * `refunded_qty` would otherwise leave the product unknown, the clamp would be skipped, and the recorded
+     * quantity would restock unbounded onto goods that are already in.
+     *
+     * THE RESIDUAL, STATED RATHER THAN HIDDEN, because it is the one case the stored line cannot answer. The
+     * other doors credit `qty` -- the units still ON the line -- while this door credits the units the refund
+     * took OFF it, so the two are normally disjoint. They overlap only when a return door credited the line
+     * BEFORE the refund request reclassified some of those units into `refunded_qty`, and the stored line
+     * cannot distinguish that from a return door crediting the remainder AFTER a partial refund: both end as
+     * `{qty: 1, refunded_qty: 2, stock_restored: 1}`. This reads a marked line as fully accounted for, which
+     * is the conservative direction -- it can leave refunded units uncredited (visible, and recoverable by
+     * hand) rather than inventing stock that was never on the shelf (an oversell).
+     *
+     * "THE STORED LINE CANNOT ANSWER IT" IS TRUE; "NOTHING RECORDS THE ORDERING" WAS NOT, AND AN
+     * EARLIER DRAFT SAID SO. The ORDER ROW differs between the two sequences: `product_return()`
+     * sums the flagged line's `final_price` AT THE TIME IT RUNS and writes `orders.return_price`,
+     * while a refund request reduces the line's `final_price` and writes no order totals -- so on a
+     * single-line order the two orderings leave different `return_price` values and are
+     * distinguishable. The residual stands anyway, for a better reason: that column is **not a
+     * reliable trace**. `order_return_request` overwrites it unconditionally on BOTH approve and
+     * reject, `RefundAmonut` recomputes `final_price` from the lines on settlement, and it
+     * aggregates across lines with any coupon folded in -- so it is ambiguous for any multi-line
+     * order and deciding a stock credit from it is exactly the inference this project forbids.
+     * `StockMovement::movedOutFor()` would answer it exactly, but its migration is
+     * development-and-test-only, so production reads UNKNOWN. Resolving it properly means recording
+     * the ordering where it is known, in the storefront request writer.
      *
      * @return array<string, int|null>
      */
@@ -596,6 +650,13 @@ class OrderRefundController extends Controller
 
             $key = (string) $line['product_id'];
             $seen[$key] = true;
+
+            if (Order::lineStockAlreadyRestored($line) || Order::lineStockCarriedFromOriginal($line)) {
+                // Known, and nothing: whatever this line lost is already accounted for elsewhere.
+                $counted[$key] = $counted[$key] ?? 0;
+
+                continue;
+            }
 
             if (array_key_exists('refunded_qty', $line)) {
                 $counted[$key] = ($counted[$key] ?? 0) + max(0, (int) $line['refunded_qty']);
@@ -723,6 +784,9 @@ class OrderRefundController extends Controller
             $lostLeft = $this->unitsLostByProduct($order);
 
             $restored = 0;
+            // GAP-140: the products this call really did credit units for, so the marker below is
+            // stamped only where a credit happened. See markRefundedLinesRestored().
+            $creditedProducts = [];
 
             \DB::transaction(function () use (
                 $product_refund_id_array,
@@ -731,7 +795,8 @@ class OrderRefundController extends Controller
                 $storeId,
                 $variantIds,
                 &$restored,
-                &$lostLeft
+                &$lostLeft,
+                &$creditedProducts
             ) {
                 foreach ($product_refund_id_array as $product_refund) {
                     $product_id = $product_refund['product_refund_id'] ?? null;
@@ -808,6 +873,7 @@ class OrderRefundController extends Controller
                             'reason' => \App\Services\StockMovement::REASON_REFUND,
                         ]);
                         $restored++;
+                        $creditedProducts[(string) $product->id] = true;
 
                         continue;
                     }
@@ -878,7 +944,17 @@ class OrderRefundController extends Controller
                         'reason' => \App\Services\StockMovement::REASON_REFUND,
                     ]);
                     $restored++;
+                    $creditedProducts[(string) $product->id] = true;
                 }
+
+                /*
+                 * THE PROTOCOL MARKER, THE WRITE HALF. GAP-140 / P4-F083.
+                 *
+                 * Inside the same transaction as the credits it describes, exactly like
+                 * `markCancelledLinesRestored()`: a marker that survived a rolled-back restore
+                 * would block a legitimate return credit for ever.
+                 */
+                $this->markRefundedLinesRestored($order, $creditedProducts);
 
                 /*
                  * THE MARKER, written LAST and inside the same transaction as the
@@ -916,6 +992,129 @@ class OrderRefundController extends Controller
         return response()->json([
             'message' => 'Manage Stock updated successfully!'
         ]);
+    }
+
+    /**
+     * Stamp `Order::LINE_STOCK_RESTORED` on the lines this restock has left with nothing outstanding.
+     *
+     * GAP-140 / P4-F083 -- THE WRITE HALF OF JOINING THE PROTOCOL, AND WHY IT IS NEEDED AT ALL.
+     *
+     * Reading the marker (see `unitsLostByProduct()`) closes the direction where another door ran
+     * first. The other direction looks closed without a write, because every return and cancel door
+     * credits `qty` -- the units still ON the line -- and a refund request has already taken the
+     * refunded units OFF it. But `CancelRefundStatus()` puts them BACK onto `qty`, so a withdrawn
+     * refund makes units this door has already credited creditable a second time by a later return.
+     * The stamp is what stops that, and nothing else does: the per-refund note marker is keyed on
+     * the refund id and is invisible to the other doors.
+     *
+     * THREE CONDITIONS, ALL REQUIRED, because an unconditional stamp is worse than no stamp -- it
+     * is a false claim that goods came back, and every return, cancel and refund surface reads it
+     * as evidence (`markCancelledLinesRestored()`'s docblock; `MerchantCancelRestockTest` pins the
+     * figure beside the marker for exactly that reason):
+     *
+     *   1. the line's product is one this call really credited units for;
+     *   2. the line has NOTHING LEFT OUT with the customer (`qty` 0), so the claim is true. A
+     *      partially refunded line still holds returnable units and must stay unstamped --
+     *      `RefundStockCrossDoorTest::test_the_refund_door_does_not_stamp_a_line_that_still_holds_units`;
+     *   3. the line actually lost units to a refund (`refunded_qty` > 0), so a legacy `qty: 0` line
+     *      that merely shares a product with the refund is not swept up.
+     *
+     * Inert on every path except the one it exists for: all three other doors already skip a line
+     * whose `qty` is 0, so stamping such a line changes nothing until `CancelRefundStatus()` has
+     * put the units back.
+     *
+     * THE LINES ARE RE-READ RAW, INSIDE THE TRANSACTION, AND NOT TAKEN FROM `$order`. That instance
+     * was loaded before the stock writes, so re-encoding it would persist a snapshot and silently
+     * discard anything another door committed to `product_json` in between -- a clobber this door
+     * could not cause before, because it wrote nothing to `orders` at all. Raw because `Order` is
+     * `Cachable` and an Eloquent read can serve the pre-write row; the WRITE then goes back through
+     * the model for the opposite reason, so the cache is flushed.
+     *
+     * TWO CLAIMS ABOUT THIS READ WERE OVERSTATED AND ARE CORRECTED HERE, both found by the
+     * independent review of this change rather than by the tests, which cannot see either.
+     *
+     * FIRST, WHAT THE RE-READ ACTUALLY CLOSES. Under MySQL's default REPEATABLE READ, InnoDB fixes
+     * the consistent-read snapshot at the transaction's FIRST read -- which here is the
+     * `Product::where(...)` above, not this statement -- and `config/database.php` sets no
+     * `isolation_level`. So this `SELECT` returns that snapshot, NOT the latest committed row. It
+     * therefore closes the window between the `$order` load and the transaction's first read, which
+     * is the common case and a real improvement over re-encoding the instance; it does NOT see
+     * "anything another door committed in between", which an earlier draft of this paragraph
+     * claimed. `RefundStockCrossDoorTest` cannot detect the difference: it stages its interleave on
+     * the same connection inside the same transaction, so the read trivially sees it.
+     *
+     * SECOND, THE RESIDUAL WAS STATED BACKWARDS. An earlier draft said a writer committing between
+     * this read and the save "still wins". Under MySQL the `UPDATE orders` below blocks on that
+     * session's row lock and lands LAST, so WE win and THEIR `product_json` change is discarded --
+     * the outcome the re-read exists to prevent. The save writes only `product_json` (nothing else
+     * on the instance is dirty), so no money column can be clobbered this way; a concurrent
+     * `product_json` write can.
+     *
+     * A `lockForUpdate` on this read would close both -- it takes the same `orders` row lock the
+     * `UPDATE` takes microseconds later, at the same point in the `products` -> `orders` ordering,
+     * so the deadlock graph does not change, and a locking read sees the latest committed row
+     * rather than the snapshot. It is NOT added here: it is a lock-behaviour change on a financial
+     * path and this suite runs on SQLite, where it is a no-op, so nothing in this repository can
+     * demonstrate it works. Registered with its reasoning instead -- see GAP-140's row.
+     *
+     * @param  array<string, true>  $creditedProducts  product ids this call credited, as keys
+     */
+    private function markRefundedLinesRestored(Order $order, array $creditedProducts): void
+    {
+        if ($creditedProducts === []) {
+            return;
+        }
+
+        $stored = \DB::table('orders')
+            ->where('id', $order->id)
+            ->where('store_id', $order->store_id)
+            ->value('product_json');
+
+        $lines = json_decode((string) $stored, true);
+
+        if (! is_array($lines)) {
+            return;
+        }
+
+        $keys = [];
+
+        foreach ($lines as $key => $line) {
+            // `is_scalar` as well as `isset`: a line whose `product_id` decoded to an array makes
+            // `(string)` an "Array to string conversion" warning, and this block runs INSIDE the
+            // restock transaction -- where an ErrorException would roll back a credit that had
+            // already succeeded and answer 500. Such shapes exist (`StoreCurrencyConversionService`
+            // carries a branch for a non-canonical `product_json`), so the stamp skips the line
+            // rather than risking the credit.
+            if (! is_array($line) || ! isset($line['product_id']) || ! is_scalar($line['product_id'])) {
+                continue;
+            }
+
+            if (! isset($creditedProducts[(string) $line['product_id']])) {
+                continue;
+            }
+
+            if (Order::creditableReturnQty($line) > 0) {
+                continue;
+            }
+
+            if (max(0, (int) ($line['refunded_qty'] ?? 0)) <= 0) {
+                continue;
+            }
+
+            $keys[] = $key;
+        }
+
+        $stamped = Order::linesWithStockRestoredStamp($lines, $keys);
+
+        if ($stamped === null) {
+            return;
+        }
+
+        /* Through the model, so the `Cachable` read path is flushed; only `product_json` is dirty,
+           so no money column is rewritten, and `OrderObserver::updated` returns early because
+           `payment_status` did not change. */
+        $order->product_json = json_encode($stamped);
+        $order->save();
     }
 
     /**
