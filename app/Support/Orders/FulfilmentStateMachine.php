@@ -110,6 +110,51 @@ final class FulfilmentStateMachine
     public const TERMINAL = [self::STATE_CANCELLED, self::STATE_RETURN];
 
     /**
+     * STATES NOTHING GOES BACK FROM. OWNER DECISION H2, option A, 2026-11-25.
+     *
+     * Each of these three already PUBLISHES that rule in this file and could not ENFORCE it, which
+     * is the gap H2 closes. `TERMINAL`'s docblock says "Nothing leaves them through the shared
+     * writer" and `PERMITTED` carries no row for either, so `matrix()[2]` is `[]`. The
+     * `PERMITTED[STATE_DELIVERED]` row's comment says "forward into the return workflow, or
+     * re-stamped. **Never backwards**".
+     *
+     * WHY THE RULE NEEDED A HOME AT ALL, measured through both live doors before it existed: the
+     * two handlers that assign `orders.delivered_status` themselves take an INTEGER off the wire and
+     * map it onto one of the six governed words. Three of the nine values the column holds map to no
+     * word -- `0` Pending, `7` Partially Paid, `8` Pre Order -- so `refusalFor()` was asked nothing
+     * and answered null, and `PERMITTED[PENDING]` then admits five of the six words. The result was
+     * that every refusal was one extra request away from irrelevant:
+     *
+     *   `2 (CANCELLED) -> 0 -> 1 (DELIVERED)`  answered 200 then 200, reaching the state
+     *                                          `Order::product_return()` gates on before it REDUCES
+     *                                          `final_price`;
+     *   `1 (DELIVERED) -> 0 -> 2 (CANCELLED)`  reached a cancel that RESTORES STOCK for goods the
+     *                                          courier had already delivered;
+     *   `1 -> 7|8 -> 4|5|6`                    un-did a delivery through an ungoverned waypoint.
+     *
+     * THE SET IS EXPLICIT AND PER-STATE ON PURPOSE, because the obvious generalisation is wrong and
+     * was tried: a draft refused EVERY untranslatable target from EVERY state, which also refused 7
+     * and 8 out of a PENDING row -- values `P2-07-12` deliberately widened the admin endpoint to
+     * accept, with `ApiOrderFilterStatusCoverageTest` existing for them. "No `PERMITTED` row holds a
+     * word targeting Pending" is equally true of 7 and 8, so that argument never singled Pending
+     * out. It was withdrawn. What distinguishes these three states is not that nothing TARGETS them;
+     * it is that each one has a published rule saying nothing LEAVES them except forward.
+     *
+     * WHAT IS DELIBERATELY STILL PERMITTED, so the owner's "preserve legitimate return and refund
+     * workflows" is enforced rather than asserted: `DELIVERED -> returned` and `DELIVERED ->
+     * delivered` are both in `PERMITTED[STATE_DELIVERED]` and both still pass, because they are
+     * GOVERNED words and this invariant only speaks about untranslatable ones. `return_status`
+     * 1 -> 2/3 does not come through this machine at all. Idempotency is untouched: both doors
+     * short-circuit an unchanged status BEFORE consulting the machine, so a courier's retry still
+     * answers 200. And an unrecognised `delivered_status` -- the literal `'-'` one shipped handler
+     * writes -- is still as movable as it was, because `stateOf()` answers null for it and null is
+     * in no set.
+     *
+     * @var list<int>
+     */
+    public const FORWARD_ONLY = [self::STATE_DELIVERED, self::STATE_CANCELLED, self::STATE_RETURN];
+
+    /**
      * from `delivered_status` => the status words permitted out of it.
      *
      * The three in-flight states (4, 5, 6) and the two non-fulfilment values that share this
@@ -238,7 +283,17 @@ final class FulfilmentStateMachine
     public static function refusalFor($rawFrom, $word): ?string
     {
         if (! self::governs($word)) {
-            return null;
+            /*
+             * A WORD THIS MACHINE DOES NOT GOVERN IS NOT THEREFORE PERMITTED. `null` here used to
+             * mean "I was not asked about a word I govern", which every caller read as "go ahead" --
+             * see `FORWARD_ONLY` for what that cost. Out of a forward-only state it is a refusal;
+             * everywhere else the machine genuinely has nothing to say and still says nothing.
+             */
+            $from = self::stateOf($rawFrom);
+
+            return $from !== null && in_array($from, self::FORWARD_ONLY, true)
+                ? (string) __(self::MESSAGE_NOT_PERMITTED)
+                : null;
         }
 
         /*

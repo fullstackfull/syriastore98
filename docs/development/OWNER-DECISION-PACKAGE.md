@@ -291,11 +291,28 @@ shipped client reads.
 - P1-SEC-81. Held local and unpublished **by owner decision**; nothing about it belongs in a public
   file.
 
-## H. Decisions raised by the 2026-11-25 platform-revenue batch
+## H. Decisions raised by the 2026-11-25 platform-revenue batch — **ALL THREE DECIDED 2026-11-25**
 
-Two, from building `SaasRevenueFigures` (GAP-192 / `SAAS-007`) and from closing the second
-fulfilment-state-machine door (GAP-135). Both are cases where **engineering has already taken the
-conservative half and the remaining half is a rule, not a fix.**
+Raised from building `SaasRevenueFigures` (GAP-192 / `SAAS-007`) and from closing the second
+fulfilment-state-machine door (GAP-135). Each was a case where engineering had already taken the
+conservative half and the remaining half was a rule rather than a fix.
+
+> **OWNER DECISION, 2026-11-25. All three approved, option A — with H3 carrying a staged second
+> half.** Recorded verbatim as given:
+>
+> - **H1: Approved option A.** *Enforce Unlimited, Month and Year as the currently approved plan
+>   duration values on creation and update. Do not silently rewrite historical values or introduce
+>   new billing periods.*
+> - **H2: Approved option A.** *Enforce the delivered-order backward-transition invariant centrally
+>   in the existing fulfilment state machine. Preserve legitimate return and refund workflows,
+>   idempotency, inventory integrity and existing approved client compatibility.*
+> - **H3: Approved option A now, and option B with the appropriate Flutter release.** *Preserve the
+>   current caller-specific response contracts until coordinated migration is safe.*
+>
+> Each entry below keeps the question and the options as they were put, so the decision can be read
+> against what was actually asked, and adds what was implemented under it. **No entry is deleted
+> once decided** — a decided entry that disappears leaves the next reader unable to tell an approved
+> rule from an unasked one.
 
 ### H1 — What may `plans.duration` contain, and should the plan form enforce it?
 
@@ -308,6 +325,7 @@ conservative half and the remaining half is a rule, not a fix.**
 | **Recommendation** | **(a)**, unless a new billing period is actually planned. It makes the existing three words enforceable rather than conventional, and it is the write-side counterpart of a read-side refusal that already works. |
 | **Why it is yours** | It is a validation rule on plan creation — a contract change on the operator's own plan surface — and the vocabulary question ("are three periods the product's whole answer?") is a product decision, not an engineering one. |
 | **What is blocked** | Nothing. Both figures are correct and tested either way; (a) stops bad data being written, it does not fix any figure. |
+| **DECIDED 2026-11-25 — option (a)** | *"Enforce Unlimited, Month and Year as the currently approved plan duration values on creation and update. Do not silently rewrite historical values or introduce new billing periods."* So the three words in `Plan::$arrDuration` become the contract on both write paths, the vocabulary is NOT widened, and **existing rows carrying anything else are left exactly as they are** — the read side already reports them in their own named `Duration not recognised` bucket rather than guessing. One consequence follows from the instruction and is the owner's to accept rather than engineering's to work around: an operator editing an unrelated field on a plan whose stored duration is already invalid will be refused until they also correct the duration, because the alternative is auto-correcting a historical value, which the decision forbids. |
 
 ### H2 — What may a DELIVERED order become? Two doors can still walk delivery backwards in two requests
 
@@ -320,6 +338,7 @@ conservative half and the remaining half is a rule, not a fix.**
 | **The choice** | (a) Add a backwards invariant to the machine — name the states a DELIVERED row may not reach, in one place, and both doors inherit it. (b) Govern 7 and 8 as targets, which means deciding what they mean as destinations, not just as stored values. (c) Leave it, accepting that a delivered order can be walked back by any principal who can reach either door. |
 | **Recommendation** | **(a).** It is the smallest change that matches what the machine already says it means, it needs no new vocabulary, and it closes both doors at once. (c) is the status quo and leaves a stock-restoring path open. |
 | **What is blocked** | Nothing in the code: the terminal-reopening path, which is the one that touches `final_price`, is closed and tested on both doors. |
+| **DECIDED 2026-11-25 — option (a), and IMPLEMENTED** | *"Enforce the delivered-order backward-transition invariant centrally in the existing fulfilment state machine. Preserve legitimate return and refund workflows, idempotency, inventory integrity and existing approved client compatibility."* Delivered as `FulfilmentStateMachine::FORWARD_ONLY` — `[STATE_DELIVERED, STATE_CANCELLED, STATE_RETURN]` — enforced inside `refusalFor()` where an untranslatable target arrives. **Both doors inherited it with no edit to either controller**, which is the point of "centrally": the previous attempt at this defect was a local check, and a local check disagreeing with the single definition is what made the door wrong to begin with. Each of the four preservation clauses is enforced by a named test rather than asserted: the RETURN workflow (`returned` and `delivered` are governed words in `PERMITTED[STATE_DELIVERED]`, so the invariant never reaches them, and `return_status` 1→2/3 does not come through this machine at all); IDEMPOTENCY (both doors short-circuit an unchanged status *before* consulting the machine, so a courier retry still answers 200); INVENTORY INTEGRITY (the `1 → 0 → 2` and `1 → 7 → 2` routes that restored stock for delivered goods are refused at the first hop); and CLIENT COMPATIBILITY (`FORWARD_ONLY` is per-state, so a PENDING row still accepts 7 and 8 — the values `P2-07-12` widened the admin endpoint for. A mutation applying the rule as a *blanket* instead of per-state fails that case, so the distinction is load-bearing and not a comment.) Four mutations, all caught; 59 tests across the machine and both doors. The two `test_MEASURED_*` residual pins that recorded the open behaviour were inverted in the same change, by this repository's own convention. |
 
 ### H3 — The two GAP-135 doors answer the same refusal with different HTTP codes
 
@@ -330,3 +349,4 @@ conservative half and the remaining half is a rule, not a fix.**
 | **The choice** | (a) Leave them different and record it, as here. (b) Make the admin door answer 409 too, which needs a Flutter release first. (c) Make the webhook answer 200, which hides a refusal from a machine client that has no reason to read a body flag. |
 | **Recommendation** | **(a) now, (b) with the next Flutter release.** (c) is the wrong direction for a server-to-server caller. |
 | **What is blocked** | Nothing. It is declared so it reads as a decision rather than as drift. |
+| **DECIDED 2026-11-25 — option (a) now, option (b) with the appropriate Flutter release** | *"Preserve the current caller-specific response contracts until coordinated migration is safe."* So **no code changes under this decision today**, deliberately: the webhook keeps its 409 and the admin door keeps HTTP 200 with `success: false`, each matching its own client, and the difference is now an approved decision rather than drift. **What this decision creates is an obligation on a FUTURE change**, recorded here because it will otherwise be forgotten: when the next Flutter release is prepared, the admin door moves to 409 *in the same coordinated change as the client that understands it* — not before, because a 409 the shipped app does not expect is a user-visible regression, and not silently, because `ApiResponser::error()` answering 200 is what every other refusal on that controller does. Until then, a reader finding the two codes different should find this row rather than conclude one door is wrong. |

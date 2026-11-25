@@ -453,52 +453,69 @@ final class DeliverySyriaOrderTransitionTest extends SecurityTestCase
     }
 
     /**
-     * MEASURED, NOT ASSERTED AS DESIRABLE: a DELIVERED order still walks backwards in two pushes.
+     * A DELIVERED ORDER CANNOT BE WALKED BACKWARDS, IN ONE PUSH OR TWO. OWNER DECISION H2, option A.
      *
-     * `1 (DELIVERED) -> 0 (PENDING) -> 2 (CANCELLED)` lands, while `1 -> 2` is refused in one push
-     * by `MESSAGE_CANCEL_REFUSED`. A cancel RESTORES STOCK, so this gives stock back for goods the
-     * courier has already delivered. The same shape was measured independently on the sibling admin
-     * door as `1 -> 7|8 -> 4|5|6`.
+     * THIS CASE USED TO ASSERT THE OPPOSITE, by the repository's `test_MEASURED_*` convention: it
+     * recorded that `1 (DELIVERED) -> 0 (PENDING) -> 2 (CANCELLED)` landed, while `1 -> 2` was
+     * refused in one push -- so a cancel RESTORED STOCK for goods the courier had already
+     * delivered. The convention is that whoever closes such a residual inverts the assertion in the
+     * same change, and that is what this is.
      *
-     * WHY IT IS PINNED INSTEAD OF FIXED, and the reasoning is the machine's own: `TERMINAL` holds
-     * only CANCELLED and RETURN, so `refusalForLeaving()` says nothing about a delivered row, and no
-     * governed word targets Pending, 7 or 8 — so `refusalFor()` cannot speak about them either. The
-     * `PERMITTED[STATE_DELIVERED]` row's comment DOES say "Never backwards", so the intent is stated
-     * and the mechanism cannot express it. Closing it needs an ordering over these state integers,
-     * which they do not carry (2 is cancel, 3 is return, 4 is confirmed), or a word for each
-     * non-fulfilment value. Both are business rules, and a first draft of this fix invented one by
-     * refusing every untranslated target — which also refused 7 and 8, values `P2-07-12`
-     * deliberately widened the admin door to accept. `OWNER-DECISION-PACKAGE.md` H2 carries it.
-     *
-     * CONVENTION: this case asserts TODAY'S behaviour, like the repository's `test_UNGATED_*` and
-     * `test_MEASURED_*` rows. Whoever closes it inverts the assertion, in the same change.
+     * THE FIX IS CENTRAL, NOT HERE. `FulfilmentStateMachine::FORWARD_ONLY` now holds DELIVERED and
+     * the two terminal states, and `refusalFor()` refuses an untranslatable target out of any of
+     * them -- so this door inherited the rule without an edit, and so did
+     * `Api\DashboardController::updateStatus`. That is the whole point of putting it in the machine:
+     * the previous attempt at this defect was a local check, and a local check disagreeing with the
+     * single definition is what made the door wrong in the first place.
      */
-    public function test_MEASURED_a_delivered_order_still_walks_backwards_through_pending(): void
+    public function test_a_delivered_order_cannot_be_walked_backwards_in_two_pushes(): void
     {
-        $this->assertNotContains(SM::STATE_DELIVERED, SM::TERMINAL,
-            'premise: if DELIVERED ever becomes terminal, the row-level question closes this case '
-            . 'and this test must be inverted rather than left asserting the old behaviour');
+        $this->assertContains(SM::STATE_DELIVERED, SM::FORWARD_ONLY,
+            'premise: DELIVERED is no longer forward-only, so this case is about nothing');
         $this->assertNotNull(SM::refusalFor(SM::STATE_DELIVERED, SM::CANCEL),
-            'premise: the ONE-step move is refused, which is what makes the two-step one a bypass');
+            'premise: the ONE-step move must still be refused, or the two-step one is not a bypass');
 
         $order = $this->orderAt(SM::STATE_DELIVERED);
 
         $viaPending = $this->push($order, SM::PENDING);
+
+        $this->assertSame(409, $viaPending->getStatusCode(),
+            'the hop into Pending is the one that must be refused: from there `PERMITTED[PENDING]` '
+            . 'admits five of the six governed words, so permitting it makes every other refusal '
+            . 'one request from irrelevant');
+
+        $this->assertSame(SM::STATE_DELIVERED, (int) $this->row($order)->delivered_status,
+            'the delivered order left its state');
+
         $thenCancel = $this->push($order, SM::STATE_CANCELLED);
 
-        $this->assertSame(200, $viaPending->getStatusCode(),
-            'the first hop is expected to be ACCEPTED today; a non-200 here means the behaviour '
-            . 'changed and this case must be re-measured rather than trusted');
-        $this->assertSame(200, $thenCancel->getStatusCode(),
-            'the second hop is expected to be accepted today');
+        $this->assertSame(409, $thenCancel->getStatusCode(),
+            'the second hop is refused too, by the established cancel rule');
+        $this->assertSame(SM::STATE_DELIVERED, (int) $this->row($order)->delivered_status,
+            'a delivered order reached CANCELLED, which restores stock for goods already delivered');
+    }
 
-        $this->assertSame(SM::STATE_CANCELLED, (int) $this->row($order)->delivered_status, sprintf(
-            'MEASURED: a DELIVERED order reached CANCELLED in two pushes, answering %d then %d. If '
-            . 'this now fails because the row did NOT move, the residual has been closed — invert '
-            . 'this case and strike the H2 entry rather than deleting it.',
-            $viaPending->getStatusCode(),
-            $thenCancel->getStatusCode()
-        ));
+    /**
+     * AND THE RETURN WORKFLOW IS UNTOUCHED, which H2 required explicitly.
+     *
+     * `returned` is a GOVERNED word and sits in `PERMITTED[STATE_DELIVERED]`, so the invariant --
+     * which speaks only about targets the door cannot translate -- does not reach it. Without this
+     * case, widening the rule into "nothing leaves DELIVERED" would pass the case above and close
+     * the refund path silently.
+     */
+    public function test_a_delivered_order_can_still_be_returned(): void
+    {
+        $this->assertNull(SM::refusalFor(SM::STATE_DELIVERED, SM::RETURNED),
+            'premise: the machine must still permit the return, or the door cannot');
+
+        $order = $this->orderAt(SM::STATE_DELIVERED);
+
+        $this->push($order, SM::STATE_RETURN)
+            ->assertStatus(200)
+            ->assertJson(['success' => true]);
+
+        $this->assertSame(SM::STATE_RETURN, (int) $this->row($order)->delivered_status,
+            'the return did not land, so H2 closed the workflow it required be preserved');
     }
 
     /**

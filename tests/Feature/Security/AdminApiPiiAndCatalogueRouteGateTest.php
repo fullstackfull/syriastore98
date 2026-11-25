@@ -1140,7 +1140,15 @@ class AdminApiPiiAndCatalogueRouteGateTest extends SecurityTestCase
              * refused every untranslated target, which refused 7 and 8 out of a Pending row and
              * undid `P2-07-12`; it was withdrawn.
              */
-            $machineRefuses = FulfilmentStateMachine::refusalForLeaving($from) !== null;
+            /*
+             * THE FULL COMPOSITION, because that is what the door asks. Before OWNER DECISION H2
+             * the row-level question was the whole of what the machine said about an untranslatable
+             * target, so `refusalForLeaving()` alone was the right expectation. H2 added
+             * `FORWARD_ONLY`, which `refusalFor()` enforces -- so asking only the row-level question
+             * would now expect 200 for `1 -> 0` and disagree with a door that correctly refuses it.
+             */
+            $machineRefuses = (FulfilmentStateMachine::refusalForLeaving($from)
+                ?? FulfilmentStateMachine::refusalFor($from, null)) !== null;
 
             if ($landed === $machineRefuses) {
                 $disagreements[] = $from . ' -> 0: the door ' . ($landed ? 'permitted' : 'refused')
@@ -1195,78 +1203,72 @@ class AdminApiPiiAndCatalogueRouteGateTest extends SecurityTestCase
     }
 
     /**
-     * A MEASURED RESIDUAL, PINNED RATHER THAN HIDDEN -- AND NOT MINE TO CLOSE.
-     * =============================================================================================
+     * A DELIVERED ORDER NO LONGER MOVES BACKWARDS THROUGH AN UNGOVERNED WAYPOINT. H2, option A.
      *
-     * MEASURED: `1 -> 7 -> 4` lands. A DELIVERED order moves to Partially Paid, which this door
-     * exempts from the fulfilment rule because the machine says it does not govern it, and
-     * `matrix()[STATE_PARTIALLY_PAID]` then admits `confirmed` -- so delivery un-happens in two
-     * requests while the one-step `1 -> 4` is refused. The same holds for 5, 6 and for 8 as the
-     * waypoint: six routes, enumerated against the machine and then driven here.
+     * THIS CASE ASSERTED THE OPPOSITE AND IS INVERTED HERE, which is what its own predecessor said
+     * to do: `1 (DELIVERED) -> 7 (PARTIALLY PAID) -> 4 (CONFIRMED)` landed, and the same held for 5,
+     * 6 and for 8 as the waypoint -- six routes that un-did a delivery in two requests while the
+     * one-step `1 -> 4` was refused.
      *
-     * WHY IT IS NOT CLOSED IN THIS CHANGE, and the reasoning is the point rather than the excuse:
+     * ITS OWN REASONING FOR LEAVING IT OPEN NAMED THE FIX, AND THE OWNER CHOSE IT: "the fix is
+     * either to govern them or to add a row-level backwards question -- both changes to
+     * `FulfilmentStateMachine`". Decision H2 took the second. `FORWARD_ONLY` now holds DELIVERED and
+     * the two terminal states, and `refusalFor()` refuses an untranslatable target out of any of
+     * them -- so this door inherited the rule with NO edit to this controller, which is the
+     * difference between a central invariant and the local check that made the door wrong to begin
+     * with.
      *
-     *   - IT IS NOT THE MONEY FAMILY. The settled-row question closes every route out of CANCELLED
-     *     and RETURN, so `2 -> * -> 1` (the leg `Order::product_return()` gates on before it
-     *     REDUCES `final_price`) is gone, and `matrix()[STATE_PARTIALLY_PAID]` holds no `cancel`,
-     *     so `1 -> 7 -> 2` -- a cancel restoring stock for delivered goods -- is refused too. What
-     *     is left is fulfilment ORDERING, not an entitlement.
-     *   - CLOSING IT NEEDS A RULE THAT DOES NOT EXIST YET. `PERMITTED[STATE_DELIVERED]`'s comment
-     *     says "Never backwards", but `TERMINAL` deliberately excludes Delivered and no row of
-     *     `PERMITTED` can speak about 7 or 8 as a TARGET, because they have no words. So the fix is
-     *     either to govern them or to add a row-level backwards question -- both changes to
-     *     `FulfilmentStateMachine`, which is the machine owner's file and not mine for this change.
-     *   - THE OTHER AVAILABLE FIX IS WORSE. Dropping this door's exemption for 7 and 8 would refuse
-     *     them from a PENDING row as well, which undoes P2-07-12 on a path a shipped client calls.
-     *
-     * WHOEVER CLOSES IT INVERTS THE ASSERTION BELOW. That is what this pin is for; the same
-     * convention as the `test_UNGATED_*` rows of the behavioural censuses, and GAP-250 records a
-     * pin of exactly this kind going red the moment its gate landed.
+     * AND THE REASON IT ALSO NAMED FOR *NOT* DOING IT THE OTHER WAY STILL HOLDS: dropping this
+     * door's exemption for 7 and 8 would refuse them out of a PENDING row too, undoing `P2-07-12`
+     * on a path a shipped client calls. `FORWARD_ONLY` is per-state, so a Pending row still accepts
+     * both -- asserted below rather than assumed, because that is the compatibility H2 required be
+     * preserved.
      */
-    public function test_MEASURED_a_delivered_order_still_moves_backwards_through_an_ungoverned_waypoint(): void
+    public function test_a_delivered_order_no_longer_moves_backwards_through_an_ungoverned_waypoint(): void
     {
         $merchant = $this->permittedMerchant();
 
-        /* The premise: the one-step move really is refused, or there is no residual to measure. */
+        /* The premise: the one-step move really is refused, or there is nothing to compose past. */
         $blocked = $this->makeOrder($this->store, ['delivered_status' => self::DELIVERED]);
         $this->postStatus($merchant, $blocked, ['delivered_status' => self::CONFIRMED]);
         $this->assertSame(self::DELIVERED, $this->statusOf($blocked),
-            'premise: `1 -> 4` is no longer refused in one step, so there is no bypass here.');
+            'premise: `1 -> 4` is no longer refused in one step, so this case is about nothing.');
+
+        $this->assertContains(FulfilmentStateMachine::STATE_DELIVERED, FulfilmentStateMachine::FORWARD_ONLY,
+            'premise: DELIVERED is not in the forward-only set, so H2 is not in force here.');
 
         foreach ([self::PARTIALLY_PAID, self::PRE_ORDER] as $waypoint) {
-            $this->assertContains(
-                FulfilmentStateMachine::CONFIRMED,
-                FulfilmentStateMachine::matrix()[$waypoint],
-                'premise: the machine no longer admits `confirmed` out of delivered_status='
-                . $waypoint . ', so this route is closed and this case must be inverted.'
-            );
-
             $order = $this->makeOrder($this->store, ['delivered_status' => self::DELIVERED]);
 
             $this->postStatus($merchant, $order, ['delivered_status' => $waypoint]);
-            $this->assertSame($waypoint, $this->statusOf($order),
-                'the waypoint hop is refused now -- invert this case, the residual is closed.');
 
-            $this->postStatus($merchant, $order, ['delivered_status' => self::CONFIRMED]);
-            $this->assertSame(self::CONFIRMED, $this->statusOf($order),
-                'the second hop is refused now -- invert this case, the residual is closed.');
+            $this->assertSame(self::DELIVERED, $this->statusOf($order), sprintf(
+                'a DELIVERED order reached the ungoverned waypoint %d, and from there '
+                . '`matrix()[%d]` admits `confirmed` -- so the delivery is un-done in one more '
+                . 'request while `1 -> 4` is refused in one.',
+                $waypoint,
+                $waypoint
+            ));
         }
 
-        /* AND THE TWO MONEY LEGS OUT OF DELIVERED ARE NOT REACHABLE THIS WAY, which is what bounds
-           the residual above to fulfilment ordering. A cancel restores stock. */
-        $this->assertNotContains(
-            FulfilmentStateMachine::CANCEL,
-            FulfilmentStateMachine::matrix()[self::PARTIALLY_PAID],
-            'the machine now admits `cancel` out of Partially Paid, so `1 -> 7 -> 2` restores stock '
-            . 'for goods already delivered and this residual is no longer bounded.'
-        );
+        /*
+         * AND A PENDING ROW STILL ACCEPTS BOTH, which is the compatibility `P2-07-12` widened this
+         * endpoint for and which H2 required be preserved. `FORWARD_ONLY` is a per-state set
+         * precisely so that this keeps working; a blanket rule would have failed here.
+         */
+        foreach ([self::PARTIALLY_PAID, self::PRE_ORDER] as $value) {
+            $pending = $this->makeOrder($this->store, ['delivered_status' => self::PENDING]);
 
-        $order = $this->makeOrder($this->store, ['delivered_status' => self::DELIVERED]);
-        $this->postStatus($merchant, $order, ['delivered_status' => self::PARTIALLY_PAID]);
-        $this->postStatus($merchant, $order, ['delivered_status' => self::CANCELLED]);
-        $this->assertSame(self::PARTIALLY_PAID, $this->statusOf($order),
-            'a delivered order was cancelled through the Partially Paid waypoint, which reverses '
-            . 'the merchant entitlement and credits stock for goods that were delivered.');
+            $this->postStatus($merchant, $pending, ['delivered_status' => $value]);
+
+            $this->assertSame($value, $this->statusOf($pending), sprintf(
+                'a PENDING order can no longer be set to %d. `P2-07-12` widened this endpoint to '
+                . 'all nine values for the only client that calls it, and '
+                . '`ApiOrderFilterStatusCoverageTest` exists for exactly these two -- so H2 has '
+                . 'been applied as a blanket rule rather than per-state.',
+                $value
+            ));
+        }
     }
 
     /**

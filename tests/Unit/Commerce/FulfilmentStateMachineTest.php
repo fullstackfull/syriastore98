@@ -151,17 +151,73 @@ class FulfilmentStateMachineTest extends TestCase
         }
     }
 
-    /** A word this machine does not govern must fall through untouched. */
-    public function test_an_ungoverned_status_word_is_never_refused(): void
+    /**
+     * A WORD THIS MACHINE DOES NOT GOVERN FALLS THROUGH -- EXCEPT OUT OF A FORWARD-ONLY STATE.
+     *
+     * This case asserted the first half for every state, and that is what OWNER DECISION H2 (option
+     * A, 2026-11-25) changed. The half that was right is still right and still asserted: from an
+     * ordinary state the machine genuinely has nothing to say about a word it does not govern, and
+     * must say nothing, so the writer's own module and unknown-value arms keep deciding -- `7`
+     * Partially Paid and `8` Pre Order out of a Pending row are the cases that depend on it, and
+     * `P2-07-12` widened the admin endpoint for exactly those two.
+     *
+     * The half that was WRONG let every refusal be undone in one extra request. The two doors that
+     * assign `delivered_status` themselves take an integer off the wire, and three of the nine
+     * values map to no word -- so `2 (CANCELLED) -> 0 -> 1 (DELIVERED)` answered 200 then 200,
+     * reaching the state `product_return()` gates on before it reduces `final_price`, and
+     * `1 -> 0 -> 2` reached a cancel that restores stock for delivered goods. Measured through both
+     * live routes before `FORWARD_ONLY` existed.
+     */
+    public function test_an_ungoverned_status_word_falls_through_except_out_of_a_forward_only_state(): void
     {
+        $this->assertNotEmpty(SM::FORWARD_ONLY,
+            'premise: the forward-only set is empty, so the second loop below asserts nothing');
+
         foreach (['pre_order', 'partial', 'no_such_status', '', '2', 'CANCEL', 'Delivered'] as $word) {
             $this->assertFalse(SM::governs($word), "'{$word}' should not be governed");
 
             foreach ([0, 1, 2, 3, 4, 5, 6, 7, 8] as $from) {
+                if (in_array($from, SM::FORWARD_ONLY, true)) {
+                    $this->assertSame(SM::MESSAGE_NOT_PERMITTED, SM::refusalFor($from, $word),
+                        "'{$word}' was permitted out of forward-only state {$from}. Nothing leaves "
+                        . 'these three except a governed word -- which is what makes every other '
+                        . "refusal composable rather than one request from irrelevant.");
+
+                    continue;
+                }
+
                 $this->assertNull(SM::refusalFor($from, $word),
-                    "'{$word}' was refused from state {$from}; it must fall through to the "
-                    . "writer's own module and unknown-value arms");
+                    "'{$word}' was refused from state {$from}; outside the forward-only set it must "
+                    . "fall through to the writer's own module and unknown-value arms");
             }
+        }
+    }
+
+    /**
+     * AND THE RETURN WORKFLOW OUT OF A DELIVERED ORDER IS UNTOUCHED, which is the half of H2 the
+     * owner named explicitly: "Preserve legitimate return and refund workflows".
+     *
+     * `returned` and `delivered` are GOVERNED words and both sit in `PERMITTED[STATE_DELIVERED]`, so
+     * the invariant -- which speaks only about words the machine cannot translate -- does not reach
+     * them. Without this case, widening `FORWARD_ONLY` into a blanket "nothing leaves DELIVERED"
+     * would pass the case above and silently close the return path.
+     */
+    public function test_the_return_workflow_out_of_a_delivered_order_is_still_permitted(): void
+    {
+        $this->assertContains(SM::STATE_DELIVERED, SM::FORWARD_ONLY,
+            'premise: DELIVERED must be in the set for this case to be about anything');
+
+        $this->assertNull(SM::refusalFor(SM::STATE_DELIVERED, SM::RETURNED),
+            'a delivered order can no longer be returned, which closes the return and refund '
+            . 'workflow H2 required be preserved');
+        $this->assertNull(SM::refusalFor(SM::STATE_DELIVERED, SM::DELIVERED),
+            're-stamping a delivered order is refused, so a courier retry that carries a note now '
+            . 'fails where it used to succeed');
+
+        foreach ([SM::CONFIRMED, SM::PICKED_UP, SM::SHIPPED, SM::CANCEL] as $backwards) {
+            $this->assertNotNull(SM::refusalFor(SM::STATE_DELIVERED, $backwards),
+                'a delivered order moved backwards to a governed word, which the PERMITTED row '
+                . 'already refused before H2 -- so this is a regression in the older rule');
         }
     }
 
