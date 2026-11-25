@@ -1090,7 +1090,21 @@ foreach ($defaultCurrencies as $currency) {
 
         $this->authorize('impersonate', $user);
 
-        Impersonate::take($request->user(), $user);
+        /*
+         * `take()` SWALLOWS EVERY EXCEPTION AND RETURNS false, and this ignored it.
+         *
+         * `ImpersonateManager::take()` is `catch (\Exception $e) { unset($e); return false; }`, so a
+         * session failure, a guard failure or anything else inside it is silent. The old line was
+         * `Impersonate::take(...)` with the result discarded, followed by an unconditional
+         * `redirect('dashboard')` -- so the operator was sent to a dashboard that was still THEIR
+         * dashboard, no `TakeImpersonation` event was dispatched, nothing was logged, and the screen
+         * said otherwise. Checking the boolean also means the audit row and the redirect cannot
+         * disagree: `App\Listeners\RecordImpersonation` writes only on the event, which only fires
+         * when `take()` succeeded.
+         */
+        if (Impersonate::take($request->user(), $user) !== true) {
+            return redirect()->back()->with('error', __('Could not sign in as that merchant.'));
+        }
 
         return redirect('dashboard');
     }

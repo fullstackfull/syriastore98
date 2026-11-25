@@ -16,16 +16,40 @@ use Illuminate\Support\Facades\DB;
  * cross-tenant write, because those are a question and a defect respectively, and the second must
  * not be described in a public repository before it is fixed.
  *
- * **It is the first.** The route carries `web`, `Authenticate`, `XSS`, `SetLocate` and
- * `EmailIsVerified` and no permission check -- read from the router -- and the handler passes
- * `$request->id` to `SupportTicket::ticket_status_change()`, which does a bare
- * `SupportTicket::find($ticket_id)`. That looked like the shape CLAUDE.md warns about. But
- * `SupportTicket` is one of the ELEVEN models in `config/tenancy.php`'s `scoped_models` AND it
- * registers `StoreScope`, so the find really does filter: a merchant acting on another tenant's
- * ticket id is told "Ticket not found." and the row does not move. Measured, below.
+ * **It is the first, FOR A PRINCIPAL THAT RESOLVES A TENANT -- and that qualifier was missing from
+ * this paragraph, which is the correction that matters most in this file.** The route carries `web`,
+ * `Authenticate`, `XSS`, `SetLocate` and `EmailIsVerified` and no permission check -- read from the
+ * router. `SupportTicket` is one of the ELEVEN models in `config/tenancy.php`'s `scoped_models` AND
+ * it registers `StoreScope`, so for a merchant with a resolved tenant the find really does filter:
+ * acting on another tenant's ticket id is told "Ticket not found." and the row does not move.
+ * Measured, below.
+ *
+ * WHAT THIS PARAGRAPH USED TO CLAIM WITHOUT THE QUALIFIER, AND WHY IT WAS WRONG. `StoreScope` adds
+ * NO predicate on two paths: `MODE_SUPER_ADMIN`, which returns early by design, and
+ * `MODE_UNRESOLVED`, which falls to `applyNullTenantPolicy()` where `null_tenant => 'open'` adds
+ * nothing. A `web` principal resolves no tenant when `getCurrentStore()` answers null -- an empty
+ * `current_store` AND no store of their own. Independent review challenged the unqualified claim and
+ * execution settled it: a staff member of one tenant in that state changed, READ and DELETED another
+ * tenant's tickets. **The cases below never reached it because `makeStaff()` copies the owner's
+ * `current_store`, so their staff always resolved a tenant.**
+ *
+ * That hole is CLOSED -- `SupportTicketController::actingTenantStoreIds()` now derives the tenant
+ * from the principal's root and refuses when it cannot, and
+ * `tests/Feature/Support/SupportTicketTenantConfinementTest.php` drives all three doors with an
+ * unresolved principal. This file keeps its original job, which is the AUDIENCE question, and the
+ * two concerns are deliberately in separate files: one is a tenancy defect, the other is `D-P6-14`.
  *
  * SO THE OPEN QUESTION IS NARROW, and the test says what it is: within one tenant, a principal who
- * holds none of the three support permissions can still change a ticket's status. Whether that is
+ * holds none of the three support permissions can still change a ticket's status.
+ *
+ * ONE FACT TO CARRY INTO `D-P6-14`, surfaced by the review of the confinement work: this writer is
+ * the ONLY method on this controller the platform operator can reach. `index()`, `edit()`,
+ * `conversion_store()` and `destroy()` are all bare `isAbleTo()` calls, which refuse the operator by
+ * name, while this one has no gate -- and `StoreScope` grants the operator cross-store reach by
+ * design. So today's audience is "every web principal in the tenant, PLUS the platform operator
+ * across every tenant". That reframes the question from "should staff be able to do this" to
+ * "should the one unguarded writer on this controller also be the one place the operator reaches",
+ * and whoever answers `D-P6-14` should have it in front of them. Whether that is
  * the intended audience is the owner's call -- adding a gate is a behaviour REDUCTION for whoever
  * relies on it, and this project has already had one such "fix" refused because the gate turned
  * away the store owner that two tests encoded as the shipped contract.
