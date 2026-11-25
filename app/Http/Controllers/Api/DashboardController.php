@@ -4523,9 +4523,30 @@ public function DeleteReview($id)
          * operator, not themselves, so `resolveManageableUser()` refuses them. That is the
          * difference between this and an account takeover of the tenant.
          *
-         * `Edit User` is the web twin's name (`UserController:232`) and is seeded.
+         * `Edit User` is the seeded name, and WHICH web action it belongs to is the whole point of
+         * the self exception below.
+         *
+         * THE SELF EXCEPTION WAS MISSING FROM THIS DOOR AND THE INDEPENDENT REVIEW CAUGHT IT —
+         * THE FOURTH INSTANCE OF A REGRESSION THIS BATCH HAD ALREADY PRODUCED TWICE.
+         *
+         * `UpdatePassword` and all three driver doors got the exemption; this one did not, so an
+         * ordinary panel staff member could no longer edit their OWN name, e-mail or avatar.
+         *
+         * THE WEB SPLITS THE TWO ACTIONS AND THIS ENDPOINT CONFLATES THEM, which is why the name
+         * alone was the wrong control. `UserController::editprofile()` (`:506`, route
+         * `web.php:1165`) takes its subject from `\Auth::guard()->user()` and has **no permission
+         * check at all** — it IS the self-service editor. `Edit User` belongs to
+         * `UserController::update()` (`:232`), the OTHER-user editor. This API door accepts a
+         * `user_id` and therefore serves both, so it needs both rules. Exactly the same split
+         * exists for passwords (`UserController::password_update:574` is self-only with
+         * `Hash::check` and no permission), which is what the `UpdatePassword` exemption mirrors.
+         *
+         * So admitting a user to their own row is not a weakening: it is what the web already
+         * allows unconditionally, and the permission is required only for someone else's row.
          */
-        if (! empty($admin) && ! $this->callerMayActInStore(['Edit User'], $store->id)) {
+        if (! empty($admin)
+            && (int) $admin->id !== (int) \Auth::id()
+            && ! $this->callerMayActInStore(['Edit User'], $store->id)) {
             return $this->storePermissionDenied();
         }
 

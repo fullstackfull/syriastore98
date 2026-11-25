@@ -221,6 +221,101 @@ class AdminApiAccountWritePermissionTest extends SecurityTestCase
             . '"any driver" rather than "this driver"');
     }
 
+    /**
+     * AND THE SAME CLAIM, MADE SO THAT IT CAN ACTUALLY FAIL — the review showed the row assertion
+     * above cannot.
+     *
+     * Widen the exemption to `$actingOnSelf = (bool) $self;` and the case above STILL passes: for a
+     * driver token `\Auth::user()` is null (`CustomAuth` logs a `DeliveryBoy` into the
+     * `deliveryboy` guard only), so `resolveManageableDeliveryBoy()` falls past its self limb, past
+     * its `$actor` limb, and returns null — the sibling driver is refused one layer UP, with the
+     * pre-existing "not found" envelope, and the e-mail is unchanged whatever the exemption says.
+     * A true statement, pinned by the wrong thing.
+     *
+     * This case asserts the response is NOT the permission refusal, which is what distinguishes
+     * "the resolver refused it" from "the gate refused it". If the exemption ever widened to any
+     * driver, the gate would be skipped and the resolver's own refusal is what we would still see —
+     * so the two cases together say: refused, and refused by the resolver.
+     */
+    public function test_the_sibling_driver_refusal_comes_from_the_resolver_not_the_gate(): void
+    {
+        $other = DeliveryBoy::forceCreate([
+            'name' => 'Third Driver', 'email' => 'f120-third-driver@example.test',
+            'password' => Hash::make('x'), 'contact' => '0100000002',
+            'type' => 'deliveryboy', 'store_id' => $this->store->id,
+            'created_by' => $this->merchant->id,
+        ]);
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $this->driver->createToken('driver-app')->plainTextToken)
+            ->postJson('/api/admin/change-profile', [
+                'id' => $other->id, 'email' => 'hijacked-third@example.test',
+            ]);
+
+        $this->assertNotSame(403, $response->status(), sprintf(
+            'the sibling-driver refusal came from the PERMISSION gate (403) rather than from '
+            . 'resolveManageableDeliveryBoy(). That is not wrong, but it means the exemption is '
+            . 'being reached for a driver acting on someone else, and the companion row assertion '
+            . 'would then be pinning the gate rather than the resolver. Body: %s',
+            mb_substr((string) $response->getContent(), 0, 160)
+        ));
+
+        $this->assertSame('f120-third-driver@example.test',
+            DB::table('delivery_boys')->where('id', $other->id)->value('email'));
+    }
+
+    /** `delete-user`'s self-exemption had NO pin at all — `change-profile` and `logOut` both had
+     *  one, so removing that clause would have shipped silently on the third door. */
+    public function test_a_driver_can_still_delete_their_own_account(): void
+    {
+        $this->withHeader('Authorization', 'Bearer ' . $this->driver->createToken('driver-app')->plainTextToken)
+            ->postJson('/api/admin/delete-user', ['user_id' => $this->driver->id]);
+
+        $this->assertNull($this->driverRow(),
+            'a DRIVER could not delete their own account. resolveManageableDeliveryBoy() admits the '
+            . 'self limb first, and a DeliveryBoy cannot hold `Delete Deliveryboy`, so the gate must '
+            . 'exempt the self case here exactly as it does on change-profile and logOut.');
+    }
+
+    /** `logOut` had NO "a permitted principal still passes" control — the review called it the one
+     *  gate that could admit nobody and stay green, because its only other cases are the defect and
+     *  the driver's own exempted logout. A mistyped name would close the door to every merchant's
+     *  staff forever with the suite still green. */
+    public function test_staff_granted_edit_deliveryboy_still_revoke_a_drivers_tokens(): void
+    {
+        $this->driver->createToken('driver-app');
+        $this->assertGreaterThan(0, DB::table('personal_access_tokens')
+            ->where('tokenable_type', DeliveryBoy::class)->where('tokenable_id', $this->driver->id)->count(),
+            'premise: the driver holds no token to revoke');
+
+        $this->as($this->staff('f120-l@example.test', 'Edit Deliveryboy'))
+            ->postJson('/api/admin/logOut', ['user_id' => $this->driver->id]);
+
+        $this->assertSame(0, DB::table('personal_access_tokens')
+            ->where('tokenable_type', DeliveryBoy::class)->where('tokenable_id', $this->driver->id)->count(),
+            'staff GRANTED `Edit Deliveryboy` could not revoke a driver\'s tokens, so this gate '
+            . 'admits nobody a merchant can grant. A mistyped permission name would look exactly '
+            . 'like this and every other logOut case would stay green.');
+    }
+
+    /** AND THE SAME FOR `editprofile` ON THE CALLER'S OWN ROW — the self exception the independent
+     *  review found missing. None of the fourteen cases before it covered self-service here. */
+    public function test_unpermissioned_staff_can_still_edit_their_own_profile(): void
+    {
+        $self = $this->staff('f120-m@example.test');
+
+        $this->as($self)->postJson('/api/admin/editprofile', [
+            'store_id' => $this->store->id, 'user_id' => $self->id,
+            'name' => 'Self Edited', 'email' => 'self-edited@example.test',
+        ]);
+
+        $this->assertSame('self-edited@example.test',
+            DB::table('users')->where('id', $self->id)->value('email'),
+            'an ordinary staff member could not edit their OWN profile. The web\'s self-service '
+            . 'editor (UserController::editprofile:506) takes its subject from the session and has '
+            . 'NO permission check at all -- `Edit User` belongs to the OTHER-user editor '
+            . '(:232). This API door accepts a user_id and serves both, so it needs both rules.');
+    }
+
     // ───────────────────────────────── logOut: an availability write
 
     public function test_unpermissioned_staff_cannot_revoke_a_drivers_tokens(): void
@@ -333,12 +428,27 @@ class AdminApiAccountWritePermissionTest extends SecurityTestCase
     /** CONTROL: the store OWNER is still out of reach, which was already true and must stay true. */
     public function test_the_store_owner_password_is_still_out_of_reach(): void
     {
+        /*
+         * THE OWNER'S CURRENT PASSWORD IS KNOWN TO THIS TEST, AND THAT IS THE WHOLE FIX.
+         *
+         * The first version posted `old_password => 'anything'`. `Hash::check()` then failed
+         * whatever the authorization did, the handler took its "Please Enter Correct Current
+         * Password!" branch, and the assertion went green — so the case pinned `Hash::check`, NOT
+         * the ownership boundary it is named for. Reverting `resolveManageableUser()`'s tenant limb
+         * left it passing. Caught by the independent review.
+         *
+         * With the real password supplied, the ONLY thing that can refuse this is the boundary.
+         */
+        $ownerPassword = 'owner-current-password';
+        DB::table('users')->where('id', $this->merchant->id)->update(['password' => Hash::make($ownerPassword)]);
+        (new User)->flushCache();
+
         $before = DB::table('users')->where('id', $this->merchant->id)->value('password');
 
         $this->as($this->staff('f120-k@example.test', 'Reset Password'))
             ->postJson('/api/admin/updatepassword', [
                 'store_id' => $this->store->id, 'user_id' => $this->merchant->id,
-                'old_password' => 'anything', 'password' => 'owned',
+                'old_password' => $ownerPassword, 'password' => 'owned',
                 'password_confirmation' => 'owned',
             ]);
 
