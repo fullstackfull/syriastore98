@@ -740,7 +740,31 @@ public function city_list(Request $request, $slug)
         if (auth('customers')->user()) {
             $tickets = SupportTicket::where('customer_id', auth('customers')->user()->id)->orderBy('id', 'desc')->paginate(10);
         } else {
-             $tickets = collect();
+            /*
+             * AN EMPTY PAGINATOR, NOT `collect()` -- THIS WAS AN HTTP 500 FOR EVERY ANONYMOUS
+             * VISITOR. This route is declared OUTSIDE the `EnsureCustomerAuthenticated` group in
+             * `routes/customer.php` (it opens on the next line), deliberately, so a guest reaches
+             * this handler. The branch above hands the view a `LengthAwarePaginator`; this one
+             * handed it a bare `Collection`, and `front_end/pages/support_ticket.blade.php` calls
+             * `->onFirstPage()`, `->currentPage()` and `->lastPage()` with no guard. `Collection`
+             * has none of them, so the view raised `BadMethodCallException`. Measured by driving
+             * the real route with no session: 500.
+             *
+             * ITS SIBLINGS WERE CHECKED AND ARE FINE -- `order_list()` and `address()` both answer
+             * 200 for a guest, because `address()` uses `->get()` on both branches so its view
+             * never sees a paginator. The extent is this one route.
+             *
+             * THE EMPTY PAGINATOR RATHER THAN THREE GUARDS IN THE VIEW: the view is written for a
+             * paginator, three separate call sites would each need one, and the next person to add
+             * a fourth would not know to. This also finally makes
+             * `CustomerAccountBoundaryTest`'s stated justification for leaving this route
+             * unauthenticated TRUE -- it says the page "renders an empty list for a guest", which
+             * it did not; it threw.
+             */
+            $tickets = new \Illuminate\Pagination\LengthAwarePaginator([], 0, 10, 1, [
+                'path' => $request->url(),
+                'pageName' => 'page',
+            ]);
         }
         return view('front_end.pages.support_ticket', compact('store', 'slug', 'tickets'));
         // $return['html'] = view('front_end.pages.support_ticket', compact('slug', 'tickets'))->render();

@@ -58,8 +58,33 @@
                                 <tbody class="divide-y">
                                     @foreach ($tickets as $ticket)
                                         @php 
-                                            $order = \App\Models\Order::find($ticket->order_id);
-                                            $order_data = $order->order_detail($order->id);
+                                            /* `order_detail()` ON NULL WAS A SECOND 500 ON THIS
+                                               PAGE, for the ticket's OWNER rather than a guest.
+                                               `support_tickets.order_id` is a nullable string, so a
+                                               general support ticket -- one not about an order --
+                                               has none, `Order::find(null)` answers null, and the
+                                               next line dereferenced it. Measured: a signed-in
+                                               shopper with one order-less ticket could not open
+                                               their own ticket list at all.
+
+                                               The LOOKUP itself is sound and is not widened here:
+                                               `Order` carries no `StoreScope`, but P1-SEC-12
+                                               already validates at the writer that a ticket may
+                                               name only one of THIS shopper's orders in THIS store
+                                               (`support_ticket_store` -> `ownedOrder()`), so the id
+                                               on the row was checked when it was stored. */
+                                            /* THE `! empty()` IS NOT THE CORRECTNESS GUARD AND A
+                                               MUTATION PROVED IT: removing it changes nothing,
+                                               because `Order::find(null)` already answers null and
+                                               the line below handles that. It is kept to avoid a
+                                               pointless database round-trip per order-less ticket
+                                               inside this loop, which is a performance reason, not
+                                               a safety one. The guard that matters is the ternary
+                                               below, and that one IS pinned. */
+                                            $order = ! empty($ticket->order_id)
+                                                ? \App\Models\Order::find($ticket->order_id)
+                                                : null;
+                                            $order_data = $order ? \App\Models\Order::order_detail($order->id) : [];
                                         @endphp
                                         <tr>
                                             <td class="py-3 px-4 text-sm">{{ $ticket->title }}</td>
