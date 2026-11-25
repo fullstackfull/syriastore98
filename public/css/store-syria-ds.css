@@ -7580,10 +7580,54 @@ td.dataTables-empty:has(.ss-empty) {
     box-shadow: var(--ss-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.08));
 }
 
-/* The module buttons are vendored markup this file does not control, so they are reached as
-   descendants rather than by a class. A 44px minimum target is WCAG 2.5.5 and is what makes these
-   usable on a phone -- which is the whole of the "responsive" requirement for a row this small. */
-.ss-product-actions > * {
+/* The module buttons are vendored markup this file does not control, so they are reached by what
+   they ARE rather than by a class. A 44px minimum target is WCAG 2.5.5 and is what makes these
+   usable on a phone -- which is the whole of the "responsive" requirement for a row this small.
+
+   THE SELECTOR USED TO BE `> *`, AND THAT PUT THE MODULES' OWN SOURCE CODE ON THE PRODUCT CARD.
+   Measured 2026-11-25 in headless Chrome against this stylesheet and the four modules' real
+   `src/resources/views/pages/button.blade.php` markup, composed in the order the hook includes
+   them. The element children of the hook are NINE, and only four of them are meant to be seen:
+
+       button, style, script, style, button, script, button, style, a
+
+   ProductQuickView emits a button, then a style, then an `@once` script; ProductCompare a style,
+   then a button, then an `@once` script; ProductsPDF a bare button and nothing else; ProductCSV a
+   style, then an anchor. A `display` in this file is an AUTHOR declaration, so it outranked the
+   user-agent rule that keeps a style and a script out of the box tree: all FIVE non-rendered
+   children computed `display: flex` (inline-flex blockifies, because the wrapper is a flex
+   container), each took a 288px-wide box, and 3,433 characters of CSS and JavaScript painted as
+   visible text over the product image. The wrapper measured 304x2384 inside a 322x322 card.
+
+   SO THIS LISTS WHAT IT STYLES INSTEAD OF WHAT IT SKIPS, and that is the decision rather than a
+   detail. `> :not(style):not(script)` would fix the five non-rendered children that exist today
+   and nothing after them: the fifth module to appear in this hook brings a `<template>`, a
+   `<link>`, a
+   `<noscript>` or a `<style>` wrapped in something else, and an exclusion list has to be edited
+   again by whoever notices a broken card. Interactive content is a CLOSED category -- a conversion
+   action is a link, a button, or an element given one of those roles -- so an inclusion list is
+   already complete for the children that need a tap target, and nothing the browser declines to
+   render can satisfy any of these four selectors, named or not yet invented. The failure direction
+   is bounded as well: an unforeseen RENDERED child misses the floor and stays whatever size its
+   own module made it, which is a smaller defect than a wall of source text, while an unforeseen
+   NON-rendered child cannot be reached at all.
+
+   `[role="button"]` and `[role="link"]` are here because that is the realistic shape of a control
+   a module scripts itself -- a div or a span -- and it is the one case where naming element types
+   alone would drop the target size off something a shopper really taps. `input` is deliberately
+   NOT here: no module in this hook uses one, and a 2.75rem floor on a text field would be a
+   layout change rather than a target-size floor. A module that needs it can add it deliberately.
+
+   Four selectors rather than one `:is()` list: this file uses `:not()` and `:has()` already and
+   `:is()` nowhere, and the long form keeps the specificity of each branch obvious -- these are
+   (0,1,1) and (0,2,0), which is what lets them beat the modules' own (0,1,0) `.quickview-btn` /
+   `.compare-btn` / `.csv-btn` rules in the body. Measured: that changes nothing a shopper sees,
+   because those rules declare the same centring and `display: flex` on an absolutely positioned
+   box, but it is the reason the floor applies at all. */
+.ss-product-actions > a,
+.ss-product-actions > button,
+.ss-product-actions > [role="button"],
+.ss-product-actions > [role="link"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;

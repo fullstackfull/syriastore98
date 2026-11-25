@@ -145,9 +145,24 @@ class FulfilmentStateMachineTest extends TestCase
             $keys = json_decode((string) file_get_contents(base_path($catalogue)), true);
 
             $this->assertIsArray($keys, $catalogue . ' did not decode');
-            $this->assertArrayHasKey(SM::MESSAGE_CANCEL_REFUSED, $keys,
-                'the cancel refusal is no longer a key in ' . $catalogue
-                . ', so it reaches an Arabic merchant untranslated');
+            /*
+             * ALL FOUR REFUSALS, NOT JUST THE ESTABLISHED ONE. This asserted only
+             * `MESSAGE_CANCEL_REFUSED`, and an independent review of H2 pointed out the consequence:
+             * `MESSAGE_SETTLED` and `MESSAGE_NOT_PERMITTED` go through `__()` and were in NEITHER
+             * catalogue, so they reached an Arabic merchant in English. That was tolerable while
+             * they answered only a courier webhook; H2 made `DELIVERED -> 0` a refusal a merchant
+             * can trigger from a button in the shipped app, so it stopped being tolerable.
+             */
+            foreach ([
+                SM::MESSAGE_CANCEL_REFUSED,
+                SM::MESSAGE_RETURN_REFUSED,
+                SM::MESSAGE_SETTLED,
+                SM::MESSAGE_NOT_PERMITTED,
+            ] as $refusal) {
+                $this->assertArrayHasKey($refusal, $keys,
+                    'a refusal this machine returns is not a key in ' . $catalogue
+                    . ', so it reaches an Arabic merchant untranslated: ' . $refusal);
+            }
         }
     }
 

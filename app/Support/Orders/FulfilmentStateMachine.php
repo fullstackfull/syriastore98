@@ -132,6 +132,18 @@ final class FulfilmentStateMachine
      *                                          courier had already delivered;
      *   `1 -> 7|8 -> 4|5|6`                    un-did a delivery through an ungoverned waypoint.
      *
+     * AND THE SHARED WRITER INHERITS THIS TOO, which "no door was edited" obscures. The two integer
+     * doors compose `refusalForLeaving() ?? refusalFor()`, but `Order::refuseIllegalTransition()`
+     * calls `refusalFor()` ALONE, from the top of `Order::order_status_change()` -- the writer five
+     * surfaces share -- with the status word taken straight off the request. So for a from-state in
+     * this set: (a) an unrecognised word now answers `MESSAGE_NOT_PERMITTED` where F81's "That order
+     * status is not recognised." used to, and no test sees it because every fixture in
+     * `OrderStatusUnknownValueTest` sits at Pending; and (b) the `partial_paid` and `pre_order`
+     * module arms below that refusal become unreachable out of DELIVERED, CANCELLED and RETURN --
+     * which is probably correct, since it closes `2 -> 7 -> 1` at the writer itself, but no WorkDo
+     * module loads in any test run, so it is structurally invisible to the suite and belongs in
+     * writing rather than in a later surprise.
+     *
      * THE SET IS EXPLICIT AND PER-STATE ON PURPOSE, because the obvious generalisation is wrong and
      * was tried: a draft refused EVERY untranslatable target from EVERY state, which also refused 7
      * and 8 out of a PENDING row -- values `P2-07-12` deliberately widened the admin endpoint to
@@ -139,6 +151,25 @@ final class FulfilmentStateMachine
      * word targeting Pending" is equally true of 7 and 8, so that argument never singled Pending
      * out. It was withdrawn. What distinguishes these three states is not that nothing TARGETS them;
      * it is that each one has a published rule saying nothing LEAVES them except forward.
+     *
+     * THE DEFECT *CLASS* IS NOT CLOSED, AND THE PARAGRAPHS ABOVE WOULD READ AS IF IT WERE. An
+     * independent review of this change measured the rest, so it is written here rather than
+     * discovered later. "Every refusal was one extra request away from irrelevant" is equally true
+     * of the five IN-FLIGHT states, which are NOT in this set:
+     *
+     *   `6 (SHIPPED) -> 0 -> 2 (CANCELLED)` LANDS. Hop 1 is permitted -- 6 is not forward-only and
+     *   `cancel` is not the word asked about -- and hop 2 is permitted because `PERMITTED[PENDING]`
+     *   holds `cancel`. So a cancel is reachable out of every in-flight state, restoring stock for
+     *   goods IN TRANSIT and reversing the merchant's wallet entitlement, while the one-step
+     *   `6 -> 2` is refused by `MESSAGE_CANCEL_REFUSED`. On the courier webhook that principal is a
+     *   THIRD PARTY: whoever holds the merchant's `deliverysyria_secret`.
+     *
+     * IT IS OUTSIDE H2's SCOPE -- the owner's decision is about a DELIVERED order -- so it is not
+     * open by oversight; and widening this set to 4..8 is NOT the fix, because that would refuse 7
+     * and 8 out of in-flight rows, a bigger compatibility change than the one H2 authorised. The
+     * shape of a fix is to make PENDING a target the two integer doors may not write, which is a
+     * contract change on both and therefore an owner question. Recorded as one rather than taken.
+     * This constant closes three states; the register names the five it does not.
      *
      * WHAT IS DELIBERATELY STILL PERMITTED, so the owner's "preserve legitimate return and refund
      * workflows" is enforced rather than asserted: `DELIVERED -> returned` and `DELIVERED ->

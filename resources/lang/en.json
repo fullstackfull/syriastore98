@@ -4660,5 +4660,8 @@
     "Orders, buyers and payments across every store: what shoppers pay merchants.": "Orders, buyers and payments across every store: what shoppers pay merchants.",
     "What the machine reports about itself: load, memory and disk.": "What the machine reports about itself: load, memory and disk.",
     "Duration not recognised": "Duration not recognised",
-    "The plan's duration is not one of the three this product defines, so how often it is paid cannot be read. It is reported here rather than counted as monthly, which would multiply a yearly price by twelve.": "The plan's duration is not one of the three this product defines, so how often it is paid cannot be read. It is reported here rather than counted as monthly, which would multiply a yearly price by twelve."
+    "The plan's duration is not one of the three this product defines, so how often it is paid cannot be read. It is reported here rather than counted as monthly, which would multiply a yearly price by twelve.": "The plan's duration is not one of the three this product defines, so how often it is paid cannot be read. It is reported here rather than counted as monthly, which would multiply a yearly price by twelve.",
+    "This order is closed, so its status cannot be changed.": "This order is closed, so its status cannot be changed.",
+    "This order cannot be moved to that status.": "This order cannot be moved to that status.",
+    "Your order has not been delivered. You can return the order after delivery.": "Your order has not been delivered. You can return the order after delivery."
 }

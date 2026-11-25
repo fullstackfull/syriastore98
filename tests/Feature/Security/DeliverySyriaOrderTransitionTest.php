@@ -379,29 +379,37 @@ final class DeliverySyriaOrderTransitionTest extends SecurityTestCase
     }
 
     /**
-     * A STATUS THE MACHINE DOES NOT GOVERN IS LEFT ALONE, NOT UNIVERSALLY REFUSED.
+     * WHERE AN UNGOVERNED STATUS IS LEFT ALONE, AND WHERE IT IS NOT. Two branches, both asserted.
      *
-     * `status = 0` (Pending) maps to no word in the machine's vocabulary, so `governs()` answers
-     * false and `refusalFor()` answers null -- for EVERY from-state, the terminal ones in    /**
-     * THE PROPERTY SPLITS IN TWO, AND THE FIRST VERSION OF THIS CASE HAD ONLY THE WRONG HALF.
+     * THIS DOCBLOCK WAS CORRUPT AND SAID THE OPPOSITE OF THE CODE, which an independent review
+     * caught and which matters more here than it would elsewhere: in this repository docblocks ARE
+     * the evidence, and a census has been broken four times by prose about the thing it measures.
+     * An earlier edit of mine left a truncated sentence running into the replacement comment, so
+     * PHP saw ONE docblock whose headline read "A STATUS THE MACHINE DOES NOT GOVERN IS LEFT ALONE,
+     * NOT UNIVERSALLY REFUSED" -- true before OWNER DECISION H2 and false after it. Rewritten from
+     * the method body rather than patched.
      *
-     * It drove `status = 0` out of a TERMINAL state and asserted 200 — reasoning that `matrix()[2]`
-     * is empty, so a bare list-membership check with no `governs()` gate would refuse Pending and
-     * the door would be enforcing a rule the single definition does not contain. The reasoning about
-     * list-membership is correct. The conclusion was not, and an independent review showed why by
-     * composition: `PERMITTED[PENDING]` holds five of the six governed words, so accepting the push
-     * made every refusal two requests away from irrelevant. This case was ratcheting that in.
+     * WHAT THE METHOD ACTUALLY ESTABLISHES, after H2:
      *
-     * What survives is the half that is about an UNRECOGNISED from-state. `stateOf()` answers null
-     * for the literal `'-'` that `Api\ApiController` writes into this column, and such a row must
-     * stay exactly as movable as it is today — stranding rows that shipped code creates would be a
-     * new defect in place of a fix. That is the first case below.
+     *   - out of a from-state the machine does NOT recognise, `status = 0` still falls through. The
+     *     fixture is 99 and not `'-'` for a measured reason: `(int) '-'` is 0, so a push of 0 takes
+     *     the same-status early return and answers 200 before the machine is consulted -- the first
+     *     draft measured the early return and reported it as the exemption, and a mutation
+     *     stranding every unrecognised row survived it. `'-'` has its own case below for what it
+     *     really exercises.
+     *   - out of every state in `FulfilmentStateMachine::FORWARD_ONLY`, the same push is REFUSED.
+     *     The loop reads that constant rather than `TERMINAL`, so when H2 added DELIVERED to it
+     *     this sweep covered the new state without an edit -- and a fourth addition would be
+     *     demanded of the door here rather than quietly uncovered.
      *
-     * The second is the correction: out of a state the machine DOES recognise, a status that cannot
-     * be expressed as a governed word is refused, because `PERMITTED` contains no word targeting
-     * Pending from any state and `Order::order_status_change()` has no pending arm either.
+     * The in-flight states 4..8 are deliberately NOT asserted here, and that is a gap rather than a
+     * decision: F1 of the H2 review measured that `6 -> 0 -> 2` still reaches a cancel which
+     * restores stock for goods in transit, because `PERMITTED[PENDING]` admits `cancel` and the
+     * Pending waypoint is writable from anywhere. H2 was scoped to a DELIVERED order and does not
+     * close it. The register carries the finding; the census case further down records the door's
+     * present answers for those pairs rather than claiming they are correct.
      */
-    public function test_an_ungoverned_status_is_left_alone_only_where_the_from_state_is_unrecognised(): void
+    public function test_an_ungoverned_status_falls_through_unless_the_from_state_is_forward_only(): void
     {
         $this->assertArrayNotHasKey(SM::PENDING, self::WORD_FOR_STATUS,
             'premise: the endpoint can express no pending word, which is what makes this a door '
@@ -436,17 +444,22 @@ final class DeliverySyriaOrderTransitionTest extends SecurityTestCase
             . 'stranding rows that shipped code creates would be a new defect in place of a fix');
 
         /*
-         * OUT OF A TERMINAL STATE THE SAME PUSH IS REFUSED, by the row-level question.
+         * OUT OF EVERY FORWARD-ONLY STATE THE SAME PUSH IS REFUSED.
+         *
+         * `FORWARD_ONLY` AND NOT `TERMINAL`, so this sweep follows the constant: H2 added DELIVERED
+         * to it and this loop covered the new state with no edit.
          */
-        foreach (SM::TERMINAL as $terminal) {
+        $this->assertNotEmpty(SM::FORWARD_ONLY, 'premise: the set is empty, so this loop runs never');
+
+        foreach (SM::FORWARD_ONLY as $terminal) {
             $order = $this->orderAt($terminal);
 
             $this->push($order, SM::PENDING)->assertStatus(409);
 
             $this->assertSame($terminal, (int) $this->row($order)->delivered_status, sprintf(
-                'a push of status 0 out of TERMINAL state %d wrote Pending. `TERMINAL` says nothing '
-                . 'leaves these states, and from Pending `PERMITTED` then admits five of the six '
-                . 'governed words — so this one hop is what makes every other refusal composable.',
+                'a push of status 0 out of forward-only state %d wrote Pending, and from Pending '
+                . '`PERMITTED` admits five of the six governed words -- so this one hop is what '
+                . 'makes every other refusal out of that state composable.',
                 $terminal
             ));
         }
@@ -726,7 +739,6 @@ final class DeliverySyriaOrderTransitionTest extends SecurityTestCase
     |--------------------------------------------------------------------------
     */
 
-    /** An order of the fixture store parked at a raw `delivered_status`. */
     /**
      * THE BYPASS: THE REFUSAL COSTS ONE EXTRA REQUEST AND REMOVES NOTHING.
      *
@@ -796,8 +808,9 @@ final class DeliverySyriaOrderTransitionTest extends SecurityTestCase
 
             $response = $this->push($order, SM::PENDING);
 
-            $this->assertSame(SM::PENDING === $terminal ? 200 : 409,
-                $response->getStatusCode(), sprintf(
+            /* 409 unconditionally: `TERMINAL` is [2, 3] and `PENDING` is 0, so the ternary that
+               stood here had a dead 200 arm and read as though 0 could be terminal. */
+            $this->assertSame(409, $response->getStatusCode(), sprintf(
                     'a push of status 0 out of terminal state %d answered %d. Pending is not in the '
                     . 'machine\'s word vocabulary, so the one-step check asks it nothing -- but '
                     . 'leaving a terminal state is refused by the machine\'s own TERMINAL '
