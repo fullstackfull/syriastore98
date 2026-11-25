@@ -436,24 +436,69 @@ final class DeliverySyriaOrderTransitionTest extends SecurityTestCase
             . 'stranding rows that shipped code creates would be a new defect in place of a fix');
 
         /*
-         * AND OUT OF EVERY STATE THE MACHINE DOES RECOGNISE, the same push is refused.
+         * OUT OF A TERMINAL STATE THE SAME PUSH IS REFUSED, by the row-level question.
          */
-        foreach (array_keys(SM::matrix()) as $from) {
-            if ((int) $from === SM::PENDING) {
-                continue; // the same-status early return, covered by its own case
-            }
-
-            $order = $this->orderAt((int) $from);
+        foreach (SM::TERMINAL as $terminal) {
+            $order = $this->orderAt($terminal);
 
             $this->push($order, SM::PENDING)->assertStatus(409);
 
-            $this->assertSame((int) $from, (int) $this->row($order)->delivered_status, sprintf(
-                'a push of status 0 out of recognised state %d wrote Pending. From there '
-                . '`PERMITTED[PENDING]` permits five of the six governed words, so every refusal '
-                . 'this door makes would be one further request away from being undone.',
-                $from
+            $this->assertSame($terminal, (int) $this->row($order)->delivered_status, sprintf(
+                'a push of status 0 out of TERMINAL state %d wrote Pending. `TERMINAL` says nothing '
+                . 'leaves these states, and from Pending `PERMITTED` then admits five of the six '
+                . 'governed words — so this one hop is what makes every other refusal composable.',
+                $terminal
             ));
         }
+    }
+
+    /**
+     * MEASURED, NOT ASSERTED AS DESIRABLE: a DELIVERED order still walks backwards in two pushes.
+     *
+     * `1 (DELIVERED) -> 0 (PENDING) -> 2 (CANCELLED)` lands, while `1 -> 2` is refused in one push
+     * by `MESSAGE_CANCEL_REFUSED`. A cancel RESTORES STOCK, so this gives stock back for goods the
+     * courier has already delivered. The same shape was measured independently on the sibling admin
+     * door as `1 -> 7|8 -> 4|5|6`.
+     *
+     * WHY IT IS PINNED INSTEAD OF FIXED, and the reasoning is the machine's own: `TERMINAL` holds
+     * only CANCELLED and RETURN, so `refusalForLeaving()` says nothing about a delivered row, and no
+     * governed word targets Pending, 7 or 8 — so `refusalFor()` cannot speak about them either. The
+     * `PERMITTED[STATE_DELIVERED]` row's comment DOES say "Never backwards", so the intent is stated
+     * and the mechanism cannot express it. Closing it needs an ordering over these state integers,
+     * which they do not carry (2 is cancel, 3 is return, 4 is confirmed), or a word for each
+     * non-fulfilment value. Both are business rules, and a first draft of this fix invented one by
+     * refusing every untranslated target — which also refused 7 and 8, values `P2-07-12`
+     * deliberately widened the admin door to accept. `OWNER-DECISION-PACKAGE.md` H2 carries it.
+     *
+     * CONVENTION: this case asserts TODAY'S behaviour, like the repository's `test_UNGATED_*` and
+     * `test_MEASURED_*` rows. Whoever closes it inverts the assertion, in the same change.
+     */
+    public function test_MEASURED_a_delivered_order_still_walks_backwards_through_pending(): void
+    {
+        $this->assertNotContains(SM::STATE_DELIVERED, SM::TERMINAL,
+            'premise: if DELIVERED ever becomes terminal, the row-level question closes this case '
+            . 'and this test must be inverted rather than left asserting the old behaviour');
+        $this->assertNotNull(SM::refusalFor(SM::STATE_DELIVERED, SM::CANCEL),
+            'premise: the ONE-step move is refused, which is what makes the two-step one a bypass');
+
+        $order = $this->orderAt(SM::STATE_DELIVERED);
+
+        $viaPending = $this->push($order, SM::PENDING);
+        $thenCancel = $this->push($order, SM::STATE_CANCELLED);
+
+        $this->assertSame(200, $viaPending->getStatusCode(),
+            'the first hop is expected to be ACCEPTED today; a non-200 here means the behaviour '
+            . 'changed and this case must be re-measured rather than trusted');
+        $this->assertSame(200, $thenCancel->getStatusCode(),
+            'the second hop is expected to be accepted today');
+
+        $this->assertSame(SM::STATE_CANCELLED, (int) $this->row($order)->delivered_status, sprintf(
+            'MEASURED: a DELIVERED order reached CANCELLED in two pushes, answering %d then %d. If '
+            . 'this now fails because the row did NOT move, the residual has been closed — invert '
+            . 'this case and strike the H2 entry rather than deleting it.',
+            $viaPending->getStatusCode(),
+            $thenCancel->getStatusCode()
+        ));
     }
 
     /**
@@ -612,15 +657,14 @@ final class DeliverySyriaOrderTransitionTest extends SecurityTestCase
                 $word = self::WORD_FOR_STATUS[$target] ?? null;
 
                 /*
-                 * `refusalForTranslatedTarget()` AND NOT `refusalFor()`, and the difference is the
-                 * defect an independent review found in the first version of this census. The old
-                 * line read `$word === null ? null : refusalFor(...)`, i.e. it EXPECTED 200 for
-                 * every push whose integer maps to no machine word -- so it asserted the bypass was
-                 * correct, for every from-state including both terminal ones. A census that
-                 * computes its expectation the way the handler computes its answer can only ever
-                 * agree with it; this one has to ask the question the single definition answers.
+                 * BOTH QUESTIONS, AND THE FIRST VERSION OF THIS CENSUS ASKED ONLY THE SECOND. It
+                 * read `$word === null ? null : refusalFor(...)`, i.e. it EXPECTED 200 for every
+                 * push whose integer maps to no machine word -- so it asserted the bypass was
+                 * correct, for every from-state including both terminal ones. The row-level question
+                 * is what the handler now asks first, and the census has to ask what the single
+                 * definition answers rather than recomputing the handler's own arithmetic.
                  */
-                $expectedRefusal = SM::refusalForTranslatedTarget($from, $word);
+                $expectedRefusal = SM::refusalForLeaving($from) ?? SM::refusalFor($from, $word);
 
                 $order = $this->orderAt((int) $from);
                 $response = $this->push($order, $target);
@@ -688,6 +732,22 @@ final class DeliverySyriaOrderTransitionTest extends SecurityTestCase
 
         $viaPending = $this->push($order, SM::PENDING);
         $thenDelivered = $this->push($order, SM::STATE_DELIVERED);
+
+        /*
+         * THE HTTP CODES ARE ASSERTED BEFORE THE ROW, AND THAT ORDERING IS THE WHOLE POINT.
+         *
+         * MEASURED ON THE SIBLING DOOR, not reasoned about: the agent closing
+         * `Api\DashboardController`'s half of GAP-135 wired a call to a predicate that I renamed
+         * under it. Its door raised `Call to undefined method` -> HTTP 500 -> the row did not move
+         * -> and ALL TEN of its bypass cases PASSED and reported the bypass closed. A case that
+         * only asserts "the row did not move" cannot tell a refusal from a crash, and a crash is
+         * not a control. This case had exactly that hole until the same agent pointed it out.
+         */
+        $this->assertSame(409, $viaPending->getStatusCode(),
+            'the first hop out of a terminal state must be REFUSED, not merely ineffective -- a 500 '
+            . 'would also leave the row alone and would not be a control');
+        $this->assertSame(409, $thenDelivered->getStatusCode(),
+            'the second hop must be refused for the same reason, since the row never left CANCELLED');
 
         $row = $this->row($order);
 

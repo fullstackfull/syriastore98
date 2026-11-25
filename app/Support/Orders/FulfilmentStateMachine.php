@@ -274,45 +274,64 @@ final class FulfilmentStateMachine
     }
 
     /**
-     * THE REFUSAL FOR A DOOR THAT TRANSLATES ITS OWN STATUS VOCABULARY INTO THESE WORDS.
+     * WHETHER THIS ROW MAY MOVE AT ALL, asked without reference to any target.
      *
-     * `refusalFor()` ANSWERS NULL FOR A WORD IT DOES NOT GOVERN, which is right for its own
-     * question and is a hole in anything that asks only that question. A door whose wire format is
-     * an integer has to map that integer onto one of the six words; when the map has no entry, it
-     * holds `null`, and `refusalFor(null)` says nothing. `null` there means "I was not asked about
-     * a word I govern" -- NOT "permitted".
+     * TWO QUESTIONS, NOT ONE, AND CONFLATING THEM WAS A MEASURED MISTAKE OF MINE. `refusalFor()`
+     * answers "is this TARGET permitted out of this state", and answers null for a word it does not
+     * govern — correct for its own question, and a hole in any caller that asks only that one. A
+     * door whose wire format is an integer must map the integer onto one of the six words, and when
+     * its map has no entry it holds `null`, which `refusalFor()` says nothing about.
      *
-     * MEASURED, BY EXECUTION, ON THE DELIVERY SYRIA WEBHOOK (2026-11-25, found by an independent
-     * review of the one-step fix and reproduced through the real route): `governs()` lists no
-     * PENDING word, so `status = 0` mapped to nothing and fell through from EVERY state. And
-     * `PERMITTED[PENDING]` holds FIVE of the six governed words, so every refusal was two pushes
-     * away from being irrelevant:
+     * MEASURED ON THE DELIVERY SYRIA WEBHOOK (2026-11-25, found by independent review): `governs()`
+     * lists no pending word, so `status = 0` mapped to nothing and fell through from every state,
+     * and `PERMITTED[PENDING]` holds FIVE of the six governed words — so `2 (CANCELLED) -> 0 -> 1`
+     * answered 200 then 200 and reached the state `Order::product_return()` gates on before it
+     * REDUCES `final_price`. This predicate closes that, because 2 is `TERMINAL` and the FIRST hop
+     * is refused.
      *
-     *   - `2 (CANCELLED) -> 0 -> 1 (DELIVERED)` answered 200 then 200, reaching the state
-     *     `Order::product_return()` gates on before it REDUCES `final_price`;
-     *   - `1 (DELIVERED) -> 0 -> 2 (CANCELLED)` reaches a cancel that `MESSAGE_CANCEL_REFUSED`
-     *     refuses in one step, and a cancel RESTORES STOCK for goods already delivered.
+     * IT IS THE MACHINE'S OWN PUBLISHED INVARIANT AND NOTHING WIDER. `TERMINAL`'s docblock says
+     * "Nothing leaves them through the shared writer" and `PERMITTED` carries no row for either
+     * terminal state, so `matrix()[2]` is `[]`. Applying it is honouring the single definition.
      *
-     * NOT A NEW RULE, AND THAT IS THE WHOLE JUSTIFICATION FOR IT. `PERMITTED` is the complete
-     * statement of which words may be written out of each state, and NO row contains a word that
-     * targets Pending, because there is no pending word. Writing Pending is therefore outside this
-     * machine's authorisation from every state -- and `Order::order_status_change()` has no pending
-     * arm either, so no merchant surface in the product can make the move. A door that refuses it
-     * AGREES with every other surface; the door that accepted it was the outlier.
+     * WHAT THIS DELIBERATELY DOES **NOT** DO, because a first draft did and it was an over-reach:
+     * it does not refuse every target the caller cannot translate. That draft returned
+     * `MESSAGE_NOT_PERMITTED` for **27 of 27** untranslated (from-state x target) pairs — measured
+     * by the agent that wired it into `Api\DashboardController` — which included `delivered_status`
+     * **7 (Partially Paid)** and **8 (Pre Order)** out of a Pending row. `P2-07-12` deliberately
+     * widened that endpoint from `in:0,1,2,3,4,5,6` to all nine values, and
+     * `ApiOrderFilterStatusCoverageTest::test_the_status_write_accepts_every_value_the_column_holds`
+     * exists for it. The draft's justification was "no `PERMITTED` row holds a word targeting
+     * Pending, so writing Pending is outside the authorisation" — but that is equally true of 7 and
+     * 8, and `P2-07-12` shows the reading is wrong for them. So the argument never singled Pending
+     * out, and it is withdrawn. Which targets a door accepts is a DOOR-level decision; what a row
+     * may do is this machine's.
      *
-     * AN UNRECOGNISED FROM-STATE STAYS AS MOVABLE AS IT IS TODAY, for the reason `refusalFor()`
-     * gives in the same situation: `stateOf()` answers null for the literal `'-'` that
-     * `Api\ApiController` writes, and stranding those rows would be a new defect in place of a fix.
+     * AN UNRECOGNISED FROM-STATE STAYS AS MOVABLE AS IT IS TODAY, for `refusalFor()`'s own reason:
+     * `stateOf()` answers null for the literal `'-'` that `Api\ApiController` writes, and stranding
+     * rows that shipped code creates would be a new defect in place of a fix.
+     *
+     * COMPOSE THE TWO AT EVERY DOOR THAT ASSIGNS `delivered_status` ITSELF:
+     *
+     *     FulfilmentStateMachine::refusalForLeaving($order->delivered_status)
+     *         ?? FulfilmentStateMachine::refusalFor($order->delivered_status, $word)
+     *
+     * passing the RAW column value to both, never the `(int)` cast.
+     *
+     * STILL OPEN AND NOT CLOSABLE HERE: a DELIVERED row is not `TERMINAL`, and no word targets
+     * Pending, 7 or 8 — so `1 -> 0 -> 2` and `1 -> 7 -> 4` walk delivery backwards in two requests
+     * while the one-step moves are refused. The `PERMITTED[STATE_DELIVERED]` row's own comment says
+     * "Never backwards", so the INTENT is stated here and the MECHANISM cannot express it: closing it
+     * needs either an ordering over the states, which these integers do not carry (2 is cancel, 3 is
+     * return, 4 is confirmed), or a word for each non-fulfilment value. Both are business rules.
+     * `OWNER-DECISION-PACKAGE.md` H2 carries the question.
      */
-    public static function refusalForTranslatedTarget($rawFrom, ?string $word): ?string
+    public static function refusalForLeaving($rawFrom): ?string
     {
-        if ($word === null || ! self::governs($word)) {
-            return self::stateOf($rawFrom) === null
-                ? null
-                : (string) __(self::MESSAGE_NOT_PERMITTED);
-        }
+        $from = self::stateOf($rawFrom);
 
-        return self::refusalFor($rawFrom, $word);
+        return $from !== null && in_array($from, self::TERMINAL, true)
+            ? (string) __(self::MESSAGE_SETTLED)
+            : null;
     }
 
     /** Whether the transition is allowed. The inverse of a refusal. */

@@ -47,21 +47,28 @@ class DeliverySyriaOrderController extends Controller
      * six governed words, so `2 -> 0 -> 1` answered 200 then 200 and reached the identical row
      * state -- measured through this route by
      * `DeliverySyriaOrderTransitionTest::test_a_settled_order_cannot_be_re_opened_in_two_pushes_either`,
-     * which failed before {@see FulfilmentStateMachine::refusalForTranslatedTarget()} existed. The
+     * which failed before {@see FulfilmentStateMachine::refusalForLeaving()} existed. The
      * same composition reached a cancel of a DELIVERED order (`1 -> 0 -> 2`), which restores stock
      * for goods already delivered.
      *
-     * So a `null` from the map is now a refusal for any from-state the machine recognises, asked
-     * through `refusalForTranslatedTarget()`. **That is not this door inventing a rule:** `PERMITTED`
-     * is the complete statement of what may be written out of each state and no row holds a word
-     * targeting Pending, so writing Pending is outside the single definition's authorisation rather
-     * than unmentioned by it -- and `Order::order_status_change()` has no `pending` arm either, so
-     * no merchant surface can make the move. This door was the outlier; it is not any more.
+     * SO THE DOOR ASKS TWO QUESTIONS, and a first draft of this fix asked one and a half. It had the
+     * machine refuse EVERY target the map could not translate, which closed `2 -> 0 -> 1` but was an
+     * over-reach: measured by the agent wiring the same predicate into `Api\DashboardController`, it
+     * refused **27 of 27** untranslated pairs, including `delivered_status` 7 and 8 out of a Pending
+     * row -- values `P2-07-12` deliberately widened that endpoint to accept. Its justification ("no
+     * `PERMITTED` row targets Pending, so writing Pending is unauthorised") is equally true of 7 and
+     * 8, so it never singled Pending out, and it is withdrawn.
      *
-     * **IT IS NEVERTHELESS A CHANGE TO WHAT THIS ENDPOINT ACCEPTS.** The validator still advertises
-     * `status = 0` (:166) and a courier pushing it for a recognised order now gets 409 where it got
-     * 200. Recorded for the owner as a third-party contract change rather than presented as a pure
-     * fix; see `OWNER-DECISION-PACKAGE.md` H2.
+     * What remains is the machine's own published invariant, which is enough for the defect above:
+     * {@see FulfilmentStateMachine::refusalForLeaving()} refuses leaving a TERMINAL state at all, so
+     * the FIRST hop of `2 -> 0 -> 1` is refused and nothing composes past it.
+     *
+     * **STILL OPEN, AND MEASURED RATHER THAN IMPLIED:** a DELIVERED row is not terminal, so
+     * `1 -> 0 -> 2` still walks a delivered order into a cancel -- which restores stock for goods
+     * already delivered -- in two requests, while `1 -> 2` is refused in one. Pinned as a MEASURED
+     * case in `DeliverySyriaOrderTransitionTest` rather than left to be rediscovered, and carried as
+     * an owner question in `OWNER-DECISION-PACKAGE.md` H2: closing it needs an ordering over these
+     * state integers (which they do not carry) or a word for each non-fulfilment value.
      *
      * 7 (Partially Paid) and 8 (Pre Order) need no entry: the validator refuses them as TARGETS
      * (:166). They are still handled correctly as FROM states, because the machine carries a row
@@ -302,16 +309,15 @@ class DeliverySyriaOrderController extends Controller
         | identical row state in two: `2 -> 0 -> 1`, measured as 200 then 200 before this line
         | existed. The refusal cost an attacker one extra request and removed nothing else.
         |
-        | `refusalForTranslatedTarget()` is the question a door with its own wire vocabulary has to
-        | ask: a `null` from the map means "I cannot express this as a word the machine governs", and
-        | the machine's `PERMITTED` rows contain no word targeting Pending from ANY state -- so
-        | writing it is outside the single definition's authorisation rather than unmentioned by it.
-        | It lives on the machine and not here on purpose: a second local rule disagreeing with the
-        | single definition is the defect this whole door was fixing, and the sibling door in
-        | `Api\DashboardController::updateStatus` translates an integer the same way and needs the
-        | same question.
+        | `refusalForLeaving()` is the ROW-level question -- may this row move at all -- and
+        | `refusalFor()` is the TARGET-level one. Both live on the machine, and the composition is
+        | spelled out in `refusalForLeaving()`'s docblock so the sibling door in
+        | `Api\DashboardController::updateStatus`, which translates an integer the same way, composes
+        | them identically rather than carrying a second local rule. A local rule disagreeing with the
+        | single definition is the defect this whole door was fixing.
         */
-        $refusal = FulfilmentStateMachine::refusalForTranslatedTarget($order->delivered_status, $statusWord);
+        $refusal = FulfilmentStateMachine::refusalForLeaving($order->delivered_status)
+            ?? FulfilmentStateMachine::refusalFor($order->delivered_status, $statusWord);
 
         if ($refusal !== null) {
             Log::warning('Delivery Syria order status transition refused', [

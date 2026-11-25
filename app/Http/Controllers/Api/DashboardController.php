@@ -410,6 +410,48 @@ public function DeleteOrderNote(Request $request)
      */
     private const MERCHANT_SETTABLE_PAYMENT_STATUSES = ['Paid', 'Unpaid'];
 
+    /**
+     * `orders.delivered_status` => the status WORD the fulfilment state machine governs. GAP-135.
+     *
+     * This door speaks integers and the machine speaks the six words
+     * `Order::order_status_change()`'s own branch chain matches, so a translation is unavoidable.
+     * Both sides of every row are read from `FulfilmentStateMachine`'s own constants rather than
+     * typed out, so the map cannot drift from the matrix it is used against.
+     *
+     * THREE VALUES ARE ABSENT AND EACH ABSENCE IS A DECISION, not an oversight:
+     *
+     *   0  Pending — the machine has no word for it and neither does the shared writer; there is no
+     *      `pending` arm in that branch chain. A move back to Pending is therefore UNGOVERNED here
+     *      exactly as it is there, and inventing a rule for it would be a business-rule change,
+     *      which is in the escalate-to-owner set.
+     *   7  Partially Paid and
+     *   8  Pre Order — not fulfilment states at all. They share this column (a payment state and an
+     *      order type in the same integer), they are handled by the module arms further down the
+     *      shared writer, and `governs()` answers false for them. Refusing them here would break
+     *      `ApiOrderFilterStatusCoverageTest`'s "the write accepts every value the column holds",
+     *      which exists because a hand-typed status list had already hidden those two orders once.
+     *
+     * A missing key yields `null`, and `refusalFor()` answers `null` for a word it does not govern
+     * — so the "I have nothing to say" decision stays inside the machine instead of being made
+     * twice.
+     *
+     * @var array<int, string>
+     */
+    private const FULFILMENT_WORD_FOR_STATUS = [
+        \App\Support\Orders\FulfilmentStateMachine::STATE_DELIVERED
+            => \App\Support\Orders\FulfilmentStateMachine::DELIVERED,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_CANCELLED
+            => \App\Support\Orders\FulfilmentStateMachine::CANCEL,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_RETURN
+            => \App\Support\Orders\FulfilmentStateMachine::RETURNED,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_CONFIRMED
+            => \App\Support\Orders\FulfilmentStateMachine::CONFIRMED,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_PICKED_UP
+            => \App\Support\Orders\FulfilmentStateMachine::PICKED_UP,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_SHIPPED
+            => \App\Support\Orders\FulfilmentStateMachine::SHIPPED,
+    ];
+
     public function updateStatus(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -691,6 +733,97 @@ $storeId = getCurrentStore();
                 'message' => __('A pending order cannot be returned.'),
                 'data' => $this->orderResponse($order),
             ]);
+        }
+
+        /*
+         * GAP-135, THE REMAINDER — THE FULFILMENT STATE MACHINE THIS DOOR COULD NOT REACH.
+         * =========================================================================================
+         *
+         * `Order::refuseIllegalTransition()`'s docblock names this handler by name as "THE ONE DOOR
+         * THIS CANNOT REACH", because it writes `delivered_status` directly in the switch below
+         * instead of calling `Order::order_status_change()` — the writer the merchant web screen,
+         * the order board, the storefront customer's own order, `OrderReplacement::cancelAndReplace()`
+         * and the vendored LotteryPrizes screen all share, and the one place the machine is asked.
+         * So this door grew two rules of its own (above) and had NOTHING on the four progression
+         * arms.
+         *
+         * MEASURED HERE, BY DRIVING THE ROUTE, BEFORE THIS BLOCK EXISTED: twelve governed
+         * transitions landed that the shared writer refuses — Cancelled(2) and Return(3) each to
+         * Delivered, Confirmed, Picked Up and Shipped, 2 -> 3 as well, and Delivered(1) backwards to
+         * Confirmed, Picked Up and Shipped. Cancelled -> Delivered is the money leg:
+         * `Order::product_return()` refuses unless `delivered_status == 1` and then REDUCES
+         * `final_price`, so a cancelled order whose merchant entitlement `OrderEntitlementReversal`
+         * has already walked back could be marched into the return and refund workflow.
+         *
+         * BELOW THE TWO ESTABLISHED RULES, DELIBERATELY. The cancel and return refusals above answer
+         * for the transitions they govern with strings a client may be matching on (P4-F104/F105,
+         * and `MESSAGE_CANCEL_REFUSED` / `MESSAGE_RETURN_REFUSED` are different sentences). Putting
+         * this first would reword two shipped refusals; putting it here adds the arms that had no
+         * rule at all and changes nothing that already had one.
+         *
+         * THE RAW COLUMN VALUE, NOT `$oldDeliveredStatus`, which is a cast. One shipped handler
+         * writes the literal `-` into this column, and under PHP 8 a cast would make such a row
+         * movable where the shared writer's own loose comparisons do not. This passes exactly what
+         * `Order::refuseIllegalTransition()` passes, so the two cannot disagree.
+         *
+         * ONLY WHEN A DELIVERY STATUS WAS ACTUALLY ASKED FOR. The shipped app sends
+         * `payment_status` on every call; a payment-only request is not a fulfilment transition and
+         * no fulfilment rule may touch it.
+         *
+         * THE SHAPE IS THIS HANDLER'S OWN: HTTP 200, `success: false`, `data` => `orderResponse()`,
+         * matching the two refusals above rather than inventing a fourth. NOT 401 — the shipped
+         * Flutter admin app force-clears its session on any 401 — and not 403 or 404, which are this
+         * handler's permission and lookup refusals and which a client could not tell apart from
+         * this.
+         */
+        if ($hasDeliveredStatus) {
+            /*
+             * TWO QUESTIONS, AND THE FIRST ONE IS WHY THE ONE-STEP VERSION OF THIS GATE WAS A
+             * BYPASS. `refusalFor()` answers about a target WORD, and `governs()` lists no
+             * `pending` word -- so a request naming a status this door can express but the word
+             * map cannot translate (0 Pending, 7 Partially Paid, 8 Pre Order) fell through from
+             * EVERY state, settled ones included.
+             *
+             * MEASURED ON THIS DOOR, by driving it, with the one-step gate in place: a CANCELLED
+             * order answered `{"success":true}` to `delivered_status = 0`, and
+             * `PERMITTED[PENDING]` then admits five of the six words -- so `2 -> 0 -> 1` reached
+             * `delivered_status = 1` in two requests, which is exactly what
+             * `Order::product_return()` gates on before it REDUCES `final_price`. Ten pairs, every
+             * one of them, except the `-> return` legs that `PERMITTED[PENDING]` does not hold.
+             *
+             * `refusalForLeaving()` IS THE MACHINE'S OWN PREDICATE AND NOT A SECOND LOCAL RULE.
+             * That matters more than tidiness here: a local check would be a third definition of a
+             * rule `TERMINAL` and `PERMITTED` already publish ("Nothing leaves them through the
+             * shared writer"; `matrix()[2]` is `[]`), and the two would drift. It is also NOT a new
+             * business rule -- `Order::order_status_change()` has no pending arm, so no other
+             * surface in this product can make the move, and refusing it makes this door agree with
+             * every other surface rather than diverge from one.
+             */
+            /*
+             * 7 AND 8 NEED NO EXEMPTION LIST, AND AN EARLIER DRAFT CARRIED ONE. `refusalFor()`
+             * answers null for a word it does not govern, and no entry in
+             * `FULFILMENT_WORD_FOR_STATUS` maps `STATE_PARTIALLY_PAID` or `STATE_PRE_ORDER` --
+             * deliberately, because the machine's own docblock calls those two "a schema problem
+             * that this machine must not pretend to have solved". So the pair below already permits
+             * them out of a non-settled row, which is what `P2-07-12` widened this endpoint for,
+             * while `refusalForLeaving()` still refuses them out of a SETTLED one:
+             * `PERMITTED[STATE_PARTIALLY_PAID]` admits `delivered`, so `2 -> 7 -> 1` would
+             * otherwise reopen a cancelled order exactly as `-> 0` did. The explicit list gave the
+             * same answers and read as though the machine needed correcting here.
+             */
+            $fulfilmentRefusal = \App\Support\Orders\FulfilmentStateMachine::refusalForLeaving($order->delivered_status)
+                ?? \App\Support\Orders\FulfilmentStateMachine::refusalFor(
+                    $order->delivered_status,
+                    self::FULFILMENT_WORD_FOR_STATUS[$newDeliveredStatus] ?? null
+                );
+
+            if ($fulfilmentRefusal !== null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $fulfilmentRefusal,
+                    'data' => $this->orderResponse($order),
+                ]);
+            }
         }
 
         try {
