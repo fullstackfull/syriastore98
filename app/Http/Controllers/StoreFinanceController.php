@@ -445,6 +445,37 @@ class StoreFinanceController extends Controller
                     }
                 },
             ],
+        ], [], [
+            /*
+             * GAP-149 -- THE REFUSAL MUST NAME THE FIELD IN THE MERCHANT'S OWN LANGUAGE.
+             *
+             * Laravel derives `:attribute` from the FIELD NAME, so a refusal on this door read, in
+             * Arabic, `القيمة المحددة لـ payment status غير صحيحة.` -- an Arabic sentence with the
+             * raw snake-cased column name in the middle of it. Measured by driving the route, not
+             * reasoned: `resources/lang/ar/validation.php` has `'attributes' => []`, so there is
+             * nothing for the framework to substitute and it falls back to the column.
+             *
+             * THIS IS REACHED BY ORDINARY USE, which is why it is worth a line here. A
+             * `<option ... selected disabled>` submits NO value, so on any of the four
+             * engine-written states a merchant who presses Update without first choosing `paid` or
+             * `unpaid` sends no `payment_status` and lands on `required`. P5-R4 widened the control
+             * from the two reversals to all four, which turned a rare dead end into a routine one.
+             *
+             * `Payment Status` IS THE SCREEN'S OWN WORD FOR THIS COLUMN -- it is the table header
+             * two cells to the left -- and it is already translated in both languages
+             * (`resources/lang/ar.json`: 'حالة الدفع'), so this introduces no new string and
+             * invents no Arabic. Declared HERE rather than in `ar/validation.php`'s `attributes`
+             * array deliberately: that array is global, and `payment_status` is also a column on
+             * `orders` and on `plan_orders`, where the phrase a merchant should read is a
+             * SETTLEMENT and not an entitlement. The two must not be given one name by a global
+             * rule -- the whole of P4-F124 is that they are different facts.
+             *
+             * `reason` is deliberately NOT given one. The only candidate key, `Reason`, is in
+             * neither language file, so naming it here would substitute one untranslated English
+             * word for another while reading as though it had been fixed. It is reported as a key
+             * to add instead.
+             */
+            'payment_status' => __('Payment Status'),
         ]);
 
         $storeId = getCurrentStore();

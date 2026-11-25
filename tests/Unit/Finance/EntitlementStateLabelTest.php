@@ -85,21 +85,54 @@ final class EntitlementStateLabelTest extends TestCase
         }
     }
 
-    public function test_both_arabic_phrases_are_already_translated(): void
+    /**
+     * GAP-149 -- ASKED OF THE TRANSLATOR, NOT OF `ar.json`.
+     *
+     * This case read the file with `file_get_contents` and asserted `array_key_exists`. That is a
+     * weaker question than the product asks, in three measurable ways: a key can be present in the
+     * JSON and still not be what `__()` answers with, because `resources/lang/ar/*.php` shadows a
+     * JSON key of the same name; because a key duplicated inside the JSON resolves to the LAST
+     * occurrence while `json_decode` silently discards the first; and because the loader reads the
+     * file for a locale, so a key in the right file for the wrong locale passes the old assertion
+     * and renders English. It also could not see the reverse failure -- a phrase whose Arabic IS
+     * the English string.
+     *
+     * So each expectation is now COMPUTED by calling `label()` under each locale, which is exactly
+     * what the Blade does, and the two are required to differ. Nothing is pasted: a pasted Arabic
+     * literal pins today's wording, and a pasted English one goes vacuous the moment the
+     * translation disappears, which is the failure this case exists to catch.
+     *
+     * The locale is restored in a `finally`, because `app()->setLocale()` on the shared container
+     * outlives the test method and would silently re-point every later case in the run.
+     */
+    public function test_every_phrase_resolves_in_arabic_through_the_translator(): void
     {
-        $ar = json_decode((string) file_get_contents(base_path('resources/lang/ar.json')), true);
+        $was = app()->getLocale();
 
-        $this->assertIsArray($ar, 'PREMISE: resources/lang/ar.json did not decode.');
+        try {
+            foreach (EntitlementStateLabel::states() as $state) {
+                app()->setLocale('en');
+                $english = EntitlementStateLabel::label($state);
 
-        foreach (EntitlementStateLabel::states() as $state) {
-            $english = EntitlementStateLabel::label($state);
+                app()->setLocale('ar');
+                $arabic = EntitlementStateLabel::label($state);
 
-            $this->assertArrayHasKey($english, $ar,
-                "'{$english}' -- the finance screen's phrase for `{$state}` -- has no Arabic. An "
-                . 'Arabic merchant would read the English string on a money column.');
+                $this->assertSame('ar', app()->getLocale(),
+                    'PREMISE: the Arabic locale did not take, so both reads below are the English '
+                    . 'one and this case cannot fail for the reason it exists.');
 
-            $this->assertNotSame('', trim((string) $ar[$english]),
-                "the Arabic for '{$english}' is blank");
+                $this->assertNotSame('', trim($arabic),
+                    "the Arabic phrase for `{$state}` is blank, which would render an empty pill");
+
+                $this->assertNotSame($english, $arabic,
+                    "'{$english}' -- the finance screen's phrase for `{$state}` -- is not "
+                    . 'translated into Arabic BY THE TRANSLATOR. An Arabic merchant reads the '
+                    . 'English string in the one column that says whether the money is theirs. '
+                    . 'Note that adding the key to resources/lang/ar.json is necessary and not '
+                    . 'sufficient: it must be the string __() answers with under locale `ar`.');
+            }
+        } finally {
+            app()->setLocale($was);
         }
     }
 
