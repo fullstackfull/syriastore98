@@ -303,4 +303,120 @@ class StorageUsageTest extends TestCase
     {
         $this->assertSame(2.0, StorageUsage::stored('2,500.00'));
     }
+
+    /*
+     * ------------------------------------------------------------------------------------------
+     *  display() -- THE DASHBOARD SENTENCE, AND THE REGRESSION THAT MADE IT NECESSARY.
+     * ------------------------------------------------------------------------------------------
+     *
+     * The storage note on the merchant dashboard concatenated the raw float, so a six-decimal
+     * stored figure printed "1.988443MB / 100MB" and a sub-kilobyte one printed an EXPONENT --
+     * measured, "4.8E-5MB". The first repair applied `number_format($x, 2)` in the view, which
+     * removed the exponent and BROKE THREE ASSERTED SENTENCES: `DashboardFigureHonestyTest`
+     * pins "12MB / 500MB", "12 MB used of unlimited storage" and "12 MB used", and two decimals
+     * render those as "12.00". That regression is what these cases exist to stop recurring.
+     *
+     * So the formatter has to satisfy four properties at once, and they pull against each other:
+     *   a whole number prints whole        12       -> "12"      (the three pinned sentences)
+     *   no exponent, ever                  9.5e-7   -> "0.000001"
+     *   a nonzero usage never reads zero   1 byte   -> not "0"
+     *   a dashboard figure stays short     1.988443 -> "1.99"
+     *
+     * Two decimals alone fails the second and third; six decimals alone fails the first and
+     * fourth. Hence two decimals, trailing zeros trimmed, FALLING BACK to the stored precision
+     * only when two decimals would round a real file down to nothing.
+     */
+
+    /** A whole number of mebibytes prints with no decimal part -- the three pinned sentences. */
+    #[Test]
+    #[DataProvider('wholeFigures')]
+    public function test_a_whole_figure_prints_without_a_decimal_part(float $mebibytes, string $expected): void
+    {
+        $this->assertSame($expected, StorageUsage::display($mebibytes));
+    }
+
+    public static function wholeFigures(): array
+    {
+        return [
+            'the used figure the dashboard test pins' => [12.0, '12'],
+            'the quota the dashboard test pins' => [500.0, '500'],
+            'nothing stored' => [0.0, '0'],
+            'a figure stored to six decimals that is still whole' => [12.000000, '12'],
+            'four digits, and NO thousands separator (the column has none either)' => [2500.0, '2500'],
+        ];
+    }
+
+    /** A fractional figure is shortened to two decimals, with no trailing zeros. */
+    #[Test]
+    #[DataProvider('fractionalFigures')]
+    public function test_a_fractional_figure_is_shortened_for_the_dashboard(float $mebibytes, string $expected): void
+    {
+        $this->assertSame($expected, StorageUsage::display($mebibytes));
+    }
+
+    public static function fractionalFigures(): array
+    {
+        return [
+            'the six-decimal figure that printed in full' => [1.988443, '1.99'],
+            'a half' => [0.5, '0.5'],
+            'two decimals exactly' => [12.34, '12.34'],
+            'a trailing zero is trimmed' => [12.10, '12.1'],
+        ];
+    }
+
+    /**
+     * NO EXPONENT, which is the defect this method was added for.
+     *
+     * PHP stringifies a float under ~1e-5 in scientific notation, so the sentence read
+     * "9.5367431640625E-7 MB used" to a merchant who had uploaded one byte.
+     */
+    #[Test]
+    public function test_a_sub_kilobyte_figure_never_prints_an_exponent(): void
+    {
+        $oneByte = StorageUsage::mebibytes(1);
+
+        $this->assertStringContainsString('E-', (string) $oneByte,
+            'PREMISE: this figure does not stringify with an exponent, so the case proves nothing.');
+
+        $shown = StorageUsage::display($oneByte);
+
+        $this->assertStringNotContainsString('E', $shown);
+        $this->assertStringNotContainsString('e', $shown);
+        $this->assertSame('0.000001', $shown);
+    }
+
+    /**
+     * A REAL FILE IS NEVER DESCRIBED AS ZERO USAGE -- the opposite lie to the one two decimals fixed.
+     *
+     * At two decimals every file under 5,243 bytes displays as "0.00", which reads as "you are
+     * storing nothing" to a merchant who is storing something. The fallback to the stored
+     * precision is what stops that, and `DECIMALS` is a 1.049-byte quantum, so the smallest
+     * possible file still shows.
+     */
+    #[Test]
+    #[DataProvider('smallRealFiles')]
+    public function test_a_stored_file_is_never_displayed_as_zero(int $bytes): void
+    {
+        $shown = StorageUsage::display(StorageUsage::mebibytes($bytes));
+
+        $this->assertNotSame('0', $shown, $bytes . ' bytes are stored but the card says 0');
+        $this->assertNotSame('0.00', $shown);
+        $this->assertGreaterThan(0.0, (float) $shown, $bytes . ' bytes display as a zero figure');
+    }
+
+    public static function smallRealFiles(): array
+    {
+        return [
+            'one byte' => [1],
+            'a 2 KB thumbnail' => [2048],
+            'the old free-storage ceiling' => [5242],
+        ];
+    }
+
+    /** Negative is clamped, as everywhere else in this class. */
+    #[Test]
+    public function test_a_negative_figure_displays_as_zero(): void
+    {
+        $this->assertSame('0', StorageUsage::display(-5.0));
+    }
 }

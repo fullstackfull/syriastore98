@@ -125,13 +125,49 @@ redesign:
 | | |
 |---|---|
 | failing first | **all 7** original Feature cases failed against the unfixed writer, through the real column with `refresh()` — including a 1 KB upload storing `0.0` |
-| after | Unit **19/19**, Feature **9/9** |
-| mutations | **9 meaningful, 9 caught** — three only after the harness exposed a test gap |
+| after | Unit **33/33**, Feature **9/9** storage + **19/19** `DashboardFigureHonestyTest` |
+| mutations | **14 meaningful, 14 caught** — five only after the harness exposed a test gap |
 | censuses | the three line-keyed inventories re-pointed and verified a pure move; 18/18 |
-| blocking suites | Unit and Contract re-run on this tree |
+| blocking suites | Unit **6,199 passed / 1 skipped** and Contract **45 passed**, re-run on this tree |
 
-### The three mutations that survived first, and what each taught
+### THIS SLICE BROKE THREE GREEN TESTS, AND THE FULL FEATURE GATE IS HOW IT WAS FOUND
 
+Not a near miss and not found by review: the first version of this change was **committed**, and the
+local Feature gate on the combined tree returned **three undeclared failures** —
+`DashboardFigureHonestyTest::test_the_storage_card_does_not_claim_a_quota_of_zero`,
+`…_says_unlimited_rather_than_minus_one` and `…_states_the_quota_when_the_plan_records_one`.
+
+**The cause.** Six decimals in the column made the dashboard note print `"1.988443MB / 100MB"`, and
+for usage under ~105 bytes PHP's float-to-string switches to scientific notation —
+measured, `"4.8E-5MB"`. The repair applied `number_format($x, 2)` in the view. That removes the
+exponent and renders **12 as `"12.00"`**, so all three sentences changed. The view's own docblock
+lists those three sentences verbatim (`"12MB / 500MB"`, `"12 MB used of unlimited storage"`,
+`"12 MB used"`), so the change disagreed with the documentation beside it as well as with the tests.
+
+**The repair of the repair** is `StorageUsage::display()`: two decimals with trailing zeros trimmed,
+widening to the stored precision only when two decimals would collapse a nonzero figure to `"0"`.
+Four properties no single `number_format()` call satisfies — whole prints whole, no exponent at any
+magnitude, a stored file never reads as zero usage, and a dashboard figure stays short.
+
+**AND THE THREE RECOVERED TESTS STILL COULD NOT SEE THE REAL DEFECT.** Mutating the view back to raw
+concatenation left **all three green**, because every one of their fixtures stores exactly 12 MB and
+`(string) 12.0` is already `"12"`. They pin the sentence *shape*; they cannot pin the formatting,
+which is the half that was broken. `test_a_sub_kilobyte_usage_is_not_shown_to_the_merchant_as_an_exponent`
+was added for that: it stores one byte, asserts as a **premise** that the figure still stringifies
+with an exponent, and then asserts the rendered page does not contain one. With it, the raw-float
+mutation is CAUGHT — and so is a mutation that formats at two decimals, which would silently tell a
+merchant storing one byte that they are storing `0.00`.
+
+**What is still not pinned, stated rather than papered over:** the QUOTA side of `"X / Y"`. A plan's
+limit is a whole number of megabytes, so `(string) 500.0` is `"500"` either way and no assertion can
+distinguish the two. It is formatted anyway, so the halves cannot drift if a fractional limit is ever
+configured, and the view says so at the line.
+
+### The five mutations that survived first, and what each taught
+
+0. **The view concatenated the raw float again — SURVIVED**, for the reason set out above: three
+   whole-number fixtures cannot tell a formatter from a concatenation. CAUGHT once the one-byte case
+   existed.
 1. **`persist()` deleted from the charge site — SURVIVED.** The 1,536-byte case stringifies as plain
    decimal, so nothing caught it. Only a file of a few bytes produces an exponent. A **one-byte**
    case was added; now CAUGHT.

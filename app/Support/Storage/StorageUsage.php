@@ -138,6 +138,76 @@ final class StorageUsage
         return number_format(max(0.0, $mebibytes), self::DECIMALS, '.', '');
     }
 
+    /**
+     * Decimals shown on a merchant-facing figure before trailing zeros are trimmed.
+     *
+     * Deliberately NOT `DECIMALS`: six is the precision the column must KEEP, two is the precision
+     * a dashboard sentence can READ. `display()` falls back to the former when the latter would
+     * round a real file down to nothing.
+     */
+    private const DISPLAY_DECIMALS = 2;
+
+    /**
+     * A usage figure as it is shown to a merchant. NEVER an exponent, never a false zero.
+     *
+     * THIS METHOD EXISTS BECAUSE OF A REGRESSION THIS SLICE CAUSED. The dashboard note
+     * concatenated the raw float, which after the six-decimal change printed "1.988443MB / 100MB"
+     * and, for usage under ~105 bytes, PHP's scientific notation -- measured, "4.8E-5MB". The first
+     * repair put `number_format($x, 2)` in the view and broke three asserted sentences:
+     * `DashboardFigureHonestyTest` pins "12MB / 500MB", "12 MB used of unlimited storage" and
+     * "12 MB used", and two fixed decimals render all three with a ".00". The docblock in
+     * `resources/views/dashboard.blade.php` states those same three sentences, so the view and its
+     * tests agreed and the change disagreed with both.
+     *
+     * Four properties, and no single `number_format()` call has all four:
+     *
+     *   a whole figure prints whole          12.0     -> "12"        (the three pinned sentences)
+     *   no exponent, at any magnitude        9.5e-7   -> "0.000001"
+     *   a stored file never reads as zero    1 byte   -> not "0"
+     *   a dashboard figure stays short       1.988443 -> "1.99"
+     *
+     * Two decimals fail the second and third -- every file under 5,243 bytes displays "0.00", which
+     * tells a merchant who is storing something that they are storing nothing, the same lie as the
+     * old charge in the opposite direction. Six decimals fail the first and fourth. So: two
+     * decimals with trailing zeros trimmed, widening to the stored precision ONLY when two decimals
+     * would collapse a nonzero figure to zero.
+     *
+     * No thousands separator, for the reason the rest of this class has none: `2500.0` must not
+     * become `"2,500"`, which is the string whose arithmetic started all of this.
+     */
+    public static function display(int|float $mebibytes): string
+    {
+        $value = max(0.0, (float) $mebibytes);
+
+        if ($value === 0.0) {
+            return '0';
+        }
+
+        $shown = self::trimTrailingZeros(number_format($value, self::DISPLAY_DECIMALS, '.', ''));
+
+        if ($shown === '0') {
+            $shown = self::trimTrailingZeros(number_format($value, self::DECIMALS, '.', ''));
+        }
+
+        return $shown === '' ? '0' : $shown;
+    }
+
+    /**
+     * "12.00" -> "12", "12.10" -> "12.1", "12.34" -> "12.34".
+     *
+     * Only ever called on `number_format()` output, which is why trimming the '0' characters is
+     * safe: the string is guaranteed to carry a '.' and a fixed number of decimals, so "500" can
+     * never arrive here and lose its zeros.
+     */
+    private static function trimTrailingZeros(string $fixedPoint): string
+    {
+        if (! str_contains($fixedPoint, '.')) {
+            return $fixedPoint;
+        }
+
+        return rtrim(rtrim($fixedPoint, '0'), '.');
+    }
+
     /** Stored usage plus a file, as a float. The caller decides what to do with the total. */
     public static function plus(mixed $stored, int|float $bytes): float
     {
