@@ -11,9 +11,87 @@ use Illuminate\Support\Facades\DB;
 use App\Facades\ModuleFacade as Module;
 use App\DataTables\PlanOrderDataTable;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Validation\Rule;
 
 class PlanController extends Controller
 {
+    /**
+     * THE APPROVED PLAN DURATIONS, AS A VALIDATION RULE — decision H1, option A.
+     * =============================================================================================
+     *
+     * `plans.duration` is `$table->string('duration')->nullable()`: free text. The rules in
+     * `store()` and `update()` covered `name`, `price`, `max_stores`, `max_products`, `max_users`
+     * and `storage_limit` and did not mention `duration` at all, and the form field is a
+     * `Form::select` over `Plan::$arrDuration` -- which constrains the browser, not the request.
+     *
+     * WHAT THAT COST, MEASURED. `App\Services\SaasRevenueFigures` computes the platform's MRR from
+     * this column. Before the READ side was hardened, a plan priced 1200 a year whose duration read
+     * `Yearly` fell down the monthly branch at its whole price and reported MRR 1200 instead of 100
+     * -- a twelvefold overstatement of the platform's own revenue, in the one figure that is meant
+     * to be the honest one. The read side now refuses to guess and sends an unreadable duration to
+     * a named bucket; this is the write side, so such a row can no longer be created.
+     *
+     * THE VOCABULARY HAS ONE DEFINITION. The set comes from `Plan::$arrDuration` -- the same
+     * property `getDurationsArr()` renders the select from -- and is NOT spelled out again here. A
+     * second literal list would drift from the form and from the figures the moment either moved,
+     * and introducing a new billing period is an owner decision rather than an edit to a rule
+     * string.
+     */
+    private function approvedDurationRule(): \Illuminate\Validation\Rules\In
+    {
+        return Rule::in(array_keys(Plan::$arrDuration));
+    }
+
+    /**
+     * The rule for CREATE: a plan must declare how often it is paid, as one of the approved words.
+     *
+     * `required` IS LOAD-BEARING HERE AND IT WAS MEASURED. Dropping it and keeping only the `in`
+     * rule lets a POST that carries no `duration` key at all through: `in` is not an implicit
+     * rule, so the validator skips it for an absent attribute, and the row persists with a null
+     * duration -- the column is nullable -- so every subscriber of that plan is uncountable.
+     * Driven by `test_a_missing_duration_is_refused_on_create`, which is the one create case that
+     * goes red when `required` is removed.
+     */
+    private function durationRulesForCreate(): array
+    {
+        return ['required', $this->approvedDurationRule()];
+    }
+
+    /**
+     * The rule for UPDATE, and the reason it is `sometimes` rather than a plain `required`.
+     *
+     * HISTORICAL VALUES ARE NOT REWRITTEN. A plan that already carries something else keeps it;
+     * the owner's instruction is to refuse new writes, not to correct rows that exist. Two
+     * measured reasons make `sometimes` the right shape, both pinned by
+     * `tests/Feature/Saas/PlanDurationValidationTest`:
+     *
+     *   1. `resources/views/plans/edit.blade.php` wraps the price AND duration fields in
+     *      `@if ($plan->id != 1)`, so an edit of the Free Plan -- present in every installation,
+     *      and the downgrade target both `refund()` and `assignPlan(1)` depend on -- submits no
+     *      `duration` key at all. A plain `required` would make that plan permanently un-editable
+     *      through its own form.
+     *   2. A `required` here would protect nothing. `update()` saves `$request->all()`, so a key
+     *      the request did not carry is never written to the column: an absent `duration` cannot
+     *      introduce an unapproved value. Refusing it would only block an edit to an unrelated
+     *      field on a row whose duration is already unapproved.
+     *
+     * `required` STAYS BEHIND `sometimes`, AND IT IS BELT-AND-BRACES RATHER THAN THE CONTROL --
+     * measured, so as not to be claimed as more than it is. A blank select arrives as null
+     * (`ConvertEmptyStringsToNull` is in Laravel's global middleware stack and is not removed in
+     * `bootstrap/app.php`), the attribute is still PRESENT, so the `in` rule runs on that null and
+     * refuses it on its own: removing `required` from this array leaves
+     * `test_a_blank_duration_is_refused_on_update` green. It is kept because the refusal then does
+     * not rest on a global middleware staying where it is -- `in` is not an implicit rule, so with
+     * the conversion out of the stack the validator skips it for `''` and
+     * `$plan->update($request->all())` would carry that empty string into the column, over a good
+     * value. `test_a_blank_duration_is_refused_even_if_empty_strings_are_not_converted` drives
+     * exactly that and is the case that goes red when `required` is dropped.
+     */
+    private function durationRulesForUpdate(): array
+    {
+        return ['sometimes', 'required', $this->approvedDurationRule()];
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -62,6 +140,7 @@ class PlanController extends Controller
             $validation = [];
             $validation['name'] = 'required|unique:plans';
             $validation['price'] = 'required|numeric|min:0';
+            $validation['duration'] = $this->durationRulesForCreate();
             $validation['max_stores'] = 'required|numeric';
             $validation['max_products'] = 'required|numeric';
             $validation['max_users'] = 'required|numeric';
@@ -137,6 +216,7 @@ class PlanController extends Controller
                             $request->all(), [
                                 'name' => 'required|unique:plans,name,' . $plan->id,
                                 'price' => 'numeric|min:0',
+                                'duration' => $this->durationRulesForUpdate(),
                                 'max_stores' => 'required|numeric',
                                 'max_products' => 'required|numeric',
                                 'max_users' => 'required|numeric',
@@ -147,6 +227,12 @@ class PlanController extends Controller
                         $validator = \Validator::make(
                             $request->all(), [
                                 'name' => 'required|unique:plans,name,' . $plan->id,
+                                // BOTH RULE SETS, not just the paid one. `$plan->price > 0` above
+                                // picks between them, so this is the branch the Free Plan and every
+                                // other zero-priced plan takes -- and `$plan->update($post)` writes
+                                // `duration` just the same. A rule in only one of these two arrays
+                                // would leave the whole defect reachable through the other.
+                                'duration' => $this->durationRulesForUpdate(),
                                 'max_stores' => 'required|numeric',
                                 'max_products' => 'required|numeric',
                                 'max_users' => 'required|numeric',
