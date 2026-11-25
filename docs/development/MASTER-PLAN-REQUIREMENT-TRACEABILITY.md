@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 171 VERIFIED COMPLETE. 179 are not.**
+**350 requirements recovered. 172 VERIFIED COMPLETE. 178 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 171 verified complete, 199 not.** It read 368/198
+project-wide figure is **370 known requirements, 172 verified complete, 198 not.** It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -101,13 +101,22 @@ against a pre-reorganization original.
 > killing exactly one case -- not because the defect family is finished. The row says so explicitly:
 > `product-detail-guest` is reported to disclose the same figure, and the siblings will be
 > registered as their own rows.
+>
+> **2026-11-25 (GAP-114).** `P03-E-04` moves IMPLEMENTED - VERIFICATION INCOMPLETE ->
+> **VERIFIED COMPLETE** (172 verified; that status 19 -> 18), and Phase 03 goes 10 -> 11 verified.
+> Promoted because the row's gap was the VERIFICATION and the verification now exists with three
+> mutations caught — not because the code changed; it needed no change. The row records what the
+> measurement corrected (`plans.themes` is NOT NULL, so the unrestricted state is an empty string)
+> and what it pins without fixing (a plan downgrade does not force a store off an excluded theme).
+> The requirement's other two halves — storefront session behaviour and the merchant-to-store
+> relationship — are still covered only indirectly, and the row says so.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **171** |
+| VERIFIED COMPLETE | **172** |
 | PARTIALLY IMPLEMENTED | **86** |
 | NOT IMPLEMENTED | **34** |
-| IMPLEMENTED - VERIFICATION INCOMPLETE | **19** |
+| IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
 | EXTERNALLY BLOCKED | **9** |
@@ -118,7 +127,7 @@ against a pre-reorganization original.
 | 01 Foundation — architecture, security, tenant isolation, pe | 70 | 15 | **55** |
 | 02 Merchant Experience | 114 | 100 | **14** |
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
-| 03 Storefront, Themes, Official Website and Documentation (M | 36 | 10 | **26** |
+| 03 Storefront, Themes, Official Website and Documentation (M | 36 | 11 | **25** |
 | 04 Commerce (P4-0 .. P4-9) | 43 | 16 | **27** |
 | 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 1 | **34** |
 
@@ -3869,17 +3878,20 @@ against a pre-reorganization original.
 
 ### `P03-E-04` — 03-E Shared design and quality
 
-**Status: IMPLEMENTED - VERIFICATION INCOMPLETE**
+**Status: VERIFIED COMPLETE** *(2026-11-25 — the theme-gating half; see the caveat under Gap)*
 
 - **Requirement (original wording / faithful reference):** "Ensure plan gating, storefront session behavior and existing merchant-to-store integration stay intact."
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Workstreams / 03-E (line ~172)`
 - **Expected behaviour:** Phase 03 does not break plan entitlements, storefront sessions or the merchant-to-store relationship.
 - **Actual behaviour:** Plan gating of themes is preserved in code: ThemeCustomizeController::index() reads Plan::find($user->plan_id) and restricts the theme list to $plan->themes, falling back to the three shipped themes when empty (app/Models/Plan.php exposes 'themes' in $fillable and splits the CSV). Storefront session behaviour and merchant-to-store integration are indirectly covered by the Feature suite remaining at its declared outcome set (8,828 passed, 2 declared failures, 1 declared skip, known-outcome gate matching exactly). I found no Phase 03 test that asserts plan gating of themes specifically.
 - **Implementation:** app/Http/Controllers/ThemeCustomizeController.php::index(), app/Models/Plan.php
-- **Evidence:** Known-outcome gate result quoted in PHASE-03-FINAL-REPORT.md §7; no targeted plan-gating test found
-- **Gap:** No direct test pins that a plan's themes list still constrains what the editor offers, even though M4 rewrote the surrounding authorization.
-- **Responsible:** phase 03
-- **Next action:** Add one test asserting a plan-restricted merchant is offered only their plan's themes in the editor.
+- **2026-11-25 — THE VERIFICATION NOW EXISTS.** `tests/Feature/Theme/ThemeEditorPlanConstraintTest.php`, 4 cases / 17 assertions, asserting the handler's **actual answer** (`viewData('themes')`) rather than the rendered page, which also names themes in copy and asset paths and would pass on a name never offered. **Three mutations, all caught:** ignoring the plan, dropping the empty-list fallback, dropping the current-theme exception. The constraint itself needed no change — it was already correct, which is why this row was `IMPLEMENTED - VERIFICATION INCOMPLETE` and not `NOT IMPLEMENTED`.
+- **Two things the measurement corrected, both of which a reader of the old row would have got wrong:** (1) `plans.themes` is `text` **NOT NULL**, so the "plan does not restrict themes" state is an **empty string**, not a null — which is exactly what the handler's `!empty()` tests, and a future tightening to `!== null` would silently empty the editor for every such plan. (2) **The store's CURRENT theme is offered even when the plan excludes it** (`array_unshift` before `array_unique`), which is the shape a plan DOWNGRADE produces. Pinned as behaviour and deliberately **not corrected**: hiding the theme a merchant is actually running would leave them unable to edit their live site, and forcing a downgraded store off its theme is a commercial decision engineering must not take.
+- **One test of mine was wrong in a way worth recording:** the current-theme case first used `markTestSkipped()` when `APP_THEME()` did not resolve as expected. Measured — removing the exception made that case **SKIP rather than FAIL**, a survived mutation hiding behind a skip, which reads as covered. It is also a manifest hazard, since the known-outcome gate asserts the skip SET in both directions. Replaced with a hard premise assertion.
+- **Evidence:** `tests/Feature/Theme/ThemeEditorPlanConstraintTest.php` (4 cases, 3 mutations caught); whole Theme suite 192 passed / 607 assertions on the same tree. The earlier known-outcome-gate figure quoted from PHASE-03-FINAL-REPORT.md §7 remains the evidence for the row's OTHER two halves.
+- **Gap:** The theme-gating half is closed. **The row's wording covers two more things this does not verify** — "storefront session behaviour" and "the merchant-to-store relationship" — which remain covered only indirectly, by the Feature suite holding its declared outcome set. That is weaker than a targeted test and is stated rather than implied.
+- **Responsible:** closed for theme gating; phase 03 for the other two halves
+- **Next action:** None for theme gating. If the other two halves are to be verified rather than inferred, they need their own targeted tests. **One owner question, not engineering work:** should a plan downgrade force a store off a theme its new plan excludes? Today it does not.
 
 ### `P03-M0-01` — M0 Prerequisites gate
 
