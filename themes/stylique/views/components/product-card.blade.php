@@ -11,7 +11,13 @@
                 class="w-full h-80 object-cover object-top product-image" />
             </a>
         
-            <div class="absolute top-4 right-4">
+            {{-- GAP-220 RTL: `end-4`, the LOGICAL inset, not the physical one. This container holds
+                 the wishlist control AND the conversion-action hook, and it used to compute
+                 `right: 16px` in both directions -- measured 16px from the card's right edge in
+                 Arabic as well, over the mirrored content. The theme's bundled Tailwind runtime JIT
+                 maps `end-*` to `inset-inline-end`, confirmed on a rendered page in Chromium.
+                 Changed in all three themes together. --}}
+            <div class="absolute top-4 end-4">
                 <button aria-label="{{ $product->in_whishlist ? __('Remove from Wishlist') : __('Add to Wishlist') }}" class="wishlist-btn wishbtn-globaly {{ $product->in_whishlist ? 'active' : ''}} relative flex bg-white rounded p-2 border" 
                         product_id="{{ $product->id }}"
                         in_wishlist="{{ $product->in_whishlist ? 'remove' : 'add' }}">

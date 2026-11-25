@@ -11,12 +11,18 @@
         class="bg-white product-card rounded-lg shadow-lg overflow-hidden transition duration-300 group flex flex-col border border-gray-100 h-full relative">
         {!! \App\Models\Product::productSalesPage( $store->slug, $product->id, false) !!}
 
-        {{-- `right-4` RATHER THAN A LOGICAL UTILITY, deliberately: techzonix and stylique both use
-             `right-4` for the same container, and `MKT-010` asks for PARITY. Using `end-4` here
-             alone would make greentic the only theme that mirrors in Arabic, which is a different
-             layout, not a fix. The shared RTL weakness of that utility is recorded in GAP-220
-             rather than corrected in one theme out of three. --}}
-        <div class="absolute top-4 right-4 z-10">
+        {{-- GAP-220 RTL, THE REMAINING HALF, NOW DONE IN ALL THREE THEMES AT ONCE.
+
+             This container used to carry the PHYSICAL inset, deliberately: the other two themes
+             carried it too, and mirroring greentic alone would have been a different layout rather
+             than a fix. All three now carry the LOGICAL one, so that reason is spent.
+
+             MEASURED in Chromium, not taken from Tailwind's documentation -- the storefront loads
+             the RUNTIME JIT (`themes/greentic/assets/js/tailwind.js`), so whether a logical utility
+             produces a rule at all is a property of THAT bundled copy. Before: computed
+             `right: 16px` in both directions, 17px from the card's right edge in Arabic as well,
+             sitting over the mirrored content. --}}
+        <div class="absolute top-4 end-4 z-10">
             {!! \App\Models\Product::actionLinks( $store, $product) !!}
         </div>
         

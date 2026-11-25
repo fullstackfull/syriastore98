@@ -18,7 +18,15 @@
                          sibling of the anchor inside the same positioned box, which is where
                          stylique already has it -- so this is also the parity fix. --}}
                     {!! \App\Models\Product::actionLinks( $store, $product) !!}
-                    <div class="pro-btn-wrapper absolute top-4 right-4 flex flex-col gap-3 transition-all duration-300">
+                    {{-- GAP-220 RTL: `end-4`, the LOGICAL inset, not the physical one. Measured in
+                         Chromium against this theme's own bundled Tailwind runtime JIT
+                         (`themes/techzonix/assets/js/tailwind.js`, which maps `end-*` to
+                         `inset-inline-end`): the overlay used to compute `right: 16px` in BOTH
+                         directions and sat 17px from the card's right edge in Arabic too, over the
+                         mirrored content. It now computes `inset-inline-end: 16px` and swaps sides
+                         with `dir`. Changed in all three themes at once, because one theme
+                         mirroring alone is a different layout rather than a fix. --}}
+                    <div class="pro-btn-wrapper absolute top-4 end-4 flex flex-col gap-3 transition-all duration-300">
                         {{-- M2-E a11y: techzonix's wishlist control is an <a>, not a <button> like the
                              other two themes, so the button-name sweep did not reach it. It only
                              became visible once the fixture's product grid actually rendered. --}}
