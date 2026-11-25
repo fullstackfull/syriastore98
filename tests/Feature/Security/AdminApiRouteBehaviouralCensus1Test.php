@@ -74,15 +74,17 @@ use Illuminate\Support\Facades\Schema;
  *
  * ────────────────────────────────────────────────────────────────────────── WHAT WAS MEASURED (31)
  *
- *   UNGATED — unpermissioned staff admitted (14): deletecategory, deleteproduct, deleteproductbrand,
- *     deleteproductlable, deletereview/{id}, base_url, categorylist, categoryproduct, countries,
- *     createproduct, createreview, get-bank-payment, get-cod-payment, get-currency-rates.
- *     Five of those destroy a row; one of them, a GET, CREATES thirteen rows in `currency_rates`.
- *   GATED — unpermissioned staff refused (17): deletecoupon, deleteorder, deleteshipping, deletetax,
- *     deletevariant, deliveryboysDestroy/{id}, destroyCustomer, orders/notes/delete, Top_orders,
- *     couponlist, customer/orders, customerlist, deliveryboysIndex (permission gates);
- *     deletestore (owner-identity gate); Home, delivery-order-list, delivery-transaction (driver
- *     guard — every `User` is refused, by design).
+ *   UNGATED — unpermissioned staff admitted (6): base_url, categoryproduct, countries,
+ *     createproduct, createreview, get-currency-rates. None of the six destroys a row.
+ *     `get-currency-rates` is here because its READ is deliberately open; its WRITE side (it seeds
+ *     thirteen `currency_rates` rows on a GET) is gated, and both halves are pinned below.
+ *   GATED — unpermissioned staff refused (25): deletecategory, deletecoupon, deleteorder,
+ *     deleteproduct, deleteproductbrand, deleteproductlable, deletereview/{id}, deleteshipping,
+ *     deletetax, deletevariant, deliveryboysDestroy/{id}, destroyCustomer, orders/notes/delete,
+ *     Top_orders, categorylist, couponlist, customer/orders, customerlist, deliveryboysIndex,
+ *     get-bank-payment, get-cod-payment (permission gates); deletestore (owner-identity gate);
+ *     Home, delivery-order-list, delivery-transaction (driver guard — every `User` is refused, by
+ *     design).
  *   VALIDATOR_FIRST — none. Every route was driven with complete, valid input, so no verdict here
  *     rests on a validator refusal.
  *   INCONCLUSIVE_FIXTURE — none. Every drive produced a decisive envelope; the fixture below exists
@@ -91,20 +93,37 @@ use Illuminate\Support\Facades\Schema;
  *     `deletestore`, `confirm_variant` for `deletevariant`, a `User` in the store for
  *     `createreview`, a product inside the category for `categoryproduct`).
  *
+ * ──────────────────────────────── EIGHT ROWS WERE FLIPPED FROM UNGATED TO GATED ON 2026-11-25
+ *
+ * `deletecategory`, `deleteproduct`, `deleteproductbrand`, `deleteproductlable`, `deletereview`,
+ * `categorylist`, `get-bank-payment` and `get-cod-payment` were UNGATED here and are now gated in
+ * `Api\DashboardController`. Each flipped pin was rewritten rather than deleted, because the
+ * measurement is still worth making in both directions: the refusal is asserted WITH the subject of
+ * the door read back (the row survived, the field was withheld) AND with the admissions that make
+ * that refusal mean something — a gate that refused everybody would otherwise read as a pass, which
+ * is the exact mistake caught in the sibling censuses. `get-currency-rates` kept its UNGATED verdict
+ * and had its write pin inverted: the seeding is now gated and the read is not.
+ *
+ * The gates themselves, their permission names and the twins they were read from live in
+ * `AdminApiCatalogueDeletePermissionTest`, which also drives the leg this file has no principal for:
+ * a PERMITTED STAFF COLLEAGUE, differing from the refused one only in holding the name the gate asks
+ * for. The two files are the two halves of one change.
+ *
  * ───────────────────────────────────────────────── EVERY PIN WAS CHECKED FOR BEING ABLE TO FAIL
  *
- * A pinned measurement that cannot fail is worth nothing, and nothing in app code was changed here
- * to prove otherwise -- so each class of assertion was inverted IN THIS FILE and re-run. Claiming
- * `deletecategory` is gated, claiming `deletecoupon` is ungated, replacing `deleteproduct`'s write
- * observable with `false`, and claiming the bank detail is withheld each turned its own test RED
- * and nothing else: 4 failed, 28 passed. The expectations were then restored and all 32 pass.
+ * A pinned measurement that cannot fail is worth nothing — so each class of assertion was inverted
+ * IN THIS FILE and re-run, without touching app code. Claiming `deletecategory` is ungated, claiming
+ * `deletecoupon` is ungated, replacing `deleteproduct`'s write observable with `false`, claiming the
+ * bank detail is served to the unpermissioned staff member, and claiming the unpermissioned GET
+ * still seeds the FX table each turned its own test RED and nothing else: 5 failed, 27 passed. The
+ * expectations were then restored and all 32 pass.
  *
- * ──────────────────────────────────────── THE UNGATED TESTS PIN PRESENT BEHAVIOUR, AWAITING A FIX
+ * ────────────────────────────────── THE SIX UNGATED TESTS PIN PRESENT BEHAVIOUR, AWAITING A FIX
  *
  * Every `*_is_ungated_*` method below asserts WHAT HAPPENS TODAY, so this file is green and does
  * not disturb `.github/known-test-outcomes.json`'s declared outcome set. Each one is a MEASUREMENT
  * AND NOT AN ENDORSEMENT: when a gate is added, the assertion fails and names the route, which is
- * the signal to delete the pin and replace it with the gate's own suite. The owner-limb asymmetries
+ * the signal to rewrite the pin as the eight above were rewritten. The owner-limb asymmetries
  * recorded on `deletevariant`, `couponlist` and `Top_orders` are FIXTURE-visible only — production
  * hands every self-registered merchant the global `admin` role, which `Utility.php` seeds with
  * `Edit Products`, `Manage Coupon` and `Manage Order` — so they are noted, not filed as defects.
@@ -269,7 +288,7 @@ class AdminApiRouteBehaviouralCensus1Test extends SecurityTestCase
             'deletecategory' => ['delete',
                 fn ($c) => ['/api/admin/deletecategory', ['store_id' => $c->store->id, 'category_id' => $c->emptyCategory->id]],
                 fn ($c) => DB::table('categories')->where('id', $c->emptyCategory->id)->doesntExist(),
-                'Manage Product Category'],
+                'Delete Product Category'],
 
             'deletecoupon' => ['delete',
                 fn ($c) => ['/api/admin/deletecoupon', ['store_id' => $c->store->id, 'coupon_id' => $c->coupon->id]],
@@ -289,17 +308,24 @@ class AdminApiRouteBehaviouralCensus1Test extends SecurityTestCase
             'deleteproductbrand' => ['delete',
                 fn ($c) => ['/api/admin/deleteproductbrand', ['store_id' => $c->store->id, 'productbrand_id' => $c->brand->id]],
                 fn ($c) => DB::table('product_brands')->where('id', $c->brand->id)->doesntExist(),
-                'Manage Product Brand'],
+                'Delete Product Brand'],
 
             'deleteproductlable' => ['delete',
                 fn ($c) => ['/api/admin/deleteproductlable', ['store_id' => $c->store->id, 'lable_id' => $c->label->id]],
                 fn ($c) => DB::table('product_labels')->where('id', $c->label->id)->doesntExist(),
-                'Manage Product Label'],
+                'Delete Product Label'],
 
+            /* `Delete Testimonial`, not `Manage Review`, which is what this row used to name and is
+               a permission NO ROW EXISTS FOR -- absent from `Utility::addNewData()` in both
+               directions. It was inert while this row was UNGATED (the `ownerPermitted` drive is
+               made only for a gated row), and gating the door is what made it matter. The name now
+               matches the handler's gate and the web twin it was read from,
+               `TestimonialController::destroy()`. `createreview` below still names it and is still
+               ungated, so that one is still inert -- recorded, not silently changed. */
             'deletereview' => ['delete',
                 fn ($c) => ['/api/admin/deletereview/' . $c->review->id, []],
                 fn ($c) => DB::table('testimonials')->where('id', $c->review->id)->doesntExist(),
-                'Manage Review'],
+                'Delete Testimonial'],
 
             'deleteshipping' => ['delete',
                 fn ($c) => ['/api/admin/deleteshipping', ['store_id' => $c->store->id, 'shipping_id' => $c->shipping->id]],
@@ -387,11 +413,13 @@ class AdminApiRouteBehaviouralCensus1Test extends SecurityTestCase
             'getCodPayment' => ['get',
                 fn ($c) => ['/api/admin/get-cod-payment?store_id=' . $c->store->id, []], null, 'Manage Setting'],
 
-            /* The only GET in the census with a write observable, and it is a MONEY table. */
+            /* The only GET in the census with a write observable, and it is a MONEY table. The
+               permission name is the one its write side now asks for, so the `ownerPermitted` drive
+               measures the seeding gate rather than nothing. */
             'getCurrencyRates' => ['get',
                 fn ($c) => ['/api/admin/get-currency-rates?store_id=' . $c->store->id, []],
                 fn ($c) => DB::table('currency_rates')->where('store_id', $c->store->id)->exists(),
-                null],
+                'Manage Setting'],
         ];
     }
 
@@ -600,81 +628,151 @@ class AdminApiRouteBehaviouralCensus1Test extends SecurityTestCase
         }
     }
 
-    // ════════════════════════════════════════════════════════ UNGATED (14) -- MEASURED, NOT WANTED
+    // ══════════════════════════════════════════════ GATED ON 2026-11-25 -- THE FIVE FLIPPED DELETES
+
+    /*
+     * EACH OF THE FIVE BELOW WAS AN `*_is_ungated_*` PIN AND IS NOW A GATE PIN, and each is written
+     * in the same three parts, because the refusal alone is satisfied by a gate that admits nobody:
+     *
+     *   1. the unpermissioned staff member is refused with an explicit 403 AND the row they aimed at
+     *      is read back out of the table, so "nothing was deleted" is asserted and not assumed;
+     *   2. the store's own OWNER, holding nothing, is admitted and the delete lands -- which is what
+     *      proves the fixture is deletable and the door still works, and is also the regression this
+     *      family has produced twice (a permission-only gate locks the owner out of their own store);
+     *   3. a principal granted the gate's OWN permission name is admitted and the delete lands.
+     *
+     * The permitted-COLLEAGUE leg -- a staff member differing from the refused one only in holding
+     * the name -- is the sharpest control of all and lives in
+     * `AdminApiCatalogueDeletePermissionTest`, which has a principal for it; this file's harness
+     * grants only to the owner.
+     */
 
     /**
-     * UNGATED. An unpermissioned staff member of the owning store DELETES a category.
+     * GATED (was UNGATED until 2026-11-25). `Delete Product Category`, the name
+     * `CategoryController::destroy()` uses -> 403 through `callerMayActInStore()`, placed below
+     * `resolveOwnedStore()` and above the row lookup.
      *
-     * The only control is `resolveOwnedStore($request->store_id)`, which is TENANCY and admits
-     * every employee of the merchant through `creatorId()`. Two integrity guards do fire -- the
-     * handler refuses a category holding products (the `products.category_id` cascade) or child
-     * categories -- so the loss here is bounded; it is still an un-permissioned irreversible delete,
-     * and `categories` has no soft delete.
-     *
-     * A MEASUREMENT AWAITING A FIX, pinned so the file stays green. The web twin,
-     * `CategoryController::destroy()`, gates on `Delete Product Category`.
+     * WHAT THE PIN USED TO SAY, because the history is the evidence: an unpermissioned staff member
+     * of the owning store DELETED a category, the only control being tenancy, which admits every
+     * employee of the merchant through `creatorId()`. Two integrity guards did fire -- the handler
+     * refuses a category holding products (the `products.category_id` cascade) or child categories --
+     * so the loss was bounded; it was still an unpermissioned irreversible delete, and `categories`
+     * has no soft delete.
      */
-    public function test_deletecategory_is_ungated_for_unpermissioned_staff(): void
+    public function test_deletecategory_is_gated(): void
     {
-        $r = $this->assertUngatedForUnpermissionedStaff('deletecategory');
-        $this->assertTrue($r->wrote, 'the category row survived, so nothing was measured');
+        $r = $this->assertGatedForUnpermissionedStaff('deletecategory');
+        $this->assertSame(403, $r->code, 'the category refusal is no longer a 403');
+        $this->assertTrue(
+            DB::table('categories')->where('id', $r->ctx->emptyCategory->id)->exists(),
+            'the envelope refused the unpermissioned staff member and the category is GONE'
+        );
 
         $this->assertAdmitted($this->drive('deletecategory', 'owner'), 'deletecategory', 'owner');
+        $this->assertAdmitted($this->drive('deletecategory', 'ownerPermitted'), 'deletecategory', 'permitted owner');
         $this->assertRefused($this->drive('deletecategory', 'foreign'), 'deletecategory', 'other tenant');
     }
 
     /**
-     * UNGATED, AND THE WORST ROW IN THIS GROUP. An unpermissioned staff member DESTROYS a product:
-     * the row, its `product_images`, every `carts` and `wishlists` line referencing it, and its
-     * image files on disk. Irreversible, no soft delete, no audit row.
+     * GATED (was UNGATED until 2026-11-25), AND IT WAS THE WORST ROW IN THAT GROUP. `Delete
+     * Products`, the name `ProductController::destroy()` uses -> 403 through
+     * `callerMayActInStore()`, below BOTH existing controls.
      *
-     * The handler's only checks are `OperatorCatalogueWrite::refuses()` (which withdraws this door
-     * from the PLATFORM OPERATOR -- the opposite axis) and `resolveOwnedStore()`, which is tenancy.
-     * Its web twin gates on `Delete Products`.
+     * WHAT THE PIN USED TO SAY: an unpermissioned staff member DESTROYED a product -- the row, its
+     * `product_images`, every `carts` and `wishlists` line referencing it, and its image files on
+     * disk. Irreversible, no soft delete, no audit row. The handler's only checks were
+     * `OperatorCatalogueWrite::refuses()` (which withdraws this door from the PLATFORM OPERATOR --
+     * the opposite axis) and `resolveOwnedStore()`, which is tenancy.
+     *
+     * THE OPERATOR STILL GETS F206'S OWN REFUSAL and not this gate's, because the new gate is below
+     * that one; pinned by `AdminApiCatalogueDeletePermissionTest`.
      */
-    public function test_deleteproduct_is_ungated_for_unpermissioned_staff(): void
+    public function test_deleteproduct_is_gated(): void
     {
-        $r = $this->assertUngatedForUnpermissionedStaff('deleteproduct');
-        $this->assertTrue($r->wrote, 'the product row survived, so nothing was measured');
+        $r = $this->assertGatedForUnpermissionedStaff('deleteproduct');
+        $this->assertSame(403, $r->code, 'the product refusal is no longer a 403');
+        $this->assertTrue(
+            DB::table('products')->where('id', $r->ctx->product->id)->exists(),
+            'the envelope refused the unpermissioned staff member and the product is GONE'
+        );
 
         $this->assertAdmitted($this->drive('deleteproduct', 'owner'), 'deleteproduct', 'owner');
+        $this->assertAdmitted($this->drive('deleteproduct', 'ownerPermitted'), 'deleteproduct', 'permitted owner');
         $this->assertRefused($this->drive('deleteproduct', 'foreign'), 'deleteproduct', 'other tenant');
     }
 
-    /** UNGATED. Tenant-only (`resolveOwnedStore()` + `ownedStoreIds()`); the brand row is destroyed. */
-    public function test_deleteproductbrand_is_ungated_for_unpermissioned_staff(): void
+    /**
+     * GATED (was UNGATED until 2026-11-25). `Delete Product Brand`
+     * (`ProductBrandController::destroy()`) -> 403. The tenancy controls are unchanged:
+     * `resolveOwnedStore()` for the store and `ownedStoreIds()` for the row, which stays
+     * tenant-wide because brands are stamped with the caller's `current_store`.
+     */
+    public function test_deleteproductbrand_is_gated(): void
     {
-        $r = $this->assertUngatedForUnpermissionedStaff('deleteproductbrand');
-        $this->assertTrue($r->wrote, 'the brand row survived, so nothing was measured');
+        $r = $this->assertGatedForUnpermissionedStaff('deleteproductbrand');
+        $this->assertSame(403, $r->code, 'the brand refusal is no longer a 403');
+        $this->assertTrue(
+            DB::table('product_brands')->where('id', $r->ctx->brand->id)->exists(),
+            'the envelope refused the unpermissioned staff member and the brand is GONE'
+        );
 
         $this->assertAdmitted($this->drive('deleteproductbrand', 'owner'), 'deleteproductbrand', 'owner');
+        $this->assertAdmitted($this->drive('deleteproductbrand', 'ownerPermitted'), 'deleteproductbrand', 'permitted owner');
         $this->assertRefused($this->drive('deleteproductbrand', 'foreign'), 'deleteproductbrand', 'other tenant');
     }
 
-    /** UNGATED. Same shape as the brand deleter; the label row is destroyed. */
-    public function test_deleteproductlable_is_ungated_for_unpermissioned_staff(): void
+    /**
+     * GATED (was UNGATED until 2026-11-25). `Delete Product Label`
+     * (`ProductLabelController::destroy()`) -> 403. Same shape as the brand deleter.
+     */
+    public function test_deleteproductlable_is_gated(): void
     {
-        $r = $this->assertUngatedForUnpermissionedStaff('deleteproductlable');
-        $this->assertTrue($r->wrote, 'the label row survived, so nothing was measured');
+        $r = $this->assertGatedForUnpermissionedStaff('deleteproductlable');
+        $this->assertSame(403, $r->code, 'the label refusal is no longer a 403');
+        $this->assertTrue(
+            DB::table('product_labels')->where('id', $r->ctx->label->id)->exists(),
+            'the envelope refused the unpermissioned staff member and the label is GONE'
+        );
 
         $this->assertAdmitted($this->drive('deleteproductlable', 'owner'), 'deleteproductlable', 'owner');
+        $this->assertAdmitted($this->drive('deleteproductlable', 'ownerPermitted'), 'deleteproductlable', 'permitted owner');
         $this->assertRefused($this->drive('deleteproductlable', 'foreign'), 'deleteproductlable', 'other tenant');
     }
 
     /**
-     * UNGATED. `DeleteReview($id)` takes the id from the PATH, loads the `Testimonial`, and derives
-     * the store FROM THE ROW -- so the tenancy repair (GAP-242) holds and another tenant is refused.
-     * There is no permission axis at all: any employee destroys any of their employer's reviews.
-     * `testimonials` has no soft delete.
+     * GATED (was UNGATED until 2026-11-25). `Delete Testimonial`
+     * (`TestimonialController::destroy()`) -> 403.
+     *
+     * `DeleteReview($id)` takes the id from the PATH, loads the `Testimonial`, and derives the store
+     * FROM THE ROW -- so the tenancy repair (GAP-242) holds, another tenant is refused, and the
+     * permission gate is evaluated against the store that owns the review rather than against any
+     * request input. Before the gate there was no permission axis at all: any employee destroyed any
+     * of their employer's reviews, and `testimonials` has no soft delete.
+     *
+     * THE FOREIGN REFUSAL IS STILL `Review not found.`, in the `error()` envelope, which is the same
+     * body "no such review" gets -- deliberately, so the door is not an existence oracle. That is
+     * only true while the permission gate sits BELOW the tenancy predicate.
      */
-    public function test_deletereview_is_ungated_for_unpermissioned_staff(): void
+    public function test_deletereview_is_gated(): void
     {
-        $r = $this->assertUngatedForUnpermissionedStaff('deletereview');
-        $this->assertTrue($r->wrote, 'the review row survived, so nothing was measured');
+        $r = $this->assertGatedForUnpermissionedStaff('deletereview');
+        $this->assertSame(403, $r->code, 'the review refusal is no longer a 403');
+        $this->assertTrue(
+            DB::table('testimonials')->where('id', $r->ctx->review->id)->exists(),
+            'the envelope refused the unpermissioned staff member and the review is GONE'
+        );
 
         $this->assertAdmitted($this->drive('deletereview', 'owner'), 'deletereview', 'owner');
-        $this->assertRefused($this->drive('deletereview', 'foreign'), 'deletereview', 'other tenant');
+        $this->assertAdmitted($this->drive('deletereview', 'ownerPermitted'), 'deletereview', 'permitted owner');
+
+        $foreign = $this->drive('deletereview', 'foreign');
+        $this->assertRefused($foreign, 'deletereview', 'other tenant');
+        $this->assertStringContainsString('Review not found.', $foreign->body,
+            'a merchant of another tenant is no longer refused by the TENANCY predicate, so the '
+            . 'permission gate has been placed above it and the door now says which reviews exist');
     }
+
+    // ════════════════════════════════════════════════════════ UNGATED (6) -- MEASURED, NOT WANTED
 
     /**
      * UNGATED, and the only route of the 31 with no `custom.auth` either -- see
@@ -694,17 +792,47 @@ class AdminApiRouteBehaviouralCensus1Test extends SecurityTestCase
     }
 
     /**
-     * UNGATED. The store's whole category tree, paginated. Tenancy holds (another tenant gets 403
-     * through `storeAccessDenied()`), and there is no permission axis -- while the SIBLING list
-     * endpoints in the same controller have one: `ProductList` gates on `Manage Products` and
-     * `CouponList` on `Manage Coupon`, both through `refuseWithoutPermission()`. So this is a gap in
-     * one of seven list handlers, not a design the surface took.
+     * GATED (was UNGATED until 2026-11-25). `Manage Product Category`, the name
+     * `CategoryController::index()` uses for the same screen -> 403.
+     *
+     * WHAT THE PIN USED TO SAY: the store's whole category tree, paginated, to any employee.
+     * Tenancy held (another tenant gets 403 through `storeAccessDenied()`) and there was no
+     * permission axis -- while the SIX SIBLING list endpoints in the same controller all had one:
+     * `ProductList` and `VariantList` on `Manage Products`, `CouponList` on `Manage Coupon`/`Show
+     * Coupon`, `ShippingList` on `Manage Shipping Class`, `TaxList` on `Manage Tax`, `ReviewList` on
+     * `Manage Testimonial`. It was a gap in one of seven, not a design the surface took.
+     *
+     * BOTH REFUSALS ON THIS DOOR ARE 403, so the CODE cannot tell the tenancy refusal from the
+     * permission one and the MESSAGE is asserted instead: `storeAccessDenied()` says "access this
+     * store", the permission gate says "perform this action". A foreign tenant must keep the former,
+     * which is only true while the gate sits below the tenancy control.
+     *
+     * The gate is `callerMayActInStore()` and not `refuseWithoutPermission()`, which is the split the
+     * six siblings already have: the three oldest use the helper with NO OWNER LIMB, which is why
+     * `couponlist` and `Top_orders` below refuse the store's own BARE owner, and the three newest use
+     * the owner-limbed one. The owner drive here asserts the new door took the latter.
      */
-    public function test_categorylist_is_ungated_for_unpermissioned_staff(): void
+    public function test_categorylist_is_gated(): void
     {
-        $this->assertUngatedForUnpermissionedStaff('categorylist');
-        $this->assertAdmitted($this->drive('categorylist', 'owner'), 'categorylist', 'owner');
-        $this->assertRefused($this->drive('categorylist', 'foreign'), 'categorylist', 'other tenant');
+        $r = $this->assertGatedForUnpermissionedStaff('categorylist');
+        $this->assertSame(403, $r->code, 'the categorylist refusal is no longer a 403');
+        $this->assertStringContainsString('perform this action', $r->body,
+            'the unpermissioned staff member was refused by something other than the permission '
+            . 'gate, so this row is measuring the wrong control');
+
+        $owner = $this->drive('categorylist', 'owner');
+        $this->assertAdmitted($owner, 'categorylist', 'bare store owner');
+        $this->assertStringContainsString($owner->ctx->category->name, $owner->body,
+            'the owner was admitted and the tree came back WITHOUT their category, so the refusal '
+            . 'above is not evidence that anything is being withheld');
+
+        $this->assertAdmitted($this->drive('categorylist', 'ownerPermitted'), 'categorylist', 'permitted owner');
+
+        $foreign = $this->drive('categorylist', 'foreign');
+        $this->assertRefused($foreign, 'categorylist', 'other tenant');
+        $this->assertStringContainsString('access this store', $foreign->body,
+            'a merchant of another tenant is no longer refused by the TENANCY control, so the '
+            . 'permission gate has been placed above it');
     }
 
     /** UNGATED. Every product id and name in a category. Tenant-only. */
@@ -753,50 +881,85 @@ class AdminApiRouteBehaviouralCensus1Test extends SecurityTestCase
     }
 
     /**
-     * UNGATED, AND IT SERVES THE STORE'S BANK DETAILS. `GetBankPayment` returns `bank_transfer` --
-     * the free-text account / IBAN block a shopper is told to pay into -- plus the uploaded
-     * transfer-slip image path, to any employee of the tenant. Its WRITE twin, `BankPayment`, is
-     * gated by `refuseUnlessMayAdministerStoreSettings()` (operator, owner, or `Manage Setting`), so
-     * on this one resource a staff member may READ the payment configuration they may not change.
+     * GATED (was UNGATED until 2026-11-25), AND IT SERVES THE STORE'S BANK DETAILS.
+     * `refuseUnlessMayAdministerStoreSettings()` -> 403: operator, tenant owner, or `Manage Setting`.
      *
-     * The assertion names the fixture's bank string, so the pin fails if the field stops being
-     * served as well as if a gate is added -- a weaker check would pass on an empty payload.
+     * WHAT THE PIN USED TO SAY: `GetBankPayment` returned `bank_transfer` -- the free-text account /
+     * IBAN block a shopper is told to pay into -- plus the uploaded transfer-slip image path, to any
+     * employee of the tenant. Its WRITE twin, `BankPayment`, was ALREADY gated by this exact
+     * predicate, and so was the READ twin one resource over, `GetStripePayment` -- so on this one
+     * resource a staff member could read the payment configuration they may not change.
+     *
+     * THE DISCLOSURE IS ASSERTED IN BOTH DIRECTIONS BY NAME. The refused drive must not carry
+     * `BANK_DETAIL`; the owner's drive must. Without the second half, "the bank detail is absent"
+     * would pass on an empty payload, a 500, or a handler that serves nobody.
      */
-    public function test_get_bank_payment_is_ungated_for_unpermissioned_staff(): void
+    public function test_get_bank_payment_is_gated(): void
     {
-        $r = $this->assertUngatedForUnpermissionedStaff('getBankPayment');
+        $r = $this->assertGatedForUnpermissionedStaff('getBankPayment');
+        $this->assertSame(403, $r->code, 'the bank-reader refusal is no longer a 403');
+        $this->assertStringNotContainsString(self::BANK_DETAIL, $r->body,
+            "LEAK: the store's bank details reached an unpermissioned staff member");
 
-        $this->assertStringContainsString(self::BANK_DETAIL, $r->body,
-            'the bank detail was not in the payload, so this drive did not measure the disclosure');
+        $owner = $this->drive('getBankPayment', 'owner');
+        $this->assertAdmitted($owner, 'getBankPayment', 'owner');
+        $this->assertStringContainsString(self::BANK_DETAIL, $owner->body,
+            'the owner was admitted and the bank detail was NOT in the payload, so the absence '
+            . 'asserted above is the fixture and not the gate');
 
-        $this->assertAdmitted($this->drive('getBankPayment', 'owner'), 'getBankPayment', 'owner');
+        $this->assertAdmitted($this->drive('getBankPayment', 'ownerPermitted'), 'getBankPayment', 'permitted owner');
         $this->assertRefused($this->drive('getBankPayment', 'foreign'), 'getBankPayment', 'other tenant');
     }
 
-    /** UNGATED. The COD payment configuration, same shape and same asymmetry as the bank reader. */
-    public function test_get_cod_payment_is_ungated_for_unpermissioned_staff(): void
+    /**
+     * GATED (was UNGATED until 2026-11-25). The COD payment configuration, same predicate and same
+     * history as the bank reader; its write twin `CodPayment` was already gated.
+     */
+    public function test_get_cod_payment_is_gated(): void
     {
-        $this->assertUngatedForUnpermissionedStaff('getCodPayment');
-        $this->assertAdmitted($this->drive('getCodPayment', 'owner'), 'getCodPayment', 'owner');
+        $r = $this->assertGatedForUnpermissionedStaff('getCodPayment');
+        $this->assertSame(403, $r->code, 'the COD-reader refusal is no longer a 403');
+        $this->assertStringNotContainsString('pay the driver', $r->body,
+            'the COD payment configuration reached an unpermissioned staff member');
+
+        $owner = $this->drive('getCodPayment', 'owner');
+        $this->assertAdmitted($owner, 'getCodPayment', 'owner');
+        $this->assertStringContainsString('pay the driver', $owner->body,
+            'the owner was admitted and the COD instruction was NOT in the payload, so the absence '
+            . 'asserted above is the fixture and not the gate');
+
+        $this->assertAdmitted($this->drive('getCodPayment', 'ownerPermitted'), 'getCodPayment', 'permitted owner');
         $this->assertRefused($this->drive('getCodPayment', 'foreign'), 'getCodPayment', 'other tenant');
     }
 
     /**
-     * UNGATED, AND A GET THAT WRITES THIRTEEN ROWS INTO A MONEY TABLE.
+     * STILL UNGATED ON ITS READ, AND NO LONGER A GET THAT WRITES FOR AN UNPERMISSIONED CALLER.
      * =============================================================================================
      *
-     * `getCurrencyRatesApi` has a tenancy gate and no permission axis. When the store holds no
-     * `currency_rates` rows it SEEDS THIRTEEN -- USD, EUR, SYP, LBP, IQD, EGP, JOD, SAR, AED, KWD,
-     * QAR, BHD, OMR -- each with `rate_per_usd = 1` and `is_active = 1`, stamped `created_by` =
-     * the caller. `rate_per_usd` is the divisor every displayed price is converted through, so a
-     * read request by a principal holding nothing establishes the store's FX table, with the
-     * Syrian pound at parity with the dollar.
+     * `getCurrencyRatesApi` has a tenancy gate and no permission axis ON THE READ. When the store
+     * holds no `currency_rates` rows it SEEDS THIRTEEN -- USD, EUR, SYP, LBP, IQD, EGP, JOD, SAR,
+     * AED, KWD, QAR, BHD, OMR -- each with `rate_per_usd = 1` and `is_active = 1`, stamped
+     * `created_by` = the caller. `rate_per_usd` is the divisor every displayed price is converted
+     * through, so until 2026-11-25 a read request by a principal holding nothing established the
+     * store's FX table, with the Syrian pound at parity with the dollar. THAT HALF IS NOW GATED, on
+     * `StoreSettingsAccess::permits()` -- the predicate its own write twins (`update-currency-rate`,
+     * `toggle-currency-status`, and the web `CurrencyRateController::update()`) already use.
      *
-     * It only fires on an EMPTY table -- an existing rate is never overwritten -- so this is a
-     * first-touch write, not a repricing. The premise below proves the table was empty first;
-     * without it the assertion would pass on rows the fixture had created.
+     * THE READ IS DELIBERATELY STILL OPEN, which is why this row keeps its UNGATED verdict rather
+     * than moving to the gated list. The web twin of the read, `CurrencyRateController::index()`
+     * (`routes/web.php:201`), carries `auth` and no permission at all, so a 403 here would make the
+     * API narrower than a screen the merchant's staff can already open, on a path the shipped app
+     * calls uncommented. Withdrawing a live capability is a separate product decision. The payload
+     * discloses nothing the storefront does not already show a shopper.
+     *
+     * THE WRITE ONLY EVER FIRED ON AN EMPTY TABLE -- an existing rate is never overwritten -- so it
+     * was a first-touch write and not a repricing, and for every store created through the product
+     * the rows already exist (`StoreController:211` / `:367`). The premise below proves the table was
+     * empty first; without it the assertion would pass on rows the fixture had created. The
+     * permitted drive is the positive control: it proves the seeding still works, so the zero
+     * asserted for the unpermissioned caller is the gate and not a handler that can no longer seed.
      */
-    public function test_get_currency_rates_is_ungated_and_unpermissioned_staff_seeds_the_fx_table(): void
+    public function test_get_currency_rates_read_is_ungated_but_the_seeding_write_is_gated(): void
     {
         $this->assertCurrencyRatesIsMigrated();
 
@@ -811,23 +974,35 @@ class AdminApiRouteBehaviouralCensus1Test extends SecurityTestCase
         $response = $this->bearer($this->tokenFor($c->staff))->getJson($uri);
 
         $this->assertSame(1, $response->json('status'),
-            'api/admin/get-currency-rates refused the unpermissioned staff member: '
+            'api/admin/get-currency-rates now REFUSES the unpermissioned staff member. Only its '
+            . 'seeding write was meant to be gated; a refusal here is narrower than the web twin '
+            . 'and is a new refusal on a path the shipped app calls: '
             . substr((string) $response->getContent(), 0, 300));
 
-        $rates = DB::table('currency_rates')->where('store_id', $c->store->id)->get();
+        $this->assertSame(0,
+            DB::table('currency_rates')->where('store_id', $c->store->id)->count(),
+            'the unpermissioned GET seeded the FX table. `rate_per_usd` is the divisor every '
+            . 'displayed price is converted through, and this caller holds nothing');
+
+        /* THE POSITIVE CONTROL. Same request, same fixture, same tenant; the owner differs only in
+           being able to administer the store's settings, and the thirteen rows appear. */
+        $owner = $this->drive('getCurrencyRates', 'owner');
+        $this->assertAdmitted($owner, 'getCurrencyRates', 'owner');
+
+        $rates = DB::table('currency_rates')->where('store_id', $owner->ctx->store->id)->get();
 
         $this->assertCount(13, $rates,
-            'the unpermissioned GET no longer seeds the FX table -- if a gate was added, delete '
-            . 'this pin; if the seeding moved, re-measure it');
+            'the owner was admitted and the FX table was NOT seeded, so this handler can no longer '
+            . 'seed at all and the zero asserted above measures nothing');
 
         $this->assertEqualsWithDelta(1.0, (float) $rates->firstWhere('currency_code', 'SYP')->rate_per_usd, 0.0001,
             'premise: the seeded Syrian-pound rate really is parity with the dollar');
 
-        $this->assertAdmitted($this->drive('getCurrencyRates', 'owner'), 'getCurrencyRates', 'owner');
+        $this->assertAdmitted($this->drive('getCurrencyRates', 'ownerPermitted'), 'getCurrencyRates', 'permitted owner');
         $this->assertRefused($this->drive('getCurrencyRates', 'foreign'), 'getCurrencyRates', 'other tenant');
     }
 
-    // ═════════════════════════════════════════════════════════════════════════ GATED (17)
+    // ═════════════════════════════════════════════════════════════════════════ GATED (25)
 
     /** GATED. `callerMayActInStore(['Delete Coupon','Manage Coupon'])` -> 403, above the row lookup. */
     public function test_deletecoupon_is_gated(): void
@@ -1063,21 +1238,27 @@ class AdminApiRouteBehaviouralCensus1Test extends SecurityTestCase
      */
     public function test_the_census_covers_exactly_the_thirty_one_assigned_routes(): void
     {
+        /* SIX, down from fourteen on 2026-11-25. `getCurrencyRates` is here on its READ; its
+           seeding WRITE is gated, which is why its pin is named for both halves. */
         $ungated = [
-            'deletecategory', 'deleteproduct', 'deleteproductbrand', 'deleteproductlable',
-            'deletereview', 'base_url', 'categorylist', 'categoryproduct', 'countries',
-            'createproduct', 'createreview', 'getBankPayment', 'getCodPayment', 'getCurrencyRates',
+            'base_url', 'categoryproduct', 'countries', 'createproduct', 'createreview',
+            'getCurrencyRates',
         ];
 
+        /* TWENTY-FIVE, up from seventeen: the eight flipped rows are `deletecategory`,
+           `deleteproduct`, `deleteproductbrand`, `deleteproductlable`, `deletereview`,
+           `categorylist`, `getBankPayment` and `getCodPayment`. */
         $gated = [
-            'deletecoupon', 'deleteorder', 'deleteshipping', 'deletetax', 'deletevariant',
+            'deletecategory', 'deletecoupon', 'deleteorder', 'deleteproduct', 'deleteproductbrand',
+            'deleteproductlable', 'deletereview', 'deleteshipping', 'deletetax', 'deletevariant',
             'deliveryboysDestroy', 'destroyCustomer', 'ordersNotesDelete', 'deletestore',
-            'Top_orders', 'couponlist', 'customerOrders', 'customerlist', 'deliveryboysIndex',
+            'Top_orders', 'categorylist', 'couponlist', 'customerOrders', 'customerlist',
+            'deliveryboysIndex', 'getBankPayment', 'getCodPayment',
             'Home', 'deliveryOrderList', 'deliveryTransaction',
         ];
 
-        $this->assertCount(14, $ungated);
-        $this->assertCount(17, $gated);
+        $this->assertCount(6, $ungated);
+        $this->assertCount(25, $gated);
 
         $verdicts = array_merge($ungated, $gated);
 
