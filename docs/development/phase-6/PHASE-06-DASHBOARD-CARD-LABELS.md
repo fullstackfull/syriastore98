@@ -118,7 +118,25 @@ Both rewrites preserve two properties of the original, and both properties have 
 | a renamed plan shows its current name | `Plan::find($plan_id)->name`, not the denormalised `plan_orders.plan_name` | unchanged — still `Plan::find()` | — |
 
 Without the `MIN(id)` tie-break, two equally popular plans could swap between requests on unchanged
-data. That tie-break is the **original's**, recovered by reading it, not a new choice.
+data.
+
+**One caveat on that reasoning, raised by review and verified — it changes the claim, not the
+result.** The original's row order was **not guaranteed by SQL**: `PlanOrder::pluck('plan_id','id')`
+had no `ORDER BY`, and it came back in primary-key order only because nothing could serve it from a
+covering secondary index — the migration indexes `order_id` (unique), `store_id` and the `user_id`
+foreign key, and **never `plan_id`**. Adding an index on `plan_id` would have changed the old
+tie-break silently. The honest claim is therefore *"equivalent to what the original actually got on
+both engines today, and strictly more deterministic"* — not *"reproduces a defined behaviour"*. The
+same holds for `PlanCoupon::get()`.
+
+**And one accepted divergence, recorded rather than built.** Both new queries rank from the **child**
+table and then look the parent up, so a winning group whose parent row is missing yields `''` and the
+card goes blank, where the original iterated existing parents and would have named the best
+surviving one. For coupons this is unreachable with the migrated schema — `plan_user_coupons.coupon_id`
+is `onDelete('cascade')` and SQLite foreign keys are on. For plans, `plan_orders.plan_id` is NOT NULL
+so there is no null group, but a `plan_id` of `0` would blank the card, and two gateway handlers pass
+`$plan->id ?? null` (`CashfreeController`, `KhaltiPaymnetController`). Falling through to the next
+group is more code than a blank card on an operator dashboard warrants.
 
 ---
 
@@ -203,12 +221,29 @@ The shipped ranking is therefore shape 4: grouped on `PlanUserCoupon`, the table
 `PlanCouponRankingFreshnessTest` pins it, and fails all three of its cases against the withdrawn
 implementation.
 
-**`toBase()` is defensive, not load-bearing, and that is measured too**: a mutation removing it
-**SURVIVED**. Freshness comes from grouping on the right model, not from bypassing the cache. It is
-kept because it avoids hydrating an Eloquent `PlanUserCoupon` from a row holding only `coupon_id` and
-a count, and because it matches `PlatformAnalyticsFigures::topStoresByPageViews()`. Nothing pins it;
-removing it would not be a defect. Said so at the call site rather than implying coverage that does
-not exist.
+**HOW BAD THIS WAS IN PRODUCTION — stated so the measurement above is not read as an incident.**
+`Caching::cache()` applies cache tags only for a `TaggableStore`. `ArrayStore` is one, and the suite
+uses it (`phpunit.xml`); **`DatabaseStore` is not**, and production runs `CACHE_STORE=database`,
+where `config/laravel-model-caching.php`'s own docblock records that every model save flushes the
+whole store. So the stale window was **unbounded in the suite** and in production closed on the next
+save of **any** `Cachable` model. Still wrong, still worth fixing — but writing this up as a
+production data-integrity bug would be an overclaim. Raised by review and verified here
+(`DatabaseStore` taggable: **no**; `ArrayStore`: **yes**).
+
+**`toBase()` is not what makes it fresh, and that is measured too**: a mutation removing it
+**SURVIVED**, because the tag is `plan_user_coupons` either way. Freshness comes from grouping on the
+right model. It is kept for three reasons, the third found by review:
+
+1. it avoids hydrating an Eloquent `PlanUserCoupon` from a row holding only `coupon_id` and a count;
+2. it matches `PlatformAnalyticsFigures::topStoresByPageViews()`, the other ranking on this screen;
+3. **`CacheKey::make()` has no `GROUP BY` component.** It composes table, model, columns, wheres,
+   havings, with-models, orderBy, offset, limit and bindings — so two aggregates over the same table
+   with the same select list and ordering but a different `groupBy` would collide on one cache key.
+   Latent today (there is no second such query), but a reason to keep `toBase()` rather than treat it
+   as removable.
+
+The first draft of this section called it merely "defensive". Reason 3 makes that too weak, so it is
+corrected here and at the call site — while still saying plainly that nothing in the suite pins it.
 
 ---
 
@@ -291,3 +326,41 @@ be inside the same card, and still builds the expected number by calling `countC
 | **`Store` → `مخزن` is the wrong Arabic word.** ar.json renders `Store` as `مخزن`, `Stores` as `المخازن` and `Total Store` as `إجمالي المخزن`. `مخزن` is a *warehouse/storeroom*, not a shop — and `Most Popular Store` in the same file correctly uses `متاجر`. The per-merchant tile this slice deliberately left alone therefore reads "total warehouse" in Arabic. Fixing it touches every surface using those three keys and needs its own measurement. | its own slice |
 | **The translation ratchet's missing direction** (§6): 35 en-only keys, mostly brand names that must stay untranslated, so it needs a proper-noun allowlist. | its own slice |
 | **`SetLocate` does unrelated writes on a GET.** Reading the locale resolution for §6 showed `SetLocate::handle()` calling `$user->assignPlan()` on an expired plan or trial, i.e. a plan mutation during locale resolution on every request. Not touched here; not measured. | lead, unverified |
+
+---
+
+## 10. The independent review, and what it corrected
+
+`tenant-authz-reviewer`, read-only, over the four changed files. **Headline: no authorization or
+tenancy defect.** It verified both halves of the breadth claim independently — `most_purchese_plan()`
+has exactly one caller; `handleSuperAdmin()` is private, called once, behind `$user->type == 'super
+admin'`; `/dashboard` is declared once with no shadowing later declaration; and the escalation that
+would break the gate is closed, because `users.type` is written only behind a tenant-scoped role
+lookup and `RolePolicy::RESERVED_NAMES`. It also reached the cache-staleness conclusion from the
+vendor source **before** reading the docblock that states it, which is the corroboration that
+matters most here.
+
+Four corrections, all verified before being accepted:
+
+| what it refuted | the correction |
+|---|---|
+| "these are platform-level tables with no tenant dimension" | **False for `plan_orders`**, which has a nullable, indexed `store_id` and has it in `$fillable`. True only for `plan_user_coupons`. The breadth is unchanged from the `pluck()` and the caller is operator-only, so it is not a hole — but the wording invited a future merchant-facing caller. Fixed at the call site. |
+| `toBase()` is "defensive" | Too weak: the cache key has no `GROUP BY` component (§5, reason 3). |
+| "measured stale" reads as a production incident | The suite's `ArrayStore` is taggable and production's `DatabaseStore` is not, so the window was unbounded in tests and brief in production (§5). |
+| the plan tie-break "is the original's" | The original's order was not SQL-guaranteed; it held only because no index covers `plan_id` (§3). |
+
+Two defects of my own in the changed source, both fixed: `Plan.php`'s docblock explained the null
+path via **`firstWhere()`**, which this method has never called (it calls `Plan::find()`) — the same
+class as the false test citation in §6; and one accepted divergence was undocumented (§3).
+
+Also confirmed by its own greps: **nothing invokes the removed `planUserCoupons()` relation** — the
+four remaining mentions in `app/` and `tests/` are all prose describing the withdrawn approach, which
+is intentional. A process note it raised is accepted: the working tree changed under it mid-review,
+because the review was launched before the staleness correction landed. The right order is to review
+the final tree.
+
+Two nitpicks taken as read, not acted on: `countCompany()` counts "merchants I created" rather than
+platform-wide, so on a multi-operator platform `Total Merchants` still slightly overstates (it agrees
+with the screen the card opens, which is the property that mattered); and neither the old loop nor the
+new query filters `plan_coupons.is_active`, so a deactivated coupon can still be the Popular Coupon —
+unchanged and pre-existing.

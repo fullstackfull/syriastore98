@@ -277,12 +277,27 @@ class HomeController extends Controller
          * `plan_user_coupons`, and a redemption write invalidates exactly that, so the figure
          * follows the data for the same reason the original loop did.
          *
-         * `toBase()` IS DEFENSIVE AND NOT WHAT MAKES IT FRESH -- measured, because a mutation that
-         * removed it SURVIVED `PlanCouponRankingFreshnessTest`. It is kept for two other reasons:
-         * it avoids hydrating an Eloquent `PlanUserCoupon` out of a row that holds only
-         * `coupon_id` and a count, and it is the shape
-         * `PlatformAnalyticsFigures::topStoresByPageViews()` already uses for a ranking on this
-         * screen. Nothing in the suite pins it; removing it would not be a defect.
+         * `toBase()` IS NOT WHAT MAKES IT FRESH -- measured, because a mutation that removed it
+         * SURVIVED `PlanCouponRankingFreshnessTest`: the tag would be `plan_user_coupons` either
+         * way. It is kept for three other reasons, the third found by independent review:
+         *   - it avoids hydrating an Eloquent `PlanUserCoupon` out of a row holding only
+         *     `coupon_id` and a count;
+         *   - it is the shape `PlatformAnalyticsFigures::topStoresByPageViews()` already uses for
+         *     a ranking on this screen;
+         *   - `CacheKey::make()` composes table, model, columns, wheres, havings, with-models,
+         *     orderBy, offset, limit and bindings, and has NO GROUP BY COMPONENT. Two aggregates
+         *     over the same table with the same select list and ordering but different `groupBy`
+         *     would therefore collide on one cache key. There is no second such query today, so
+         *     this is latent -- but it is a reason to keep `toBase()` rather than treat it as
+         *     removable.
+         *
+         * HOW BAD THE STALENESS WAS IN PRODUCTION, stated so nobody reads the measurement above as
+         * a production data-integrity incident. `Caching::cache()` applies tags only for a
+         * TaggableStore. `ArrayStore` is one and the suite uses it (`phpunit.xml`);
+         * `DatabaseStore` is NOT, and production runs `CACHE_STORE=database`, where
+         * `config/laravel-model-caching.php` records that every model save flushes the whole
+         * store. So the stale window was UNBOUNDED IN THE SUITE and closed in production on the
+         * next save of any `Cachable` model. Still wrong, still worth fixing; not an incident.
          *
          * `toBase()` drops Eloquent global scopes, which is safe here and was checked rather than
          * assumed: `PlanUserCoupon` has NO global scopes and is not in `config/tenancy.php`'s
