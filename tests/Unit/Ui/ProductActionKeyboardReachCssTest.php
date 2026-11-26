@@ -356,10 +356,140 @@ final class ProductActionKeyboardReachCssTest extends TestCase
     #[Test]
     public function test_the_always_visible_pdf_button_is_not_touched_by_the_layer(): void
     {
-        $this->assertStringNotContainsString(self::ALWAYS_VISIBLE, $this->live(self::LAYER),
-            '`.' . self::ALWAYS_VISIBLE . '` appears in a live rule in ' . self::LAYER . '. That '
-            . 'button is the control group: it is visible and reachable today because its module '
-            . 'ships no stylesheet, and a reachability fix that hides it has made things worse.');
+        /*
+         * NARROWED, NOT WEAKENED, AND THE DISTINCTION IS THE WHOLE POINT. What this protects is
+         * that GAP-256's REACHABILITY layer never touches the one button that was already
+         * reachable: its module ships no stylesheet, so it is the control group, and a
+         * reachability fix that hid it would have made things worse.
+         *
+         * GAP-273 then gave `.product-pdf-btn` a rule in this same file for an unrelated reason:
+         * its `ti ti-printer` icon is a TABLER class that no storefront stylesheet declares, so the
+         * glyph computed `content: none` and a `0 x 0` box — the control was EMPTY, not illegible,
+         * and the row's "1.00:1 white-on-white" was the element's inherited colour read on an
+         * element with no painted content. Section 7 supplies the glyph from the Font Awesome the
+         * storefront already loads and colours the PSEUDO-ELEMENT, which the vendored inline
+         * `style="color: white"` cannot reach.
+         *
+         * So the assertion now says what it always meant: no rule in this file may change that
+         * button's VISIBILITY, OPACITY or POINTER EVENTS. A glyph is not a reachability change, and
+         * the live harness proves the button's reachability is unchanged — 128 checks, 0 failed,
+         * including its touch tap target and its place in the tab order.
+         */
+        $live = $this->live(self::LAYER);
+
+        foreach ($this->rulesMentioning($live, self::ALWAYS_VISIBLE) as $rule) {
+            foreach (['visibility', 'opacity', 'pointer-events', 'display', 'transform'] as $property) {
+                $this->assertDoesNotMatchRegularExpression(
+                    '/(?<![-a-z])' . preg_quote($property, '/') . '\s*:/',
+                    $rule,
+                    'a live rule in ' . self::LAYER . ' changes `' . $property . '` for `.'
+                    . self::ALWAYS_VISIBLE . '`, which is the control group for GAP-256: it is '
+                    . 'visible and reachable today, and a reachability fix that hides it has made '
+                    . 'things worse. The rule was: ' . trim($rule)
+                );
+            }
+        }
+    }
+
+    /**
+     * GAP-273. THE PDF GLYPH RULE, AND THE BOUND THE DARK-MODE ALLOWLIST PROMISES.
+     *
+     * `StorefrontDarkModeLayerTest`'s allowlist admits `.product-pdf-btn i.ti-printer::before` as
+     * the first UNSCOPED rule in that stylesheet to declare a colour — the exact thing that gate
+     * exists to stop, because the 1.21:1 panels it remembers were literals leaking a light value
+     * into dark. The entry's argument is that this colour is a TOKEN and therefore holds no
+     * appearance-specific value to leak. This is the assertion that makes the argument checkable,
+     * and the allowlist entry says in terms: if this is ever removed, remove the entry with it.
+     *
+     * Measured through the real cascade on the rendered card, both locales, both appearances:
+     *     light  rgb(91,95,102)   on rgb(255,255,255)  = 6.42:1
+     *     dark   rgb(167,171,178) on rgb(38,43,51)     = 6.17:1
+     * against WCAG 1.4.11's 3:1 for a non-text control. Before: `content: none`, box `0 x 0` — no
+     * glyph at all, which is not what GAP-273's row records.
+     */
+    #[Test]
+    public function test_the_pdf_glyph_rule_takes_its_ink_from_a_token(): void
+    {
+        $rules = $this->rulesMentioning($this->live(self::LAYER), 'i.ti-printer::before');
+
+        $this->assertCount(1, $rules,
+            'there must be exactly one live rule for the PDF glyph. ' . count($rules) . ' found.');
+
+        $rule = $rules[0];
+
+        /* A TOKEN, NOT A LITERAL. This is the whole basis of the allowlist entry. */
+        $this->assertMatchesRegularExpression(
+            '/color\s*:\s*var\(\s*--ss-[a-z-]+/',
+            $rule,
+            'the PDF glyph rule no longer takes its ink from a design-system token. An unscoped '
+            . 'literal colour in this stylesheet is the defect the dark-mode gate exists to '
+            . 'prevent, and it would reproduce GAP-273 in whichever appearance it was not written '
+            . 'for. The rule was: ' . trim($rule)
+        );
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/color\s*:\s*(#|rgb|hsl|white|black)/i',
+            $rule,
+            'the PDF glyph rule declares a literal colour: ' . trim($rule)
+        );
+
+        /*
+         * NO `!important`. GAP-273's row expected this repair to need one, because an inline style
+         * cannot be out-specified. It does not: an inline style is a declaration for the ELEMENT
+         * and not for its `::before`, so this rule wins by being the only declaration there. If an
+         * `!important` ever appears here, that reasoning has been abandoned and should be re-read
+         * rather than patched.
+         */
+        $this->assertStringNotContainsString('!important', $rule,
+            'the PDF glyph rule has acquired an `!important`. It does not need one: the inline '
+            . 'style it works around is a declaration for the element, not for its pseudo-element.');
+
+        /*
+         * THE CODEPOINT MUST BE THE ONE THE THEME ACTUALLY SHIPS. `.fa-print` is declared in the
+         * theme's own Font Awesome as `--fa: "\f02f"`. Hard-coding a glyph that the loaded font
+         * does not have would paint a replacement box, which is a defect that LOOKS like a fix.
+         */
+        $this->assertMatchesRegularExpression('/content\s*:\s*"\\\\f02f"/', $rule,
+            'the PDF glyph rule no longer requests \f02f: ' . trim($rule));
+
+        $theme = (string) file_get_contents(base_path('themes/stylique/assets/css/all.min.css'));
+
+        $this->assertMatchesRegularExpression(
+            '/\.fa-print\s*\{\s*--fa:\s*"\\\\f02f"/',
+            $theme,
+            'the theme\'s Font Awesome no longer declares `.fa-print` with that codepoint, so the '
+            . 'glyph this rule requests may not exist in the font the storefront loads.'
+        );
+
+        $this->assertStringContainsString('font-family: "Font Awesome 6 Free"', $rule,
+            'the rule must name the family the storefront actually loads; the vendored class is a '
+            . 'Tabler one and Tabler is not loaded on the storefront at all.');
+    }
+
+    /**
+     * Every live declaration block whose selector mentions $class.
+     *
+     * Comment-stripped by `live()` before it gets here, because this file's own prose names
+     * `.product-pdf-btn` repeatedly and a census that reads comments can be satisfied — or broken
+     * — by prose about the thing it measures.
+     *
+     * @return list<string>
+     */
+    private function rulesMentioning(string $live, string $class): array
+    {
+        $rules = [];
+
+        if (preg_match_all('/([^{}]*)\{([^{}]*)\}/', $live, $all, PREG_SET_ORDER) === 0) {
+            return $rules;
+        }
+
+        foreach ($all as $match) {
+            if (str_contains($match[1], $class)) {
+                $rules[] = $match[2];
+            }
+        }
+
+        return $rules;
     }
 
     /* ============================================================ 3. every reveal */

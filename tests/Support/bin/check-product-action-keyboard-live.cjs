@@ -223,14 +223,47 @@ window.__gap256 = (function () {
         var icon = iconSelector ? e.querySelector(iconSelector) : null;
         var ink = null;
 
+        var inkSource = null;
+
         if (icon) {
             var ics = getComputedStyle(icon);
             /* An <svg><path> carries its colour as \`fill\`; an icon font as \`color\`. */
             ink = iconSelector.indexOf('path') >= 0 ? ics.fill : ics.color;
+            inkSource = 'element';
+
+            /*
+             * GAP-273. THE GLYPH OF AN ICON FONT IS PAINTED BY \`::before\`, NOT BY THE ELEMENT,
+             * and reading only the element's own \`color\` is what let this measurement be
+             * unactionable. \`.ti-printer:before\` carries the \`content\`
+             * (public/assets/fonts/tabler-icons.min.css:3916), so the pixels belong to the
+             * pseudo-element; it merely INHERITS \`color\` from the \`<i>\` unless an author rule
+             * targets it directly.
+             *
+             * THAT DISTINCTION IS THE WHOLE REPAIR. An inline \`style="color: white"\` on the
+             * \`<i>\` cannot be beaten by any stylesheet rule for that element without
+             * \`!important\` -- but it is not a rule for \`::before\` at all, so a host rule on
+             * \`i::before\` wins on nothing more than being the only declaration there.
+             *
+             * AND WITHOUT THIS READ THE FIX WOULD HAVE LOOKED INERT: the element's \`color\` stays
+             * white afterwards, because nothing changed it. A probe measuring the element would
+             * have reported 1.00:1 against a repaired screen -- the mirror image of this project's
+             * inert-repair finding, and the reason the pseudo-element's value is reported BESIDE
+             * the element's rather than instead of it.
+             */
+            if (iconSelector.indexOf('path') < 0) {
+                var pcs = getComputedStyle(icon, '::before');
+
+                if (pcs && pcs.content && pcs.content !== 'none' && pcs.color) {
+                    ink = pcs.color;
+                    inkSource = '::before';
+                }
+            }
         }
 
         return {
             tag: e.tagName.toLowerCase(),
+            inkSource: inkSource,
+            inkElement: icon && iconSelector.indexOf('path') < 0 ? getComputedStyle(icon).color : null,
             visibility: cs.visibility,
             opacity: Number(cs.opacity),
             pointerEvents: cs.pointerEvents,
@@ -603,7 +636,13 @@ window.__gap256 = (function () {
 
                     const ratio = contrast(ink, bg);
 
-                    console.log(`       ${mode.padEnd(5)} ${s.label.padEnd(11)} ${st.ink} on ${st.inkBackdrop} = ${ratio.toFixed(2)}:1`);
+                    /* GAP-273: `[::before]` or `[element]` says WHICH value was read, so a repair
+                       that moves only the pseudo-element cannot be mistaken for an inert one, and
+                       a probe that silently fell back to the element announces itself. */
+                    const inkNote = st.inkSource === '::before' && st.inkElement && st.inkElement !== st.ink
+                        ? ` [::before; the <i> itself is still ${st.inkElement}]`
+                        : ` [${st.inkSource}]`;
+                    console.log(`       ${mode.padEnd(5)} ${s.label.padEnd(11)} ${st.ink} on ${st.inkBackdrop} = ${ratio.toFixed(2)}:1${inkNote}`);
 
                     /* 3:1 is WCAG 1.4.11's floor for a non-text indicator, which is what an icon
                        inside a named control is. These are not text. */

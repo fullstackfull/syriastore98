@@ -149,7 +149,43 @@ class StorefrontDarkModeLayerTest extends TestCase
              * ENTRY WITH IT. Narrow by construction: every section-6 selector carries
              * `.ss-product-actions`, and nothing else in this stylesheet does.
              */
-            '.ss-product-actions'];
+            '.ss-product-actions',
+            /*
+             * GAP-273: the PDF conversion action's glyph — THE FIRST ENTRY HERE THAT DECLARES A
+             * COLOUR WHILE BEING UNSCOPED, which is the thing this gate exists to stop, so the
+             * argument has to be better than the others rather than merely as good.
+             *
+             * WHAT THE RULE IS. `ProductsPDF` marks its icon `ti ti-printer` — a TABLER class.
+             * No storefront stylesheet declares it; Tabler is a merchant-admin asset. Measured on
+             * the rendered card with all eleven stylesheets loaded: `content: none`,
+             * `font-family: Roboto, sans-serif`, box `0 x 0`. THE CONTROL WAS EMPTY, not
+             * illegible, and the row's "1.00:1 white-on-white" was the element's INHERITED colour
+             * read on an element with no painted content. Section 7 supplies the glyph from the
+             * Font Awesome the storefront already loads and colours the `::before`, which the
+             * vendored inline `style="color: white"` cannot reach — so no `!important` anywhere.
+             *
+             * WHY IT CANNOT BE APPEARANCE-SCOPED, which is the same argument as section 6 and
+             * ends in the opposite place. `data-ss-theme` is written by an inline SCRIPT, so an
+             * appearance-scoped selector does not match with scripting off. If only `content` and
+             * `font-family` were unscoped and the colour were scoped, a no-script visitor would
+             * get the glyph painting in the INHERITED WHITE on the white card — the original
+             * defect, restored, in exactly the configuration nobody would test. The colour has to
+             * be unscoped for the repair to hold.
+             *
+             * WHY AN UNSCOPED COLOUR IS SAFE HERE AND WAS NOT BEFORE. The 1.21:1 panels this gate
+             * remembers were LITERALS leaking a light value into dark. This declares
+             * `var(--ss-fg-muted)`, which the design system redefines per appearance — measured
+             * through the real cascade: rgb(91,95,102) on the white card = 6.42:1, and
+             * rgb(167,171,178) on the dark card rgb(38,43,51) = 6.17:1. It cannot leak, because
+             * it holds no appearance-specific value to leak.
+             *
+             * THE EXCEPTION IS BOUNDED BY A TEST, NOT BY TRUST.
+             * `ProductActionKeyboardReachCssTest::test_the_pdf_glyph_rule_takes_its_ink_from_a_token`
+             * fails the moment that colour becomes a literal, or an `!important` appears, or the
+             * codepoint stops matching the theme's own `--fa` for `.fa-print`. IF THAT ASSERTION
+             * IS EVER REMOVED, REMOVE THIS ENTRY WITH IT.
+             */
+            '.product-pdf-btn i.ti-printer::before'];
 
         $unscoped = [];
 

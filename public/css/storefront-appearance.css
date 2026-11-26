@@ -363,3 +363,41 @@
         transition: none;
     }
 }
+
+/* 7. GAP-273 — THE PDF CONVERSION ACTION HAD NO GLYPH AT ALL, WHICH IS NOT WHAT ITS ROW SAYS.
+      -------------------------------------------------------------------------------------------
+      The row records `ProductsPDF`'s printer icon as "1.00:1 white-on-white in light mode", from
+      an inline `style="color: white"` on the icon. The inline style is real. The reading is not:
+      measured on the rendered card with every storefront stylesheet loaded, the icon computes
+
+          content: none      font-family: Roboto, sans-serif      box: 0 x 0
+
+      because `ti ti-printer` is a TABLER class and no storefront stylesheet declares it. Tabler is
+      a merchant-admin asset; the storefront ships Font Awesome. So there is no glyph to be white,
+      in either theme or either direction, and the 1.00:1 was the element's INHERITED colour read
+      on an element with no painted content — the same false positive this project has recorded
+      before, where a probe measured an anchor's inherited colour on an element that had no text.
+      The control was not illegible. It was empty.
+
+      WHY THIS NEEDS NO `!important`, WHICH THE ROW EXPECTED IT TO.
+      An inline style is a declaration for THE ELEMENT. It is not a declaration for the element's
+      `::before`, which merely INHERITS `color` when nothing else sets it. So an author rule on the
+      pseudo-element wins by being the only declaration there, at (0,3,1) against nothing. This is
+      the same remedy this project already uses when a host rule cannot be out-specified — put the
+      ink somewhere the host declaration cannot reach — applied to a pseudo-element instead of to a
+      wrapper element, because the markup here is vendored and may not be edited.
+
+      THE GLYPH COMES FROM THE FONT THE STOREFRONT ALREADY LOADS. `.fa-print` is declared in
+      `themes/stylique/assets/css/all.min.css` as `--fa: "\f02f"`, and a probe injecting
+      `fas fa-print` into the rendered card paints 16x16 in "Font Awesome 6 Free". No new asset, no
+      new request, and nothing added to the vendored module.
+
+      THE COLOUR IS A TOKEN, NOT A HEX, because the storefront card is white in light and
+      rgb(38,43,51) in dark: a fixed ink would repeat the original defect in the other theme.
+      `--ss-fg-muted` is the family the three sibling actions already sit in. */
+.product-pdf-btn i.ti-printer::before {
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    content: "\f02f";
+    color: var(--ss-fg-muted);
+}
