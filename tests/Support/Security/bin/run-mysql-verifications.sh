@@ -762,6 +762,19 @@ run_one verify-order-write-transaction-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=order_write_transaction_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# GAP-294 -- WHAT A NULL `orders.final_price` MEANS. A null gives a ZERO refund ceiling, so every
+# refund on that order is refused 422 (measured by verify-refund-total-coercion). This script
+# MEASURES AND RECOMMENDS; it applies no migration, because the proposed `NOT NULL DEFAULT 0` is not
+# schema-only -- it REWRITES existing NULLs to 0, irreversibly, and a NULL total ("unknown") is a
+# different claim from a 0.00 total ("nothing to pay"). It also establishes that the state is NOT
+# reachable through the application: no first-party line assigns a null to the attribute, and the
+# one function every order write passes its total through cannot return null. The deciding figure --
+# how many production rows carry a NULL -- is NOT measurable in this tree (incident #120 forbids a
+# dump here), so the script prints the query for an operator instead.
+run_one verify-null-final-price-ceiling-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=null_final_price_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}   skipped: ${#SKIPPED[@]}"
 if [ "${#SKIPPED[@]}" -gt 0 ]; then
