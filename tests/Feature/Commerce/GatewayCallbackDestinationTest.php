@@ -250,33 +250,103 @@ class GatewayCallbackDestinationTest extends TestCase
     }
 
     /**
-     * THE SETTLEMENT HALF, RECORDED RATHER THAN FIXED.
+     * THE SETTLEMENT HALF, NOW REQUIRED — THE TRIPWIRE FIRED AND THIS IS WHAT REPLACED IT.
      *
-     * `PaymentController::getProductStatus` gates its only Tap charge lookup on
-     * `payment_type == 'Tap'` and has NO `benefit` branch at all, so a storefront Benefit order is
-     * written with no capture verification whatsoever — settlement rests entirely on the shopper's
-     * browser reaching the redirect URL.
+     * UNTIL GAP-138 / `P5-FIN-6` this case asserted the OPPOSITE: that
+     * `PaymentController::getProductStatus` contains no `== 'benefit'`, because a storefront
+     * Benefit order was written with no capture verification whatsoever and the honest assertion
+     * for a finding that is recorded and not fixed is the direction that is true today. Its own
+     * message said what to do when the branch arrived — "replace it with a case that REQUIRES the
+     * branch to reach a charge lookup before claimGatewayReturn()" — and that is this case,
+     * written to that instruction rather than deleted.
      *
-     * ASSERTED IN THE DIRECTION THAT IS TRUE TODAY, which is the honest thing for a finding that
-     * is recorded and not fixed. The day a `benefit` verification branch is added, this test fails
-     * and is rewritten to require it — a deliberate tripwire, and the message says so, so nobody
-     * reads the green as "Benefit settlement is verified".
+     * KEYED ON THE ORDER OF TWO CALLS, NOT ON EITHER ONE'S PRESENCE, because presence is the part
+     * that cannot go quietly wrong. `claimGatewayReturn()` makes the stored checkout state
+     * single-use; a verification that ran AFTER it would refuse the shopper AND burn their state,
+     * so a real payment could not be retried. That ordering is the whole reason the `Tap` arm sits
+     * where it does, and this is the only check in the suite that can see it move.
+     *
+     * COMMENT-STRIPPED by `codeOf()`, which matters more here than usual: the branch's own docblock
+     * quotes `claimGatewayReturn()`, `benefitChargeStatus()` and both spellings of Benefit while
+     * explaining them, so an unstripped read would find every token it looks for in prose.
      */
-    public function test_recorded_the_storefront_return_still_has_no_benefit_verification_branch(): void
+    public function test_the_storefront_return_verifies_a_benefit_capture_before_claiming_the_return(): void
     {
         $code = $this->codeOf('app/Http/Controllers/PaymentController.php');
 
-        $this->assertStringContainsString("'Tap'", $code,
+        /*
+         * ANCHORED ON THE TAP BRANCH'S OWN COMPARISON, not on the bare literal. An independent
+         * review found that `'Tap'` also occurs in the `in_array(...)` dispatch list at :3194, so
+         * the first form of this line would have held with the Tap branch deleted.
+         */
+        $this->assertStringContainsString("\$requests_data['payment_type'] == 'Tap'", $code,
             'the Tap branch has moved — re-read this test before trusting it');
 
-        $this->assertStringNotContainsString(
-            "== 'benefit'",
-            $code,
-            'A `benefit` branch has appeared on the storefront return. THAT IS GOOD NEWS AND THIS '
-            . 'TEST IS NOW WRONG: it records the ABSENCE of capture verification for Benefit '
-            . '(P4-F046, owner-escalated). Replace it with a case that REQUIRES the branch to '
-            . 'reach a charge lookup before claimGatewayReturn().'
+        $benefitBranch = strpos($code, "== 'benefit'");
+        /*
+         * THE CALL, NOT THE DECLARATION. `benefitChargeStatus(` alone matched the `protected
+         * function` declaration, which sits ABOVE the branch -- so both the presence assertion and
+         * the ordering assertion below held whether or not the branch ever called it. Found by the
+         * same review; the behavioural cases in `BenefitCaptureVerificationTest` did cover the gap,
+         * so this was tripwire hygiene rather than a hole, but a tripwire that can be satisfied by
+         * a declaration is not one.
+         */
+        $chargeLookup = strpos($code, '$this->benefitChargeStatus(');
+        $chargeClaim = strpos($code, '$this->claimBenefitCharge(');
+        $claim = strpos($code, "claimGatewayReturn(\$request, 'storefront-return'");
+
+        $this->assertNotFalse(
+            $benefitBranch,
+            'The storefront return no longer has a `benefit` branch, so a Benefit order is once '
+            . 'again written with no capture verification (GAP-138 / P5-FIN-6).'
         );
+
+        $this->assertNotFalse(
+            $chargeLookup,
+            'The `benefit` branch no longer CALLS the charge lookup, so it verifies nothing.'
+        );
+
+        $this->assertNotFalse(
+            $chargeClaim,
+            'The `benefit` branch no longer claims the charge id, so one captured charge can pay '
+            . 'for unlimited orders again: the charge is bound to no basket (processBenefit sends a '
+            . 'CONSTANT reference) and claimGatewayReturn() keys on the checkout nonce alone for '
+            . 'this rail, so a fresh checkout is not a replay. See claimBenefitCharge().'
+        );
+
+        $this->assertLessThan(
+            $claim,
+            $chargeClaim,
+            'The charge claim now happens after the return has been claimed.'
+        );
+
+        $this->assertNotFalse($claim, 'the storefront claim has moved — re-read this test');
+
+        $this->assertLessThan(
+            $claim,
+            $benefitBranch,
+            'The `benefit` branch now sits BELOW claimGatewayReturn(), which makes the stored '
+            . 'checkout state single-use: a refusal there would burn a real shopper\'s state and '
+            . 'they could not retry. Keep it beside the Tap arm, above the claim.'
+        );
+
+        $this->assertLessThan(
+            $claim,
+            $chargeLookup,
+            'The charge lookup now happens after the return has been claimed.'
+        );
+
+        /*
+         * THE SEAM'S CONTRACT, asserted against the class rather than the text. GAP-138's rule for
+         * the POST half was that the transport is replaceable ONLY by subclassing — no property, no
+         * setter, no production binding — and `public` would make it callable from anywhere while
+         * `private` would make the test double impossible. Exactly `protected` is the contract.
+         */
+        $seam = new \ReflectionMethod(\App\Http\Controllers\PaymentController::class, 'benefitChargeStatus');
+
+        $this->assertTrue($seam->isProtected(),
+            'benefitChargeStatus() must stay protected: public widens a gateway call to every '
+            . 'caller, private makes the test double that keeps this suite off the network impossible.');
     }
 
     /** First-party PHP: `app/` only. `packages/workdo/` is vendored and must not be edited. */

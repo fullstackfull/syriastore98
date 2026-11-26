@@ -688,6 +688,20 @@ else
   CLI_CONN=(--host="${HOST}" --port="${PORT}" --user="${USER_NAME}" --pass="${PASS}")
 fi
 
+# GAP-295 -- verify-theme-publish-concurrency-on-mysql WAS THE ONE FLAKY SCRIPT ON THIS ROSTER,
+# and the finding was not a failing assertion but a VARYING one: the same tree and server reported
+# "20 checks, 0 failed" and then "18 checks, 1 failed". MEASURED ROOT CAUSE: its racing child had to
+# boot a Laravel application before parking, and the parent released the barrier after a FIXED
+# usleep(400000). Boot-to-barrier measures 363-476ms on an IDLE machine -- 6 of 10 samples already
+# over the 400ms budget -- and 1997-6592ms under the load of a roster run, 5x to 16x over. So under
+# the very conditions this roster creates the child found `.go` already present, never parked, and
+# the two publishes ran at whatever offset the scheduler produced. The dangerous outcome was the
+# PASS: a late child is usually refused cleanly, so the assertions held while measuring something
+# that was not a race.
+#
+# Now a two-phase handshake (the child writes `.racer-ready` BEFORE waiting; the parent blocks on
+# it), an assertion that the child really was parked, every check unconditional, and the check COUNT
+# declared and asserted so an aborted section is a named shortfall instead of a quieter pass.
 for label in \
   verify-gate-f-migrations-on-mysql \
   verify-interrupted-theme-migration-on-mysql \
@@ -729,6 +743,39 @@ run_one verify-dashboard-rankings-on-mysql \
 # collation fix (it asked for MySQL 8's `utf8mb4_0900_ai_ci`, which MariaDB does not implement,
 # instead of the `utf8mb4_unicode_ci` this application actually configures) is in the script.
 # To make it MEASURE rather than skip on MariaDB, give the run the probe account described above.
+
+# ===========================================================================================
+# GAP-121 / P04-EV-01 -- the four money paths. The row: "Coupon allocation, tax banding, refund
+# totals and the new transaction boundary have no MySQL verification; production is MySQL with
+# CACHE_STORE=database." These four close that, one script per path. Each states in its own header
+# what about its path is GENUINELY engine-specific and what is not, because padding a harness with
+# properties that do not depend on the engine is how a directory of evidence stops being evidence.
+#
+# Two of them MEASURE AND DO NOT FIX, deliberately. The tax band is an open owner decision -- the
+# double-applied band charges 267.00 where 245.00 is correct, pinned by
+# Gap143ShippingTaxOrderTotalsTest so a fix cannot pass unnoticed -- and CLAUDE.md §2 reserves
+# "material changes to prices/payments" to the owner. verify-tax-band-totals also REPORTS a second,
+# separate finding it did not fix: tax_methods.priority is a VARCHAR, so the server's ORDER BY is
+# lexicographic and "10" precedes "9". verify-refund-total-coercion likewise reports that a NULL
+# orders.final_price gives a ZERO refund ceiling.
+run_one verify-coupon-allocation-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=coupon_allocation_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+run_one verify-tax-band-totals-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=tax_band_totals_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+run_one verify-refund-total-coercion-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=refund_total_coercion_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# Two NAMED CONNECTIONS, so there is a real second server session to observe the boundary from --
+# the thing phpunit.xml's SQLite :memory: cannot provide at all, and the reason the suite's own
+# OrderWriteTransactionTest docblock calls its assertions structural.
+run_one verify-order-write-transaction-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=order_write_transaction_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}   skipped: ${#SKIPPED[@]}"

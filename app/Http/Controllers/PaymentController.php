@@ -1164,8 +1164,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :4200, `DB::commit()` :4375, `$owner->email`
- * :4431, `OrderCompleteBinding::remember()` :4520. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :4473, `DB::commit()` :4648, `$owner->email`
+ * :4704, `OrderCompleteBinding::remember()` :4793. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
@@ -3231,10 +3231,14 @@ public function handlePaymeraTrigger00($orderId)
              *
              * THE GUARD IS ON THE TYPE, NOT THE PAYMENT METHOD, deliberately. Every gateway that
              * falls through to this branch and returns a redirect has the same defect, so testing
-             * the type fixes them all at once. Writing `$paymentMethod == 'benefit'` would fix one
-             * AND turn GatewayCallbackDestinationTest red, because that test asserts this file
-             * contains no `== 'benefit'` -- such a string would signal a capture-verification
-             * branch that does not exist.
+             * the type fixes them all at once; `$paymentMethod == 'benefit'` would fix one.
+             *
+             * THE SECOND REASON THIS PARAGRAPH USED TO GIVE IS NOW SPENT, and is corrected rather
+             * than left to mislead: it said such a string would also turn
+             * `GatewayCallbackDestinationTest` red, because that test asserted this file contains
+             * no `== 'benefit'` -- a tripwire holding the ABSENCE of capture verification. GAP-138
+             * / `P5-FIN-6` added the verification, so that case now REQUIRES the branch and the
+             * string is no longer a signal of anything. The type guard stands on its first reason.
              */
             if ($response instanceof \Illuminate\Http\RedirectResponse) {
                 return $response;
@@ -3269,6 +3273,122 @@ public function handlePaymeraTrigger00($orderId)
         } catch (\Throwable $th) {
             // Silently handle mail errors
         }
+    }
+
+    /**
+     * ASK TAP WHETHER A BENEFIT CHARGE WAS CAPTURED. GAP-138 / `P5-FIN-6`.
+     *
+     * THE ONLY REASON THIS IS A METHOD: `App\Package\Payment::getCharge()` is a raw `curl_init()`
+     * (`app/Package/Payment.php:154`), so `Http::fake()` cannot see the call and there is nothing
+     * to intercept -- the same seam gap `GatewayCallbackDestinationTest` records for the vendored
+     * `new Client()`. Pulling the lookup into one overridable method gives the branch above the
+     * seam the gateway client lacks, so `BenefitCaptureVerificationTest` can drive the REAL route
+     * and assert on what production would have asked, with no request to api.tap.company -- for
+     * which no credential exists here and which must not be probed.
+     *
+     * IT IS NOT A SWAPPABLE TRANSPORT, and that is the rule GAP-138's own
+     * `SendsBenefitCharge::sendBenefitCharge()` set for the POST half: no property, no setter and
+     * NO production container binding, so the only way to replace it is to subclass -- which is
+     * what a test double does and what nothing in production does. A mutable transport on a
+     * payment path would be a worse thing than the defect being fixed.
+     *
+     * THE BENEFIT KEY IN THE `tap_secret_key` SLOT IS CORRECT AND DELIBERATE, odd as it reads.
+     * Benefit IS Tap: `processBenefit()` sends the charge to `api.tap.company/v2/charges` bearing
+     * `benefit_secret_key`, and `BenefitPaymentController::call_back()` -- this repository's
+     * existing Benefit verification, on the plan rail -- reads the same charge back from
+     * `api.tap.company/v2/charges/{tap_id}` with the same key. `getCharge()` names its one
+     * credential `tap_secret_key`; the store's Benefit key is what belongs in it.
+     *
+     * NOT UNIFIED WITH THE PLAN RAIL, and the difference is recorded rather than resolved:
+     * `call_back()` gates on `$data->gateway->response->code == '00'` (the acquirer's code) while
+     * this gates on `status === 'CAPTURED'` (Tap's own charge status), which is what the `Tap` arm
+     * beside it on THIS handler uses. Keeping one handler internally consistent is the narrow
+     * choice; deciding which of the two predicates every Benefit rail should share is a money-path
+     * question for the owner, not a side effect of adding a missing check.
+     *
+     * @param  string  $chargeId  the `tap_id` the return carried, already proved a non-empty string
+     * @param  mixed  $storeId  the order's own store, from the SERVER-STORED checkout state
+     * @return object|false  the decoded charge, or false as `getCharge()` answers for a null id
+     */
+    /**
+     * ONE CAPTURED BENEFIT CHARGE PAYS FOR AT MOST ONE ORDER. GAP-138 / `P5-FIN-6`, round 2.
+     *
+     * WHAT THE FIRST FORM OF THIS BRANCH MISSED, found by an independent review and real:
+     * `status === 'CAPTURED'` asked whether a charge was captured and NOTHING asked which checkout
+     * it paid for. The charge is bound to nothing -- `PaymentService::processBenefit()` sends a
+     * CONSTANT reference (`"reference" => ["transaction" => "txn_01", "order" => "ord_01"]`), so
+     * the charge carries no tie to a basket -- and `claimGatewayReturn()` does not close it either:
+     * `gatewayTransactionReference()` yields a reference for `khalti` and `cinetpay` only, so on
+     * this rail the claim keys on the CHECKOUT NONCE alone, and a new checkout mints a fresh nonce.
+     * So one genuinely captured `tap_id`, kept from the shopper's own URL bar, authorised unlimited
+     * further Benefit orders of any size: pay 1.00, start a second checkout with an expensive
+     * basket, abandon the Tap page, and replay the return. Mitigated only by the order landing
+     * `Pending`, so the damage is stock, a phantom order and an emptied basket.
+     *
+     * THE SAME CONTRACT `claimGatewayReturn()` ALREADY USES, deliberately, rather than a second
+     * mechanism: `Cache::add()` is atomic, so the first caller to claim a key wins and every later
+     * one is refused, and the key shape and TTL are copied from
+     * `GuardsGatewayReturn::gatewayReturnClaimKeys()`'s own `payment` key.
+     *
+     * NOT FIXED BY TEACHING `gatewayTransactionReference()` ABOUT `tap_id`, which looks tidier and
+     * is wider than the finding: that method is keyed on the GATEWAY (`storefront-return`), not the
+     * payment type, so a `tap_id` reference there would start claiming `Tap`'s own returns too --
+     * a behaviour change to a second payment type this task did not examine.
+     *
+     * TAKEN AFTER THE STATUS CHECK AND BEFORE ANYTHING ELSE. A charge that is not CAPTURED must not
+     * burn its own id, or a shopper who completes the payment on a second attempt would be refused
+     * for a charge that never paid for anything.
+     *
+     * THE RESIDUAL, RECORDED: the claim is taken before the order is written, so a failure LATER in
+     * this handler leaves the id claimed until the TTL expires and a legitimate retry is refused.
+     * `releaseGatewayReturnClaim()` is the existing mechanism for exactly that ("Give the claim
+     * back, because this return did not take money after all") and wiring it in here is a second
+     * change on a money path; it is reported rather than taken.
+     *
+     * THE AMOUNT HALF IS DELIBERATELY NOT HERE, AND THIS IS THE REASON RATHER THAN AN OMISSION.
+     * The review's fix had two parts: claim the charge, and compare `$benefitCharge->amount`
+     * against `GuardsGatewayReturn::serverPayableAmount($requests_data)`. The claim is unambiguous
+     * and is taken. The comparison is not, and the blocker is a currency scale I cannot settle from
+     * the code:
+     *
+     *   - `serverPayableAmount()` returns `round((float) $state['cartlist_final_price'], 2)` -- TWO
+     *     decimal places.
+     *   - `OrderTotalReconciler::amountsMatch()`, this repository's own comparator and the right one
+     *     to use, compares at `SCALE = 4` and returns FALSE rather than rounding when a value is not
+     *     exactly representable at that scale. That is deliberate in it and correct.
+     *   - Benefit IS the Bahraini network, and BHD has THREE decimal places. `processBenefit()`
+     *     sends the UNROUNDED `cartlist_final_price` as the charge amount, so for a 3-decimal
+     *     currency the figure Tap captured and the figure `serverPayableAmount()` returns can
+     *     differ in the third decimal -- and the comparator would then refuse a genuine payment.
+     *
+     * Whether `cartlist_final_price` ever carries three decimals, and whether Tap echoes the amount
+     * at the currency's own scale, are facts about data and a provider's behaviour that are not in
+     * this repository. Guessing either way moves money: too loose and the binding is theatre, too
+     * tight and real Bahraini payments are refused. So it is reported, not implemented. Settling it
+     * needs one fact -- the stored `cartlist_final_price` for a BHD store -- and then it is a
+     * three-line addition here.
+     *
+     * The currency itself is likewise not compared, for the same reason: `processBenefit()` sends
+     * the store's `CURRENCY_NAME` setting, so a store that edited that setting between initiation
+     * and return would have a legitimate payment refused by a naive equality.
+     *
+     * @return bool true when this request now owns the charge, false when something already did
+     */
+    protected function claimBenefitCharge(string $chargeId, $storeId): bool
+    {
+        $key = 'gateway-return-claim:payment:benefit:'
+            . (empty($storeId) ? 'no-store' : $storeId)
+            . ':' . sha1($chargeId);
+
+        return \Illuminate\Support\Facades\Cache::add($key, 'storefront-return', 172800);
+    }
+
+    protected function benefitChargeStatus($chargeId, $storeId)
+    {
+        $benefit_secret_key = \App\Models\Utility::GetValueByName('benefit_secret_key', $storeId);
+        $BenefitPay = new \App\Package\Payment(['tap_secret_key' => $benefit_secret_key]);
+
+        return $BenefitPay->getCharge($chargeId);
     }
 
     public function getProductStatus(Request $request, $slug)
@@ -3384,6 +3504,159 @@ public function handlePaymeraTrigger00($orderId)
                     }
                 }
             } catch (\Exception $th) {
+                return redirect()->route('checkout', $slug)->with('error', __('Your Transaction is fail please try again.'));
+            }
+        }
+
+        /*
+         * GAP-138 / `P5-FIN-6` -- BENEFIT CAPTURE VERIFICATION ON THE RETURN URL.
+         * =========================================================================================
+         *
+         * WHAT THIS IS AND IS NOT, narrowed twice by independent review because both earlier
+         * headings claimed more than the code does:
+         *
+         *   NOT "the settlement half, now taken". Only REFUSAL is established. A PASSING check does
+         *   not make an order Paid -- see the disposition note below -- so this changes when an
+         *   order is REFUSED, not when a payment is ACCEPTED.
+         *
+         *   NOT "a Benefit checkout is verified". This guards ONE route: the Benefit return URL.
+         *   The same `request_data` state is read by two other anonymous routes that write the order
+         *   with no `payment_type` gate at all -- `PaiementProPaymentController::getProductStatus`,
+         *   whose own docblock says "The order is still always written", and `CinetPayController`,
+         *   whose only gate is `if ($request->responsecode == 0)` where `null == 0` is TRUE in
+         *   PHP 8. So a Benefit checkout can still be completed through a sibling return. That is
+         *   PRE-EXISTING in those controllers, is registered as its own row, and is deliberately
+         *   NOT widened into here.
+         *
+         * THE DISPOSITION QUESTION, ANSWERED FROM THE CODE because four documents still call this
+         * work "NOT started" and `docs/finance/P4-F046-...md:119` records "whether the storefront
+         * return should gain a benefit capture check at all" as an open owner decision.
+         *
+         * A passing check CANNOT produce a Paid order today -- but NOT for the reason one would
+         * reach for. `PaymentVerificationService::resolveOrderPaymentStatus()` branches in this
+         * order: COD -> Pending; in `OFFLINE_PAYMENT_TYPES` -> Paid (`benefit` is absent); the
+         * verification record is null -> Pending; nonce mismatch -> Pending; the record's type does
+         * not match -> Pending; **NOT in `ENFORCED_PAYMENT_TYPES` -> PAID, with no amount
+         * comparison**. `benefit` is absent from that list too, so that last branch would return
+         * **Paid**. "Absent from both constants" therefore argues the WRONG way.
+         *
+         * What actually forces Pending is that `benefit` can never reach that branch: it needs a
+         * verification record whose `payment_type` is exactly `'benefit'`, and the complete set of
+         * `recordVerification()` call sites in `app/` is FIVE, each with a hardcoded lowercase
+         * literal -- `authorizenet`, `khalti`, `nmi`, `paymera` twice -- and none takes a variable.
+         * So `consumeVerification()` answers null here and the order is Pending.
+         *
+         * AND THAT IS FRAGILE IN A NAMED WAY. Adding `recordVerification('benefit', ...)` -- the
+         * natural next step for this very feature -- would land `benefit` on the "not enforced ->
+         * Paid" branch and make the order PAID WITHOUT COMPARING THE AMOUNT. Anyone taking that
+         * step must add `'benefit'` to `ENFORCED_PAYMENT_TYPES` in the same change.
+         *
+         * MEASURED BEFORE THIS BLOCK EXISTED: the arm above was the ONLY charge lookup in this
+         * method, and it is gated on `'Tap'`. A storefront Benefit payment reaches this same handler
+         * -- `PaymentService::processBenefit()` sets `"redirect" => ["url" => route(
+         * 'store.payment.status', $slug)]` -- with `payment_type` `'benefit'`, matched nothing here,
+         * and fell straight through to `claimGatewayReturn()` and the order write. Settlement rested
+         * entirely on the shopper's browser reaching a URL the shopper controls, and the only
+         * evidence of payment it carries, `tap_id`, was read by nothing on this rail.
+         * `GatewayCallbackDestinationTest` held that absence as a deliberate tripwire; it now
+         * requires this branch instead.
+         *
+         * THIS CAN ONLY REFUSE. It adds no arm to `PaymentService`, enables no payment method and
+         * touches no amount, total or charge -- which matters because the three VENDORED Benefit
+         * rails post `'Benefit'`, match no `case` and fall to a 422, and GAP-138 refused to
+         * intercept them precisely because doing so would have CREATED a live charge where the
+         * product errors today. The storefront rail is different and was measured: `$paymentMethod`
+         * is `$request->payment_type` validated against `getValidPaymentTypes()`, whose entry is the
+         * lower-case `'benefit'` -- the spelling `PaymentService:418`'s `case 'benefit':` matches --
+         * so this rail is live, and a shopper who really paid still gets their order below.
+         *
+         * PLACED HERE, BESIDE THE `Tap` ARM AND ABOVE `claimGatewayReturn()`, for the reason that
+         * block's own comment gives: the finality checks must run before the single-use claim, so a
+         * payment that is not finished leaves the stored state intact and the shopper can come back.
+         *
+         * NO CHARGE ID IS A REFUSAL, AND THAT IS THE ONE PLACE THIS DIFFERS FROM THE ARM ABOVE.
+         * `Tap`'s reads `if (isset($request->tap_id))`: no id, no lookup, order written. Copying
+         * that would leave a verification any shopper defeats by deleting one query parameter from
+         * their own return URL -- which is not a weaker control, it is none. A Benefit return with
+         * no charge id did not come from Tap. `Tap`'s arm is deliberately NOT changed here: it is a
+         * second gateway on a different row, and altering settlement for payments this task did not
+         * examine is exactly the widening a money-path change must not do.
+         *
+         * `is_string()` AND NOT `isset()`, because `?tap_id[]=x` satisfies `isset` and is the shape
+         * `GuardsPlanActivation:309` records on the sibling Benefit rail -- an array reaching a
+         * string parameter is a TypeError, i.e. a 500 on a money path instead of a refusal.
+         *
+         * DEFAULT-DENY, read off a local that starts false: a throw from the lookup (a curl error,
+         * or Tap answering 200 with an `errors[]` body -- both raise from
+         * `App\Package\Payment::getCharge()`), a `false` return (its answer for a null id), and a
+         * body with no `status` all leave `$benefitCaptured` false. The shopper is told the same
+         * sentence the `Tap` arm tells them, which is already translated in both language files, and
+         * it is a 302 to checkout -- never a 401, which the shipped Flutter app force-logs-out on.
+         *
+         * THE `is_object`/`isset` PAIR IS DEFENCE AND NOT A DECISION, AND A SURVIVING MUTANT SAYS SO.
+         * Deleting both -- leaving a bare `$benefitCharge->status === 'CAPTURED'` -- was mutated and
+         * SURVIVED every case in `BenefitCaptureVerificationTest`. That is reported rather than
+         * papered over with a weaker mutation, because the reason is that the two forms cannot
+         * disagree: on a `false` or a status-less body the bare form reads a property on a non-object,
+         * which is a PHP 8 warning that `HandleExceptions` turns into an `ErrorException` and the
+         * `catch` below converts to the same refusal -- and where warnings are not converted it
+         * yields null, which is also not `'CAPTURED'`. Every input refuses either way, so no test can
+         * tell them apart. The pair is kept because depending on a warning-to-exception conversion
+         * for a money-path decision is a worse thing to rely on than two cheap predicates, not
+         * because it changes an answer.
+         */
+        if ($requests_data['payment_type'] == 'benefit') {
+            $benefitCaptured = false;
+            $benefitRefusal = 'the charge was not established';
+            $benefitChargeId = null;
+            $benefitStatus = null;
+
+            try {
+                $benefitChargeId = $request->tap_id;
+
+                if (! is_string($benefitChargeId) || $benefitChargeId === '') {
+                    $benefitRefusal = 'the return carried no usable charge id';
+                } else {
+                    $benefitCharge = $this->benefitChargeStatus(
+                        $benefitChargeId,
+                        $requests_data['store_id']
+                    );
+
+                    if (! is_object($benefitCharge) || ! isset($benefitCharge->status)) {
+                        $benefitRefusal = 'the provider returned no charge status';
+                    } else {
+                        $benefitStatus = (string) $benefitCharge->status;
+
+                        if ($benefitStatus !== 'CAPTURED') {
+                            $benefitRefusal = 'the charge is not CAPTURED';
+                        } elseif (! $this->claimBenefitCharge($benefitChargeId, $requests_data['store_id'] ?? null)) {
+                            $benefitRefusal = 'this charge has already paid for an order';
+                        } else {
+                            $benefitCaptured = true;
+                        }
+                    }
+                }
+            } catch (\Throwable $th) {
+                $benefitCaptured = false;
+                $benefitRefusal = 'the charge lookup failed: ' . $th->getMessage();
+            }
+
+            if (! $benefitCaptured) {
+                /*
+                 * THE REFUSAL IS RECORDED, which the first form of this branch did not do. An
+                 * independent review named it: a curl error and a declined charge were
+                 * indistinguishable, so a shopper whose charge really WAS captured could be
+                 * refused and nothing anywhere would say so. Every sibling refusal in this method
+                 * logs; this one now does too, with the one piece of evidence that lets a human
+                 * reconcile it against the provider.
+                 */
+                \Log::warning('Benefit return refused: the capture was not established', [
+                    'reason' => $benefitRefusal,
+                    'charge_id' => is_string($benefitChargeId) ? $benefitChargeId : null,
+                    'charge_status' => $benefitStatus,
+                    'store_id' => $requests_data['store_id'] ?? null,
+                ]);
+
                 return redirect()->route('checkout', $slug)->with('error', __('Your Transaction is fail please try again.'));
             }
         }

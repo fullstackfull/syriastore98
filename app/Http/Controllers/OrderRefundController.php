@@ -100,6 +100,103 @@ class OrderRefundController extends Controller
     }
 
     /**
+     * WHO DID THIS. GAP-140 / P4-F086's sibling, P4-F087.
+     *
+     * WHAT WAS MISSING. Measured at HEAD: the only actor identifier anywhere in this controller
+     * was `user_id` on the SETTINGS row written by `updateStatus()`. None of the mutators recorded
+     * who accepted a return, who rejected one (which rewrites the order's `final_price`,
+     * `product_price` and `product_json`), who put the goods back on the shelf, or who marked the
+     * money paid out. A merchant with several staff could not answer "who approved this refund",
+     * and neither could the platform operator after the fact.
+     *
+     * `AuditLog::record()` IS THE MECHANISM THIS APPLICATION ALREADY USES for exactly this -- 18
+     * call sites before this change, across the finance, plan, store, user and theme writers -- so
+     * no column, no table and no migration is added. It reads the `web` guard EXPLICITLY (a
+     * `Customer` or a `DeliveryBoy` on the default guard writes `null` rather than a foreign id),
+     * and `AuditAttribution::storeFor()` files the row under the SUBJECT's own `store_id`, which
+     * is what keeps an operator's action out of the fabricated store 1 that `getCurrentStore()`
+     * hands them.
+     *
+     * CALLED AFTER THE WRITE HAS COMMITTED, NEVER BEFORE, AND NEVER ON A REFUSAL. A row claiming
+     * an action that did not happen is worse than no row -- the same reasoning
+     * `markRefundedLinesRestored()` records for the stock marker -- and it is asserted from both
+     * sides by `RefundPolicyEnforcementTest::test_a_refused_mutation_records_no_actor_row`.
+     *
+     * OUTSIDE the mutation's own transaction, also deliberately: an audit insert that failed would
+     * otherwise roll back the refund it describes, which would turn a recording gap into a
+     * financial one. The trade is the opposite residual -- a committed refund whose audit row
+     * failed to write -- and that is the safe direction for this pair.
+     *
+     * AND THEREFORE GUARDED, WHICH IS THE ONE PLACE THIS DIFFERS FROM THE 18 EXISTING CALL SITES.
+     * Each of those records a write it is PART of: a throw there refuses the write, which is
+     * correct. This one runs after the commit, so an unguarded throw would answer HTTP 500 with the
+     * refund, the stock movement or the payout ALREADY STANDING -- the half-written state
+     * CLAUDE.md records as the shape of a real defect (a 500 after a commit is not a refusal).
+     * That is not hypothetical for this table: `audit_logs` was applied to production out of band
+     * and its migration is a documented no-op there, so the schema it depends on is not something
+     * this code can assert.
+     *
+     * The failure is LOUD in the log and silent to the caller, at `error` rather than `warning` or
+     * `critical`, which keeps it out of `docs/security/P01-OBSERVABILITY-INVENTORY.md`'s declared
+     * set -- it is a recording fault, not a control firing. The rows themselves are pinned by
+     * `RefundPolicyEnforcementTest`, so a regression that stops them being written is caught there
+     * rather than by this catch going quiet.
+     *
+     * THE PREVIOUS STATUS IS PASSED IN, AND THAT IS A CORRECTION TO THIS METHOD'S FIRST FORM
+     * RATHER THAN A STYLE CHOICE. It read `$refund->getOriginal('refund_status')`, which is the
+     * NEW value by the time this runs: `Model::save()` calls `finishSave()` and that calls
+     * `syncOriginal()`, so after `$refund->update(['refund_status' => 'Accept'])` the original and
+     * the attribute are both `Accept`. Every row would therefore have claimed the refund was
+     * already in the state the action had just moved it to -- `Processing -> Accept` recorded as
+     * `Accept -> Accept`, which is a FALSE old value in an audit table whose whole purpose is to
+     * say what changed. A null means "this action does not move the status" (the restock door),
+     * which is a different claim from "it was already there"; both are pinned by
+     * `RefundPolicyEnforcementTest::test_an_audit_row_records_the_status_the_refund_came_from`.
+     *
+     * @param  array<string, mixed>  $details  what changed, as the audit row's new values
+     * @param  string|null  $previousStatus  the status read BEFORE the write, or null when this
+     *                                       action does not move the status
+     */
+    protected function recordRefundAction(
+        string $action,
+        OrderRefund $refund,
+        array $details = [],
+        ?string $previousStatus = null
+    ): void {
+        try {
+            \App\Models\AuditLog::record(
+                $action,
+                $refund,
+                ['refund_status' => $previousStatus],
+                array_merge([
+                    'refund_id' => (int) $refund->id,
+                    'order_id' => (int) $refund->order_id,
+                ], $previousStatus === null
+                    /*
+                     * THE KEY CHANGES WITH THE CLAIM, which is a correction an independent review
+                     * forced. Every row used to carry `refund_status => <current>` in its NEW
+                     * values, so the restock row read `old {refund_status: null} -> new
+                     * {refund_status: "Accept"}` -- which a reader takes for a transition INTO
+                     * Accept. The null old value is honest (`RefundStock()` writes no status, and
+                     * `test_an_audit_row_records_the_status_the_refund_came_from` drives it); it
+                     * was the NEW value that lied, i.e. exactly the false reading this method
+                     * exists to remove, reintroduced one key along.
+                     */
+                    ? ['refund_status_unchanged' => $refund->refund_status]
+                    : ['refund_status' => $refund->refund_status]
+                , $details)
+            );
+        } catch (\Throwable $e) {
+            \Log::error('A refund action could not be attributed; the action itself stands', [
+                'action' => $action,
+                'refund_id' => $refund->id ?? null,
+                'order_id' => $refund->order_id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * THE REFUND STATE MACHINE.
      *
      * WHY THIS EXISTS. None of the four mutators below looked at the refund's
@@ -228,15 +325,28 @@ class OrderRefundController extends Controller
 
     public function index(OrderRefundDataTable $dataTable)
     {
-        if(auth()->user() && auth()->user()->isAbleTo('Manage Order Refund Request'))
-        {
-            $refund_requests = OrderRefund::where('store_id', getCurrentStore())->get();
-            return  $dataTable->render('order.refund_request', compact('refund_requests'));
-        }
-        else
-        {
+        /*
+         * P4-F089 -- THE PLATFORM OPERATOR WAS LOCKED OUT OF THE LIST OF REFUNDS THEY COULD
+         * OTHERWISE ACCEPT, REJECT, RESTOCK AND PAY OUT.
+         *
+         * This read `auth()->user()->isAbleTo('Manage Order Refund Request')` with NO operator
+         * limb, while the five mutators below all share `canManageRefunds()`, which tests the
+         * operator FIRST. There is no super-admin bypass in this application -- operator status is
+         * a string comparison on `users.type` and Laratrust's `permissions_as_gates` is false --
+         * so `isAbleTo()` ALONE REFUSES THE OPERATOR. Measured before the fix: the operator was
+         * redirected with "Permission denied." while `updateRefundStatus` answered them 200.
+         *
+         * Reusing the shared predicate rather than copying its two limbs is the point: a second
+         * copy is a second thing to drift, and this family has already produced a gate that
+         * refused the store's own owner.
+         */
+        if (! $this->canManageRefunds()) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+
+        $refund_requests = OrderRefund::where('store_id', getCurrentStore())->get();
+
+        return $dataTable->render('order.refund_request', compact('refund_requests'));
     }
 
     /**
@@ -356,7 +466,14 @@ class OrderRefundController extends Controller
             return $this->refundDenied($illegal['message'], $illegal['status']);
         }
 
+        // Read BEFORE the write: `update()` syncs the model's original, so a read after it
+        // answers with the new value. See recordRefundAction().
+        $cameFrom = (string) $order->refund_status;
+
         $order->update(['refund_status' => self::STATE_ACCEPT]);
+
+        // P4-F087: who agreed to the return.
+        $this->recordRefundAction('refund.accepted', $order, [], $cameFrom);
 
         return response()->json([
             'status' => $order->refund_status,
@@ -424,6 +541,9 @@ class OrderRefundController extends Controller
         // already restored while the refund still read 'Processing' or
         // 'Accept' -- so the next POST restored them a second time. Making the
         // pair atomic is what lets the state guard above actually hold.
+        // Read BEFORE the write, for the same reason as at the accept door.
+        $cameFrom = (string) $order_refund->refund_status;
+
         try {
             \DB::transaction(function () use ($order, $order_refund, $productJson, $plan, $request) {
                 $total_product_price = 0.0;
@@ -479,6 +599,13 @@ class OrderRefundController extends Controller
 
             return $this->refundDenied('The refund could not be cancelled. Nothing was changed.', 500);
         }
+
+        // P4-F087: who rejected the return -- and this door rewrites the order's totals, so the
+        // figures it left behind are recorded with the actor rather than only the status.
+        $this->recordRefundAction('refund.rejected', $order_refund, [
+            'order_final_price' => $order->final_price,
+            'order_product_price' => $order->product_price,
+        ], $cameFrom);
 
         return response()->json([
             'status' => $order_refund->refund_status,
@@ -729,6 +856,53 @@ class OrderRefundController extends Controller
         $storeId = getCurrentStore();
 
         /*
+         * THE STORE'S OWN REFUND POLICY, ENFORCED HERE AND NOT ONLY IN BLADE. GAP-140 / P4-F086.
+         *
+         * `resources/views/order/refund_details.blade.php:224` renders the "Manage Stock" button
+         * only when this store's refund setting is on, and that was the WHOLE of the control:
+         * measured at HEAD, no mutator anywhere consulted the setting, so this endpoint credited
+         * the goods back for a merchant who had switched restocking off. The button was hidden and
+         * the door was open.
+         *
+         * PLACED AFTER THE PERMISSION, *BOTH* TENANT LOOKUPS AND THE STATE GUARD. A policy refusal
+         * in front of an ownership lookup would answer differently for an id that exists in another
+         * store than for one that exists nowhere, which is the existence oracle the uniform 404
+         * exists to close.
+         *
+         * "BOTH" IS A CORRECTION THIS DOCBLOCK EARNED BY BEING WRONG. Its first form said "the
+         * tenant lookup", singular, and the gate sat between the two: `findRefundInCurrentStore()`
+         * above and the `Order::where('store_id', $storeId)` below. So a refund row inside the
+         * caller's tenant whose ORDER belongs to another store answered 403 where every other
+         * ownership failure answers 404 -- and, worse, the policy then refused before the ORDER and
+         * PRODUCT store predicates ran at all, which made the two cases
+         * `RefundStockCrossDoorTest::test_negative_ownership_another_stores_refund_cannot_credit_this_stores_stock`
+         * exists for pass for the wrong reason: "no stock moved" holds when a policy refusal came
+         * first. That test found it; the reasoning above was right and its placement did not match it.
+         *
+         * 403 rather than 422: this is "your store does not permit this action", and the screen's
+         * `refundAjaxRefusal()` trusts the body of a 403 (as of the four statuses this controller
+         * authors), so the merchant reads the reason rather than "Something went wrong".
+         *
+         * WHAT THIS CHANGES FOR A MERCHANT WHO HAD IT OFF -- stated rather than left to be found:
+         * the restock action is now refused instead of silently succeeding. It is a STOCK movement
+         * and never a money one; nothing about the refund's amount, the order's totals or the
+         * refund's status is touched by this refusal, and the per-refund idempotency marker is NOT
+         * written, so switching the setting on later leaves a legitimate credit still available.
+         * The three other stock doors -- `Order::product_return()`, the whole-order return
+         * approval and the six cancel doors -- are untouched, so a merchant with this toggle off
+         * can still put returned goods back through them.
+         *
+         * AND IT CHANGES THE SAME THING FOR THE PLATFORM OPERATOR, which the paragraph above did
+         * not say until a review asked. The gate is on the STORE, not the principal: it reads
+         * `getCurrentStore()`, so an operator working in a store whose merchant has the toggle off
+         * is refused too, and a support action they previously had is gone. That is held to be
+         * correct -- it is the store's policy about the store's stock, and an operator quietly
+         * crediting inventory a merchant has switched off would be the stranger behaviour -- but it
+         * is a capability REMOVED from the operator, so it is written down rather than discovered.
+         * The route back is the Refund tab, not a code change. Every test here that restocks drives
+         * `makePlatformAdmin()` with the row present, so the operator's own path is exercised.
+         */
+        /*
          * The order is needed for TWO reasons, and it is resolved inside the
          * caller's tenant like everything else here.
          *
@@ -742,6 +916,14 @@ class OrderRefundController extends Controller
 
         if (!$order) {
             return $this->refundDenied('The order this refund belongs to was not found.', 404);
+        }
+
+        if (! \App\Services\RefundPolicy::allows(\App\Services\RefundPolicy::MANAGE_STOCK, $storeId)) {
+            return $this->refundDenied(
+                'This store does not restore stock from refund requests. Switch Manage Stock on in '
+                . 'the refund settings first.',
+                403
+            );
         }
 
         $product_refund_id_array = json_decode($order_refund->product_refund_id, true);
@@ -988,6 +1170,16 @@ class OrderRefundController extends Controller
         } finally {
             $lock->release();
         }
+
+        // P4-F087: who put the goods back, and how many lines were credited -- the figure beside
+        // the marker, for the same reason `MerchantCancelRestockTest` pins it there.
+        // No `$previousStatus`: this door credits stock and leaves `refund_status` where it was,
+        // so there is no transition to record. A null is that claim; repeating the current status
+        // as the "old" one would be the false reading recordRefundAction() exists to avoid.
+        $this->recordRefundAction('refund.stock_restored', $order_refund, [
+            'lines_credited' => $restored,
+            'product_ids_credited' => array_keys($creditedProducts),
+        ]);
 
         return response()->json([
             'message' => 'Manage Stock updated successfully!'
@@ -1450,6 +1642,23 @@ class OrderRefundController extends Controller
 
             return $this->refundDenied('The refund could not be recorded. Nothing was changed.', 500);
         }
+
+        /*
+         * P4-F087: who paid it out, with the figure.
+         *
+         * `settled` is the action name whatever `$targetStatus` came back as, and the row carries
+         * the status, so an operator reading the log can tell the OFFLINE payout (`Refunded`,
+         * money handed back out of band) from the online approval (`Accept`, no gateway driver
+         * exists so nothing left this server). Recording the figure matters more here than
+         * anywhere else in this controller: `$amount` is what the merchant typed, capped
+         * server-side against the order total, and `capped` says whether the cap bit.
+         */
+        $this->recordRefundAction('refund.settled', $order_refund, [
+            'refund_amount' => $amount,
+            'requested_amount' => $request->refund_amount,
+            'capped' => (bool) $capped['capped'],
+            'shipping_zeroed' => $request->isTrendingChecked == 'true',
+        ], $currentStatus);
 
         // The message now reports what was actually stored. Silently storing a
         // capped figure, or reporting a settlement that did not occur, is the

@@ -44,11 +44,14 @@ use Tests\TestCase;
  * processPayment() does with what the service hands back -- so the service is replaced by a mock
  * and the contract is driven directly. That is the whole mechanism and nothing else.
  *
- * NOTE FOR WHOEVER EDITS THE FIX: `GatewayCallbackDestinationTest` asserts that
- * PaymentController.php contains no `== 'benefit'`, because that string would signal a capture
- * verification branch that does NOT exist. Writing this fix as `if ($paymentMethod == 'benefit')`
- * turns that test red with a message about capture verification -- a confusing false signal. The
- * `instanceof` form does not trip it.
+ * NOTE FOR WHOEVER EDITS THE FIX, REWRITTEN BECAUSE ITS PREMISE EXPIRED. It used to say that
+ * `GatewayCallbackDestinationTest` asserts PaymentController.php contains NO `== 'benefit'`, so
+ * writing this fix as `if ($paymentMethod == 'benefit')` would turn it red with a confusing message
+ * about capture verification. That tripwire held the ABSENCE of Benefit capture verification;
+ * GAP-138 / `P5-FIN-6` added the verification, and the case now REQUIRES a `== 'benefit'` branch
+ * that reaches a charge lookup above `claimGatewayReturn()`. So the string trips nothing any more.
+ * The `instanceof` form is still the right shape here, on its own merits: the defect is the TYPE
+ * the caller gets back, and every gateway falling through that branch shares it.
  */
 class BenefitFailureReachesTheShopperTest extends TestCase
 {
