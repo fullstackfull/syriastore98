@@ -21,6 +21,8 @@ INTF=/home/user/wtf/int
 DEV_BRANCH=feature/phase-06-saas-super-admin
 FLUTTER_DEV=claude/sleepy-goldberg-nrec0f
 MODE="${1:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STRIPPER="${STRIPPER:-$SCRIPT_DIR/strip-php-comments.php}"
 
 # Every Laravel workstream branch, in the order they are merged. GAP-140's branch keeps
 # its own name because the owner handoff names it and it carries the unreviewed-WIP
@@ -44,6 +46,8 @@ LARAVEL_BRANCHES=(
   ws/p06-ws10-orderstate
   ws/p06-ws11-money
   ws/p06-ws12-recovered
+  ws/p06-ws13-metricguard
+  ws/p06-ws14-schemafix
   ws/integrator-gap315
 )
 FLUTTER_BRANCHES=(
@@ -52,6 +56,45 @@ FLUTTER_BRANCHES=(
 )
 
 fail() { echo "INTEGRATION REFUSED: $*" >&2; exit 2; }
+
+# THE LIST ABOVE IS HARDCODED, SO IT GOES STALE SILENTLY -- AND IT HAD.
+# ws13-metricguard and ws14-schemafix were created after it was written and were both
+# absent from it. A checkpoint that omits a branch does not fail: it reports a clean merge
+# of everything it happened to know about, which is the GAP-325 failure in a new costume
+# (there, stale TIPS; here, a missing branch entirely). WS13's metric allowlists and
+# WS14's four converted suites would simply not have been in the integrated tree, and the
+# gates would have passed without them.
+#
+# So the list is now checked against the repository rather than trusted: every local
+# ws/* branch that is AHEAD of the base must be named, or this refuses before it merges
+# anything. An intentionally excluded branch has to be named in SKIP_BRANCHES, where a
+# reader can see the decision, instead of being omitted by accident.
+SKIP_BRANCHES=(
+  ws/p06-ws8-flutter   # Flutter: merged into the Flutter repo, not the Laravel one
+)
+
+assert_branch_list_is_complete() {
+  local repo="$1" base="$2"; shift 2
+  local -a known=("$@")
+  local missing=()
+
+  while read -r b; do
+    [ -z "$b" ] && continue
+    # only branches that actually carry commits the base does not have
+    [ "$(git -C "$repo" rev-list --count "$base..$b" 2>/dev/null || echo 0)" = "0" ] && continue
+    local found=0
+    for k in "${known[@]}" "${SKIP_BRANCHES[@]}"; do
+      [ "$k" = "$b" ] && { found=1; break; }
+    done
+    [ $found = 0 ] && missing+=("$b")
+  done < <(git -C "$repo" branch --format='%(refname:short)' | grep -E '^ws/|^claude/' || true)
+
+  if [ ${#missing[@]} -gt 0 ]; then
+    fail "the branch list does not name $( echo ${#missing[@]} ) branch(es) that are ahead of $base: ${missing[*]}.
+  Add each to LARAVEL_BRANCHES, or to SKIP_BRANCHES with the reason. Do not omit one:
+  a checkpoint that silently drops a branch still reports a clean merge and green gates."
+  fi
+}
 hdr()  { printf '\n========== %s ==========\n' "$*"; }
 
 merge_all() {
@@ -216,11 +259,81 @@ flutter_gates() {
   ( cd "$INTF" && flutter test 2>&1 | tail -3 )
 }
 
+
+# EVERY SECURITY FIX THAT LIVES ON ONE BRANCH MUST BE PRESENT AFTER THE MERGE, BY GREP.
+#
+# WHY THIS IS NOT PARANOIA. Measured 2026-11-26 across all 15 branches: GAP-338's SQL
+# injection fix -- whereRaw('ROUND(average_rating) = ?', [(float) $request->rating]) --
+# existed on EXACTLY ONE of them, ws/p06-ws1-apigates. The other fourteen, INCLUDING
+# feature/phase-06-saas-super-admin which is the head of PR #141, still carried the
+# concatenated form. The gap register already recorded GAP-338 as CLOSED, which was true
+# of a branch and not of the base. So "closed" and "shipped" had come apart, and nothing
+# in the checkpoint would have noticed if that branch had been dropped, failed to merge,
+# or had the hunk lost in a conflict resolution.
+#
+# Each entry is: a file, a string that MUST be present after the merge, and a string that
+# MUST be absent. The absent half is the one that matters -- a fix can be merged and then
+# undone by a conflict resolution that takes the other side, and the present half alone
+# would not see that.
+assert_security_fixes_survived_the_merge() {
+  local wt="$1"
+  local bad=0
+
+  # THE INSTRUMENT BEFORE THE MEASUREMENT. Without the stripper every _must_contain fails
+  # and every _must_not_contain PASSES -- so a missing helper would refuse a good tree and
+  # wave through one whose fix had been reverted. The quiet direction again.
+  [ -r "$STRIPPER" ] || fail "the comment stripper is not readable at $STRIPPER, so this guard
+  cannot measure anything. It must not be skipped: set STRIPPER=<path> and run again."
+
+  # COMMENTS ARE STRIPPED FIRST, AND THE FIRST VERSION OF THIS GUARD DID NOT DO THAT.
+  # It refused a tree that HAS the fix, because the fix's own docblock quotes the
+  # vulnerable line to record what it used to say:
+  #     * It read `whereRaw('ROUND(average_rating) =' . $request->rating)`, so the request
+  # That is CLAUDE.md §3's hazard -- a census satisfied, or here BROKEN, by prose about the
+  # thing it measures -- and this is one more instance of it, caught by running the guard in
+  # both directions instead of only against the tree I expected to fail.
+  # Stripped through PHP's own tokenizer, not a regex: a regex that removes /* */ also
+  # removes it from inside a string literal, and this file's SQL contains both.
+  _stripped() {
+    php "$STRIPPER" "$wt/$1"
+  }
+
+  _must_contain() {
+    _stripped "$1" | grep -qF "$2" \
+      || { echo "  MISSING from $1: $2"; bad=1; }
+  }
+  _must_not_contain() {
+    _stripped "$1" | grep -qF "$2" \
+      && { echo "  STILL PRESENT in $1 (outside comments): $2"; bad=1; }
+  }
+
+  # GAP-338 -- the storefront search rating filter, a live cross-tenant SQL injection.
+  _must_contain     app/Http/Controllers/Api/ApiController.php \
+    "whereRaw('ROUND(average_rating) = ?', [(float) \$request->rating])"
+  _must_not_contain app/Http/Controllers/Api/ApiController.php \
+    "whereRaw('ROUND(average_rating) =' . \$request->rating)"
+
+  # GAP-339 -- the price band in the same handler: scoped, and applied unconditionally.
+  _must_contain     app/Http/Controllers/Api/ApiController.php \
+    "Product::where('store_id', \$store->id)->where('variant_product', 1)"
+  _must_not_contain app/Http/Controllers/Api/ApiController.php \
+    "if (count(\$products_no_variant) > 0) {"
+
+  [ "$bad" -eq 0 ] || fail "a security fix is not in the integrated tree. Do NOT quote a gate
+  figure from this checkpoint: the suites can be entirely green on a tree whose injection fix
+  was dropped by a conflict resolution, because the test that proves the fix lives on the same
+  branch as the fix and would have been dropped with it."
+  echo "  OK: every named security fix is present and its vulnerable form is absent."
+}
+
 case "$MODE" in
   --gates-only) ;;
   *)
+    assert_branch_list_is_complete "$LARAVEL" "$DEV_BRANCH" "${LARAVEL_BRANCHES[@]}"
     merge_all "$LARAVEL" "$INT"  "$DEV_BRANCH"  int/checkpoint  "${LARAVEL_BRANCHES[@]}"
     merge_all "$FLUTTER" "$INTF" "$FLUTTER_DEV" intf/checkpoint "${FLUTTER_BRANCHES[@]}"
+    hdr "every security fix that lives on one branch survived the merge (BLOCKING)"
+    assert_security_fixes_survived_the_merge "$INT"
     ;;
 esac
 
