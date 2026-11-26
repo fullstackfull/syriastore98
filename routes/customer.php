@@ -190,7 +190,35 @@ Route::post(
 
     Route::post('{storeSlug?}/product_cart', [CartController::class, 'product_cartlist'])->name('product.cart');
     Route::post('{storeSlug?}/change-cart', [CartController::class, 'change_cart'])->name('change.cart');
-    Route::post('{storeSlug?}/place-order', [OrderController::class, 'place_order'])->name('place.order');
+    // GAP-267. `Route::post('{storeSlug?}/place-order', [OrderController::class, 'place_order'])
+    //            ->name('place.order');` WAS HERE AND IS DELETED.
+    //
+    // `OrderController` has no `place_order` -- the only one under app/Http/Controllers is
+    // `Api\ApiController::place_order` -- so every POST reaching this was an HTTP 500 rather than
+    // a checkout. `route:cache` does not catch that: Laravel resolves the METHOD lazily at
+    // dispatch, so only a missing CLASS fails at cache time.
+    //
+    // DELETED RATHER THAN REPOINTED, which was the open half of the register's row:
+    //
+    //   1. Nothing calls it. `place.order` is referenced nowhere outside this declaration, and the
+    //      shipped checkout posts to `payment.process`
+    //      (resources/views/front_end/common/checkout/checkout_form.blade.php).
+    //   2. `Api\ApiController::place_order` answers through `ApiResponser` -- its first branch is
+    //      `return $this->error([...])`, JSON with HTTP 200 -- which a browser form POST cannot use.
+    //   3. It would lose the authentication that handler has always had. MEASURED:
+    //          POST api/{slug}/place-order    [api, custom.auth, APILog]
+    //          POST {storeSlug?}/place-order  [web, web, ActiveTheme, themelanguage]
+    //      The handler resolves its subject with `resolveStoreCustomer($store)` and refuses on
+    //      null, so it depends on a principal `custom.auth` logs into the `customers` guard --
+    //      which nothing on this route establishes. This is the `auth('customers')`-fallback
+    //      family that produced 31 measured defects; it is the last one to extend to a new
+    //      unauthenticated surface for no caller.
+    //   4. A second order-creation path is a second place for stock, pricing and payment to
+    //      diverge from the one that works.
+    //
+    // The API endpoints `api/{slug}/place-order` and `...-guest` are UNTOUCHED -- both point at the
+    // method that exists and both are in the Flutter contract.
+    // Pinned in all directions by tests/Unit/Routing/WebPlaceOrderRouteWithdrawnTest.
     Route::post('{storeSlug?}/get-shipping-data', [CartController::class, 'get_shipping_data'])->name('get.shipping.data');
     Route::post('{storeSlug?}/shipping-method', [CartController::class, 'get_shipping_method'])->name('shipping.method');
     Route::any('{storeSlug?}/cart-list-sidebar', [CartController::class, 'cart_list_sidebar'])->name('cart.list.sidebar');
@@ -237,7 +265,11 @@ Route::post(
     Route::post('{storeSlug?}/product-question', [ProductQuestionController::class, 'product_question'])->name('product_question');
 
     Route::middleware(['auth:customers'])->group(function () {
-        Route::resource('{storeSlug?}/my-account', AccountProfileController::class);
+        // GAP-268. MEASURED: AccountProfileController defines index, create and store, plus the
+        // 48 named account handlers declared in the group below. show / edit / update / destroy
+        // were each an HTTP 500 for a signed-in shopper.
+        Route::resource('{storeSlug?}/my-account', AccountProfileController::class)
+            ->only(['index', 'create', 'store']);
     });
 
     // ====================================================================
