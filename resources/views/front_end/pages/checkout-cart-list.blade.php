@@ -1,6 +1,12 @@
 <div class="bg-gray-50 border md:p-6 p-4 rounded-lg shadow-sm sticky top-[20px]">
     <h2 class="font-bold text-xl mb-6">{{ __('Order Summary') }}: <span class="checkout-cartcount">[{{ $response->data->cart_total_product }}]</span></h2>
 
+    {{-- THE SAME NOTICE, AND THIS IS THE PLACE IT MATTERS MOST: this block is the last thing a
+         shopper reads before paying, so a line that vanished without explanation is a trust
+         failure here rather than a cosmetic one. Same shared partial as the cart page, so the two
+         cannot drift. See GAP-241 / GAP-245. --}}
+    @include('front_end.partials.cart-unavailable-notice')
+
     <!-- Order Items -->
     <div class="space-y-4 mb-6">
         @if (!empty($response->data->cart_total_product))
