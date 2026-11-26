@@ -49,23 +49,24 @@ class EveryRouteActionExistsTest extends TestCase
 {
 
     /**
-     * THE MEASURED BACKLOG — 73 controller actions a route names and no class defines.
+     * THE MEASURED BACKLOG. 73 at the first run of this test; 69 now.
      *
      * Every one of these is an HTTP 500 for any request that reaches it, and they are PRE-EXISTING:
-     * this list is what the first run of this test found, not breakage it allows. It is asserted in
-     * BOTH directions — a new entry fails, and an entry that starts existing fails until it is
-     * deleted from here — so the set can shrink and cannot quietly grow.
+     * the original list was what the first run found, not breakage it allows. It is asserted in
+     * BOTH directions — a new entry fails, and an entry that stops being routed to a missing method
+     * fails until it is deleted from here — so the set can shrink and cannot quietly grow.
      *
-     * FOUR OF THEM ARE A PAYMENT INTEGRATION, and one is worse than the rest:
-     *
-     *     POST myfatoorah/webhook  ->  MyFatoorahController::webhook()
-     *
-     * `MyFatoorahController` defines exactly two methods, `planPayWithmyfatoorah` and
-     * `paymentCallback`; `index`, `callback`, `checkout` and `webhook` are all absent. A provider
-     * posting a capture notification to that webhook gets a 500, so the capture is never recorded —
-     * money taken and not booked. Carried as `GAP-268`; the fix is a decision (finish the
-     * integration, or withdraw the routes) rather than a repair, which is why it is listed here
-     * instead of being patched in the change that found it.
+     * THE PAYMENT INTEGRATION IS OUT (−4, `MyFatoorahController@index|callback|checkout|webhook`),
+     * and the reason the register gave for leaving it in turned out to be the wrong reason. Those
+     * four routes are NOT declared in `routes/`: they come from
+     * `vendor/myfatoorah/laravel-package/src/MyFatoorahServiceProvider::register()`, whose sample
+     * controller WorkDo overwrote with their own two-method version. `register()` runs before
+     * `routes/web.php`, so a host declaration of the same verb and URI replaces them; they now
+     * answer 404, which is the vendored integration's OWN answer while
+     * `config('myfatoorah.webhook_secret_key')` is empty — as it ships. **No capture is recorded
+     * and no payment record is created or changed**; whether this product should consume MyFatoorah
+     * webhooks at all is an open owner decision. Full derivation, and the three live call sites that
+     * rule out `dont-discover`, in `MyFatoorahPackageRoutesWithdrawnTest`.
      *
      * HOW THIS WENT UNNOTICED. `route:cache` resolves the controller METHOD lazily at dispatch, so
      * only a missing CLASS fails at cache time — a deploy can cache these routes successfully. The
@@ -92,10 +93,6 @@ class EveryRouteActionExistsTest extends TestCase
         'App\Http\Controllers\BlogController@show',
         'App\Http\Controllers\ModuleController@AddOnSessionSave',
         'App\Http\Controllers\ModuleController@AddOnSessioncreate',
-        'App\Http\Controllers\MyFatoorahController@callback',
-        'App\Http\Controllers\MyFatoorahController@checkout',
-        'App\Http\Controllers\MyFatoorahController@index',
-        'App\Http\Controllers\MyFatoorahController@webhook',
         'App\Http\Controllers\OrderController@allOrders',
         'App\Http\Controllers\OrderController@edit',
         'App\Http\Controllers\OrderController@place_order',

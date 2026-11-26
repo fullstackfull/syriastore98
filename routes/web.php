@@ -2391,3 +2391,93 @@ Route::get('/zid/oauth/redirect', [ZidOAuthController::class, 'redirect']);
 
 
 Route::get('/zid/connect/return', [\App\Http\Controllers\ZidOAuthController::class, 'connectReturn']);
+
+// =================================================================================================
+//  GAP-268 (THE MONEY HALF). THE FOUR MYFATOORAH ROUTES A VENDORED PACKAGE DECLARES AND NO METHOD
+//  SERVES -- WITHDRAWN HERE, BECAUSE HERE IS THE ONLY PLACE THAT CAN REACH THEM.
+// =================================================================================================
+//
+//  WHAT WAS BROKEN. `EveryRouteActionExistsTest` measured 73 controller actions a route names and
+//  no class defines. Four were MyFatoorah's, and one was money:
+//
+//      POST myfatoorah/webhook  ->  MyFatoorahController::webhook()      HTTP 500, measured
+//
+//  WHERE THEY COME FROM -- not from this directory. `grep -rn MyFatoorahController routes/` returns
+//  three declarations and all three name `planPayWithmyfatoorah` or `paymentCallback`, the two
+//  methods that exist. The four broken ones are declared by
+//  `vendor/myfatoorah/laravel-package/src/MyFatoorahServiceProvider::register()`, auto-discovered
+//  because `extra.laravel.dont-discover` is empty. That package PUBLISHES its own sample controller
+//  over `app/Http/Controllers/MyFatoorahController.php`; WorkDo overwrote that file with their own
+//  two-method version, so the package's four routes were orphaned by the overwrite.
+//
+//  WHY NOT `dont-discover`. The same `register()` also defines
+//  MYFATOORAH_LARAVEL_PACKAGE_VERSION, and THREE live payment call sites read it --
+//  app/Services/PaymentService.php, app/Http/Controllers/MyFatoorahController.php and
+//  packages/workdo/Campaigns/src/app/Services/CampaignsPaymentService.php. Un-discovering the
+//  provider would turn all three into an undefined-constant fatal: a real regression on a money
+//  path, to close a latent one. Pinned by
+//  MyFatoorahPackageRoutesWithdrawnTest::test_premise_three_payment_call_sites_depend_on_the_providers_constant.
+//
+//  WHY A HOST DECLARATION REACHES THEM. `register()` runs before `routes/web.php` is loaded, and
+//  `RouteCollection` keys on method+domain+uri, so these four declarations REPLACE the package's.
+//  This is CLAUDE.md's "later route declarations replace earlier ones, silently dropping the
+//  earlier middleware" -- the one case where that behaviour is the remedy rather than the hazard.
+//  The package's four carry NO middleware at all (measured), so nothing is dropped.
+//
+//  WHAT THESE ANSWER, AND WHAT THEY DELIBERATELY DO NOT DO.
+//
+//  404. They record nothing. NO PAYMENT RECORD IS CREATED OR CHANGED AND NO MONEY MOVES.
+//
+//  404 is not invented: it is the vendored integration's OWN answer for this configuration. The
+//  package's sample `webhook()` opens
+//      $secretKey = config('myfatoorah.webhook_secret_key');
+//      if (empty($secretKey)) { return response(null, 404); }
+//  and `config/myfatoorah.php` ships that key as '' with no env() behind it -- the webhook was
+//  never enabled on the MyFatoorah account. Had the method existed it would answer 404 today, so
+//  the 500 was never a capture dropped in flight; it was a trap for whoever pastes a secret key in
+//  later. Two more measurements agree: the package's `changeTransactionStatus()` writes nothing
+//  (its four steps are COMMENTS), so the package never shipped capture recording either; and this
+//  product books its captures synchronously in `paymentCallback()`, which creates the `PlanOrder`
+//  and calls `assignPlan()`.
+//
+//  THE PAYMENT DECISION LEFT OPEN, so it is not mistaken for finished work: whether Store Syria
+//  should consume MyFatoorah webhooks AT ALL. A plan purchase is booked only on the browser
+//  callback, so a payer who closes the tab after paying is charged and never activated. Closing
+//  that needs a handler that writes a payment record -- a change to payment behaviour, and an
+//  owner decision. NOT done here.
+//
+//  `withoutMiddleware('web')` IS LOAD-BEARING, and not for tidiness. This file is wrapped in the
+//  `web` group; `myfatoorah/webhook` is not in `bootstrap/app.php`'s `validateCsrfTokens(except:)`
+//  list; CSRF runs BEFORE the action. Without the exclusion a provider's tokenless POST answers
+//  419 and the declared 404 is never reached -- a route table that says one thing and does another.
+//  Excluding the group by name resolves it to its members and rejects each, which reproduces the
+//  package's own empty middleware exactly. Driven, not assumed:
+//  MyFatoorahPackageRoutesWithdrawnTest::test_the_webhook_answers_404_to_a_tokenless_post.
+//
+//  The names are kept. Nothing references them (measured: zero hits for `myfatoorah.callback`,
+//  `myfatoorah.cardView`, `myfatoorah.webhook` across app/, resources/, routes/, packages/,
+//  themes/, config/, database/), but `route()` on an undeclared name throws at RENDER time, which
+//  turns one dead click into a blank page. Keeping them costs nothing and removes that class.
+//
+//  The package's sample VIEWS were published too (`resources/views/myfatoorah/`). They are reached
+//  only from each other and from the three methods withdrawn here; they are left in place because
+//  deleting published vendor assets is not a routing change.
+$myFatoorahSampleFlowWithdrawn = static function () {
+    abort(404);
+};
+
+Route::get('myfatoorah', $myFatoorahSampleFlowWithdrawn)
+    ->withoutMiddleware('web')
+    ->name('myfatoorah');
+
+Route::get('myfatoorah/callback', $myFatoorahSampleFlowWithdrawn)
+    ->withoutMiddleware('web')
+    ->name('myfatoorah.callback');
+
+Route::get('myfatoorah/checkout', $myFatoorahSampleFlowWithdrawn)
+    ->withoutMiddleware('web')
+    ->name('myfatoorah.cardView');
+
+Route::post('myfatoorah/webhook', $myFatoorahSampleFlowWithdrawn)
+    ->withoutMiddleware('web')
+    ->name('myfatoorah.webhook');
