@@ -119,8 +119,14 @@ final class StorefrontSeo
         // account
         'my-account.index',
         'my-account.create',
-        'my-account.show',
-        'my-account.edit',
+        // GAP-268. `my-account.show`, `my-account.edit`, `my-account.update` and
+        // `my-account.destroy` WERE HERE and are gone, because the routes are gone:
+        // `AccountProfileController` never defined any of those four methods, so each was an
+        // HTTP 500 for a signed-in shopper and the resource is now `->only(['index', 'create',
+        // 'store'])` (routes/customer.php). `show` and `edit` were the two that had been
+        // classified; `update` and `destroy` are not GET routes and were never in this census.
+        // Removing them is not a relaxation -- `test_no_classified_route_name_is_stale` REQUIRES
+        // it, and failed on exactly these two names until they were deleted.
         'address',
         'address-form',
         'edit.address.form',

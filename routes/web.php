@@ -549,7 +549,10 @@ Route::middleware(['web'])->group(function () {
         ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
         ->name('plan.order.refund');
 
-    Route::resource('plan-request', PlanRequestController::class);
+    // GAP-268. MEASURED: PlanRequestController defines index / userRequest / cancelRequest /
+    // acceptRequest. The six other resource actions -- create, store, show, edit, update,
+    // destroy -- were each an HTTP 500, so they are not registered.
+    Route::resource('plan-request', PlanRequestController::class)->only(['index']);
     Route::get('request-send/{id}', [PlanRequestController::class, 'userRequest'])->name('send.request');
     Route::get('request-cancel/{id}', [PlanRequestController::class, 'cancelRequest'])->name('request.cancel');
     Route::get('request-response/{id}/{response}', [PlanRequestController::class, 'acceptRequest'])->name('response.request');
@@ -951,7 +954,8 @@ Route::get(
     Route::post('{id}/local-shipping', [ShippingMethodController::class, 'localShippingUpdate'])->name('local-shipping.update');
 
     /** Blog Routes */
-    Route::resource('blog', BlogController::class);
+    // GAP-268. MEASURED: BlogController has no `show`; the other six exist.
+    Route::resource('blog', BlogController::class)->except(['show']);
     /** Blog  Category Routes */
     Route::resource('blog-category', BlogCategoryController::class);
 
@@ -1116,7 +1120,9 @@ Route::get(
     Route::post('products/variant-image', [ProductController::class, 'variant_image_store'])->name('product.variant.image.store');
     Route::delete('products/variant-image', [ProductController::class, 'variant_image_destroy'])->name('product.variant.image.destroy');
 
-    Route::resource('app-setting', AppSettingController::class);
+    // GAP-268. MEASURED: AppSettingController defines index, create and store (plus named
+    // routes of its own below). show / edit / update / destroy were each an HTTP 500.
+    Route::resource('app-setting', AppSettingController::class)->only(['index', 'create', 'store']);
     Route::get('mobile-screen-content', [AppSettingController::class, 'MobileScreenContent'])->name('mobilescreen.content');
     Route::post('theme-settings', [AppSettingController::class, 'ThemeSettings'])->name('theme.settings');
     Route::DELETE('ownerstore-remove/{id}', [StoreController::class, 'ownerstoredestroy'])->name('ownerstore.remove');
@@ -1133,15 +1139,20 @@ Route::get(
     Route::post('woocommerce-settings', [SettingController::class, 'WoocommerceSettings'])->name('woocommerce.settings');
 
     Route::resource('woocom_coupon', WoocomCouponController::class);
-    Route::resource('woocom_product', WoocomProductController::class);
-    Route::resource('woocom_category', WoocomCategoryController::class);
+    // GAP-268. MEASURED: WoocomProductController has no `create` or `store`; the other five exist.
+    Route::resource('woocom_product', WoocomProductController::class)->except(['create', 'store']);
+    // GAP-268. MEASURED: WoocomCategoryController has no `update` or `destroy`; the other five exist.
+    Route::resource('woocom_category', WoocomCategoryController::class)->except(['update', 'destroy']);
     Route::resource('woocom_customer', WoocomCustomerController::class);
 
     // shopify
     Route::post('shopify-settings', [SettingController::class, 'shopifySettings'])->name('shopify.settings');
 
-    Route::resource('shopify_product', ShopifyProductController::class);
-    Route::resource('shopify_category', ShopifyCategoryController::class);
+    // GAP-268. MEASURED: ShopifyProductController defines index, show and edit (plus
+    // fetchProducts / getNextPageInfo). create / store / update / destroy were each an HTTP 500.
+    Route::resource('shopify_product', ShopifyProductController::class)->only(['index', 'show', 'edit']);
+    // GAP-268. MEASURED: ShopifyCategoryController has no `create` or `store`; the other five exist.
+    Route::resource('shopify_category', ShopifyCategoryController::class)->except(['create', 'store']);
     Route::resource('shopify_customer', ShopifyCustomerController::class);
     Route::resource('shopify_coupon', ShopifyCouponController::class);
 
@@ -1172,7 +1183,10 @@ Route::get(
     // $this->authorize() itself, so the control does not rest on this grouping
     // alone -- relying on grouping alone is what failed in SEC-F2.
     Route::middleware('can:manage-platform-addons')->group(function () {
-        Route::resource('addon', AddonController::class);
+        // GAP-268. MEASURED: AddonController defines index, create and destroy (plus
+        // ThemeInstall / ThemeEnable / AddonApps, declared by name just below). store / show /
+        // edit / update were each an HTTP 500.
+        Route::resource('addon', AddonController::class)->only(['index', 'create', 'destroy']);
         Route::get('addon-apps', [AddonController::class, 'AddonApps'])->name('addon.apps');
         Route::post('theme-addon', [AddonController::class, 'ThemeInstall'])->name('addon.theme');
         Route::post('theme-enable', [AddonController::class, 'ThemeEnable'])->name('theme.enable');
@@ -1415,7 +1429,10 @@ Route::get(
         ->name('platform.site_content.update');
 
     // Report
-    Route::resource('reports', ReportController::class);
+    // GAP-268. MEASURED: ReportController defines index and 36 named report handlers, none of
+    // which is a resource action. create / store / show / edit / update / destroy were each an
+    // HTTP 500.
+    Route::resource('reports', ReportController::class)->only(['index']);
     Route::get('reports-chart', [ReportController::class, 'reports_chart'])->name('reports.chart');
 
     /*
@@ -1476,8 +1493,18 @@ Route::get(
     Route::post('abandon-wish-emailsend', [WishlistController::class, 'abandon_wish_emailsend'])->name('wish.emailsend');
 
     //support-ticket
-    Route::resource('support_ticket', SupportTicketController::class);
-    Route::get('ticket-view/{id}', [SupportTicketController::class, 'show'])->name('support_ticket.view');
+    // GAP-268. MEASURED: SupportTicketController defines index, edit and destroy (plus
+    // conversion_store / ticket_status_change). create / show / store / update were each an
+    // HTTP 500.
+    Route::resource('support_ticket', SupportTicketController::class)->only(['index', 'edit', 'destroy']);
+    // GAP-268. `Route::get('ticket-view/{id}', [SupportTicketController::class, 'show'])
+    // ->name('support_ticket.view')` WAS HERE, and it is why restricting the resource above
+    // removed 54 of the expected 55 broken actions instead of all of them: `@show` was routed
+    // TWICE, so the action stayed in the table after the resource stopped naming it. Deleted
+    // rather than repointed, on three measurements: the method does not exist (guaranteed
+    // HTTP 500); the name `support_ticket.view` is referenced NOWHERE outside its own
+    // declaration; and viewing a ticket is already served -- `SupportTicketController::edit`
+    // renders `support.edit`, the ticket conversation screen, at `support_ticket.edit`.
     Route::post('ticket/{id}/conversion', [SupportTicketController::class, 'conversion_store'])->name('conversion.store');
     Route::post('ticket-status-change/{id}', [SupportTicketController::class, 'ticket_status_change'])->name('support_ticket.status.change');
 
@@ -1586,7 +1613,9 @@ Route::get(
 
     // Order Route
     Route::get('order/export', [OrderController::class, 'fileExport'])->name('order.export');
-    Route::resource('order', OrderController::class);
+    // GAP-268. MEASURED: OrderController has no `edit` or `update` -- the order screens use
+    // `order_view`, `updateStatus` and the named routes below. The other five exist.
+    Route::resource('order', OrderController::class)->except(['edit', 'update']);
     Route::get('order/all', [OrderController::class, 'allOrders']);
     // GATE C, limb 1 -- NEW-order-view-auth-shadowed-by-duplicate-registration.
     //
@@ -1719,7 +1748,9 @@ Route::get(
     Route::get('order-preview/{id}', [OrderController::class, 'order_preview'])
         ->name('order.preview');
     // Pos Route
-    Route::resource('pos', PosController::class);
+    // GAP-268. MEASURED: PosController defines index, create and store (plus printView /
+    // cartDiscount). show / edit / update / destroy were each an HTTP 500.
+    Route::resource('pos', PosController::class)->only(['index', 'create', 'store']);
     Route::get('product-categories', [CategoryController::class, 'getProductCategories'])->name('product.categories');
     Route::get('search-products', [ProductController::class, 'searchProducts'])->name('search.products');
     Route::get('search-products-sku', [ProductController::class, 'searchProductsSku'])->name('search.products.sku');
@@ -1933,7 +1964,9 @@ Route::get(
    */
   Route::post('order-replace/{id}', [OrderController::class, 'order_replace'])->name('order.replace')->middleware('themelanguage');
   Route::post('order-payment-status', [OrderController::class, 'order_payment_status'])->name('order.payment.status')->middleware('themelanguage');
-  Route::resource('order-note', OrderNoteController::class);
+  // GAP-268. MEASURED: OrderNoteController defines exactly `store` and `destroy`. index /
+  // create / show / edit / update were each an HTTP 500.
+  Route::resource('order-note', OrderNoteController::class)->only(['store', 'destroy']);
 
   Route::post('update-order-status/{id}', [OrderController::class, 'updateStatus'])->name('order.order_status_update')->middleware('themelanguage');
 
@@ -2026,7 +2059,12 @@ Route::get(
   Route::post('/update-final-price/{id}', [OrderRefundController::class, 'updateFinalPrice'])->name('updateFinalPrice')->middleware('themelanguage');
   Route::post('/refund-amount/{id}', [OrderRefundController::class, 'RefundAmonut'])->name('refund.amount')->middleware('themelanguage');
 
-  Route::resource('refund-request', OrderRefundController::class)->middleware('themelanguage');
+  // GAP-268. MEASURED: OrderRefundController defines index and show (plus updateStatus /
+  // CancelRefundStatus / RefundStock / RefundAmonut). create / store / edit / update / destroy
+  // were each an HTTP 500.
+  Route::resource('refund-request', OrderRefundController::class)
+      ->only(['index', 'show'])
+      ->middleware('themelanguage');
   Route::post('refund-settings', [OrderRefundController::class, 'updateStatus'])->name('refund.settings')->middleware('themelanguage');
 
   Route::post('product-page-setting', [AppSettingController::class, 'product_page_setting'])->name('product.page.setting');

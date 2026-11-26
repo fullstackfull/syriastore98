@@ -237,7 +237,11 @@ Route::post(
     Route::post('{storeSlug?}/product-question', [ProductQuestionController::class, 'product_question'])->name('product_question');
 
     Route::middleware(['auth:customers'])->group(function () {
-        Route::resource('{storeSlug?}/my-account', AccountProfileController::class);
+        // GAP-268. MEASURED: AccountProfileController defines index, create and store, plus the
+        // 48 named account handlers declared in the group below. show / edit / update / destroy
+        // were each an HTTP 500 for a signed-in shopper.
+        Route::resource('{storeSlug?}/my-account', AccountProfileController::class)
+            ->only(['index', 'create', 'store']);
     });
 
     // ====================================================================
