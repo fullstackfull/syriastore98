@@ -541,11 +541,54 @@ class PlanController extends Controller
      * customer-protection rule and it never looked at who was asking. A request for a plan with
      * no subscriber walked straight past it into the `update()`.
      */
+    /**
+     * REFUSE ANYTHING THAT IS NOT THE PLATFORM OPERATOR. GAP-307.
+     *
+     * One expression, used by both of this controller's operator-only writes, so the two cannot
+     * drift -- which is the failure this family has already produced elsewhere (a second copy of a
+     * gate that refused the store's own owner).
+     *
+     * `instanceof User` BEFORE `isOperator()`: the helper reads `->type` off whatever it is given,
+     * and a `Customer` can carry that column. `abort()` rather than a returned response because
+     * these are browser navigations and it is the same answer `PlatformOperatorOnly` gives.
+     */
+    private function refuseUnlessPlatformOperator()
+    {
+        $actor = auth()->user();
+
+        if (! $actor instanceof \App\Models\User || ! \App\Policies\UserPolicy::isOperator($actor)) {
+            abort(403, __('Permission denied.'));
+        }
+
+        return null;
+    }
+
     public function planDisable(Request $request)
     {
         $actor = auth()->user();
 
-        if ($actor === null || $actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+        /*
+         * GAP-307. `instanceof User` FIRST, THEN `isOperator()` -- the same order
+         * `PlatformOperatorOnly:113` uses, and for the same two reasons.
+         *
+         * WHAT STOOD HERE: `$actor->type !== UserPolicy::PLATFORM_ADMIN`, which is class-BLIND. It
+         * reads `->type` off whatever it is handed, and `'type'` is in `Customer::$fillable`, so a
+         * `Customer` row carrying the word `super admin` satisfied it. MEASURED before the fix, by
+         * calling this method directly with such a principal on the default guard: it answered
+         * **200 `{"success":"Plan successfully unable."}`** and disabled the plan.
+         *
+         * LATENT RATHER THAN LIVE, and this comment says which: these are `web` routes behind
+         * `auth`, so in production the default guard holds a `User` and the middleware -- which
+         * already tests `instanceof` -- runs first. The defect is that this check is not a correct
+         * control in its own right, and `PlatformOperatorOnly` is therefore the SOLE one. CLAUDE.md
+         * records how that breaks: a later route declaration for the same method+URI replaces the
+         * earlier one and drops its middleware silently.
+         *
+         * `isOperator()` RATHER THAN A RAW `!==`, which is the second half: that helper normalises
+         * a trailing space to match MySQL's PAD SPACE comparison, so `'super admin '` is the
+         * operator to the engine and was NOT the operator to this line.
+         */
+        if (! $actor instanceof \App\Models\User || ! \App\Policies\UserPolicy::isOperator($actor)) {
             return response()->json(['error' => __('Permission denied.')], 403);
         }
 
@@ -640,6 +683,21 @@ class PlanController extends Controller
      */
     public function refund(Request $request, $id, $user_id)
     {
+        /*
+         * GAP-307. AN IN-HANDLER OPERATOR CHECK, so `PlatformOperatorOnly` is not the only thing
+         * standing in front of a plan refund. Measured before this: of the four routes in that
+         * gate's `plan/order actions` bucket, `plan-disable` was the ONLY one with any in-handler
+         * check at all -- this method had none, and it uses no route-model binding either, so
+         * `SubstituteBindings` could not answer 404 ahead of the gate.
+         *
+         * `abort(403)` deliberately matches what the middleware already answers, so no principal
+         * that succeeds today sees a different response: everyone this refuses is already refused
+         * by the middleware with the same status.
+         */
+        if ($refusal = $this->refuseUnlessPlatformOperator()) {
+            return $refusal;
+        }
+
         $order = PlanOrder::find($id);
 
         if (! $order) {
