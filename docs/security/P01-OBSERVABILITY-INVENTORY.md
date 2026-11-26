@@ -176,16 +176,16 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/CategoryController.php:570` | category delete refused: products would be cascade-deleted with it |
 | `app/Http/Controllers/PaymentController.php:4625` | WhatsApp URL built for a cart line that is short on stock |
 | `app/Http/Controllers/PaymentController.php:4660` | WhatsApp URL built for a cart line that is short on stock |
-| `app/Http/Controllers/ProductController.php:3328` | variant panel refused: the product is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3557` | product image delete refused: the image belongs to another store |
-| `app/Http/Controllers/ProductController.php:3611` | product image row deleted but the file was not unlinked: StoredUpload refused |
-| `app/Http/Controllers/ProductController.php:3701` | variant image upload refused: the variant is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3814` | variant image row replaced but the old file was not unlinked: StoredUpload |
-| `app/Http/Controllers/ProductController.php:3877` | variant image delete refused: the variant is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3906` | variant image row deleted but the file was not unlinked: StoredUpload refused |
-| `app/Http/Controllers/ProductController.php:3948` | attribute combination edit refused: the product belongs to another store |
-| `app/Http/Controllers/ProductController.php:4114` | product variant delete refused: the variant belongs to another store |
-| `app/Http/Controllers/ProductController.php:4208` | product variant delete refused: the variant is still referenced |
+| `app/Http/Controllers/ProductController.php:3341` | variant panel refused: the product is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3570` | product image delete refused: the image belongs to another store |
+| `app/Http/Controllers/ProductController.php:3624` | product image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3714` | variant image upload refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3827` | variant image row replaced but the old file was not unlinked: StoredUpload |
+| `app/Http/Controllers/ProductController.php:3890` | variant image delete refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3919` | variant image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3961` | attribute combination edit refused: the product belongs to another store |
+| `app/Http/Controllers/ProductController.php:4127` | product variant delete refused: the variant belongs to another store |
+| `app/Http/Controllers/ProductController.php:4221` | product variant delete refused: the variant is still referenced |
 | `app/Http/Controllers/WoocomProductController.php:418` | woocommerce product edit refused: the mapped product is not in this store |
 | `app/Http/Middleware/BulkDeleteTenantGuard.php:677` | bulk category delete refused: products would be cascade-deleted with the categories |
 | `app/Models/Order.php:1362` | order return refused: the order carries no store_id |
@@ -350,7 +350,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/FlashedMessageSafety.php:74` | an exception object was flashed to a session and was replaced before it could be rendered |
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
-| `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
+| `app/Http/Middleware/ModuleResourceOwnershipGuard.php:661` | module resource mutation refused |
 | `app/Models/Order.php:1248` | Order return refused: the order carries no readable product_json |
 | `app/Models/Order.php:1259` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2318` | New Order webhook skipped: no store could be resolved for the order |
