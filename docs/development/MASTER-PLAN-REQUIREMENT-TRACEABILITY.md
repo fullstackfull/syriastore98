@@ -144,8 +144,8 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **179** |
-| PARTIALLY IMPLEMENTED | **99** |
-| NOT IMPLEMENTED | **14** |
+| PARTIALLY IMPLEMENTED | **100** |
+| NOT IMPLEMENTED | **13** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -4021,7 +4021,28 @@ against a pre-reorganization original.
 
 ### `P03-MP-01` — Master Plan scope (OWNER-SUSPECTED GAP E)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26, AND THIS SECTION'S OWN `Source` LINE WAS THE REASON THE REQUIREMENT
+> READ AS UNBUILDABLE.** It says the figures come from "CLAUDE.md §4 … the plan itself is not in
+> the repo". That was true when written and false since **2026-11-16**, when the plan was
+> recovered. The real source is `master-plan/MASTER-PRODUCT-PLAN-v1.0-BASE.md:222` — the last
+> bullet of Phase 03 §`03-B` تجربة العميل, decision family `CUST-001`…`CUST-008`, **family-level
+> mapping only** (8 ids against 9 bullets, so which id carries this bullet is NOT derivable and
+> was not guessed). I read line 222 myself rather than taking it from a report.
+>
+> The bullet is **five** obligations, not one: SEO, indexing, performance, images, structured
+> data. Three are now built — route-derived `rel=canonical`, a fail-closed per-route `robots`
+> directive with a CI-blocking census, `Organization` JSON-LD, and a per-store sitemap, all
+> emitted from the only seam present in all four layout copies. Performance is `GAP-112`.
+> **Images had no tracked row at all and is now `GAP-274`.**
+>
+> Implementation: `app/Support/Storefront/StorefrontSeo.php`, `StorefrontSitemapRoute.php`,
+> `app/Http/Controllers/Storefront/SitemapController.php`, `app/Helper/helper.php`
+> (`metaKeywordSetting`). Evidence: the three new test suites (69 tests, 285 assertions, re-run
+> independently) and `docs/development/phase-3/PHASE-03-GAP-117-STOREFRONT-SEO.md`. Responsible:
+> **owner decision** on the hreflang URL shape and on `robots.txt` policy, then engineering. The
+> original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** Phase 03 scope per the approved six-phase Master Product Plan: "themes, visual editor, shopper experience, checkout UX, SEO, plus a separately scoped Official Website and a bilingual Documentation Center."
 - **Source:** `CLAUDE.md §4, Phase 03 row (quoting the owner-approved Master Product Plan / Decision Register v1.0, 2026-10-14 — the plan itself is not in the repo)`
