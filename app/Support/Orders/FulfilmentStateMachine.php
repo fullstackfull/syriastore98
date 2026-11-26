@@ -599,4 +599,92 @@ final class FulfilmentStateMachine
 
         return (string) __(self::MESSAGE_NOT_PERMITTED);
     }
+
+    /*
+     * ============================================================================================
+     * WHAT COUNTS AS A STATUS WORD AT ALL. GAP-135, the `==` clause.
+     * ============================================================================================
+     *
+     * APPENDED, NOT FILED WITH `governs()`, for the reason the block above this one gives: four
+     * prose citations elsewhere name lines `:26-32`, `:68` and `:273` of THIS file, and CLAUDE.md
+     * records that an absolute line citation goes stale on any insertion above it while only the
+     * ones a test covers say so.
+     *
+     * WHAT WAS WRONG, AND IT IS ONE CHARACTER OF PHP. {@see self::governs()} compares STRICTLY --
+     * `in_array($word, [...], true)` -- so for a non-string this machine answers "I do not govern
+     * this", applies NO transition rule, and the value falls through to
+     * `Order::order_status_change()`'s own branch chain. That chain compares LOOSELY:
+     * `if ($order_status == 'cancel')`. Under PHP 8 a string is converted to BOOL when compared
+     * with a bool, so `true == 'cancel'` is **TRUE**.
+     *
+     * Measured, two diverging shapes out of nine:
+     *
+     *     value                 writer's `== 'cancel'`   `governs()`   the doors' restock gate
+     *     'cancel'              MATCHES                  governed      restores
+     *     true                  MATCHES                  UNGOVERNED    DOES NOT RESTORE
+     *     Stringable('cancel')  MATCHES                  UNGOVERNED    DOES NOT RESTORE
+     *     false, 1, 0, null, '', ['a'], 1.0              UNGOVERNED    -- (none matches: PHP 8
+     *                                                                  compares `1 == 'cancel'` as
+     *                                                                  strings, 'cancel' being
+     *                                                                  non-numeric)
+     *
+     * SO `true` RAN THE CANCEL ARM: `cancel_date` stamped, `delivered_status` 0 -> 2, the save, and
+     * `OrderEntitlementReversal::reverseOrLog()` -- the merchant's entitlement walked back. Every
+     * door's stock restore is gated on the STRING (`strtolower(trim((string) $x)) === 'cancel'`,
+     * `(string) true` being `'1'`), so the money reversed and THE GOODS STAYED OFF THE SHELF: the
+     * exact inverse of `P4-F034`, out of one request.
+     *
+     * TWO DEFINITIONS OF ONE WORD IS THE HAZARD THIS CLASS EXISTS AGAINST, which is why the answer
+     * lives here and not in each door. The writer asks this ONCE, before
+     * `Order::refuseIllegalTransition()`, and reassigns its own `$date` as well -- the two module
+     * arms at the end of that method are handed the ARRAY, not the local -- so the value this
+     * machine judged is the value every arm acts on. All five sharers of that writer inherit it,
+     * including the vendored `LotteryPrizes` door, which passes `$request->delivered` raw and
+     * cannot be given a fix of its own (`packages/workdo/` must not be edited).
+     *
+     * A SECOND SHAPE, AND IT IS WHY THIS IS `is_string()` AND NOT A `(string)` CAST. An object with
+     * `__toString()` returning `'cancel'` diverges the same way -- measured: `$obj == 'cancel'` is
+     * TRUE (PHP 8 converts the object), `in_array($obj, [...], true)` is FALSE. It cannot arrive
+     * from a request body, since JSON yields no objects, but this writer is a public static method
+     * that the whole application and every vendored module can call. A `(string)` cast would have
+     * produced the literal `'cancel'` and KEPT the defect for that shape while closing it for the
+     * boolean; `is_string()` closes both. (A cast would also have been a fatal on the array shape.)
+     *
+     * IT REFUSES A TYPE AND DOES NOT TOUCH THE VOCABULARY, and that boundary is the whole design.
+     * A real string comes back unchanged -- so all six governed words, and every value the writer
+     * already refused, behave exactly as before. It does NOT trim and does NOT fold case, for
+     * {@see self::refusalForShopper()}'s own recorded reason: admitting a word the writer then
+     * refuses means a worse message for the same refusal, and `' cancel '` / `'CANCEL'` are
+     * vocabulary questions rather than type ones. (`TrimStrings` has already trimmed anything that
+     * arrived over HTTP, so a route-driven test of that could not fail either way.)
+     *
+     * THE REFUSAL IS THE WRITER'S OWN ESTABLISHED SENTENCE and no new string is introduced: `''`
+     * matches no arm, so a boolean is now answered by F81's *"That order status is not
+     * recognised."* -- byte for byte what `''`, `null`, `0` and an array already got. A second
+     * sentence here would have been a user-visible string change on a path the merchant web screen
+     * renders and two API doors put on the wire.
+     *
+     * NOTHING A CLIENT DOES CHANGES, AND THAT IS MEASURED IN THE CLIENT RATHER THAN REASONED FROM
+     * THE SERVER. Read in `StoreSyria_app98` directly: the status picker is
+     * `const statusIds = [0, 1, 2, 3, 4, 5, 6]` (`payment_status_bottom_sheet.dart:367`), the app's
+     * only status endpoint is `/orders/update-status` (`base_api.dart:143`) -- the INTEGER door,
+     * which never reaches this writer -- and `grep` for a `delivered` request key across the whole
+     * app finds only translation strings. So the shipped app does not call the word door at all,
+     * and both web controls post a `<select>` value, so no client can produce either of the two
+     * values whose behaviour moves. Pinned by `tests/Feature/Security/OrderStatusWordIsNotABooleanTest`, whose premises
+     * drive the assigned driver, the store owner and tenant staff landing the real word on a
+     * byte-identical fixture -- because a normalisation that refused everything would pass every
+     * hostile case and break the product.
+     */
+
+    /**
+     * The status word a caller supplied, as a string the writer's branch chain and
+     * {@see self::governs()} can both judge -- or `''`, which neither recognises.
+     *
+     * @param  mixed  $raw  the status word exactly as the caller supplied it
+     */
+    public static function wordOf($raw): string
+    {
+        return is_string($raw) ? $raw : '';
+    }
 }
