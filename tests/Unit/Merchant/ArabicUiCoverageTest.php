@@ -57,6 +57,18 @@ class ArabicUiCoverageTest extends TestCase
         // caught it because `resources/views/customer/` was not scanned. A coverage test is only
         // as wide as its list, which is the one way this kind of check quietly stops working.
         'resources/views/customer/*.blade.php',
+
+        /*
+         * GAP-104's official-site content editor. Added because its strings were invisible to this
+         * census for the SAME reason the comment three lines above records: the glob list is the
+         * scan, so a new directory is simply not looked at. `resources/views/platform/*.blade.php`
+         * is non-recursive, so `platform/content/` was unscanned and fourteen of that screen's
+         * sixteen new strings would have shipped untranslated with this test green.
+         *
+         * That is now the third time this list has been the thing at fault rather than the code it
+         * measures. A coverage test is only as wide as its list.
+         */
+        'resources/views/platform/content/*.blade.php',
         'resources/views/components/ss/*.blade.php',
         // P2-05-6. The report screens became a Phase 02 surface when they were put on the
         // design system; before that nothing scanned them, so every figure, column header and

@@ -49,9 +49,23 @@ use Illuminate\Http\Response;
  *    platform's own website, so its contents are a platform-operator decision.
  *  - **No `<changefreq>` or `<priority>`.** Both are ignored by Google and inventing values for
  *    them would be noise presented as information.
- *  - **No custom pages (`page.custom`) or articles (`page.article`).** Both are indexable and both
- *    live in vendored module tables that do not load in any test run (CLAUDE.md), so they cannot
- *    be enumerated here with evidence. Named in the evidence document as not done.
+ *  - **No custom pages (`page.custom`) or articles (`page.article`), AND THE REASON THIS GAVE WAS
+ *    FALSE.** It said both "live in vendored module tables that do not load in any test run".
+ *    They do not: `App\Models\Page` and `App\Models\Blog` are HOST models, both imported by
+ *    `HomeController`, and `article_page` already reads `Blog` with an explicit `store_id`
+ *    predicate at `HomeController:1235`. Both are fully reachable under the suite. Corrected after
+ *    an independent review, because a stated-and-wrong blocker is worse than none: the next reader
+ *    would have removed it and added `Page` to the sitemap.
+ *
+ *    The real position, per model:
+ *      `page.article` — a straightforward addition. Nothing blocks it but the work.
+ *      `page.custom`  — was blocked on a LIVE CROSS-TENANT LEAK, not on module loading.
+ *                       `HomeController::customPage()` read `Page` with no `store_id` predicate,
+ *                       so any store's page rendered under any slug, and `Page` carries no scope
+ *                       and is absent from `scoped_models`. Listing it would have turned an
+ *                       obscure URL into a document the platform publishes for every store. The
+ *                       predicate is now in place (see that handler); enumerating it here is still
+ *                       unbuilt, and is now only work.
  */
 final class SitemapController extends Controller
 {
@@ -136,7 +150,22 @@ final class SitemapController extends Controller
             return collect();
         }
 
+        /*
+         * `disableCache()` — KEEP A WHOLE CATALOGUE OUT OF THE SHARED DATABASE CACHE.
+         *
+         * Added after an independent review. `Category` is `Cachable`, model caching is enabled, and the
+         * default store is `database` in production — which is NOT taggable, so the flush that
+         * laravel-model-caching performs after ANY model save is a `Cache::flush()` over the whole
+         * store. `config/laravel-model-caching.php` records the measured consequence in its own
+         * header: one `Setting::updateOrCreate()` erased four of four seeded payment keys.
+         *
+         * So without this, every anonymous sitemap fetch serialises up to the cap's worth of rows
+         * into a single `cache` row that the next product or setting write throws away — a read
+         * amplifier turned into a write amplifier against a table this repository has already
+         * measured as fragile. The document is cheap to rebuild and nothing else wants this blob.
+         */
         return Category::query()
+            ->disableCache()
             ->where('store_id', $store->id)
             ->where('status', 1)
             ->whereNotNull('slug')
@@ -179,6 +208,7 @@ final class SitemapController extends Controller
         }
 
         return Product::query()
+            ->disableCache()
             ->where('store_id', $store->id)
             ->whereNull('product_type')
             ->where('status', 1)

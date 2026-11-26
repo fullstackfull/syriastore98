@@ -4676,5 +4676,21 @@
     "Documentation editorial": "تحرير الوثائق",
     "Applies to version": "ينطبق على النسخة",
     "Every help article and the state it is in. Only published articles are visible to readers; an article changes state when that change is reviewed and deployed.": "كلّ مادة مساعدة والحالة التي هي فيها. المواد المنشورة فقط هي التي يراها القرّاء؛ وتتغيّر حالة المادة عندما تُراجَع تلك التغييرات وتُنشَر.",
-    "Every documentation article, with its editorial state in each language.": "كلّ مادة في الوثائق، مع حالتها التحريرية في كلّ لغة."
+    "Every documentation article, with its editorial state in each language.": "كلّ مادة في الوثائق، مع حالتها التحريرية في كلّ لغة.",
+    "Opening hours": "ساعات العمل",
+    "Some of these documents have been published and some have not. A document marked as not published yet is a description of what it will cover, not terms, and nothing in it is binding on you or on us.": "بعض هذه الوثائق نُشر وبعضها لم يُنشر. الوثيقة الموسومة بأنها لم تُنشر بعد هي وصف لما ستغطّيه، وليست شروطًا، ولا شيء فيها مُلزِم لك ولا لنا.",
+    "Official website content": "محتوى الموقع الرسمي",
+    "Texts": "النصوص",
+    "Owner content": "محتوى يقدّمه المالك",
+    "Owner content outstanding": "محتوى المالك المتبقّي",
+    "Open the public page": "افتح الصفحة العامّة",
+    "Shipped wording": "الصياغة الأصلية",
+    "Eyebrow": "سطر تمهيدي",
+    "Intro": "مقدّمة",
+    "The official website has been updated.": "تم تحديث الموقع الرسمي.",
+    "The text on the official Store Syria website, changed here rather than in a release. Plan prices and limits are not editable: they are read from the plans the subscription flow charges against.": "نصوص موقع ستور سوريا الرسمي، تُغيَّر من هنا بدلًا من إصدار جديد. أسعار الباقات وحدودها غير قابلة للتعديل: تُقرأ من الباقات التي تُحصَّل عليها الاشتراكات.",
+    "Each page of the official website, how many of its texts have been supplied in each language, and how much content is still owed.": "كل صفحة من صفحات الموقع الرسمي، وكم من نصوصها قُدِّم بكل لغة، وكم بقي من المحتوى المطلوب.",
+    "A text left empty uses the wording the site ships with. The texts counted as outstanding carry no built-in wording at all, because the owner supplies them: until they do, those pages say so rather than showing anything.": "النص المتروك فارغًا يستخدم الصياغة الأصلية للموقع. أمّا النصوص المحسوبة كمتبقّية فليست لها صياغة أصلية إطلاقًا لأن المالك هو من يقدّمها: وإلى أن يفعل، تذكر تلك الصفحات ذلك بدل عرض أي شيء.",
+    "Leave a text empty to use the wording the site ships with. A change is published as soon as it is saved.": "اترك النص فارغًا لاستخدام الصياغة الأصلية للموقع. يُنشر التغيير فور حفظه.",
+    "The site ships with no wording for this. Nothing is published until the approved text is supplied here.": "لا توجد صياغة أصلية لهذا في الموقع. لا يُنشر شيء إلى أن يُقدَّم النص المعتمد هنا."
 }

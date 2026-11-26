@@ -111,10 +111,19 @@
                                 {{ __('Orders, buyers and payments across every store: what shoppers pay merchants.') }}
                             </span>
                         </li>
-                        <li>
+                        <li class="mb-3">
                             <a class="ss-link" href="{{ route('platform.resources') }}">{{ __('Platform resources') }}</a>
                             <span class="ss-field__hint d-block">
                                 {{ __('What the machine reports about itself: load, memory and disk.') }}
+                            </span>
+                        </li>
+                        {{-- GAP-104. Linked here for the reason the note at the top of this file
+                             records about `platform.analytics`: a screen nothing links to is a
+                             screen only somebody who already knows the URL can reach. --}}
+                        <li>
+                            <a class="ss-link" href="{{ route('platform.site_content.index') }}">{{ __('Official website content') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('The text on the official Store Syria website, changed here rather than in a release. Plan prices and limits are not editable: they are read from the plans the subscription flow charges against.') }}
                             </span>
                         </li>
                     </ul>

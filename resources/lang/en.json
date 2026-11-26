@@ -4682,5 +4682,21 @@
     "Documentation editorial": "Documentation editorial",
     "Applies to version": "Applies to version",
     "Every help article and the state it is in. Only published articles are visible to readers; an article changes state when that change is reviewed and deployed.": "Every help article and the state it is in. Only published articles are visible to readers; an article changes state when that change is reviewed and deployed.",
-    "Every documentation article, with its editorial state in each language.": "Every documentation article, with its editorial state in each language."
+    "Every documentation article, with its editorial state in each language.": "Every documentation article, with its editorial state in each language.",
+    "Opening hours": "Opening hours",
+    "Some of these documents have been published and some have not. A document marked as not published yet is a description of what it will cover, not terms, and nothing in it is binding on you or on us.": "Some of these documents have been published and some have not. A document marked as not published yet is a description of what it will cover, not terms, and nothing in it is binding on you or on us.",
+    "Official website content": "Official website content",
+    "Texts": "Texts",
+    "Owner content": "Owner content",
+    "Owner content outstanding": "Owner content outstanding",
+    "Open the public page": "Open the public page",
+    "Shipped wording": "Shipped wording",
+    "Eyebrow": "Eyebrow",
+    "Intro": "Intro",
+    "The official website has been updated.": "The official website has been updated.",
+    "The text on the official Store Syria website, changed here rather than in a release. Plan prices and limits are not editable: they are read from the plans the subscription flow charges against.": "The text on the official Store Syria website, changed here rather than in a release. Plan prices and limits are not editable: they are read from the plans the subscription flow charges against.",
+    "Each page of the official website, how many of its texts have been supplied in each language, and how much content is still owed.": "Each page of the official website, how many of its texts have been supplied in each language, and how much content is still owed.",
+    "A text left empty uses the wording the site ships with. The texts counted as outstanding carry no built-in wording at all, because the owner supplies them: until they do, those pages say so rather than showing anything.": "A text left empty uses the wording the site ships with. The texts counted as outstanding carry no built-in wording at all, because the owner supplies them: until they do, those pages say so rather than showing anything.",
+    "Leave a text empty to use the wording the site ships with. A change is published as soon as it is saved.": "Leave a text empty to use the wording the site ships with. A change is published as soon as it is saved.",
+    "The site ships with no wording for this. Nothing is published until the approved text is supplied here.": "The site ships with no wording for this. Nothing is published until the approved text is supplied here."
 }

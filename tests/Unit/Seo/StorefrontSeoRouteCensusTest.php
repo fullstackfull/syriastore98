@@ -6,6 +6,7 @@ use App\Support\Storefront\StorefrontSeo;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
+use Tests\Support\StripsSourceComments;
 use Tests\TestCase;
 
 /**
@@ -59,6 +60,8 @@ use Tests\TestCase;
  */
 class StorefrontSeoRouteCensusTest extends TestCase
 {
+    use StripsSourceComments;
+
     use RefreshDatabase;
 
     /**
@@ -311,6 +314,37 @@ class StorefrontSeoRouteCensusTest extends TestCase
         $this->assertSame(
             'noindex, follow',
             StorefrontSeo::robotsDirectiveFor('census-trap-name-in-a-comment-only', true)
+        );
+    }
+
+    /**
+     * THE PRODUCTION ROUTE IS WIRED, ASSERTED WITHOUT CALLING `declare()`.
+     *
+     * Every other sitemap assertion in this repository declares the route in its own `setUp()`,
+     * so until this test existed they all passed while `GET /{slug}/sitemap.xml` was a 404 in
+     * production — the route was declared by nothing but the tests that measured it. An
+     * independent review named that as checklist shape 8: the premise the test asserts is one it
+     * manufactures. Even the natural gate (`test_no_classified_route_name_is_stale`, which
+     * requires every classified name to answer to a live route) was satisfied by its own setUp.
+     *
+     * So this reads the SOURCE of `routes/web.php` instead, which no `setUp()` can affect. It is
+     * the one assertion in this file that would fail if the wiring line were deleted.
+     *
+     * Comment-stripped, because this repository has had six separate occasions where a census was
+     * satisfied by prose about the thing it measures — and the wiring line's own docblock names
+     * the class three times.
+     */
+    public function test_the_sitemap_route_is_wired_into_the_application_and_not_only_into_tests(): void
+    {
+        $source = $this->sourceWithoutComments('routes/web.php');
+
+        $this->assertStringContainsString(
+            'StorefrontSitemapRoute::declare',
+            $source,
+            'routes/web.php no longer declares the sitemap route, so `GET /{slug}/sitemap.xml` is '
+            . 'a 404 in production — while every other sitemap test keeps passing, because they '
+            . 'each declare the route in their own setUp(). That is exactly the hole this '
+            . 'assertion exists to close: do not satisfy it by adding a declare() call to a test.'
         );
     }
 }

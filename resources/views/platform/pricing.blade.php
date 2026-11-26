@@ -21,9 +21,9 @@
     <section class="ss-ps-hero">
         <div class="ss-ps-wrap">
             <div class="ss-ps-hero__inner">
-                <span class="ss-ps-eyebrow">{{ __('Pricing') }}</span>
-                <h1 class="ss-ps-hero__title">{{ __('Plans') }}</h1>
-                <p class="ss-ps-lede">{{ __('Each plan is shown with the limits it carries. These are the figures the platform itself applies to an account, not a summary of them.') }}</p>
+                <span class="ss-ps-eyebrow">{{ $c['pricing.hero.eyebrow'] }}</span>
+                <h1 class="ss-ps-hero__title">{{ $c['pricing.hero.title'] }}</h1>
+                <p class="ss-ps-lede">{{ $c['pricing.hero.lede'] }}</p>
             </div>
         </div>
     </section>
@@ -82,7 +82,7 @@
                     @endforeach
                 </div>
 
-                <p class="ss-ps-note ss-ps-after">{{ __('Storage is shown in megabytes. “Unlimited” means the plan sets no ceiling at all; a figure means that is the ceiling. Taxes and payment-provider charges are not part of these prices.') }}</p>
+                <p class="ss-ps-note ss-ps-after">{{ $c['pricing.note'] }}</p>
             @endif
 
         </div>
