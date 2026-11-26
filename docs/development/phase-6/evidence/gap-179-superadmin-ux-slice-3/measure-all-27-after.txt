@@ -1,0 +1,208 @@
+
+=== light-en  (theme=light dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=off SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /platform/revenue                    theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/resources                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/analytics                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/documentation              theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/site-content               theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/site-content/home          theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon                         theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/9 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon/1                       theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /super-admin/lynomia-integration     theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+  /dashboard                           theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /plan                                theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/7 | .btn-primary=0 .ss-btn--primary=1
+  /plan/create                         theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan/1/edit                         theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-request                        theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /stores                              theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/5 icon-fail=0/3 | .btn-primary=0 .ss-btn--primary=5
+  /stores/create                       theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /users                               theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/2 | .btn-primary=0 .ss-btn--primary=2
+  /setting                             theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/15 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=2
+  /countries                           theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=3
+  /currency                            theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=1
+  /modules/list                        theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/73 icon-fail=0/69 | .btn-primary=0 .ss-btn--primary=5
+  /modules/add                         theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /profile                             theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=2
+  /users#create                        theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#create                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /stores#user-create                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+
+=== dark-en  (theme=dark dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=on SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /platform/revenue                    theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/resources                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/analytics                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/documentation              theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/site-content               theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/site-content/home          theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon                         theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/9 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Coupons"
+  /plan-coupon/1                       theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /super-admin/lynomia-integration     theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Lynomia Chat Integration"
+  /dashboard                           theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Dashboard"
+  /plan                                theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/7 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Plan"
+  /plan/create                         theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan/1/edit                         theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-request                        theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Plan Request"
+  /stores                              theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/5 icon-fail=0/3 | .btn-primary=0 .ss-btn--primary=5
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Users"
+  /stores/create                       theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /users                               theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/2 | .btn-primary=0 .ss-btn--primary=2
+  /setting                             theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/15 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=2
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Settings"
+  /countries                           theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=3
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Country"
+  /currency                            theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Currency"
+  /modules/list                        theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/73 icon-fail=0/69 | .btn-primary=0 .ss-btn--primary=5
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Add-on Manager"
+  /modules/add                         theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /profile                             theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=2
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  a.list-group-item.list-group-item-action.border-0.active  "Personal Info"
+  /users#create                        theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#create                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /stores#user-create                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+
+=== light-ar  (theme=light dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=off SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /platform/revenue                    theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/resources                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/analytics                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/documentation              theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/site-content               theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/site-content/home          theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon                         theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/9 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon/1                       theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /super-admin/lynomia-integration     theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+  /dashboard                           theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /plan                                theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/7 | .btn-primary=0 .ss-btn--primary=1
+  /plan/create                         theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan/1/edit                         theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-request                        theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /stores                              theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/5 icon-fail=0/3 | .btn-primary=0 .ss-btn--primary=5
+  /stores/create                       theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /users                               theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/2 | .btn-primary=0 .ss-btn--primary=2
+  /setting                             theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/15 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=2
+  /countries                           theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=3
+  /currency                            theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=1
+  /modules/list                        theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/73 icon-fail=0/69 | .btn-primary=0 .ss-btn--primary=5
+  /modules/add                         theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /profile                             theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=2
+  /users#create                        theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#create                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /stores#user-create                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+
+=== dark-ar  (theme=dark dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=on SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /platform/revenue                    theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/resources                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/analytics                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/documentation              theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/site-content               theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /platform/site-content/home          theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon                         theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/9 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "كوبونات"
+  /plan-coupon/1                       theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /super-admin/lynomia-integration     theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "تكامل Lynomia Chat"
+  /dashboard                           theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "لوحة التحكم"
+  /plan                                theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/7 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "خطة"
+  /plan/create                         theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan/1/edit                         theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-request                        theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "طلب الخطة"
+  /stores                              theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/5 icon-fail=0/3 | .btn-primary=0 .ss-btn--primary=5
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "المستخدمون"
+  /stores/create                       theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /users                               theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/2 | .btn-primary=0 .ss-btn--primary=2
+  /setting                             theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/15 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=2
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "الإعدادات"
+  /countries                           theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=3
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "البلد"
+  /currency                            theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "العملة"
+  /modules/list                        theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/73 icon-fail=0/69 | .btn-primary=0 .ss-btn--primary=5
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "مدير الإضافات"
+  /modules/add                         theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+  /profile                             theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=2
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  a.list-group-item.list-group-item-action.border-0.active  "معلومات شخصية"
+  /users#create                        theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#create                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /stores#user-create                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/2 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+
+
+================ GROUPED CENSUS (colour, background, theme) ================
+
+DARK  TEXT    rgb(4,34,42) on rgb(51,93,168)  2.58:1 (needs 4.5)  x22 on 11 surfaces
+      surfaces: /plan-coupon /super-admin/lynomia-integration /dashboard /plan /plan-request /stores /setting /countries /currency /modules/list /profile
+      selectors: span.dash-mtext | a.list-group-item.list-group-item-action.border-0.active
+      e.g.: "Coupons" "Lynomia Chat Integration" "Dashboard" "Plan"
+
+
+================ PER-SURFACE SUMMARY ================
+surface (t=text c=control-label i=icon)light-en       dark-en        light-ar       dark-ar        
+A /platform/revenue                 0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+A /platform/resources               0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+A /platform/analytics               0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+A /platform/documentation           0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+A /platform/site-content            0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+A /platform/site-content/home       0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+A /plan-coupon                      0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+A /plan-coupon/1                    0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+A /super-admin/lynomia-integration  0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /dashboard                        0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /plan                             0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /plan/create                      0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+B /plan/1/edit                      0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+B /plan-request                     0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /stores                           0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /stores/create                    0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+B /users                            0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+B /setting                          0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /countries                        0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /currency                         0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /modules/list                     0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /modules/add                      0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+B /profile                          0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+C /users#create                     0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+C /plan-coupon#create               0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+C /plan-coupon#edit                 0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+C /stores#user-create               0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+
+================ RESULT ================
+surfaces requested      27
+combinations            4 (light-en, dark-en, light-ar, dark-ar)
+measured (surface x combo) 108 of 108
+premise failures        0
+unreachable             0
+contrast findings       22 in 1 groups
+off-origin requests aborted 365
+   ! light-en https://unpkg.com x28 -- ABORTED; a measurement that depended on it is not safe
+   ! light-en https://cdnjs.cloudflare.com x56 -- ABORTED; a measurement that depended on it is not safe
+   ! light-en https://workdo.io x1 -- ABORTED; a measurement that depended on it is not safe
+   ! light-en https://ecom-demo.workdo.io x6 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://unpkg.com x28 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://cdnjs.cloudflare.com x56 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://workdo.io x1 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://ecom-demo.workdo.io x6 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://unpkg.com x28 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://cdnjs.cloudflare.com x56 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://workdo.io x1 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://ecom-demo.workdo.io x6 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://unpkg.com x28 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://cdnjs.cloudflare.com x56 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://workdo.io x2 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://ecom-demo.workdo.io x6 -- ABORTED; a measurement that depended on it is not safe
+
+FAIL (0 premise, 22 contrast)

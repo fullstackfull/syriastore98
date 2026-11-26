@@ -114,6 +114,11 @@ const TIER_A = [
   ['/platform/site-content', 'resources/views/platform/content/index.blade.php'],
   ['/platform/site-content/home', 'resources/views/platform/content/edit.blade.php'],
   ['/plan-coupon', 'resources/views/plan-coupon/index.blade.php'],
+  /* GAP-179 slice 3. `plan-coupon/show.blade.php` is a `PlatformOperatorOnly` GET that renders a
+     page, so it belongs on this list on the same grounds as every other Tier A entry, and it was
+     never on it -- it needs a `plan_coupons` row to resolve, and the fixture had none, which is
+     how a reachable surface reads as absent. `plan_coupons.id = 1` is the fixture's only coupon. */
+  ['/plan-coupon/1', 'resources/views/plan-coupon/show.blade.php'],
   ['/super-admin/lynomia-integration', 'packages/workdo/LynomiaChat (first-party)'],
 ];
 
@@ -159,6 +164,17 @@ const TIER_B = [
 const TIER_C = [
   ['/users#create', 'resources/views/users/create.blade.php', '/users', 'a[data-ajax-popup="true"][data-url*="users/create"]'],
   ['/plan-coupon#create', 'resources/views/plan-coupon/create.blade.php', '/plan-coupon', '[data-url*="plan-coupon/create"]'],
+  /* GAP-179 slice 3, AND IT IS THE SLICE-2 FINDING A THIRD TIME.
+     `plan-coupon/edit.blade.php` is `create.blade.php` with `Form::model` instead of `Form::open`
+     and `Update` instead of `Create`. Comment-stripped, the two differ in six lines. It was NOT a
+     surface, for two compounding reasons: the Tier C list was written from the three
+     `data-ajax-popup` triggers that are visible on an EMPTY grid, and the edit trigger lives in
+     `plan-coupon/action.blade.php`, which only renders once a coupon ROW exists -- and
+     `seed-p2dev.php` created none. So the screen was unmeasurable, not clean, and it carried BOTH
+     the 2.58:1 `btn-badge btn-primary` that slice 1 existed to close and the 3.07:1
+     `btn-outline-primary` that slice 1 recorded on its twin. Adding it RAISED the measured
+     baseline before anything was repaired, which is the only honest way for it to appear. */
+  ['/plan-coupon#edit', 'resources/views/plan-coupon/edit.blade.php', '/plan-coupon', '[data-url*="plan-coupon/1/edit"]'],
   ['/stores#user-create', 'resources/views/store/user-create.blade.php', '/stores', '[data-url*="stores/user/create"]'],
 ];
 
@@ -262,6 +278,19 @@ const SCAN = (rootSelector) => {
     if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) <= 0.05) return false;
     if (clippedAway(cs)) return false;
     if (el.closest('.visually-hidden, .sr-only, .ss-visually-hidden')) return false;
+
+    /* THE DEBUGBAR IS NOT IN THE PRODUCT, AND IT MEASURES AS A FINDING.
+       CLAUDE.md records it: with APP_DEBUG on, a contrast harness reads
+       `span.phpdebugbar-badge` at 3.89:1 and files FOUR findings per theme that no operator can
+       see -- eight per surface across the two themes. The control is APP_DEBUG=false, and every
+       run recorded for this slice used it (`.env` APP_DEBUG=false plus DEBUGBAR_ENABLED=false,
+       and `grep -c phpdebugbar` over a served page is 0). This exclusion is the SECOND line of
+       defence, so that a run taken on a debug-on instance cannot quietly inflate the inventory.
+       BY ANCESTOR, not by the element's own class: the badge is a descendant of the bar, and the
+       bar's own panels carry neither class. Proved a no-op on this instance by re-running the
+       complete 25-surface baseline with and without it: 24 findings in 2 groups, both times. */
+    if (el.closest('.phpdebugbar, #phpdebugbar, .phpdebugbar-openhandler')) return false;
+
     return true;
   };
 
@@ -407,6 +436,7 @@ const SCAN = (rootSelector) => {
   const premiseFailures = [];
   const reachFailures = [];
   const shots = [];
+  const offOriginTallies = [];
 
   for (const combo of COMBOS) {
     const written = setState(combo);
@@ -417,6 +447,28 @@ const SCAN = (rootSelector) => {
        session that logged in before the write keeps the old chrome until something reloads it;
        logging in again after the write removes that whole class of doubt. */
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+
+    /* NO EGRESS. Everything this harness measures is served by the dev instance; a request to any
+       other host is either a font/CDN reference that would make the run depend on the network, or
+       a telemetry call. Both are refused here rather than relied on to fail.
+       MEASURED on this instance before this block existed: zero off-origin requests on all 25
+       surfaces, which is why adding it is a no-op on the numbers -- `blockedOffOrigin` below
+       prints the count so a future reader can see whether that is still true rather than assume
+       it. If it ever becomes non-zero, the aborted resource may change font metrics and therefore
+       the large-text floor, and the baseline must be retaken. */
+    const blockedOffOrigin = new Map();
+    const baseOrigin = new URL(BASE).origin;
+    await ctx.route('**/*', (route) => {
+      let origin = null;
+      try { origin = new URL(route.request().url()).origin; } catch (e) { origin = null; }
+      if (origin && origin !== baseOrigin) {
+        blockedOffOrigin.set(origin, (blockedOffOrigin.get(origin) || 0) + 1);
+        return route.abort();
+      }
+      return route.continue();
+    });
+    offOriginTallies.push([combo.name, blockedOffOrigin]);
+
     const page = await ctx.newPage();
     await page.goto(BASE + '/login', { waitUntil: 'domcontentloaded' });
     await page.fill('input[name="email"]', OPERATOR);
@@ -607,6 +659,14 @@ const SCAN = (rootSelector) => {
   console.log(`unreachable             ${reachFailures.length}`);
   reachFailures.forEach(f => console.log(`   ! ${f}`));
   console.log(`contrast findings       ${grand} in ${groups.length} groups`);
+
+  const offOriginTotal = offOriginTallies.reduce((n, [, m]) => n + [...m.values()].reduce((a, b) => a + b, 0), 0);
+  console.log(`off-origin requests aborted ${offOriginTotal}`);
+  if (offOriginTotal) {
+    for (const [combo, m] of offOriginTallies) {
+      for (const [origin, n] of m) console.log(`   ! ${combo} ${origin} x${n} -- ABORTED; a measurement that depended on it is not safe`);
+    }
+  }
 
   const bad = premiseFailures.length + grand;
   console.log(bad === 0 ? '\nPASS' : `\nFAIL (${premiseFailures.length} premise, ${grand} contrast)`);

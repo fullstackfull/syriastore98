@@ -1008,3 +1008,60 @@ echo "seeded: merchant={$merchant->id} store={$store->id}"
    . " attrOptions=" . \App\Models\ProductAttributeOption::where('store_id', $store->id)->count()
    . " variants=" . \App\Models\ProductVariant::where('store_id', $store->id)->count()
    . " images=" . \App\Models\ProductImage::where('store_id', $store->id)->count() . "\n";
+
+/*
+ * ONE PLATFORM COUPON, SO THE OPERATOR'S EDIT DIALOG EXISTS AT ALL.
+ * =================================================================================================
+ *
+ * GAP-179 slice 3. `plan_coupons` was EMPTY on this fixture, so `/plan-coupon`'s grid had no rows,
+ * no `action.blade.php` ever rendered, and therefore no `data-ajax-popup` trigger for
+ * `plan-coupon.edit` existed on any page. The live contrast harness can only open a Tier C
+ * fragment by clicking its trigger on the parent screen, so `plan-coupon/edit.blade.php` was
+ * UNMEASURABLE rather than clean -- and it carried the 2.58:1 primary button slice 1 existed to
+ * close, plus the same 3.07:1 `btn-outline-primary` as its create twin.
+ *
+ * That is the slice-2 finding again: `plans/edit.blade.php` was missed the same way. A missing
+ * FIXTURE ROW and a missing SURFACE LIST ENTRY hide a defect identically, and neither shows up as
+ * a failure.
+ *
+ * Written through Eloquent, not `DB::table()`: `PlanCoupon` is `Cachable`, and a raw insert leaves
+ * every Eloquent read -- route-model binding included -- serving the pre-write state.
+ * Invented data; no real customer or merchant value appears here.
+ */
+if (\App\Models\PlanCoupon::count() === 0) {
+    \App\Models\PlanCoupon::create([
+        'name' => 'P2 Dev Launch Coupon',
+        'code' => 'P2DEVLAUNCH',
+        'discount' => 10.00,
+        'limit' => '25',
+        'description' => 'Dev fixture only. Makes /plan-coupon render a row so the edit dialog has a trigger.',
+    ]);
+    echo "seeded: plan_coupons=1 (so plan-coupon/edit.blade.php is reachable as a Tier C surface)\n";
+}
+
+/*
+ * ONE COUPON REDEMPTION, SO THE OPERATOR'S COUPON-DETAIL GRID IS NOT EMPTY.
+ * =================================================================================================
+ *
+ * GAP-179 slice 3, and this row is the SECOND half of a finding whose first half was the coupon
+ * above. With `plan_user_coupons` empty, `/plan-coupon/{id}` rendered its grid with no data row --
+ * so the "Order ID" column's cell was never built, and `PlanCouponDetailDataTable`'s raw-HTML
+ * `<div class="btn btn-primary btn-sm">` wrapper around the order reference measured as NOTHING.
+ * With one row it measures 2.58:1 in dark, which is the named defect slice 1 existed to close.
+ *
+ * An empty grid hides a cell defect exactly as an absent surface hides a screen, and neither
+ * reads as a failure. It also hid a capability question: the Bulk Delete button and its row
+ * checkbox are both rendered by the shared helpers, so the destructive control is only really
+ * observable once a selectable row exists.
+ *
+ * Eloquent, not `DB::table()`: `PlanUserCoupon` is `Cachable`. Invented data; `user_id` is the
+ * fixture merchant and `order` is a made-up reference.
+ */
+if (\App\Models\PlanUserCoupon::count() === 0 && \App\Models\PlanCoupon::count() > 0) {
+    \App\Models\PlanUserCoupon::create([
+        'user_id' => $merchant->id,
+        'coupon_id' => \App\Models\PlanCoupon::first()->id,
+        'order' => 'P2DEV-ORD-1',
+    ]);
+    echo "seeded: plan_user_coupons=1 (so the coupon-detail grid renders a data row)\n";
+}
