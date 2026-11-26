@@ -234,7 +234,7 @@ final class CustomerMoneyTiles
     /**
      * The store's configured currency CODE -- a label of last resort for an unmarked row, never a
      * conversion target. Read with the same query and the same `'USD'` fallback as
-     * `ReportController::ledgerPaymentsTile()`.
+     * `ReportController::salesCollectionTile()`.
      */
     private static function storeCurrency(int $storeId): string
     {

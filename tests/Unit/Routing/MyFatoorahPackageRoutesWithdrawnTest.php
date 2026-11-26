@@ -15,7 +15,8 @@ use Tests\TestCase;
  * `EveryRouteActionExistsTest` measured 73 controller actions a route names and no class defines.
  * Four of them are MyFatoorah's, and the register singles out
  *
- *     POST myfatoorah/webhook  ->  App\Http\Controllers\MyFatoorahController::webhook()
+ *     POST myfatoorah/webhook  ->  App\Http\Controllers\MyFatoorahController, action `webhook`
+ *                                  -- A METHOD THAT DOES NOT EXIST, which is the defect
  *
  * because a provider posting a capture notification got an HTTP 500.
  *
@@ -218,8 +219,9 @@ class MyFatoorahPackageRoutesWithdrawnTest extends TestCase
             'POST myfatoorah/webhook answered ' . $response->getStatusCode() . ', not 404.'
             . "\n  419 — the web group's CSRF middleware answered first, so the declared 404 is a"
             . " fiction: `withoutMiddleware('web')` has been dropped."
-            . "\n  500 — EITHER the route points at `MyFatoorahController::webhook()` again, which"
-            . ' does not exist (that is the original defect, and the shape of the pre-fix'
+            . "\n  500 — EITHER the route points at `MyFatoorahController`'s `webhook` action again,"
+            . ' which is a method that class does not define (that is the original defect, and the'
+            . ' shape of the pre-fix'
             . ' measurement, because the package declares these routes with NO middleware at all),'
             . ' OR the route has been put back inside the `web` group and one of its ~34 middleware'
             . ' failed before CSRF could answer — this case runs without `RefreshDatabase`, so any'

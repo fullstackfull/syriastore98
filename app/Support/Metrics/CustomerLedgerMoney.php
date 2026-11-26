@@ -43,7 +43,7 @@ use InvalidArgumentException;
  *                   to the business", and it is the one a revenue question wants.
  *
  * A cancelled-after-payment order makes them disagree by exactly the captured amount. NEITHER IS
- * LABELLED AS THE OTHER ANYWHERE, and `MetricResult::key()` differs so a surface cannot print one
+ * LABELLED AS THE OTHER ANYWHERE, and `MetricResult::metric()` differs so a surface cannot print one
  * under the other's heading by accident.
  *
  * WHAT THIS CLASS DELIBERATELY DOES NOT DECIDE. It defines no customer lifetime value, no VIP

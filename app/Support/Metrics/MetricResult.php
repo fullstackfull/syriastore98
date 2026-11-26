@@ -256,7 +256,7 @@ final class MetricResult
     {
         /*
          * THE TARGET IS MERCHANT-WRITTEN TOO (FIN-SYM). Every caller passes the raw
-         * `defult_currancy` setting -- `MerchantAnalyticsController::storeAndCurrency()` reads it
+         * `defult_currancy` setting -- `MerchantAnalyticsController::resolveStore()` reads it
          * with `->value('value') ?? 'USD'` -- and FIN-CUR-2 fixed the WRITER while owner decision
          * D-N34 leaves existing rows alone. So the value handed in can itself be a symbol, and
          * folding the unrecorded rows into it would name a bucket with a symbol and print it to

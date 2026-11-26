@@ -104,10 +104,10 @@ final class ShopifyAdminApi
     /**
      * The same request, for the ONE call site that needs the response HEADERS.
      *
-     * `ShopifyProductController::fetchShopifyProducts()` sets `CURLOPT_HEADER => true` and then reads
-     * `CURLINFO_HEADER_SIZE` off the handle to split the two, because Shopify's cursor pagination lives in
-     * the `Link` header. The handle is closed in here, so the size is returned with the bytes rather than
-     * left to be asked for afterwards.
+     * `ShopifyProductController::fetchProducts()` is that site. Shopify's cursor pagination lives in the
+     * `Link` header, so `request()` below passes `CURLOPT_HEADER => true` and reads `CURLINFO_HEADER_SIZE`
+     * off the handle before closing it. The size is returned with the bytes rather than left to be asked
+     * for afterwards, and the caller splits the two on it.
      *
      * @return array{raw: string, header_size: int}|false
      */

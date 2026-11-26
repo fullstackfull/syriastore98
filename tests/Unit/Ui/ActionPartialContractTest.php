@@ -424,7 +424,7 @@ class ActionPartialContractTest extends TestCase
      * `resources/views/partision/header.blade.php:59,196,202,243,310` carry `fill="none"` on the
      * root with every child (`path`, `circle`, `rect`, `polyline`, `line`) inheriting, and :134
      * carries no `fill` attribute at all. The header is included on every admin page
-     * (`resources/views/layouts/app.blade.php`), and `AbandonCartDataTable::rawColumns()` ships
+     * (`resources/views/layouts/app.blade.php`), and `AbandonCartDataTable`'s `rawColumns()` call ships
      * the `<style>` into the DOM unescaped.
      *
      * WHY THIS ASSERTS THE PROPERTY AND NOT THE COLOUR. The repair adds `fill="currentColor"`, so

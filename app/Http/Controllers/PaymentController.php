@@ -1979,7 +1979,7 @@ public function handlePaymeraTrigger00($orderId)
         /*
          * AND THE BASKET MUST BELONG TO THIS STORE, P01-COMMERCE-SEC-03 FOLLOW-UP.
          *
-         * This is the WEB checkout's single entry point: PaymentService::processPayment() below
+         * This is the WEB checkout's single entry point: PaymentService::process() below
          * dispatches every payment type from here, and two of them -- `cod` and `bank_transfer`
          * (PaymentService:316,318) -- write the order and decrement stock inline in
          * PaymentService::getProductStatus(), whose product lookup is

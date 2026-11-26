@@ -80,7 +80,8 @@ final class LandingPageHomeSectionOperatorOnlyTest extends SecurityTestCase
         ]);
 
         $this->assertNotSame('Defaced by a tenant', $this->value(self::KEY),
-            'A merchant rewrote the PLATFORM\'s public home page. `HomeController::store()` has no '
+            'A merchant rewrote the PLATFORM\'s public home page. '
+            . '`Workdo\LandingPage\Http\Controllers\HomeController::store()` has no '
             . 'authorization check at all, while the `index()` it sits beside refuses everyone but '
             . 'the operator.');
     }

@@ -39,7 +39,8 @@ use Illuminate\Support\Facades\Storage;
  * and the web's generic writers (`POST /customize-settings`, `/system-settings`, ... take every posted name/value into `settings`
  * for the caller's store, no allow-list) let any tenant set `cod_image=.env`; the delete would then aim at the application's own
  * files. So the delete also goes through App\Services\StoredUpload::delete(), which unlinks only a file that resolves INSIDE
- * `base_path('uploads')` -- the precedent is ProductController::isInsideUploadsRoot().
+ * `base_path('uploads')` -- the precedent was a private `isInsideUploadsRoot()` inside `ProductController`, deleted by
+ * P1-INV-09 once this was the only implementation, so there is no such method to grep for today.
  *
  * C. (found by the same review, outside the ticket) `updateStoreOwnerInfo` admits a STAFF member through resolveOwnedStore() and
  * then writes `owner_name`, `owner_email` and `owner_mobile` onto the OWNER's user row -- the owner's login email, i.e. the

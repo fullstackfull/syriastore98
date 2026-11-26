@@ -644,7 +644,7 @@ final class PlanPurchaseSettlement
             ],
             'new_values' => array_merge([
                 'outcome' => $outcome->kind,
-                /* KEYED ON BY `PlanPaymentReconciler::alreadyAudited()`, which is why it is a code
+                /* KEYED ON BY `PlanPaymentReconciler::recordDiscrepancy()`, which is why it is a code
                    and not only part of the sentence. */
                 'discrepancy' => $outcome->discrepancy,
                 'reason' => $outcome->reason,

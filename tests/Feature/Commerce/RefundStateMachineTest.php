@@ -100,8 +100,8 @@ class RefundStateMachineTest extends TestCase
      * application, and so the claim "'Pending' is not a refund state" is backed
      * by a measurement rather than by a grep I ran once.
      *
-     * The evidence: AccountProfileController::refundOrder() creates a request
-     * with 'Processing'; OrderRefundDataTable:51 branches on it. A repository-wide
+     * The evidence: AccountProfileController::order_refund_request() creates a
+     * request with 'Processing'; OrderRefundDataTable:51 branches on it. A repository-wide
      * search for refund_status literals in app/, resources/, packages/ and
      * themes/ yields exactly Processing, Accept, Cancel and Refunded -- and
      * notably NOT 'Pending'. tests/Feature/Security/OrderRefundAuthorizationTest
