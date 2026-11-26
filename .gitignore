@@ -35,6 +35,19 @@
 # branch execute -- left two files there that `git status` reported as untracked and a `git add -A`
 # would have committed. 105 files under OTHER store ids are tracked at this path and stay tracked.
 /uploads/uploads/1/
+
+# AND THE FIXTURE IS NO LONGER ONE STORE, SO THE TWO RULES ABOVE DO NOT COVER IT.
+# Measured 2026-11-26: `seed-p2dev.php` creates TWO stores -- id 1 `Damascus Textiles` AND id 2
+# `Aleppo Soap Co` -- so a fixture rebuild writes cover and gallery images under `uploads/2/` and
+# `uploads/uploads/2/` as well, which the store-1 rules let straight through. 156 such files were
+# found untracked after this session's agents drove real screens against the fixture.
+#
+# THERE IS DELIBERATELY NO `/uploads/2/` RULE, and adding one would be a defect. Store 2 is also a
+# REAL store id: 188 files are tracked at `uploads/2/` and 84 at `uploads/uploads/2/`, product
+# content that a blanket ignore would mask the next genuine addition to. The fixture's artefacts
+# there are `*_cover.jpg` and `*_one.jpg` and are regenerable, so they must be DELETED rather than
+# ignored. Deleting the 156 left the tracked count at 407, unchanged, and none of their names
+# collided with a tracked file -- check both before removing any more.
 /vendor/
 /node_modules/
 
