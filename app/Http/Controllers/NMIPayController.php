@@ -1417,7 +1417,7 @@ class NMIPayController extends Controller
                          * which is why that sweep missed it.
                          *
                          * `$products` here is `storedCheckoutCartList()`, i.e.
-                         * `json_decode(json_encode($cartlist), true)` (GuardsGatewayReturn:599) --
+                         * `json_decode(json_encode($cartlist), true)` (GuardsGatewayReturn:600) --
                          * an ARRAY. The sibling line in this very loop reads it correctly as
                          * `$product['product_id']`; this one used `$product->variant_id`, object
                          * syntax on an array, which yields null and raises a warning that Laravel

@@ -562,7 +562,7 @@ class MultiLineCouponArithmeticTest extends SecurityTestCase
      * do that: its running allowance was a hard cap.
      *
      * NEGATIVE `carts.qty` IS REACHABLE TODAY, which is why this is a live cart-read defect and not
-     * a thought experiment: `GuardsGatewayReturn.php:621-627` names `BoostSalesController` and
+     * a thought experiment: `GuardsGatewayReturn.php:622-628` names `BoostSalesController` and
      * `FrequentlyProductController` writing `$qty = $request->qty` into `carts.qty` with no
      * validation, on plain `web` routes, in vendored code this project must not edit (S29).
      *

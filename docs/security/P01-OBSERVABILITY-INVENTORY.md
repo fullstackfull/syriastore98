@@ -65,8 +65,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/OrderEntitlementReversal.php:133` | Entitlement reversal failed; the order was still cancelled or refunded. |
 | `app/Services/OrderEntitlementReversal.php:191` | Entitlement reversal found no financial record for the order. |
 | `app/Services/OrderEntitlementReversal.php:256` | Entitlement reversal could not find the wallet named by the financial record. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1004` | Gateway return refused: the basket names a product or variant row that no longer exists. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:955` | Gateway return gave up after the capture was classified: |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1005` | Gateway return refused: the basket names a product or variant row that no longer exists. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:1376` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
 | `app/Http/Controllers/PaymentController.php:4191` | Order write failed before the transaction opened; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:5692` | Order write failed before the transaction opened; stock decrements were given back |
@@ -260,9 +260,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:296` | Gateway return refused: already claimed. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1055` | Gateway return refused: basket names a product from another store. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1091` | Gateway return refused: the gateway request could not be built. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1108` | Gateway return refused: basket holds a non-positive quantity. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1197` | Gateway return refused: the stored checkout belongs to another rail. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1056` | Gateway return refused: basket names a product from another store. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1092` | Gateway return refused: the gateway request could not be built. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1109` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:576` | Plan activation refused: this provider reference has already activated a plan. |
 | `app/Http/Controllers/ShippingMethodController.php:120` | shipping method write refused: the platform operator has read rights only |
@@ -692,7 +693,7 @@ and before the hoist they ran *before* the verify call, so their silence cost no
 means money moved and that shopper has no order. **Destination:** the same channel as every other
 row here (section 2), so it reaches larabug with the same caveat recorded there.
 
-**`GuardsGatewayReturn.php:958` — `gatewayReturnMissingProductRefusal()`, `critical`.** Fires when a
+**`GuardsGatewayReturn.php:959` — `gatewayReturnMissingProductRefusal()`, `critical`.** Fires when a
 gateway return's basket names a `products` or `product_variants` row that no longer exists — F121,
 which used to answer with an unhandled `ErrorException` from the cart read. Wired on all four
 handlers D-18 names. **Reader:** the same person, for the same reason: on Khalti it carries the
