@@ -4950,7 +4950,7 @@ carries a caveat today", and as of P5-10 two do.)*
 - **Responsible:** Owner review of P4-F134 / P4-F135, then Phase 05 (P5-5)
 - **Next action:** Put F134/F135 to the owner as a decision; until then do not build a coupon-redemption report, and consider caveating the existing coupon totals.
 
-### `P05-11` — Loyalty
+### `P05-11` — P5-9 Loyalty
 
 **Status: NOT IMPLEMENTED**
 

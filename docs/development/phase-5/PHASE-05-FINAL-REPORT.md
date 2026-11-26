@@ -37,8 +37,13 @@ Measured, not estimated:
 
 And the three things this report exists to say that none of those figures says:
 
-1. **Green tests are not requirement coverage.** 13 of the 24 requirements have no owning slice, so
-   a report organised by slice would have silently defined them away. §6 carries all 13. That is
+1. **Green tests are not requirement coverage.** 12 of the 24 requirements have no owning slice, so
+   a report organised by slice would have silently defined them away. §6 carries all 12. **This read
+   13 until 2026-11-26: `P05-11` was counted here while its own matrix row had carried `P5-9` since
+   2026-11-17, because the matrix HEADING still read `Loyalty` with no slice id. The heading is
+   corrected and `P05-11` leaves this set. `Phase05FinalReportTest` asserts the set in both
+   directions, so it refused the disagreement rather than letting the two documents drift — which
+   is the only reason the count was ever re-counted.** That is
    `P05-11`'s own recorded failure — loyalty was in the scope statement and in none of the original
    eight slices — and this row's second instruction.
 2. **No slice has human acceptance and nothing is released.** Those two of CLAUDE.md §4.1's four
@@ -154,7 +159,7 @@ note is **not** a deferral.
 | `P05-08` | `P5-4` | PARTIALLY IMPLEMENTED | no — "None found" | New-vs-returning buyers ship on `/analytics`; `UNIDENTIFIED_CUSTOMERS_EXCLUDED` now travels with the figure as a caveat key (§9a). |
 | `P05-09` | `P5-5` | PARTIALLY IMPLEMENTED | yes — `D-N37` open | Which surface is the supported campaign surface is undecided. |
 | `P05-10` | `P5-5` | OWNER DECISION REQUIRED | yes — the F134/F135 review instruction, and `D-N36` | Redemption records are authoritative per window since the fix; what the figure INCLUDES is the decision. |
-| `P05-11` | — | NOT IMPLEMENTED | **no — "No owner decision deferring or descoping loyalty was found anywhere in the repository"** | The slice gap is closed (`P5-9` was added rather than deferred); the measurable capability is not built. `MKT-006` is measured NOT MET and recorded as not met. |
+| `P05-11` | `P5-9` | NOT IMPLEMENTED | **no — "No owner decision deferring or descoping loyalty was found anywhere in the repository"** | **NO LONGER IN THIS SET, and that is the correction of 2026-11-26.** The slice gap is closed: `P5-9 — Loyalty` was added to the plan on 2026-11-17 rather than deferred, and this row's own body has said so ever since — only the matrix HEADING still read `Loyalty` with no id, which is what kept it counted as sliceless for nine days. **The measurable capability is still not built**, `MKT-006` is measured NOT MET and recorded as not met, and `GAP-191` carries `MKT-005`'s open half; none of that changes because the slice exists. The row is kept, struck from the count. |
 | `P05-12` | `P5-6` | VERIFIED COMPLETE | yes — `D1`, approved | The one Phase 05 requirement the matrix marks verified complete. |
 | `P05-13` | — | PARTIALLY IMPLEMENTED | **no — "None found"** | **The other of the two the row names, and it genuinely has no slice.** Arrivals ship inside `P5-5`; orders and revenue per campaign are blocked on the schema, `D-N33`. |
 | `P05-14` | `P5-7` | PARTIALLY IMPLEMENTED | yes — `D1` governs the period | Operator reporting ships and is verified; parity with the merchant screen is not established. |
@@ -182,7 +187,7 @@ three named examples have moved since it was written:
 - **conversion (`P05-07`) now HAS an owning slice** — the matrix heading reads "P5-4 Conversion"
   since the 2026-11-22 re-measurement. The row's "still have none" predates that. It is carried in
   §5 anyway, and its substance is still open: `D-N32`.
-- **loyalty (`P05-11`) still has no slice in the matrix heading**, although the row correctly notes
+- **loyalty (`P05-11`) had no slice in the matrix HEADING until 2026-11-26** (now `P5-9 Loyalty`), although the row correctly notes
   `P5-9 — Loyalty` was added to the plan on 2026-11-17. So the plan closed the slice gap and the
   matrix heading did not follow. That is a disposition for the coordinator, not an edit here.
 - **marketing performance (`P05-13`) genuinely has none**, and is blocked on `D-N33`.
