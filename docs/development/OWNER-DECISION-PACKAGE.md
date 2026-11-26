@@ -468,6 +468,19 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **Severity, corrected** | The row originally read as a confidentiality exposure. It is **not**: the same principal reads the same name, price and image through store B's own slug on `product-detail` (`GAP-244`'s recorded property). It is an **integrity** defect plus an ownership oracle of small increment. |
 | **Blocked** | Nothing. (B) ships without you. (A) waits. |
 
+### J15 — `GAP-300`: the storefront focus ring is one fixed colour, and the storefront has brand-coloured bars
+
+| | |
+|---|---|
+| **Where** | `GAP-300`; measured by `tests/Support/bin/check-storefront-keyboard-live.cjs`, 884 checks over 30 pages |
+| **The choice** | A second ring tone, an outline-plus-shadow pair, or per-theme ring tokens? |
+| **Why it is yours** | It is a visual-design decision across **three** themes, and the engineering is trivial next to it. |
+| **Measured** | 32 of 534 focus stops fall below WCAG 1.4.11's 3:1 — techzonix purple `rgb(153,82,224)` **1.02:1**, greentic green `rgb(57,132,60)` **1.04:1**, stylique's coral arrow **2.64:1**. Read with the runtime Tailwind JIT's 216–263 injected rules present, because a ring read without them is read against a cascade no shopper sees. |
+| **And a figure in the repository was surface-specific** | The focus layer records "4.44:1 / 8.27:1". That is true **against the page background only** — the one surface that existed when it was written. A contrast figure taken on one surface and recorded as a property of the ring is how 32 failures sat behind a documented pass, and it is the same shape as `GAP-272`'s "dark passes throughout". |
+| **What engineering did and did not do** | The *other* half of this surface is fixed: a closed off-canvas menu was in the tab order of **every** page, focus leaving the visible page after the footer, and that is closed using the themes' own `hidden` convention with offscreen stops 90 → 0. The ring is left alone. |
+| **The closing condition is executable** | The pinning test fails the moment the focus layer declares a `box-shadow`, so whichever remedy you choose announces itself rather than needing to be noticed. |
+| **Blocked** | Nothing. The measurement, the fix to the menu, and the declarations all ship without you. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to
