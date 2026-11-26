@@ -8,7 +8,7 @@ use App\Models\OrderNote;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
-use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
@@ -41,18 +41,51 @@ use Tests\TestCase;
  *     concurrent writers both pass the test and the second `save()` overwrites
  *     the first. ProductStockService's conditional UPDATE replaces it.
  *
- * WHY THIS SUITE BUILDS ITS OWN SCHEMA. The same reason the rest of
- * tests/Feature/Commerce does: RefreshDatabase runs the whole migration set and
- * `database/migrations/2024_05_16_054044_add_id_to_currency_table.php` cannot
- * run on sqlite ("Cannot add a PRIMARY KEY column"), so the suite would die
- * during migration without reaching an assertion. The tables below carry the
- * columns the real migrations declare for the rows this writer actually touches.
+ * IT USED TO BUILD ITS OWN SCHEMA, AND THE REASON IT GAVE WAS STALE.
+ * ------------------------------------------------------------------------------------
+ * The paragraph that stood here said RefreshDatabase could not be used because
+ * `database/migrations/2024_05_16_054044_add_id_to_currency_table.php` cannot run on sqlite
+ * ("Cannot add a PRIMARY KEY column"). That was true and is not: that migration carries an
+ * explicit sqlite branch which rebuilds the table instead of altering it (its own docblock
+ * records the fix), so `migrate` completes on sqlite. Measured 2026-11-26 on a fresh
+ * in-memory migrate, and ~90 other suites in this directory already use the trait. The
+ * blocker was removed and the fourteen hand-built tables outlived it.
+ *
+ * WHAT THE CONVERSION MEASURED, column by column, before anything was changed:
+ *
+ *  1. `product_variants.name` DOES NOT EXIST. The real migration
+ *     (2024_01_01_104858_create_product_variants_table.php) declares `variant` and `sku`,
+ *     both NOT NULL, plus `price` NOT NULL. The label now goes into `variant`.
+ *
+ *  2. `order_billing_details.store_id` DOES NOT EXIST, and the product documents that in
+ *     three places -- Customer::ownStoreOrders(), CustomerMoneyFigures, and LynomiaChat's
+ *     CommerceReader all say so by name and join through `orders` instead. The hand-built
+ *     table declared it anyway, contradicting the product's own measured fact. Inert in
+ *     both directions: `OrderController::store()` does pass `'store_id' => $storeId` to
+ *     `OrderBillingDetail::create()`, but `store_id` is not in that model's `$fillable`, so
+ *     mass assignment drops it and the column was never written even when it existed.
+ *     Nothing reads it. REPORTED, not worked around.
+ *
+ *  3. `stores.created_by` is a FOREIGN KEY to `users.id` in the migration and the
+ *     hand-built table declared no key at all. `DB_FOREIGN_KEYS` is unset so sqlite
+ *     enforces it, and the fixture created both stores with `created_by = 7` BEFORE
+ *     inserting user 7 -- an order the migrated schema refuses. The two inserts are now in
+ *     the order the key requires; no value changed.
+ *
+ *  4. `roles.guard_name` is NOT NULL default 'web' in the migration and nullable with no
+ *     default in the hand-built table; `permissions.name` is UNIQUE in the migration and
+ *     was not. Both inert here -- the fixture supplies 'web' and inserts one permission.
+ *
+ *  5. `products.variant_product` defaults to 1 in the migration and 0 in the hand-built
+ *     table. Inert only because makeProduct() always supplies it.
  *
  * The connection is the sqlite/:memory: one phpunit.xml forces; the assertion in
  * setUp() refuses to run against anything else.
  */
 class OrderStoreOwnershipTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const STORE_A = 11;
     private const STORE_B = 22;
 
@@ -66,36 +99,35 @@ class OrderStoreOwnershipTest extends TestCase
             'this suite must only ever run against sqlite :memory:'
         );
 
-        $this->createCommerceSchema();
+        /*
+         * THE PREMISES OF DIVERGENCES 1 AND 2, ASSERTED RATHER THAN ASSUMED. Without these a
+         * rename of `variant` throws from inside a fixture and reads as a defect in the
+         * ownership predicate, and a later migration quietly ADDING
+         * `order_billing_details.store_id` would make the three production comments that say
+         * it does not exist wrong with nothing to say so.
+         */
+        foreach (['variant', 'sku', 'price', 'stock'] as $column) {
+            $this->assertTrue(
+                Schema::hasColumn('product_variants', $column),
+                "product_variants.{$column} must exist in the migrated schema "
+                    . '(2024_01_01_104858_create_product_variants_table.php); `name` never did'
+            );
+        }
+
+        $this->assertFalse(
+            Schema::hasColumn('order_billing_details', 'store_id'),
+            'order_billing_details has no store_id, and Customer::ownStoreOrders(), '
+                . 'CustomerMoneyFigures and LynomiaChat\'s CommerceReader all join through '
+                . '`orders` because of it. If this column now exists, those three are stale.'
+        );
+
         $this->loginMerchantOfStoreA();
+        $this->customerTheOrdersArePlacedFor();
     }
 
     protected function tearDown(): void
     {
         Auth::logout();
-
-        foreach ([
-            'order_notes',
-            'order_billing_details',
-            'orders',
-            'product_variants',
-            'products',
-            'customers',
-            'settings',
-            // P2-04-10: `store()` now asks whether the principal may create an order, through
-            // `mayUseOrderScreen('Manage Order')` -> Laratrust's `isAbleTo()`. So the Laratrust
-            // tables are tables "this writer actually touches", which is this suite's own stated
-            // rule for what it builds.
-            'permission_user',
-            'permission_role',
-            'role_user',
-            'permissions',
-            'roles',
-            'stores',
-            'users',
-        ] as $table) {
-            Schema::dropIfExists($table);
-        }
 
         parent::tearDown();
     }
@@ -1010,6 +1042,24 @@ class OrderStoreOwnershipTest extends TestCase
          * project's CLAUDE.md records as having produced three false test results. Eloquent
          * flushes.
          */
+        /*
+         * THE MERCHANT FIRST, AND THE ORDER MATTERS NOW. DIVERGENCE 3: the migrated `stores`
+         * carries a foreign key from `created_by` to `users.id`, which sqlite enforces here, so
+         * a store owned by user 7 cannot be inserted before user 7 exists. The hand-built
+         * `stores` declared no key and this insert used to come after the two stores. Only the
+         * order changed; every value is the one that was here.
+         */
+        \Illuminate\Support\Facades\DB::table('users')->insert([
+            'id' => 7,
+            'name' => 'Merchant A',
+            'email' => 'merchant-a@example.test',
+            'type' => 'company',
+            'password' => bcrypt('secret'),
+            'current_store' => self::STORE_A,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         foreach ([self::STORE_A => 'Store A', self::STORE_B => 'Store B'] as $storeId => $storeName) {
             /*
              * `forceFill()` AND NOT `Store::create()`. `Store::$fillable` does not list `id`, so
@@ -1034,17 +1084,6 @@ class OrderStoreOwnershipTest extends TestCase
                 'store ' . $storeId . ' must resolve, or every ownership assertion below is vacuous'
             );
         }
-
-        \Illuminate\Support\Facades\DB::table('users')->insert([
-            'id' => 7,
-            'name' => 'Merchant A',
-            'email' => 'merchant-a@example.test',
-            'type' => 'company',
-            'password' => bcrypt('secret'),
-            'current_store' => self::STORE_A,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
 
         /*
          * AND THE PERMISSION THE GATE NOW REQUIRES. A real merchant holds the shared global
@@ -1087,8 +1126,9 @@ class OrderStoreOwnershipTest extends TestCase
      *
      * Raw rather than through the model on purpose, and the reason is the same
      * fact the P4-F025 section is about: `Customer` is `Cachable` AND its
-     * StoreScope really filters (it also carries SoftDeletes, and this suite's
-     * hand-built `customers` table has no `deleted_at`). Creating a store-B row
+     * StoreScope really filters (it also carries SoftDeletes, and `customers.deleted_at`
+     * now really exists -- the hand-built table had no such column, so soft-delete
+     * filtering was silently absent from every read here). Creating a store-B row
      * through Eloquent while store A is the resolved tenant is exactly the
      * shape that has produced false readings here. `DB::table()` writes the row
      * that is asked for, in the store that is asked for, with no scope and no
@@ -1162,12 +1202,19 @@ class OrderStoreOwnershipTest extends TestCase
         return $product;
     }
 
+    /**
+     * DIVERGENCE 1. The label goes into `variant`, the column the migration declares for it;
+     * `sku` and `price` are NOT NULL with no default, so they are supplied rather than
+     * omitted. The label's value is unchanged from the hand-built fixture's.
+     */
     private function makeVariant(int $productId, int $storeId, int $stock): ProductVariant
     {
         $variant = new ProductVariant();
         $variant->forceFill([
             'product_id' => $productId,
-            'name' => 'Size M',
+            'variant' => 'Size M',
+            'sku' => 'sku-' . uniqid('', false),
+            'price' => 10,
             'stock' => $stock,
             'stock_order_status' => 'not_allow',
             'store_id' => $storeId,
@@ -1178,259 +1225,16 @@ class OrderStoreOwnershipTest extends TestCase
     }
 
     /**
-     * Only the tables store() writes or reads, with the real migrations'
-     * nullability where it matters (`products.created_by` and
-     * `products.track_stock` are NOT NULL in
-     * 2023_12_26_092822_create_products_table.php, and are reproduced as such so
-     * a column the production fixture must supply cannot be skipped here).
+     * The customer the order is placed for. `customer_id` is validated with
+     * `exists:customers,id`, so it must be real or every test stops at the validator
+     * instead of reaching the loop under test.
      *
-     * `orders.currency_code`, `orders.currency_symbol` and `orders.created_by`
-     * come from 2026_10_12_000102_add_currency_and_created_by_to_orders_table.php.
+     * This is all that is left of the suite's fourteen-table hand-built schema: the tables
+     * now come from the migrations (see the class docblock), and the only thing that was
+     * ever a FIXTURE rather than a schema is this row.
      */
-    private function createCommerceSchema(): void
+    private function customerTheOrdersArePlacedFor(): void
     {
-        foreach ([
-            'order_notes',
-            'order_billing_details',
-            'orders',
-            'product_variants',
-            'products',
-            'customers',
-            'settings',
-            // P2-04-10: `store()` now asks whether the principal may create an order, through
-            // `mayUseOrderScreen('Manage Order')` -> Laratrust's `isAbleTo()`. So the Laratrust
-            // tables are tables "this writer actually touches", which is this suite's own stated
-            // rule for what it builds.
-            'permission_user',
-            'permission_role',
-            'role_user',
-            'permissions',
-            'roles',
-            'stores',
-            'users',
-        ] as $table) {
-            Schema::dropIfExists($table);
-        }
-
-        Schema::create('users', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->string('type')->default('admin');
-            $table->string('password');
-            $table->unsignedBigInteger('current_store')->nullable()->index();
-            $table->string('is_active')->default('1');
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->rememberToken();
-            $table->timestamps();
-        });
-
-        /*
-         * THE `stores` TABLE, because the ownership guard added in P4-3b asks whether the
-         * merchant's current store RESOLVES before it trusts it as a predicate.
-         *
-         * `OrderController::store()` now calls this file's own `resolvedCurrentStoreId()`, and
-         * that helper is two conditions rather than one: `getCurrentStore()` hands the platform
-         * operator the literal `1` whether or not store 1 exists, so the helper also asks
-         * `getStoreById($storeId) === null`. That read is `Store::where('id', $id)->first()`, so
-         * without this table the whole suite died with `no such table: stores` BEFORE the first
-         * assertion -- twelve errors, which is a worse outcome than a failure because an erroring
-         * test proves nothing in either direction.
-         *
-         * Columns are the ones `2023_12_14_090259_create_stores_table.php` declares. The foreign
-         * key on `created_by` is deliberately NOT declared: the rest of this builder omits them
-         * too, and store B's owner is not a row this suite needs.
-         */
-        Schema::create('stores', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('email');
-            $table->string('theme_id');
-            $table->string('slug');
-            $table->string('default_language')->nullable();
-            $table->unsignedBigInteger('created_by');
-            $table->integer('is_active')->default(1);
-            $table->string('enable_pwa_store')->default('off');
-            $table->timestamps();
-        });
-
-        /*
-         * THE LARATRUST TABLES, because `OrderController::store()` now asks whether the principal
-         * may create an order.
-         *
-         * P2-04-10 gated that handler -- it previously inserted an order with no permission check
-         * at all, so a principal with no role created orders in their employer's store. The gate
-         * runs `mayUseOrderScreen('Manage Order')`, which tests the platform operator first and
-         * otherwise calls Laratrust's `isAbleTo()`. This suite's merchant is `type => 'company'`,
-         * so it is NOT the operator and the permission query runs.
-         *
-         * WITHOUT THESE TABLES THE WHOLE SUITE ERRORED -- ten tests, `no such table: permissions`,
-         * and ERRORS rather than failures, which the known-outcome gate holds at a zero baseline
-         * because a test that could not run is a worse thing than one whose assertion failed.
-         *
-         * Columns are those `2023_12_08_100022_laratrust_setup_tables.php` declares, plus the
-         * `store_id` / `created_by` that `2024_03_21_121945_add_module_coumns_in_roles_table.php`
-         * adds to `roles` -- the same rule the rest of this builder follows.
-         */
-        Schema::create('roles', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('display_name')->nullable();
-            $table->string('description')->nullable();
-            $table->string('guard_name')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('permissions', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('display_name')->nullable();
-            $table->string('description')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('role_user', function (Blueprint $table) {
-            $table->unsignedBigInteger('role_id');
-            $table->unsignedBigInteger('user_id');
-            $table->string('user_type');
-            $table->primary(['user_id', 'role_id', 'user_type']);
-        });
-
-        Schema::create('permission_role', function (Blueprint $table) {
-            $table->unsignedBigInteger('permission_id');
-            $table->unsignedBigInteger('role_id');
-            $table->primary(['permission_id', 'role_id']);
-        });
-
-        Schema::create('permission_user', function (Blueprint $table) {
-            $table->unsignedBigInteger('permission_id');
-            $table->unsignedBigInteger('user_id');
-            $table->string('user_type');
-            $table->primary(['user_id', 'permission_id', 'user_type']);
-        });
-
-        Schema::create('settings', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->longText('value')->nullable();
-            $table->string('created_by');
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        Schema::create('customers', function (Blueprint $table) {
-            $table->id();
-            $table->string('first_name')->nullable();
-            $table->string('last_name')->nullable();
-            $table->string('email');
-            $table->string('type')->default('cutsomer');
-            $table->string('password')->nullable();
-            $table->integer('status')->default(1);
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        Schema::create('products', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->integer('track_stock');              // NOT NULL in the real migration
-            $table->string('stock_order_status')->nullable();
-            $table->float('price')->default(0);
-            $table->float('sale_price')->default(0);
-            $table->integer('product_stock')->default(0);
-            $table->integer('low_stock_threshold')->default(0);
-            $table->string('stock_status')->default(0);
-            $table->boolean('variant_product')->default(0);
-            $table->double('average_rating', 8, 2)->default(0);
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->integer('created_by');               // NOT NULL in the real migration
-            $table->timestamps();
-        });
-
-        Schema::create('product_variants', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('product_id');
-            $table->string('name')->nullable();
-            $table->integer('stock')->default(0);
-            $table->string('stock_order_status')->nullable();
-            $table->string('variation_option')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('orders', function (Blueprint $table) {
-            $table->id();
-            $table->string('product_order_id')->nullable();
-            $table->dateTime('order_date')->nullable();
-            $table->integer('customer_id')->default(0);
-            $table->integer('is_guest')->default(0);
-            $table->text('product_json')->nullable();
-            $table->string('product_id')->default(0);
-            $table->float('product_price')->nullable()->default(0);
-            $table->float('coupon_price')->nullable()->default(0);
-            $table->float('delivery_price')->nullable()->default(0);
-            $table->float('tax_price')->nullable()->default(0);
-            $table->float('final_price')->nullable()->default(0);
-            $table->float('return_price')->nullable()->default(0);
-            $table->text('payment_comment')->nullable();
-            $table->string('payment_type')->nullable();
-            $table->string('payment_status')->nullable();
-            $table->string('product_order_status')->nullable();
-            $table->integer('delivery_id')->default(0);
-            $table->text('delivery_comment')->nullable();
-            $table->integer('delivered_status')->default(0);
-            $table->integer('return_status')->default(0);
-            $table->float('reward_points', 8, 2)->default(0);
-            $table->string('additional_note')->nullable();
-            $table->string('currency_code', 3)->nullable();
-            $table->string('currency_symbol', 8)->nullable();
-            $table->unsignedBigInteger('created_by')->nullable()->index();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            // P2-04-11. THIS FILE BUILDS ITS OWN `orders` TABLE, and `test_*` below calls
-            // `(new OrderController())->store($request)` directly -- the writer that now stamps
-            // `order_source`. Without this column that call dies with "no such column", which is
-            // exactly how commit 638d06c1 reddened the gate: the Commerce suite's schema is
-            // hand-built because `2024_05_16_054044_add_id_to_currency_table.php` cannot run on
-            // sqlite, so a migration does NOT reach it. Any future column a tested writer sets
-            // has to be added here too.
-            $table->string('order_source', 20)->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('order_billing_details', function (Blueprint $table) {
-            $table->id();
-            $table->integer('order_id')->default(0);
-            $table->string('product_order_id')->nullable();
-            $table->string('first_name')->nullable();
-            $table->string('last_name')->nullable();
-            $table->string('email')->nullable();
-            $table->string('telephone')->nullable();
-            $table->text('address')->nullable();
-            $table->string('postcode')->nullable();
-            $table->string('country')->nullable();
-            $table->string('state')->nullable();
-            $table->string('city')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        Schema::create('order_notes', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->unsignedBigInteger('customer_id')->nullable();
-            $table->string('notes')->nullable();
-            $table->string('note_type')->nullable();
-            $table->string('status')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        // The customer the order is placed for. `customer_id` is validated with
-        // `exists:customers,id`, so it must be real or every test stops at the
-        // validator instead of reaching the loop under test.
         \Illuminate\Support\Facades\DB::table('customers')->insert([
             'id' => 1,
             'first_name' => 'Buyer',
