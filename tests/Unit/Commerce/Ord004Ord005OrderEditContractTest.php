@@ -144,10 +144,34 @@ class Ord004Ord005OrderEditContractTest extends TestCase
         ],
 
         'Http/Controllers/OrderRefundController.php' => [
-            'keys' => ['qty'],
+            'keys' => ['qty', 'variant_id'],
             'what' => 'cancelling a refund request adds the units back, bounded by the line\'s own '
-                . 'refunded_qty counter',
+                . 'refunded_qty counter (`qty`). THE `variant_id` ENTRY IS NOT A LINE WRITE, and '
+                . 'this file\'s inclusion is the LIMIT OF THIS CENSUS rather than a finding: '
+                . 'measured 2026-11-26, the only assignment matching LINE_KEY_ASSIGNMENT for that '
+                . 'key is `$productRefundData[$pid][\'variant_id\'] = $variantId`, which writes a '
+                . 'VIEW-MODEL array built for the refund screen so it can show a returned line\'s '
+                . 'recorded condition (RET-002). It never reaches `orders.product_json`. The other '
+                . 'two occurrences of the key in this file are a `Log::warning` context and a '
+                . 'docblock, both of which the pattern correctly ignores because they use `=>`. '
+                . 'THE CENSUS MATCHES A KEY NAME ANYWHERE IN A FILE THAT WRITES `product_json` '
+                . 'SOMEWHERE, so an assignment to any other array carrying one of these four key '
+                . 'names reads as a line-identity write. That is a file-scoped instrument reporting '
+                . 'a statement-scoped question, and it is why this declaration says what the '
+                . 'assignment really targets rather than only naming the key. Tightening the '
+                . 'pattern to the arrays that actually become `product_json` would be the real fix '
+                . 'and belongs to whoever owns this file.',
             'mutates_stored_line' => true,
+            /*
+             * A key this file assigns that is NOT on a stored order line, with the variable it
+             * really targets. `mutates_stored_line` is per FILE and `keys` is per file, so without
+             * this the identity assertion below reads `variant_id` as an ORD-004 violation -- and
+             * it was right to refuse the first draft of this declaration, which claimed
+             * `mutates_stored_line` for the key as well. The named target is VERIFIED by
+             * `test_premise_every_off_line_identity_key_names_a_target_that_exists`, so an
+             * exemption cannot be taken on an unchecked assertion.
+             */
+            'identity_keys_off_line' => ['variant_id' => 'productRefundData'],
         ],
     ];
 
@@ -298,6 +322,52 @@ class Ord004Ord005OrderEditContractTest extends TestCase
      *
      * The strongest assertion in this file, and the one that holds absolutely.
      */
+    /**
+     * AN EXEMPTION MUST NAME A TARGET THAT REALLY EXISTS IN THE FILE.
+     *
+     * `identity_keys_off_line` lets a declaration say "this file assigns `variant_id`, but to
+     * `$productRefundData`, not to a stored line". That is the only way the file-scoped census can
+     * answer a statement-scoped question -- and an unverified exemption is just a way of switching
+     * the assertion off. So each entry is checked against the source: the file must contain an
+     * assignment of that key subscripted off the named variable. If the assignment moves or is
+     * renamed, the exemption stops being justified and this premise says so.
+     */
+    public function test_premise_every_off_line_identity_key_names_a_target_that_exists(): void
+    {
+        $checked = 0;
+
+        foreach (self::LINE_KEY_WRITERS as $file => $declaration) {
+            foreach ($declaration['identity_keys_off_line'] ?? [] as $key => $variable) {
+                $code = (string) file_get_contents(dirname(__DIR__, 3) . '/app/' . $file);
+
+                $this->assertMatchesRegularExpression(
+                    '/\$' . preg_quote($variable, '/') . '\s*\[[^\]]*\]\s*\[\s*\x27'
+                        . preg_quote($key, '/') . '\x27\s*\]\s*=(?!=|>)/',
+                    $code,
+                    sprintf(
+                        '%s is exempted for the key \x27%s\x27 on the grounds that it is assigned on '
+                        . '$%s rather than on a stored order line -- and no such assignment is in the '
+                        . 'file. Either the assignment moved (re-point the exemption to where it is '
+                        . 'now) or it is gone (drop the exemption). An exemption whose stated reason '
+                        . 'cannot be found is an assertion switched off.',
+                        $file,
+                        $key,
+                        $variable
+                    )
+                );
+
+                $checked++;
+            }
+        }
+
+        $this->assertGreaterThan(
+            0,
+            $checked,
+            'No off-line exemption was checked, so this premise measured nothing. If the last '
+            . 'exemption was legitimately removed, delete this premise in the same change.'
+        );
+    }
+
     public function test_no_stored_order_line_has_its_product_or_variant_identity_rewritten(): void
     {
         $offenders = [];
@@ -307,10 +377,19 @@ class Ord004Ord005OrderEditContractTest extends TestCase
                 continue;
             }
 
+            $offLine = $declaration['identity_keys_off_line'] ?? [];
+
             foreach (['product_id', 'variant_id'] as $identityKey) {
-                if (in_array($identityKey, $declaration['keys'], true)) {
-                    $offenders[] = "$file assigns '$identityKey' on a stored order line";
+                if (! in_array($identityKey, $declaration['keys'], true)) {
+                    continue;
                 }
+
+                /* Exempt only with a named target, which the premise below verifies. */
+                if (isset($offLine[$identityKey])) {
+                    continue;
+                }
+
+                $offenders[] = "$file assigns '$identityKey' on a stored order line";
             }
         }
 
@@ -353,9 +432,22 @@ class Ord004Ord005OrderEditContractTest extends TestCase
 
         // Both of them touch quantity and NOTHING else about the line.
         foreach ($mutators as $file) {
+            /*
+             * Keys the declaration has accounted for as NOT being on a stored line are subtracted
+             * first, and only with a target that
+             * `test_premise_every_off_line_identity_key_names_a_target_that_exists` has verified
+             * against the source. What remains is what this file really writes on a line, so a
+             * genuine second line key still fails here -- which is the whole point of the
+             * assertion and the reason the exemption is keyed per KEY rather than per file.
+             */
+            $onLine = array_values(array_diff(
+                self::LINE_KEY_WRITERS[$file]['keys'],
+                array_keys(self::LINE_KEY_WRITERS[$file]['identity_keys_off_line'] ?? [])
+            ));
+
             $this->assertSame(
                 ['qty'],
-                self::LINE_KEY_WRITERS[$file]['keys'],
+                $onLine,
                 "$file must change a line's quantity and nothing else about it."
             );
         }
