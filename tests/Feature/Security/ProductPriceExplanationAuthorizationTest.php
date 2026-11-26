@@ -135,15 +135,41 @@ class ProductPriceExplanationAuthorizationTest extends SecurityTestCase
             . '403 above is the permission\'s doing and not the fixture\'s.');
     }
 
-    public function test_an_anonymous_caller_is_refused(): void
+    /**
+     * ANONYMOUS, BOTH WAYS -- and the second way is the one that is not optional.
+     *
+     * The route sits inside `Route::middleware(['auth', 'xss', 'setlocate', 'verified'])`
+     * (`routes/web.php:478`, measured by brace-tracking the file rather than read off a comment),
+     * so over HTTP the `auth` middleware answers and **the handler's own `$user === null` limb is
+     * never reached**. That is `GAP-307`'s shape exactly: a handler-level check behind a
+     * middleware that answers first is invisible to an HTTP test, and the route refuses whether or
+     * not the handler checks anything. So the limb is ALSO driven directly, with nobody signed in.
+     */
+    public function test_an_anonymous_caller_is_refused_by_the_middleware_and_by_the_handler(): void
     {
         [$merchant, $store] = $this->makeTenant();
         $own = $this->makeProduct($store->id, $merchant->id, 55.55, 44.44);
 
         $response = $this->get(self::URI . $own->id);
 
-        $this->assertNotSame(200, $response->getStatusCode());
+        $this->assertNotSame(200, $response->getStatusCode(),
+            'over HTTP the `auth` middleware refuses first -- this assertion is about the route, '
+            . 'and it says nothing about the handler.');
         $this->assertStringNotContainsString('44.44', (string) $response->getContent());
+
+        // THE HANDLER'S OWN LIMB, with the middleware out of the path.
+        $this->assertFalse(auth()->check(), 'premise: nobody is signed in.');
+
+        $controller = app(\App\Http\Controllers\ProductController::class);
+        $direct = $controller->price_explanation(request(), (string) $own->id);
+
+        $this->assertSame(403, $direct->getStatusCode(), sprintf(
+            'the handler refuses an unauthenticated caller on its own, so the control does not '
+            . 'depend on the route keeping its middleware -- and a later declaration of the same '
+            . 'method+URI silently replaces the earlier one in this codebase. Body: %s',
+            (string) $direct->getContent()
+        ));
+        $this->assertStringNotContainsString('44.44', (string) $direct->getContent());
     }
 
     /*

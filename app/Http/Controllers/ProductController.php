@@ -1589,6 +1589,15 @@ $Product->cost_price = $request->cost_price;
      * quantity, so quantity is an input to the price and not a multiplier. It is clamped rather
      * than validated-and-refused: a preview is a read, and a nonsense quantity should show the
      * quantity-1 price rather than an error.
+     *
+     * THE CLAMP IS DELIBERATELY DUPLICATED with `PriceExplanation::forProduct()`'s own
+     * `max(1, $qty)`, and the duplication is measured rather than assumed: removing EITHER clamp
+     * alone leaves `ProductPriceExplanationAuthorizationTest::test_a_nonsense_quantity_clamps...`
+     * green and removing BOTH turns it red. So the surviving single mutant is defence in depth
+     * working, not an untested control -- and it is written down because the obvious reading of
+     * that survival is the opposite one. The service needs its own clamp because it is callable
+     * without this handler; this handler keeps its own because a `qty=0` reaching the wholesale
+     * arm divides by zero when a unit price is derived from a line total.
      */
     public function price_explanation(Request $request, $id)
     {

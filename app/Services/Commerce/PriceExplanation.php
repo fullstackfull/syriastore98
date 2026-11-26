@@ -56,6 +56,12 @@ use App\Models\TaxOption;
  *     `coupon_not_included` note says so rather than leaving the omission to be discovered.
  *   - It does not reach the shipper, the second tax pass at checkout (`GAP-143`) or the
  *     order-level totals. Its subject is one product line.
+ *   - **IT AUTHORISES NOTHING.** `forProduct()` takes a slug and a product id and reads both
+ *     without asking whose they are. `Product` is not in `config/tenancy.php`'s `scoped_models`
+ *     and carries no effective global scope, so `Product::find()` here reaches every tenant's
+ *     catalogue, and the breakdown it returns is a store's commercial configuration. Every caller
+ *     must authorise the target itself and must derive it from the authenticated principal, never
+ *     from request input -- `ProductController::price_explanation()` is the worked example.
  */
 final class PriceExplanation
 {
