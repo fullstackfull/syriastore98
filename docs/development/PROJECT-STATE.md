@@ -128,7 +128,25 @@ branch name does not narrow it.
 > report deferring something is not an owner deferral.**
 >
 > **Current figures (gate-enforced): 370 known requirements, 181 verified complete, 189 not.** The
-> register holds 279 rows. Remaining: NOT IMPLEMENTED 12, PARTIALLY IMPLEMENTED 99.
+> register holds 279 rows. Remaining: NOT IMPLEMENTED 10, PARTIALLY IMPLEMENTED 101.
+>
+> > **RECONCILED 2026-11-26.** This sentence read `NOT IMPLEMENTED 12, PARTIALLY IMPLEMENTED 99`
+> > while the matrix's summary table held **10** and **101**, and the account transfer handed the
+> > stale pair over as the project's headline. Re-measured from the matrix's own 350 requirement
+> > sections rather than from either summary: `VERIFIED COMPLETE 181 · PARTIALLY IMPLEMENTED 101 ·
+> > NOT IMPLEMENTED 10 · IMPLEMENTED - VERIFICATION INCOMPLETE 18 · OWNER-APPROVED DEFERRED 17 ·
+> > OWNER DECISION REQUIRED 12 · EXTERNALLY BLOCKED 9 · ACCEPTED OUT OF SCOPE 2`, which sums to
+> > exactly 350 and matches that table row for row. So the matrix was right, this file was stale,
+> > and **the project-wide 370/181/189 figures did not move.** Two rows had been re-traced NOT →
+> > PARTIAL without this copy following.
+> >
+> > **The cause is the one this repository keeps rediscovering: a derived figure with no consumer
+> > asserting it.** `MasterPlanTraceabilityCountsTest` already pinned the matrix to its own rows and
+> > `CLAUDE.md` to the matrix — and this document, which CLAUDE.md names as the FIRST file a new or
+> > transferred session opens, was not in the set. It now is:
+> > `test_the_handoff_document_quotes_the_matrix_figures` asserts both the project-wide sentence and
+> > the per-status remainder against the matrix, in both directions, so a status change that forgets
+> > this file fails CI instead of being handed to the next account.
 >
 > #### 8. TWO PRACTICAL WARNINGS THAT COST REAL TIME HERE
 >
