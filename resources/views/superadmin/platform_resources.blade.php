@@ -196,14 +196,31 @@
 
 {{--
     WHAT THIS SCREEN DOES NOT MEASURE, said on the screen itself rather than only in a document.
-    OPS-001 (queues, databases, integrations) and OPS-003 (incidents and alerts) are separate
-    recovered requirements and are not started; an operator who cannot see that stated here would
-    reasonably read this page as the whole of platform monitoring.
+
+    THE PREVIOUS SENTENCE HERE HAS BEEN REPLACED BECAUSE IT STOPPED BEING TRUE. It read: "This
+    screen measures the machine only. Queue depth, database size and integration reachability are
+    not measured here, and no alerting is configured anywhere in this product." The first clause is
+    still right and the second is now wrong — OPS-001's slice measures the queue depth, the
+    database size and what the integrations are configured as, on `platform/operations` — so the
+    sentence now sends the reader there instead of telling them not to look. A stated gap that has
+    been filled and still says it is a gap is worse than no sentence, because an operator reads it
+    and stops looking.
+
+    THE ALERTING HALF IS KEPT, AND IT IS STILL EXACTLY TRUE. Nothing on this platform sends an
+    alert, and OPS-003 — incidents, alerts and diagnosis — is a separate recovered requirement
+    whose policy half (what threshold, who is notified) is an owner decision that has not been
+    taken. Both screens say so.
 --}}
 <div class="row">
     <div class="col-12">
         <p class="ss-stat__hint">
-            {{ __('This screen measures the machine only. Queue depth, database size and integration reachability are not measured here, and no alerting is configured anywhere in this product.') }}
+            {{ __('This screen measures the machine only — this one host, as it was when the page was built.') }}
+            <a class="ss-link" href="{{ route('platform.operations') }}">{{ __('Platform operations') }}</a>
+            {{ __('measures the shared database, the queues and what the integrations are configured as.') }}
+        </p>
+
+        <p class="ss-stat__hint mb-0">
+            {{ __('No threshold is applied to any figure here and nothing on this platform sends an alert: what counts as too full a disk, and who should be told, are decisions that have not been taken.') }}
         </p>
     </div>
 </div>

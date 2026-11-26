@@ -47,6 +47,13 @@ final class OperatorDashboardPlatformLinksTest extends SecurityTestCase
         'platform.revenue' => 'merchants pay',
         'platform.analytics' => 'shoppers',
         'platform.resources' => 'machine',
+        /*
+         * OPS-001. "Platform resources" and "Platform operations" are one word apart and measure
+         * different things — one host's load and disk against the shared database, the shared
+         * queue and the integrations — so the word that has to be in the sentence is the one that
+         * tells them apart, exactly as for the two money screens above.
+         */
+        'platform.operations' => 'queues',
     ];
 
     private User $operator;

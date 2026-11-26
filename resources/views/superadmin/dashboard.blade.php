@@ -95,7 +95,11 @@
                     <h2 class="h5 mb-1">{{ __('Across the whole platform') }}</h2>
 
                     <p class="ss-muted mb-3">
-                        {{ __('Three screens that read every tenant at once. Each is for the platform operator only.') }}
+                        {{-- "Three" became wrong the moment OPS-001 added a fourth cross-tenant
+                             screen. A counted noun in prose beside a list is a figure, and a
+                             figure that disagrees with the list beneath it is the smallest and
+                             commonest kind of thing this product says that is not true. --}}
+                        {{ __('Four screens that read every tenant at once. Each is for the platform operator only.') }}
                     </p>
 
                     <ul class="list-unstyled mb-0">
@@ -115,6 +119,19 @@
                             <a class="ss-link" href="{{ route('platform.resources') }}">{{ __('Platform resources') }}</a>
                             <span class="ss-field__hint d-block">
                                 {{ __('What the machine reports about itself: load, memory and disk.') }}
+                            </span>
+                        </li>
+                        {{-- OPS-001. The other three subjects of the recovered monitoring
+                             requirement whose SERVERS half is the link above, and linked here for
+                             the reason the note at the top of this file records: a screen nothing
+                             links to is a screen only somebody who already knows the URL can
+                             reach. The sentence names QUEUES, because "Platform resources" and
+                             "Platform operations" are one word apart and measure different
+                             things — one host's load against the shared database and queue. --}}
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.operations') }}">{{ __('Platform operations') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('The shared database, the queues and which integrations are configured, switched on or failing.') }}
                             </span>
                         </li>
                         {{-- GAP-104. Linked here for the reason the note at the top of this file

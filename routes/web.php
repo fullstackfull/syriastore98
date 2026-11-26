@@ -1337,6 +1337,33 @@ Route::get(
         ->name('platform.resources');
 
     /*
+     * OPS-001 — THE DATABASE, QUEUE AND INTEGRATION MEASUREMENTS, for the platform operator only.
+     *
+     * The other three subjects of the recovered requirement whose SERVERS half is the route above:
+     * "مراقبة الخوادم وقواعد البيانات والطوابير والتكاملات". A SEPARATE SCREEN rather than four
+     * more tables on `platform/resources`, because the two answer different questions and fail
+     * differently — `/platform/resources` is about the machine this request is running on, which is
+     * one host of however many, while this one is about the shared database, the shared queue and
+     * the integrations every tenant's checkout depends on. The resources screen's own closing
+     * sentence named these three as unmeasured and now links here instead.
+     *
+     * Same gate as its neighbours and for the same reason: `PlatformOperatorOnly`, not a permission
+     * name, because a merchant creates their own roles through the product and a permission is
+     * therefore substantially self-assignable. AND THE SUBJECT MAKES IT STRICTER THAN THE MACHINE
+     * SCREEN, NOT LOOSER: this page discloses, per payment gateway, how many stores have it
+     * switched on and how many of those are misconfigured. That is commercial information about
+     * third parties and an attacker's shopping list, so identity is the gate.
+     *
+     * NO PARAMETER, ON PURPOSE. The handler reads nothing from the request. A `store_id` in the
+     * query string on a screen whose figures span every tenant would be a cross-tenant selector
+     * wearing a filter's clothes, which `CLAUDE.md` records as having produced four separate
+     * defects here. `PlatformOperationsScreenTest::test_a_query_string_changes_nothing` asserts it.
+     */
+    Route::get('platform/operations', [\App\Http\Controllers\SuperAdminOperationsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.operations');
+
+    /*
      * GAP-192 / SAAS-007 — THE PLATFORM'S OWN REVENUE (MRR/ARR), SEPARATE FROM MERCHANT SALES.
      *
      * A SEPARATE SCREEN FROM `platform/analytics` ON PURPOSE, because the separation IS the

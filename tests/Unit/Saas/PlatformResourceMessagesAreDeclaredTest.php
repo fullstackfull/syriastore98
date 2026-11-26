@@ -45,6 +45,17 @@ final class PlatformResourceMessagesAreDeclaredTest extends TestCase
         'app/Services/SaasRevenueFigures.php',
         'resources/views/superadmin/platform_revenue.blade.php',
         'app/Http/Controllers/SuperAdminRevenueController.php',
+        /*
+         * OPS-001, the database / queue / integration screen. The same three shapes as the two
+         * sets above — producer, probe, screen, controller — and in the same list for the same
+         * reason: this producer prints 90-odd sentences, most of them the sentence a WITHHELD
+         * figure shows in place of a number, and an undeclared one of those renders in English on
+         * the Arabic page while every "the reason is not empty" assertion still passes.
+         */
+        'app/Services/SaasPlatformOperations.php',
+        'app/Services/SaasOperationsProbe.php',
+        'resources/views/superadmin/platform_operations.blade.php',
+        'app/Http/Controllers/SuperAdminOperationsController.php',
     ];
 
     /**
@@ -60,6 +71,13 @@ final class PlatformResourceMessagesAreDeclaredTest extends TestCase
         'app/Services/SaasResourceProbe.php',
         'app/Http/Controllers/SuperAdminResourcesController.php',
         'app/Http/Controllers/SuperAdminRevenueController.php',
+        /*
+         * OPS-001's probe and controller, for the same reasons: the probe returns the running
+         * system's figures or null and never a sentence, and the controller hands the producer's
+         * result to a view and composes nothing.
+         */
+        'app/Services/SaasOperationsProbe.php',
+        'app/Http/Controllers/SuperAdminOperationsController.php',
     ];
 
     private function repoPath(string $relative = ''): string
