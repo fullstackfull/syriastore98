@@ -524,6 +524,18 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **Separately, and already fixed** | A real cross-tenant defect found in the same work: two merchant-panel writers did not scope `product_id`, so one merchant could plant a review on another store's product and that store's own shoppers were served it (`GAP-313`). That needed no decision and is closed. |
 | **Blocked** | The gate. Not the tenancy fix. |
 
+### J21 — may the assigned DELIVERY DRIVER declare goods returned?
+
+| | |
+|---|---|
+| **Where** | `FulfilmentStateMachine::PERMITTED[STATE_SHIPPED]`, which holds `return` |
+| **The choice** | Should a `DeliveryBoy` be able to move an order from SHIPPED to RETURNED? |
+| **Why it is yours** | The same reasoning that narrowed the SHOPPER's transitions applies to the courier — and engineering must not extend a narrowing to a new principal by analogy. Who may declare goods returned is a commercial relationship, not a state-machine detail. |
+| **Measured** | `PERMITTED[STATE_SHIPPED]` includes `return`, and **no vocabulary rule and no permission applies to a `DeliveryBoy`** on that path. The driver is a third party to the merchant, admitted by `OrderStateChangeAuthorization` with no permission at all, holding a Sanctum token that never expires. |
+| **What follows** | A return credits stock and reverses the merchant's entitlement. If the courier may declare it, the merchant's inventory and balance move on a third party's word. If not, a genuine doorstep refusal has no path and the courier must call the merchant. |
+| **Not taken** | Deliberately. The adjacent `J-`/`H4` question (`GAP-255`: `6 → 0 → 2` crediting stock for goods in transit) is the same family and already yours. |
+| **Blocked** | Nothing ships on this. The machine is correct as written; what is undecided is whether it should be. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to
