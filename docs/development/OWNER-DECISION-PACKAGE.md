@@ -665,3 +665,198 @@ A–G. Section `J` is new on 2026-11-26 and nothing in it has been decided. A re
 | **What each choice costs** | **Create it:** the feature presumably becomes buildable, but nothing today writes it, so the migration alone changes nothing a merchant sees — it is only worth doing if the return-message feature is wanted. **Remove the key:** the payload loses a field; your app parses this response, so if any screen reads the key without a null guard it would need checking first. **Leave it:** no change and no risk, but the next person to read the handler will believe the feature exists. |
 | **Engineering recommendation** | **Decide what the feature is first, then pick.** We cannot tell from the repository whether the return message was planned and dropped or never built, and guessing produces either a migration nobody wanted or the removal of a key you intended to fill. If you tell us it was never a feature, removing the key is three lines and we will check the Flutter side for a null-unsafe read before touching it. |
 | **Blocked** | Everything. No engineering action is correct until the intent is known, and none has been taken: the payload's shape is exactly what your app already receives. |
+
+---
+
+## K. Decisions raised by the 2026-11-26 Phase 06 decision-family batch
+
+Six families (ADM, SAAS, KYC, MARKET, SUPPORT, and the Phase 03/04/05 CHAN/CUST/MKT group) were
+measured against the **recovered** `DECISION-ID-REGISTER.md` texts rather than against derived phase
+summaries. Each entry below states what ships **today**, measured, and why engineering stopped
+rather than choosing. **Every mechanism named here is built, tested and inert or conservative by
+default** — none of these decisions is blocking engineering, which is why work continued past them.
+
+### J27 — `SAAS-004`: how many days of grace after a subscription lapses?
+
+**The question.** How many days after `plan_expire_date` may a merchant keep taking **new orders**
+before new selling is restricted?
+
+**What ships today.** `config/saas.php`'s grace value ships **NULL**, so the whole mechanism is
+**inert and nothing changes for any live merchant.** The guard (`LapsedSubscriptionSellingGuard`) is
+wired at exactly the three doors that open a new order from outside the panel — `POST
+{storeSlug?}/process-order`, `POST api/{slug}/place-order` and its `-guest` twin — enumerated from
+the route table, not guessed. Both handlers take their store from `getStore($slug)`, **the same
+source the guard reads**, so the gate and the handler can never disagree. The ~20 gateway callback
+controllers are deliberately **not** gated: each continues a checkout that already passed the door,
+and refusing there would reject a sale after the shopper's money had moved.
+
+**Why engineering stopped.** `SAAS-004` makes the restriction *conditional on a grace period* and
+states no length. Measured as an identifier across `app/ database/ routes/ resources/ config/
+packages/workdo/`: **one hit, and it is `config/jwt.php`'s unrelated `blacklist_grace_period`.** So
+there is no existing value to infer from. A non-whole-number reads as unset, never as zero, so a
+typo cannot start stopping sales.
+
+**What is preserved regardless, asserted positively:** `track-order`, `order-track`,
+`support-ticket`, `add-ticket`, `store-ticket`, `cart` and every panel route carry the guard on
+**none** of their declarations. The refusal is never 401 (the Flutter client force-clears on any
+401): JSON gets 403, browsers a redirect, and the message does not disclose the merchant's billing
+state to a shopper.
+
+### J28 — `SAAS-002`: does renewing a plan ADD to unused time, or restart from today?
+
+**The question.** A merchant with 20 days left renews a monthly plan. Do they get 30 days, or 50?
+
+**What ships today, measured.** `User::assignPlan()` recomputes expiry from **now**, so they get one
+month from today — **20 of the 30 days they paid for were days they already held.** Worse on a
+yearly plan.
+
+**Why engineering stopped.** `SAAS-002` lists «التجديد» (renewal) and says nothing about unused
+time. This is a business rule on a money path, so the behaviour was **pinned as-is by a test rather
+than changed** — the test records today's answer as a measurement, not an endorsement. Changing it
+is a few lines once you rule.
+
+### J29 — `SAAS-001`: what allowance does a merchant with NO readable plan get?
+
+**What ships today.** The refusal each handler already has for an **exhausted** allowance — the
+conservative choice. Before 2026-11-26 both doors crashed instead: `StoreController::store()`
+answered HTTP 500, and `ProductController::store()`'s `catch (\Exception)` showed the merchant
+`Attempt to read property "max_products" on null` — **a database column name in a user-facing
+message** (`GAP-354`). Both shapes are real: `users.plan_id` is nullable and
+`PlanController::destroy()` repoints no subscribers.
+
+**Why engineering stopped.** Whether "no plan" should mean zero, one, or a free-plan allowance is a
+commercial choice. **No allowance was invented.**
+
+### J30 — `SUPPORT-004`/`005`: four values for support access, and whether to enforce it at all
+
+**The mechanism is built** (`App\Support\SupportAccess\*`, `support_access_grants` /
+`_approvals`): *temporary* (`expires_at` NOT NULL; a null expiry reads as **expired**), *scoped*,
+*consented* (only the tenant root may consent; `consented_at` is outside `$fillable`), *audited*
+(the existing `audit_logs`). The emergency path is separate by **disjoint predicate**, enforced
+structurally rather than by policy: `UNIQUE (grant_id, approver_id)`, the grantee's own approval
+never counts, **one recorded decline is fatal** however many approvals sit beside it, and a zero
+requirement refuses rather than self-approving.
+
+**The decision.** `support_access.enforce` ships **`false`**. `true` with an empty grant table would
+refuse **every** support login on first deploy, and the merchant consent screen is not built.
+
+**The input you do not have yet, and can get for free.** Enforcement being off is **not silent**:
+every ungranted support login writes a `support_access_ungranted` row. So the size of the gap
+becomes **countable before it is enforced**, and that count is the best input to this decision.
+Both modes run in CI.
+
+Three further values are placeholders — duration (1440 min / 240 emergency), scopes (five, derived
+from existing permission families), approver count (2). The *existence* of a bound is enforced; the
+numbers are yours. Two sub-questions: who may approve (today `null` = any operator but the grantee;
+**there is no support-lead role in `roles` to name, and inventing one would be inventing an org
+chart**), and whether a merchant's staff may consent (today no — tenant root only; narrow is
+reversible, wide is not). All of it is in
+`docs/development/phase-6/PHASE-06-SUPPORT-ACCESS-OWNER-QUESTIONS.md`, ratcheted in **both**
+directions against the real config.
+
+**Context that changes how this reads:** the register row for this requirement (`GAP-197`) said no
+impersonation door existed and called that absence a security property. **It was false** — the door
+is at `StoreController::LoginWithAdmin()` with no consent, expiry or scope constraint. So
+`SUPPORT-004` **narrows an existing unconstrained door**; it does not open a new one.
+
+### J31 — `KYC-002`: which identity documents, and what happens when one lapses?
+
+**The mechanism is built and INERT BY CONSTRUCTION.** `config('kyc.document_kinds')` ships **empty**
+and therefore **refuses every upload**. Eleven questions follow from that one blank, all in the
+workstream's own notes; the four that matter most: which documents per subject type **and** per
+authority; validity periods; who may approve beyond "the platform operator"; and **what a lapse
+costs** — today, measured and asserted, **nothing happens**. Nothing in the product *depends* on a
+verification: no payment method, no plan.
+
+`KYC-003`'s separation is structural rather than procedural: unique on `(store_id, authority)`,
+`authority` ∈ `{store_syria, payment_provider, government_licence}`, and **no column anywhere
+answers "is this store verified" without naming an authority** — asserted in all six ordered pairs.
+
+### J32 — **SECURITY**: identity documents are stored under a document root that serves files
+
+**This is the one entry in section K that is not merely a policy blank.**
+
+KYC documents are private by every means engineering controls: a local disk rooted at
+`storage/app/private/kyc` with **no `url` key**, filenames of 64 hex characters from
+`random_bytes(32)` with **no extension** and nothing of the merchant, kind or time in them, no URL
+ever minted, and a census allowing **exactly one class** to name the disk.
+
+**What engineering cannot do here.** Per P1-SEC-40's own live measurement, the deployed document
+root **is the repository root** and `.htaccess` carries no deny rules by standing instruction — that
+measurement records `GET /storage/logs/laravel.log` answering **200** with 3,421,645 bytes. **So on
+that host a directory choice is not a control.** Engineering guarantees the path is unguessable; it
+cannot refuse a client that already **knows** the path.
+
+**The decision.** Activate the already-written deny rules at
+`docs/security/p1-sec-40-apache-deny.conf` (GROUP 2 already refuses `^/storage/(logs|framework|app)`,
+which covers this root). A test couples the two, so moving the document root out of `storage/app`
+fails rather than silently losing the coupling. Related and separate: encryption at rest under a key
+**separate from the published `APP_KEY`** — `APP_KEY` is in git history and unrotated, so it is an
+encoding, not a control.
+
+### J33 — `MARKET-003`: the marketplace's commercial model
+
+**Not actionable by the plan's own words**, which is why this is a question and not a gap.
+`MARKET-003` reads «عند اعتماد نموذجها التجاري» — *once its commercial model is approved*. That
+approval is nowhere in the repository. Measured: `add_on_managers.monthly_price` and `yearly_price`
+exist and are **0 in all 70 vendored manifests**. No pricing model and no revenue split were
+invented. `MARKET-001`'s developer-submission half is blocked on this and on nothing else.
+
+### J34 — `MARKET-002`: what is the review standard an app must meet?
+
+The review **record** and the four review inputs are built, read **statically** (never by running
+the package), and the operator screens exist. What the plan does not state is the *standard*.
+Measured, the existing machinery is weaker than it looks: `Check_Parent_Module()` exists but **0 of
+70 manifests declare `parent_module`, so it has never fired**; `version` is in all 70, read in
+exactly one place through `sprintf('%.1f')`, and **nothing compares two versions**; and the only way
+to learn a package's permissions was to **run** its seeder.
+
+### J35 — `ADM-001`: must the platform dashboard carry operator DECISION QUEUES?
+
+Every one of the six dashboard cards is a count or a name linking to a list; nothing says what needs
+the operator's decision today. The design system already ships `<x-ss.attention>` for that shape and
+three candidate queues have data.
+
+**Why engineering did not guess.** `plan_orders.payment_status` *does* have a classified vocabulary,
+and that classification records `pending` as **"awaiting the payer OR the operator"**. So a count of
+pending plan orders is **not** a count of operator decisions, and separating them means defining an
+operator workflow the one-line recovered text does not state.
+
+### J36 — `CUST-003`: which of 26 storefront product reads must filter `status`, and which must not?
+
+Four **search** doors were closed on 2026-11-26 (`GAP-351`) — including a header dropdown that put
+unpublished product names in the source of **every storefront page**. A comment-stripped,
+brace-matched-per-method census then found **26** storefront methods reading `products` with no
+`status` predicate: `place_order`, `apply_coupon`, `confirm_order`, `ordersave`, `product_detail`
+and `wishlist` among them.
+
+**Several of those must NOT filter.** An order that is already placed must still resolve its product
+after the merchant unpublishes it, so a blanket predicate would break fulfilment. The decision is
+which of the 26 are **discovery** surfaces and which are **fulfilment** surfaces. Carried meanwhile
+by a **bounded** assertion, so closing a door cannot redden it — only opening a new one.
+
+### J37 — `MKT-005`: activate the existing referral engine, or leave referrals unbuilt?
+
+Vendored `ProductAffiliate` implements customer-refers-customer with a reward in all but name, and
+`ARCH-002` forbids a second engine — so the question is whether to **activate**, not whether to
+build. **Nothing was built, deliberately.**
+
+One measured caveat that sharpens this: the referral substrate's **tables do not exist in the host
+schema at all** (`reward_club_points`, `customers.total_club_point`, `affiliate_code`,
+`affiliate_transactions` — host migrations NONE, vendored for all four), so
+`Schema::hasColumn('customers','total_club_point')` is **FALSE** and nothing in the suite can verify
+that code, activated or not. The VIP half **is** built, as a `min_loyalty_points` segment rule
+gated on `Schema::hasColumn` — named VIP tiers *with benefits* remain marketing policy.
+
+### J38 — `CUST-003`: what does "dynamic filters" mean, and how far should Arabic search normalise?
+
+The filter set (category, brand, price band, sort; the API adds rating) is **hard-coded**. Whether
+the plan's «فلاتر ديناميكية» means merchant- or attribute-driven filters is unresolved, and the two
+readings are different projects.
+
+On synonyms: `App\Support\Docs\DocumentationSearch::normalise()` is **a first-party Arabic
+normaliser already in this repository** (alef variants, teh marbuta, alef maqsura, tatweel,
+diacritics), applied only to the documentation centre. Product search is one `LIKE %term%` on
+`products.name`. **Normalising the query alone is insufficient — `LIKE` cannot normalise the
+haystack** — so the slice is a stored `name_normalised` column, a hook on every product writer, and
+a backfill. Stated at that size rather than half-built.
