@@ -1384,6 +1384,38 @@ if (!function_exists('metaKeywordSetting')) {
         <meta property='twitter:image' content=' " . e((string) $metaimage) . "'>
         ";
 
+        /*
+         * GAP-117 / P03-MP-01 — THE CANONICAL URL, THE INDEXING DIRECTIVE AND THE STRUCTURED DATA.
+         *
+         * Appended here, and the reason is the four-copy problem rather than a preference. The
+         * owner-approved plan's Phase 03 bullet (`master-plan/MASTER-PRODUCT-PLAN-v1.0-BASE.md:222`,
+         * "تحسين SEO والفهرسة والأداء والصور والبيانات المنظمة") was never built; measured before
+         * this line, a storefront page carried zero `rel=canonical`, zero `<meta name="robots">`
+         * and zero `application/ld+json`.
+         *
+         * THIS FUNCTION IS THE ONLY SEAM CALLED BY ALL FOUR COPIES of
+         * `front_end/layouts/app.blade.php` — line 12 of each of the stylique, greentic and
+         * techzonix copies and of the `resources/views` fallback. The other candidate,
+         * `@include('front_end.partials.appearance')`, is in only THREE of the four (the fallback
+         * copy omits it, recorded in its own header). CLAUDE.md records that a layout-level
+         * storefront change made in fewer than four places silently does nothing for the other
+         * themes, so the four-of-four seam is the one to use — and it keeps the change out of
+         * `themes/`. `StorefrontSeoIndexingTest::test_every_theme_emits_the_seo_block` drives each
+         * installed theme so that is measured rather than reasoned.
+         *
+         * The function's NAME is now narrower than what it emits. That is the acknowledged cost of
+         * the above; the SEO facts themselves live in `App\Support\Storefront\StorefrontSeo`, which
+         * is where to read and change them.
+         *
+         * IT TAKES ITS STORE FROM THE ROUTE AND NOT FROM THIS FUNCTION'S ARGUMENTS OR FROM THE
+         * GUARD. `$slug` here is whatever the layout passed; `getCurrentStore()` reads the DEFAULT
+         * (`web`) guard, which for a visitor holding a merchant panel login answers for THAT
+         * merchant on every storefront request. Either would have published store A's canonical URL
+         * and organization name inside store B's `<head>`. It returns '' for any render that is not
+         * a storefront request, so a console or panel render emits nothing.
+         */
+        $script .= \App\Support\Storefront\StorefrontSeo::markupForCurrentRequest();
+
         return $script;
     }
 }
