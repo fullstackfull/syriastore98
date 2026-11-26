@@ -105,6 +105,42 @@ final class SupportAccessGrants
             throw new InvalidArgumentException('No such store.');
         }
 
+        /*
+         * WHO MAY ASK — FOUND BY APPLYING THE `tenant-authz-reviewer` CHECKLIST TO THIS FILE,
+         * SHAPE 2 ("a tenant predicate built from caller input").
+         *
+         * `$storeId` IS caller-supplied, and that is correct for a REQUEST: the control is that the
+         * resulting grant authorises nothing until the store's own merchant consents, and
+         * `merchant_id` is derived from `$store->created_by` rather than from a parameter. So no
+         * access is gained by naming someone else's store.
+         *
+         * BUT A ROW IS STILL WRITTEN, and an unconstrained requester could write one into any
+         * store's grant list — which is the list a merchant is meant to read to see who has asked
+         * for their data. Unsolicited rows there are noise at best and a phishing surface at worst
+         * ("support needs access, please approve"), aimed at the merchant through their own panel.
+         *
+         * LATENT, NOT LIVE, and said plainly: no route calls this method yet, so nothing can reach
+         * it today. It is closed now rather than left for the controller that will expose it,
+         * because "the caller will check" is how shape 2 produced four separate defects.
+         *
+         * THE OPERATOR *OR* THE STORE'S OWN MERCHANT. Not operator-only: a merchant asking for help
+         * with their own store is a real product flow, and a merchant who both requests and
+         * consents is giving away nothing but their own data. The operator keeps their deliberate
+         * cross-tenant reach, which is the whole point of support access.
+         *
+         * `isOperator()` rather than a raw `===`, for CLAUDE.md's reason: `users.type` is stored
+         * under a case- and trailing-space-folding collation, so `'Super Admin'` IS the operator to
+         * every SQL query while a PHP `===` refuses it.
+         */
+        $requesterIsOperator = UserPolicy::isOperator($requester);
+        $requesterOwnsStore = (int) $requester->id === (int) $store->created_by;
+
+        if (! $requesterIsOperator && ! $requesterOwnsStore) {
+            throw new InvalidArgumentException(
+                'Only the platform operator or the store\'s own merchant may request support access.'
+            );
+        }
+
         $now = Carbon::now();
 
         $grant = SupportAccessGrant::create([

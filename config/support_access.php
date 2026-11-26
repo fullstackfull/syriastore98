@@ -12,10 +12,11 @@
  *
  * So every number below is a PLACEHOLDER with its question written beside it. The MECHANISM
  * enforces that a bound exists, that it is checked, and that it cannot be bypassed; the VALUE of
- * the bound is the owner's. `docs/development/phase-6/SUPPORT-ACCESS-OWNER-QUESTIONS.md` lists the
- * five questions in the form the owner can answer, and `SupportAccessOwnerQuestionsTest` fails if a
- * key here has no question there — so a future author cannot quietly add a sixth policy number
- * without surfacing it.
+ * the bound is the owner's.
+ * `docs/development/phase-6/PHASE-06-SUPPORT-ACCESS-OWNER-QUESTIONS.md` lists the five questions in
+ * the form the owner can answer, and `SupportAccessOwnerQuestionsTest` fails if a key here has no
+ * question there — so a future author cannot quietly add a sixth policy number without surfacing
+ * it.
  *
  * NOTHING HERE WIDENS ACCESS. Raising `max_duration_minutes` lets a grant be requested for longer;
  * it does not create a grant, and a grant still needs the merchant's consent or two approvals.

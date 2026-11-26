@@ -883,6 +883,82 @@ class SupportAccessGrantMechanismTest extends SecurityTestCase
         );
     }
 
+    /**
+     * A STRANGER CANNOT WRITE A ROW INTO ANOTHER STORE'S GRANT LIST.
+     *
+     * Found by applying the `tenant-authz-reviewer` checklist's shape 2 to this family's own code.
+     * `$storeId` is caller-supplied, which is correct for a request — the grant authorises nothing
+     * until the store's merchant consents, and `merchant_id` comes from `$store->created_by`. But a
+     * ROW is still written into the list a merchant reads to see who has asked for their data, and
+     * an unconstrained requester makes that a phishing surface aimed at the merchant through their
+     * own panel ("support needs access, please approve").
+     *
+     * LATENT: no route calls `request()` yet, so this was not reachable. Closed anyway, because
+     * "the controller will check" is how shape 2 produced four separate defects in this repository.
+     */
+    public function test_a_stranger_cannot_request_access_to_someone_elses_store(): void
+    {
+        $stranger = $this->makeMerchant();
+        $this->makeStore($stranger, ['default_language' => 'en']);
+        (new User)->flushCache();
+
+        try {
+            SupportAccessGrants::request(
+                $stranger,
+                (int) $this->store->id,
+                AccessKind::SUPPORT,
+                SupportAccessScope::FULL,
+                'Please approve this, it is definitely support.',
+                60,
+                $this->operator
+            );
+            $this->fail('a merchant wrote a support access request into another store\'s grant list');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('own merchant may request', $e->getMessage());
+        }
+
+        $this->assertSame(
+            0,
+            SupportAccessGrant::query()->where('store_id', $this->store->id)->count(),
+            'the row was written anyway'
+        );
+    }
+
+    /**
+     * THE MERCHANT'S OWN REQUEST IS ALLOWED — the control for the case above.
+     *
+     * A merchant asking for help with their own store is a real product flow, and a merchant who
+     * both requests and consents gives away nothing but their own data. Without this control, the
+     * refusal above would hold just as well if `request()` refused everyone but the operator, and
+     * that would be a quiet reduction of scope.
+     */
+    public function test_a_merchant_may_request_support_access_to_their_own_store(): void
+    {
+        $grant = SupportAccessGrants::request(
+            $this->merchant,
+            (int) $this->store->id,
+            AccessKind::SUPPORT,
+            SupportAccessScope::ORDERS,
+            'I cannot see my own orders, please look.',
+            60,
+            $this->operator
+        );
+
+        $this->assertSame((int) $this->merchant->id, (int) $grant->requested_by);
+        $this->assertSame((int) $this->operator->id, (int) $grant->grantee_id);
+
+        // And it still authorises nothing until consent, merchant-initiated or not.
+        $this->assertFalse(
+            SupportAccessGate::allows($this->operator, (int) $this->store->id, SupportAccessScope::ORDERS),
+            'a merchant-initiated request was live without the consent step'
+        );
+
+        SupportAccessGrants::consent($grant, $this->merchant);
+        $this->assertTrue(
+            SupportAccessGate::allows($this->operator, (int) $this->store->id, SupportAccessScope::ORDERS)
+        );
+    }
+
     public function test_a_reasonless_request_is_refused(): void
     {
         $this->expectException(InvalidArgumentException::class);

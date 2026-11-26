@@ -85,6 +85,43 @@ class SupportAccessEnforcementTest extends SecurityTestCase
         return route('login.with.admin', Crypt::encrypt($target->id));
     }
 
+    /**
+     * THE DOOR'S OWN PREMISES, from the `tenant-authz-reviewer` checklist shapes 1 and 7.
+     *
+     * SHAPE 1 (the guard-class trap): `LoginWithAdmin` reads its actor from `$request->user()`,
+     * which is the DEFAULT guard — and CLAUDE.md records that `CustomAuth` logs a Sanctum token's
+     * owner into whichever guard matches the tokenable class, so the default guard is not always
+     * `web`. This asserts the route carries `auth` (the web guard) and NOT `custom.auth`, which is
+     * what makes `$request->user()` the web user here. The gate also refuses a non-`User` principal
+     * outright (`SupportAccessGrantMechanismTest::test_a_non_user_principal_holds_no_grant`), so
+     * the mechanism fails closed either way — but the premise is pinned rather than assumed,
+     * because if `custom.auth` were ever added to this route the actor could be a `Customer` and
+     * the reasoning above would silently stop holding.
+     *
+     * SHAPE 7 (duplicate declarations): a later declaration for the same method+URI REPLACES the
+     * earlier one and silently drops its middleware. Asserting through the router rather than by
+     * reading `routes/web.php` means the winning declaration is the one measured.
+     */
+    public function test_the_impersonation_door_runs_on_the_web_guard_and_is_declared_once(): void
+    {
+        $routes = collect(\Route::getRoutes()->getRoutes())
+            ->filter(fn ($r) => $r->getName() === 'login.with.admin');
+
+        $this->assertCount(1, $routes,
+            'login.with.admin is declared more than once; the last declaration wins and may carry '
+            . 'different middleware from the one this file reasons about');
+
+        $middleware = $routes->first()->gatherMiddleware();
+
+        $this->assertContains('auth', $middleware,
+            'the impersonation door no longer requires an authenticated session');
+        $this->assertNotContains('custom.auth', $middleware,
+            'custom.auth was added to the impersonation door. It logs a Sanctum token\'s owner into '
+            . 'the guard matching the tokenable class, so $request->user() -- which this handler '
+            . 'passes to both authorize() and the support access gate -- could be a Customer or a '
+            . 'DeliveryBoy rather than the web user.');
+    }
+
     private function consentedFullGrant(?Store $store = null): SupportAccessGrant
     {
         $store = $store ?? $this->store;
