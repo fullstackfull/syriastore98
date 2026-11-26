@@ -7,6 +7,8 @@ use App\Http\Requests\InstallAddonRequest;
 use App\Models\Utility;
 use App\Models\Store;
 use App\Models\Addon;
+use App\Models\ModuleReviewRecord;
+use App\Support\Modules\ModuleTrust;
 use Illuminate\Http\Request;
 use ZipArchive;
 use File;
@@ -240,10 +242,56 @@ class AddonController extends Controller
             $filenameWithExt = $request->file('file')->getClientOriginalName();
             $filename        = pathinfo($filenameWithExt, PATHINFO_FILENAME);
 
-            $Addon               = new Addon();
-            $Addon->theme_id     = $filename;
-            $Addon->status       = '1';
+            /*
+             * MARKET-004 / EX-010. AN UPLOADED THEME IS CODE, AND IT ARRIVES SWITCHED OFF.
+             *
+             * `$Addon->status = '1'` is a BEHAVIOUR CHANGE and is meant to be one: it used to be
+             * `'1'`, so an uploaded theme was immediately selectable. Measured, that makes the theme
+             * door the same one-hop execution path the module loader had:
+             *
+             *   - `ThemeCustomizeController::index()` offers `Addon::where('status','1')` as the
+             *     themes a merchant may pick, and `PlanController` (`:190`, `:262`) offers the same
+             *     set to the operator building a plan;
+             *   - a theme IS Blade, which `ALLOWED_ENTRY_EXTENSIONS` admits on purpose (that comment
+             *     a few hundred lines above says so outright), and `Theme::set()` prepends the
+             *     theme's own view path so its templates win;
+             *   - `App\Support\Theme\ThemeFieldCatalog::readableKeys()` does a literal
+             *     `include $path` of `themes/<theme>/default_data/settings.php`.
+             *
+             * So between the upload and arbitrary PHP running there was no step at all. It now
+             * arrives `status = '0'`, and `ThemeEnable()` refuses to switch it on until a review
+             * decision is recorded. NO EXISTING TEST ASSERTS THE OLD VALUE -- checked:
+             * `ThemeInstallDoesNotOverwriteAnotherThemeTest:218` asserts the ROW exists and reads no
+             * column; `AddonInstallTest` drives only refusals.
+             *
+             * `firstOrNew` rather than `new`: a re-upload under the same name previously inserted a
+             * SECOND row for one `theme_id`, and `ThemeEnable()`/`destroy()` both read `->first()`,
+             * so the duplicate was unreachable and un-deletable. Pre-existing, found here.
+             */
+            /*
+             * Same refusal as `ModuleController::install()`, for the same reason: `addons.theme_id`
+             * is VARCHAR(255) and `module_review_records.subject` is VARCHAR(191), so a longer name
+             * would write the theme row and lose the review record -- and no record means trusted.
+             * Refusing before the `Addon` row is written is safe: a theme with no row is offered
+             * nowhere, since every reader is `Addon::where('status', '1')`.
+             */
+            if (! ModuleTrust::nameFitsTheRegister($filename)) {
+                $return['status'] = 'error';
+                $return['message'] = __('The theme name is too long to be reviewed. Rename the file and try again.');
+
+                return response()->json($return);
+            }
+
+            $Addon               = Addon::firstOrNew(['theme_id' => $filename]);
+            $Addon->status       = '0';
             $Addon->save();
+
+            ModuleTrust::recordUpload(
+                (string) $filename,
+                ModuleReviewRecord::TYPE_THEME,
+                $extractPath,
+                auth()->id()
+            );
 
             $return['status'] = 'success';
             $return['message'] = __('Install successfully.');
@@ -267,6 +315,27 @@ class AddonController extends Controller
         $theme = Addon::where('theme_id', $request->name)->first();
         if (!empty($theme)) {
             if ($theme->status == '0') {
+                /*
+                 * MARKET-004 / EX-010. A THEME THAT CAME BY UPLOAD DOES NOT GO LIVE UNTIL A REVIEW
+                 * DECISION EXISTS FOR IT.
+                 *
+                 * This is the theme half of the boundary; the module half is in
+                 * `PackageServiceProvider::loadDynamicAddons()`. It is asserted HERE and not only in
+                 * the view that renders the toggle, because CLAUDE.md records what happens when a
+                 * screen is relied on as a control -- and because the three SHIPPED themes
+                 * (stylique, greentic, techzonix) have no review record, so `mayExecute()` returns
+                 * true for them and this limb never fires. Both directions are asserted by
+                 * `tests/Feature/Marketplace/UploadedThemeDoesNotGoLiveUntilReviewedTest`.
+                 *
+                 * TURNING A THEME OFF IS NEVER REFUSED. Only this branch -- the one that switches it
+                 * ON -- consults the register. MARKET-005 is the reason: withdrawing an app must
+                 * always be possible, and a guard that could block a disable would be a guard that
+                 * traps a bad theme in production.
+                 */
+                if (! ModuleTrust::mayExecute((string) $theme->theme_id, ModuleReviewRecord::TYPE_THEME)) {
+                    return redirect()->back()->with('error', __('This theme was uploaded and has not been approved in the add-on review register yet.'));
+                }
+
                 $theme->status = '1';
                 $theme->save();
                 return redirect()->back()->with('success', __('Theme Enable Successfully!'));

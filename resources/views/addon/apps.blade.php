@@ -43,7 +43,9 @@
             @php
                 $theme_array = ['stylique', 'greentic', 'techzonix'];
             @endphp   
-        @foreach ($apps['apps'] as $key => $value)
+        {{-- MARKET-001: same as addon/index.blade.php -- an unguarded read of the remote
+             catalogue answered HTTP 500 whenever the vendor host was unreachable. --}}
+        @foreach ($apps['apps'] ?? [] as $key => $value)
                 <div class="col-lg-3 col-md-4 col-sm-6 card-wrapper">
                     <div class="product-card ">
                         <div class="product-card-inner">
