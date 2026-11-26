@@ -176,8 +176,10 @@ class BuilderRawQueryVisibilityTest extends TestCase
     {
         $census = $this->census();
 
+        /* 232 -> 235 [2026-11-26, RET-002]: `App\Services\ReturnInspection`'s three statements. The
+           sibling census carries the full note; all three name `store_id`. */
         $this->assertSame(
-            ['app' => 232, 'packages' => 45],
+            ['app' => 235, 'packages' => 45],
             ['app' => $census['app']['visible'], 'packages' => $census['packages']['visible']],
             'This file counts `DB::` entry points with the same pattern and the same enumeration as '
             . 'RawQueryTenancyInventoryTest::test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight, '

@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 272 lines
+### `warning` — 278 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -164,12 +164,27 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 > rows that MOVED and will not invent a destination for a row that is NEW. That is the right
 > division: the tool can follow code, only a person can say who reads a line.
 
+> **[2026-11-26] 272 -> 278. RET-002, the condition of a returned item.** Six lines, and the three
+> that say *"withheld a line from sale"* are the ones a reader will want: one per restock door
+> (`OrderRefundController::RefundStock()`, `Order::performProductReturn()`,
+> `OrderController::restoreReturnedStock()`), each written when a merchant's recorded inspection
+> keeps goods off the shelf. They are the only trace of a stock credit that did NOT happen, so
+> without them an inventory figure a merchant queries has no explanation.
+>
+> The other three are `App\Services\ReturnInspection`'s own refusals: a verdict outside the
+> vocabulary (REFUSED rather than stored, because the `resellable` column defaults to 0 and a typo
+> would otherwise block a line), and the two reads that fail OPEN — the gate blocks nothing when it
+> cannot read, which is the opposite direction from `RefundPolicy::allows()` and is why the reason
+> has to be readable rather than silent. `ReturnInspection`'s two `error` lines (a verdict that
+> could not be written, an attribution that could not be recorded) are not enumerated here: only
+> `critical` and `warning` are.
+
 | line | message |
 |---|---|
 | `app/Helper/helper.php:687` | an image upload was refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:323` | Delivery Syria order status transition refused |
 | `app/Http/Controllers/Api/DashboardController.php:1044` | Payment status changed on a settled order |
-| `app/Http/Controllers/OrderController.php:2270` | Payment status changed on a settled order |
+| `app/Http/Controllers/OrderController.php:2461` | Payment status changed on a settled order |
 | `app/Http/Controllers/Api/DashboardController.php:2499` | api category delete refused: products would be cascade-deleted with it |
 | `app/Http/Controllers/Api/DashboardController.php:3333` | api variant delete refused: the variant is still referenced |
 | `app/Http/Controllers/Auth/RegisteredUserController.php:125` | Registration refused: no Role named |
@@ -190,7 +205,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/ProductController.php:4241` | product variant delete refused: the variant is still referenced |
 | `app/Http/Controllers/WoocomProductController.php:418` | woocommerce product edit refused: the mapped product is not in this store |
 | `app/Http/Middleware/BulkDeleteTenantGuard.php:677` | bulk category delete refused: products would be cascade-deleted with the categories |
-| `app/Models/Order.php:1362` | order return refused: the order carries no store_id |
+| `app/Models/Order.php:1405` | order return refused: the order carries no store_id |
 | `app/Services/PlatformUploadPolicy.php:314` | a platform upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
@@ -289,20 +304,20 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/NMIPayController.php:436` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/OrderController.php:442` | Manual order total did not match its components; the computed total was stored |
 | `app/Http/Controllers/OrderController.php:1411` | order receipt could not be rendered |
-| `app/Http/Controllers/OrderController.php:1637` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1683` | Return approval skipped a line whose stock was already credited |
-| `app/Http/Controllers/OrderController.php:1703` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1724` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1758` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1873` | Order replacement refused. |
-| `app/Http/Controllers/OrderController.php:2416` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:2634` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1820` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1866` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1886` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1907` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1945` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:2064` | Order replacement refused. |
+| `app/Http/Controllers/OrderController.php:2607` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:2825` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:277` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:299` | Refund transition refused: illegal transition |
-| `app/Http/Controllers/OrderRefundController.php:533` | Refund cancellation refused: the record does not match the order |
-| `app/Http/Controllers/OrderRefundController.php:996` | Refund restock skipped a line with an unusable quantity |
-| `app/Http/Controllers/OrderRefundController.php:1012` | Refund restock clamped to the units the order lines lost |
-| `app/Http/Controllers/OrderRefundController.php:1617` | Refund settled but the order totals were left unchanged: product_json is unparseable |
+| `app/Http/Controllers/OrderRefundController.php:626` | Refund cancellation refused: the record does not match the order |
+| `app/Http/Controllers/OrderRefundController.php:1095` | Refund restock skipped a line with an unusable quantity |
+| `app/Http/Controllers/OrderRefundController.php:1111` | Refund restock clamped to the units the order lines lost |
+| `app/Http/Controllers/OrderRefundController.php:1766` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/AccountProfileController.php:2014` | A refund request carried attachments to a store that accepts none; nothing was stored |
 | `app/Services/RefundPolicy.php:171` | A store refund policy could not be read; the action was refused |
 | `app/Http/Controllers/PaymentController.php:3653` | Benefit return refused: the capture was not established |
@@ -361,8 +376,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:661` | module resource mutation refused |
-| `app/Models/Order.php:1248` | Order return refused: the order carries no readable product_json |
-| `app/Models/Order.php:1259` | Order return refused: the order lines are not in a shape this workflow can return |
+| `app/Models/Order.php:1291` | Order return refused: the order carries no readable product_json |
+| `app/Models/Order.php:1302` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2318` | New Order webhook skipped: no store could be resolved for the order |
 | `app/Models/Utility.php:2328` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
@@ -438,6 +453,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaytmTransactionVerifier.php:248` | Paytm transaction status answered for a different merchant than the one asked about. |
 | `app/Services/PaytmTransactionVerifier.php:311` | Paytm reported a successful transaction that also mentions a refund; not verifying it. |
 | `app/Services/PlatformContentWriteGuard.php:83` | Refused a non-operator write to the official website content |
+| `app/Services/ReturnInspection.php:155` | A return inspection was refused: the condition verdict is not one this platform knows |
+| `app/Services/ReturnInspection.php:281` | The condition of a returned line could not be read; the restock was not blocked |
+| `app/Services/ReturnInspection.php:321` | The return inspections for an order could not be listed |
+| `app/Http/Controllers/OrderRefundController.php:348` | Refund restock withheld a line from sale: its recorded condition is not resellable |
+| `app/Models/Order.php:1066` | Order return withheld a line from sale: its recorded condition is not resellable |
+| `app/Http/Controllers/OrderController.php:1804` | Return approval withheld a line from sale: its recorded condition is not resellable |
 
 <!-- counts: error=95 info=22 debug=1 -->
 

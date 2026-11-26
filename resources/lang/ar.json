@@ -4956,5 +4956,17 @@
     "Delete a store": "حذف متجر",
     "Sign in as a merchant (impersonation)": "تسجيل الدخول بهوية تاجر (انتحال الهوية)",
     "Disable a platform module for every tenant": "إيقاف وحدة من وحدات المنصة لجميع المستأجرين",
-    "Total Plan Orders counts every purchase attempt, whether or not it was ever paid. Popular Plan and Popular Coupon count only purchases the platform was actually paid for, and Popular Coupon counts only redemptions whose order can be found.": "يَعُدّ إجمالي طلبات الباقات كل محاولة شراء، سواء دُفعت أم لا. أما الباقة الأكثر طلباً والقسيمة الأكثر استخداماً فتَعُدّان المشتريات التي قُبض ثمنها فعلاً فقط، والقسيمة الأكثر استخداماً تَعُدّ الاستخدامات التي يمكن العثور على طلبها فقط."
+    "Total Plan Orders counts every purchase attempt, whether or not it was ever paid. Popular Plan and Popular Coupon count only purchases the platform was actually paid for, and Popular Coupon counts only redemptions whose order can be found.": "يَعُدّ إجمالي طلبات الباقات كل محاولة شراء، سواء دُفعت أم لا. أما الباقة الأكثر طلباً والقسيمة الأكثر استخداماً فتَعُدّان المشتريات التي قُبض ثمنها فعلاً فقط، والقسيمة الأكثر استخداماً تَعُدّ الاستخدامات التي يمكن العثور على طلبها فقط.",
+    "Condition of the returned item": "حالة المنتج المرتجع",
+    "Not inspected yet": "لم يتم الفحص بعد",
+    "Inspected - can go back on sale": "تم الفحص - صالح لإعادة البيع",
+    "Inspected - damaged, not for sale": "تم الفحص - تالف وغير صالح للبيع",
+    "Held for inspection - not for sale": "محجوز للفحص - غير صالح للبيع",
+    "Only an item inspected and marked as able to go back on sale is returned to stock. Choose a condition, then save it.": "لا تُعاد إلى المخزون إلا المنتجات التي تم فحصها وتحديدها كصالحة لإعادة البيع. اختر الحالة ثم احفظها.",
+    "Save Condition": "حفظ الحالة",
+    "Choose a condition for the returned item.": "اختر حالة المنتج المرتجع.",
+    "That item is not on this order.": "هذا المنتج ليس في هذا الطلب.",
+    "The condition could not be recorded. Nothing was changed.": "لم يتم تسجيل الحالة. لم يتغير شيء.",
+    "Condition recorded. This item can go back on sale.": "تم تسجيل الحالة. هذا المنتج صالح لإعادة البيع.",
+    "Condition recorded. This item will not be returned to sale.": "تم تسجيل الحالة. لن يُعاد هذا المنتج إلى البيع."
 }

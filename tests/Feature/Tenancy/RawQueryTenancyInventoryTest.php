@@ -752,7 +752,24 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            be a regression. The unscoped halves of every table below are therefore unchanged, which
            is the assertion that matters; `product_variants` arrives with an unscoped half of 0, and
            it arrives scoped BECAUSE THIS CENSUS REFUSED the first version of that read. */
-        $this->assertSame(['app' => 232, 'packages' => 45], $perDir,
+        /* 232 -> 235 [2026-11-26, RET-002]: `App\Services\ReturnInspection`'s three statements over
+           its own `order_return_inspections` table -- the record of a returned item's inspected
+           condition, which the plan's 04-F clause ("فحص حالة المنتج قبل إعادته للبيع") asks for and
+           which no code in this platform had. Raw and not Eloquent for two measured reasons, both
+           stated in the service's header: the table is ABSENT from `config/tenancy.php`'s
+           `scoped_models`, so a `BelongsToStore` model would register a scope that adds NO
+           predicate while `getGlobalScopes()` reported one -- the `Product`/`Category` trap -- and
+           the table is read by a GATE ON STOCK, which must never be served a verdict from before
+           the merchant's own save by one of the 79 `Cachable` models. ALL THREE CARRY AN EXPLICIT
+           `store_id` PREDICATE, and against the ORDER's store rather than the viewer's, because the
+           platform operator legitimately records a condition on another store's order
+           (`ReturnConditionInspectionDoorTest::test_the_verdict_is_filed_under_the_orders_store_and_not_the_actors`
+           pins exactly that). The unscoped halves of every table below are unchanged, which is the
+           assertion that matters; `order_return_inspections` arrives with an unscoped half of 0,
+           and `record()`'s predicate is spelled out column by column in the statement BECAUSE
+           `ServiceLayerRawQueryInventoryTest` REFUSED the first version, which hid it in a
+           variable. */
+        $this->assertSame(['app' => 235, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -892,8 +909,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            symbol reader (229 + 45). Its `store_id` predicate was read at the method rather than
            assumed, and the `settings` row below holds its unscoped half at 5.
            275 -> 277 [2026-11-26, ORD-008 / GAP-185]: `PackingSlip`'s two reads (232 + 45); the
-           note above the per-directory assertion carries the reasoning and the predicates. */
-        $this->assertSame(277, array_sum($perDir));
+           note above the per-directory assertion carries the reasoning and the predicates.
+           277 -> 280 [2026-11-26, RET-002]: `ReturnInspection`'s three statements (235 + 45); same
+           note. They do NOT appear in the per-table map below, and that is the convention this file
+           already records rather than an escape: all three address the table through `self::TABLE`,
+           so the table has exactly ONE class that queries it -- the invariant the
+           `plan_purchase_intents` note keeps, which is why a stray literal was MOVED into that
+           service rather than declared in the map. The entry-point count above is what holds them. */
+        $this->assertSame(280, array_sum($perDir));
     }
 
     /**

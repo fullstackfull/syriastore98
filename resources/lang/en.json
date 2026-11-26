@@ -4991,5 +4991,17 @@
     "Delete a store": "Delete a store",
     "Sign in as a merchant (impersonation)": "Sign in as a merchant (impersonation)",
     "Disable a platform module for every tenant": "Disable a platform module for every tenant",
-    "Total Plan Orders counts every purchase attempt, whether or not it was ever paid. Popular Plan and Popular Coupon count only purchases the platform was actually paid for, and Popular Coupon counts only redemptions whose order can be found.": "Total Plan Orders counts every purchase attempt, whether or not it was ever paid. Popular Plan and Popular Coupon count only purchases the platform was actually paid for, and Popular Coupon counts only redemptions whose order can be found."
+    "Total Plan Orders counts every purchase attempt, whether or not it was ever paid. Popular Plan and Popular Coupon count only purchases the platform was actually paid for, and Popular Coupon counts only redemptions whose order can be found.": "Total Plan Orders counts every purchase attempt, whether or not it was ever paid. Popular Plan and Popular Coupon count only purchases the platform was actually paid for, and Popular Coupon counts only redemptions whose order can be found.",
+    "Condition of the returned item": "Condition of the returned item",
+    "Not inspected yet": "Not inspected yet",
+    "Inspected - can go back on sale": "Inspected - can go back on sale",
+    "Inspected - damaged, not for sale": "Inspected - damaged, not for sale",
+    "Held for inspection - not for sale": "Held for inspection - not for sale",
+    "Only an item inspected and marked as able to go back on sale is returned to stock. Choose a condition, then save it.": "Only an item inspected and marked as able to go back on sale is returned to stock. Choose a condition, then save it.",
+    "Save Condition": "Save Condition",
+    "Choose a condition for the returned item.": "Choose a condition for the returned item.",
+    "That item is not on this order.": "That item is not on this order.",
+    "The condition could not be recorded. Nothing was changed.": "The condition could not be recorded. Nothing was changed.",
+    "Condition recorded. This item can go back on sale.": "Condition recorded. This item can go back on sale.",
+    "Condition recorded. This item will not be returned to sale.": "Condition recorded. This item will not be returned to sale."
 }

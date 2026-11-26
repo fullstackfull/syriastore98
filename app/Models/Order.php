@@ -1034,6 +1034,49 @@ if ($order_status == 'cancel') {
      *
      * @param  array<string, mixed>  $line
      */
+    /**
+     * RET-002 — has a merchant inspected these goods and recorded that they cannot be sold again?
+     *
+     * The plan's 04-F clause is *"فحص حالة المنتج قبل إعادته للبيع"* — inspect the product's
+     * condition before returning it to sale. This is the THIRD of the three restock doors
+     * (`OrderRefundController::RefundStock()` and `OrderController::restoreReturnedStock()` are the
+     * others) and the one with the fewest controls of its own: it marks a line returned AND credits
+     * the goods in the same call, with no per-store toggle, so a damaged return became sellable
+     * inventory on exactly the same evidence as a pristine one.
+     *
+     * **A STATIC HELPER IN THE MODEL, for the reason the `restoreProductStock()` call beside it
+     * already gives:** one of this method's callers is vendored (`packages/workdo/LotteryPrizes`)
+     * and must not be edited, so a control that belongs to every return has to live here rather
+     * than at the call sites.
+     *
+     * TRUE ONLY WHEN A VERDICT EXISTS AND SAYS NOT RESELLABLE. It is ANDed into the existing
+     * restore conditions, so a line it blocks is also left without `LINE_STOCK_RESTORED` — the
+     * same honesty rule `creditableReturnQty()` above was added for: a marker claiming the goods
+     * are back suppresses the legitimate credit once the item is re-inspected. The return itself is
+     * still recorded (`return = 1`, the totals, the audit trail): RET-007 keeps the sales record,
+     * and this decides only the shelf.
+     */
+    public static function returnedGoodsAreNotSellable(self $order, $storeId, $productId, $variantId): bool
+    {
+        if (! app(\App\Services\ReturnInspection::class)
+            ->blocksRestock($storeId, $order->id, $productId, $variantId)) {
+            return false;
+        }
+
+        \Illuminate\Support\Facades\Log::warning(
+            'Order return withheld a line from sale: its recorded condition is not resellable',
+            [
+                'order_id' => $order->id,
+                'store_id' => $storeId,
+                'product_id' => $productId,
+                'variant_id' => $variantId,
+                'decision' => 'RET-002',
+            ]
+        );
+
+        return true;
+    }
+
     public static function creditableReturnQty(array $line): int
     {
         $qty = $line['qty'] ?? null;
@@ -1429,7 +1472,8 @@ if ($order_status == 'cancel') {
                         // and `OrderReturnMarkerHonestyTest`.
                         if (!empty($stockProduct)
                             && self::creditableReturnQty($line) > 0
-                            && ! self::lineStockAlreadyRestored($product_json[$key])) {
+                            && ! self::lineStockAlreadyRestored($product_json[$key])
+                            && ! self::returnedGoodsAreNotSellable($Order, $orderStoreId, $stockProduct->id, 0)) {
                             /* E13-C residual: RECORDED, not merely performed. Threaded INSIDE
                                the model rather than at the three call sites, because one caller is
                                vendored (packages/workdo/LotteryPrizes) and must not be edited.
@@ -1473,7 +1517,8 @@ if ($order_status == 'cancel') {
                         // quantity through the same helper.
                         if (!empty($ProductStock)
                             && self::creditableReturnQty($product) > 0
-                            && ! self::lineStockAlreadyRestored($product_json[$key])) {
+                            && ! self::lineStockAlreadyRestored($product_json[$key])
+                            && ! self::returnedGoodsAreNotSellable($Order, $orderStoreId, $owningProduct->id, $ProductStock->id)) {
                             app(\App\Services\ProductStockService::class)
                                 ->restoreVariantStock($ProductStock->id, (int) $product['qty'], [
                                     'store_id' => $orderStoreId,

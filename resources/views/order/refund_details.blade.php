@@ -106,6 +106,7 @@
                                         <th>{{ __('Item') }}</th>
                                         <th>{{ __('Quantity') }}</th>
                                         <th>{{ __('Total') }}</th>
+                                        <th>{{ __('Condition') }}</th>
                                     </tr>
                                 </thead>
 
@@ -130,6 +131,40 @@
                                             @else
                                                 {{ $data["return_price"] }}
                                             @endif
+                                        </td>
+                                        <td class="return-condition-cell">
+                                            <label class="form-label mb-1" for="return_condition_{{ $productRefundId }}">
+                                                {{ __('Condition of the returned item') }}
+                                            </label>
+                                            <select class="form-select form-select-sm return-condition-select"
+                                                    id="return_condition_{{ $productRefundId }}"
+                                                    data-product-id="{{ $productRefundId }}"
+                                                    data-variant-id="{{ $data['variant_id'] ?? 0 }}"
+                                                    aria-describedby="return_condition_{{ $productRefundId }}-help">
+                                                <option value="">{{ __('Not inspected yet') }}</option>
+                                                @foreach (($returnVerdicts ?? []) as $verdict => $isResellable)
+                                                    <option value="{{ $verdict }}"
+                                                            @if (($data['inspection']['verdict'] ?? null) === $verdict) selected @endif>
+                                                        @switch($verdict)
+                                                            @case('resellable')
+                                                                {{ __('Inspected - can go back on sale') }}
+                                                                @break
+                                                            @case('damaged')
+                                                                {{ __('Inspected - damaged, not for sale') }}
+                                                                @break
+                                                            @case('quarantined')
+                                                                {{ __('Held for inspection - not for sale') }}
+                                                                @break
+                                                            @default
+                                                                {{ $verdict }}
+                                                        @endswitch
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                            <x-ss.field-help for="return_condition_{{ $productRefundId }}">{{ __('Only an item inspected and marked as able to go back on sale is returned to stock. Choose a condition, then save it.') }}</x-ss.field-help>
+                                            <button type="button"
+                                                    class="ss-btn ss-btn--secondary ss-btn--sm mt-2 save-return-condition"
+                                                    data-product-id="{{ $productRefundId }}">{{ __('Save Condition') }}</button>
                                         </td>
                                     </tr>
                                     @endforeach
@@ -170,6 +205,7 @@
                                         </td>
                                         <input type="hidden" value="{{ $refund_requests->product_refund_price }}" name="refunded_amount" class="refunded_amount">
                                         <td class="refunded_amount"><b>{{ $refund_requests->product_refund_price }}</b></td>
+                                        <td></td>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -319,6 +355,47 @@
             $('#manage-button').hide();
             $('#refund-amount').hide();
         }
+    });
+
+    /*
+     * RET-002 -- RECORD THE INSPECTED CONDITION OF ONE RETURNED LINE.
+     *
+     * It posts the product id AND the variant id the SERVER resolved from the order's own
+     * product_json, never 0 for a variant line: the gate the three restock doors consult keys a
+     * verdict on (store, order, product, variant), so a verdict filed under the wrong variant would
+     * show the merchant "damaged" while the goods went back on sale.
+     *
+     * Uses refundAjaxRefusal() like every other call on this screen, so a 403, 404, 422 or 500 is
+     * shown with the server's own reason instead of looking dead. It hides no control and sets no
+     * localStorage key, for the reason that function's own note gives.
+     */
+    $('.save-return-condition').click(function() {
+        var productId = $(this).data('product-id');
+        var $select = $('#return_condition_' + productId);
+        var verdict = $select.val();
+
+        if (!verdict) {
+            show_toastr('{{ __('Error') }}', '{{ __('Choose a condition for the returned item.') }}', 'error');
+            return;
+        }
+
+        $.ajax({
+            type: 'POST',
+            url: '{{ route('order.return.inspection') }}',
+            data: {
+                _token: '{{ csrf_token() }}',
+                id: '{{ $order['id'] }}',
+                product_id: productId,
+                variant_id: $select.data('variant-id'),
+                verdict: verdict
+            },
+            success: function(data) {
+                show_toastr('{{ __('Success') }}', data.message, 'success');
+            },
+            error: function(xhr) {
+                refundAjaxRefusal(xhr);
+            }
+        });
     });
 
     $('.accept-button').click(function() {

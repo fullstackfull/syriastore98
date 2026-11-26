@@ -479,8 +479,26 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            so it lands in `$scoped` (31 -> 32) and `$storeLess` is UNCHANGED at 38. That split is the
            evidence this added no cross-tenant exposure: the totals would have moved either way, and
            the store-less count is the one that would have risen if the predicate were missing. */
+        /* 70 -> 73, AND THE WHOLE OF THE +3 IS SCOPED -- `app/Services/ReturnInspection.php`, the
+           RET-002 return-condition record (the plan's 04-F: "فحص حالة المنتج قبل إعادته للبيع").
+           Three statements: `record()`'s `updateOrInsert`, `blocksRestock()`'s read and
+           `forOrder()`'s listing. All three name `store_id`, so `$scoped` goes 32 -> 35 and
+           `$storeLess` is UNCHANGED at 38 -- the split that is the evidence this added no
+           cross-tenant exposure, because the total would have moved either way.
+
+           THERE IS NO MODEL, DELIBERATELY, which is why these are raw at all:
+           `order_return_inspections` is absent from `config/tenancy.php`'s `scoped_models`, so a
+           `BelongsToStore` model would register a scope that adds NO predicate while
+           `getGlobalScopes()` reported one -- the `Product`/`Category` trap verbatim -- and the
+           table is read by a GATE ON STOCK, which must never be served a verdict from before the
+           merchant's own save by one of the 79 `Cachable` models. The service's header states both.
+
+           AND THIS CENSUS CHANGED THE CODE RATHER THAN THE OTHER WAY ROUND. `record()` first wrote
+           `->updateOrInsert($key, [...])` with the four key columns inside a variable, so the
+           statement named `store_id` nowhere and the store-less ratchet below refused it. The
+           columns are now spelled out in the statement, where a reader can see the predicate too. */
         $this->assertSame(
-            70,
+            73,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -499,7 +517,9 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            `plan_purchase_intents`, which has no `store_id` and could not have one, and every one
            addresses its row by primary key or the server-minted reference rather than by anything a
            caller supplied. */
-        $this->assertSame(32, $scoped, 'statements naming store_id');
+        /* 32 -> 35: ReturnInspection's three, every one of them naming `store_id`. See the note on
+           the total above for why they are raw and why the whole of the +3 lands here. */
+        $this->assertSame(35, $scoped, 'statements naming store_id');
         $this->assertCount(38, $storeLess, 'statements naming store_id nowhere');
     }
 
