@@ -399,8 +399,90 @@ public function saveStoreFcmToken(Request $request)
             $state_id = isset($request['stateId']) ? $request['stateId'] : null;
             $city_id = isset($request['cityId']) ? $request['cityId'] : null;
         }
+        /*
+         * GAP-241 + GAP-245. A BASKET LINE WHOSE PRODUCT OR VARIANT HAS BEEN DELETED IS DROPPED
+         * HERE AND NAMED BACK TO THE SHOPPER -- it is not priced, and it no longer answers 500.
+         *
+         * WHAT WAS MEASURED. `carts` carries no foreign key onto `products` or `product_variants`
+         * (2024_01_18_103138_create_carts_table.php), and neither model uses `SoftDeletes`, so a
+         * merchant's ordinary delete leaves a live basket pointing at a row that is gone for good.
+         * This loop then dereferenced it twice -- `$value->product_data->id` for a deleted product
+         * and `$ProductVariant->discount_price` for a deleted variant -- PHP 8 promoted the
+         * undefined-property warning to an `ErrorException`, and the shopper got HTTP 500 on their
+         * own cart screen (`cart-list`, routes/api.php:107) AND at checkout, because `place_order`,
+         * `ordersave` and `payment_list` all build their basket from this method.
+         *
+         * WHY THE EARLIER SLICE LEFT THIS ALONE, and what changed. GAP-235 closed `cart-check` with
+         * a pre-flight in FRONT of its forward precisely so this method was untouched: there the
+         * crash REFUSED an order, and making the pricing pass merely tolerate a dead line would
+         * have turned that refusal into an order carrying a zero-priced phantom. That is a commerce
+         * decision, so it was recorded rather than guessed. The decision recorded in GAP-241 is
+         * engineering's recommendation and is what this implements: DROP the line, tell the shopper
+         * which product went, and recompute -- rather than refuse the whole basket, which loses a
+         * sale that is otherwise fine. The alternative was NOT taken.
+         *
+         * "DROP" MEANS EXCLUDED FROM THE PRICED BASKET, NOT DELETED FROM THE TABLE. The cart row is
+         * left where it is: deleting rows inside a read that ~15 call sites reach -- gateway
+         * callbacks among them -- is a destructive live-data operation, and `Product` is `Cachable`,
+         * so a lookup that ever answered null for a live row would destroy a real basket line
+         * irreversibly. The shopper keeps `cart-qty remove`, and now receives the `product_id` and
+         * `variant_id` that call needs.
+         *
+         * THE `continue` IS BEFORE `$cart_product_data` IS ASSIGNED, deliberately. The tax block
+         * after this loop reads `isset($cart_product_data)` -- the LAST iteration's product -- so
+         * assigning a null for a dropped line would silently disable that block whenever the stale
+         * line happened to be last. Leaving the variable untouched makes a dropped line behave
+         * exactly as if it were not in the basket, which is the whole point.
+         *
+         * The variant test is `find($variant_id)` rather than a `product_id`-qualified lookup
+         * because that is EXACTLY the condition that crashed -- a variant id with no row at all.
+         * Widening it to "or belongs to another product" would invent a new refusal class and could
+         * move the total of a basket that prices today, which GAP-241 does not authorise.
+         */
+        $unavailable_lines = [];
+
         foreach ( $Carts as $key => $value ) {
-            $cart_product_data = Product::find( $value->product_id);
+            $ssLineProduct = Product::find($value->product_id);
+            $ssLineVariantId = (int) ($value->variant_id ?? 0);
+            $ssLineVariant = $ssLineVariantId > 0 ? ProductVariant::find($ssLineVariantId) : null;
+
+            if (empty($ssLineProduct) || ($ssLineVariantId > 0 && empty($ssLineVariant))) {
+                /*
+                 * THE NAME IS CARRIED WHEN IT CAN BE, AND ONLY WHEN IT IS THIS STORE'S TO GIVE.
+                 *
+                 * `carts` holds no product name, so a deleted PRODUCT cannot be named at all; a
+                 * deleted VARIANT of a live product can. But `Product::find()` above is unscoped
+                 * -- `Product` is not in `config/tenancy.php`'s `scoped_models`, so its
+                 * `StoreScope` is inert for every principal -- and a `carts` row CAN hold a
+                 * foreign `product_id`: the API writer refuses one, but the vendored module
+                 * writers that `ForeignProductCartChainTest` covers do not. Such a line used to
+                 * answer 500, so printing the name unguarded would have traded a crash for a
+                 * disclosure of another merchant's product name. Found by reviewing this change
+                 * rather than the original handler.
+                 *
+                 * THE TEST IS A PROVABLE MISMATCH, NOT EQUALITY, which is this file's existing
+                 * policy and not a new reading of the column: `products.store_id` is NULLABLE
+                 * (2023_12_26_092822_create_products_table.php:49) and
+                 * `productOfCartLineStore()` already accepts a NULL and refuses only a provable
+                 * mismatch (GAP-237). Equality would have dropped the name for a legacy product
+                 * with no `store_id` -- a worse message for no gain.
+                 */
+                $ssNameIsOurs = ! empty($ssLineProduct)
+                    && ($ssLineProduct->store_id === null
+                        || (int) $ssLineProduct->store_id === (int) $store->id);
+
+                $unavailable_lines[] = [
+                    'cart_id' => (int) $value->id,
+                    'product_id' => (int) $value->product_id,
+                    'variant_id' => $ssLineVariantId,
+                    'name' => $ssNameIsOurs ? (string) ($ssLineProduct->name ?? '') : '',
+                    'reason' => empty($ssLineProduct) ? 'product_unavailable' : 'variant_unavailable',
+                ];
+
+                continue;
+            }
+
+            $cart_product_data = $ssLineProduct;
             if (module_is_active('WholesaleProduct')) {
                 if (!module_is_active('SizeGuideline')) {
                     if (module_is_active('WholesaleProduct')) {
@@ -901,6 +983,44 @@ public function saveStoreFcmToken(Request $request)
         }
 
         /*
+         * GAP-241 + GAP-245, SECOND HALF: THE RESPONSE KEEPS THE SHAPE ITS CLIENTS READ.
+         *
+         * `product_list` is keyed by the cart collection's own index, so the `continue` above
+         * leaves a GAP in those keys and `json_encode` then emits a JSON **object** instead of an
+         * array. Nothing about the HTTP status or the money would show that, and the shipped
+         * Flutter client decodes this key as a list -- so re-indexing is part of the fix and not
+         * tidying. The basket is read `orderBy('id','desc')`, which means the newest line sits at
+         * index 0 and a dropped newest line is exactly the case that produces `{"1": ...}`.
+         *
+         * `cart_total_product` moves with it. It was `count($Carts)` -- the RAW cart rows -- so a
+         * dropped line would have left the client printing a count that disagreed with the lines it
+         * was handed. For a basket with nothing stale in it the two counts are identical, so this
+         * changes no response that works today. `cart_total_qty` needs no equivalent: it is
+         * accumulated inside the loop, which a dropped line never reaches.
+         *
+         * The two new keys are ADDITIVE and always present -- an empty array and an empty string
+         * when nothing was dropped -- so a client that ignores them is unaffected and one that
+         * reads them never has to branch on their absence.
+         */
+        $cart_array['product_list'] = array_values($cart_array['product_list']);
+
+        $cart_array['unavailable_products'] = $unavailable_lines;
+        $cart_array['unavailable_message'] = '';
+
+        if (! empty($unavailable_lines)) {
+            $ssGoneNames = array_values(array_filter(array_map(
+                static fn ($ssLine) => $ssLine['name'],
+                $unavailable_lines
+            ), static fn ($ssName) => $ssName !== ''));
+
+            $cart_array['unavailable_message'] = empty($ssGoneNames)
+                ? __('Some items are no longer available and have been removed from your cart.')
+                : __('Some items are no longer available and have been removed from your cart: :products', [
+                    'products' => implode(', ', $ssGoneNames),
+                ]);
+        }
+
+        /*
          * SECOND PASS: ONE COUPON ACROSS THE BASKET, THEN TAX ON WHAT IS LEFT.
          *
          * The lookup is the same store-scoped predicate as before, hoisted out of the loop it used
@@ -1056,7 +1176,9 @@ public function saveStoreFcmToken(Request $request)
         $cart_array['tax_rate'] = $tax_rate ?? 0;
         $cart_array['tax_type'] = 'Percentage';
         $cart_array['tax_name'] = $tax_name ?? 'Tax';
-        $cart_array['cart_total_product'] = count($Carts);
+        // GAP-241/GAP-245: the lines actually handed back, not the raw cart rows. See the note
+        // above the re-index.
+        $cart_array['cart_total_product'] = count($cart_array['product_list']);
         $cart_array['cart_total_qty'] = $cart_total_qty;
         $cart_array['original_price'] = SetNumber($original_price);
         $cart_array['total_final_price'] = SetNumber($cart_final_price);
@@ -6991,8 +7113,34 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
         /*
-         * GAP-235(b). A BASKET WHOSE PRODUCT OR VARIANT HAS BEEN DELETED IS REFUSED HERE, BEFORE
-         * THE FORWARD BELOW -- and the "before" is the whole point.
+         * GAP-241 RETIRED THE PRE-FLIGHT THAT USED TO STAND HERE. The history matters, so it is
+         * kept rather than deleted:
+         *
+         * GAP-235(b) closed this handler's 500 with a loop in FRONT of the forward below that
+         * REFUSED any basket holding a deleted product or variant, deliberately leaving
+         * `cart_list()` untouched -- because there the crash refused an ORDER, and tolerating a
+         * dead line would have written a zero-priced phantom into it. Its own comment named that
+         * as a commerce question it would not answer.
+         *
+         * GAP-241 answered it: `cart_list()` now DROPS a stale line, names it back to the shopper
+         * and recomputes without it. Keeping the refusal here as well would be the disagreement
+         * GAP-245 warns about, and in the worst direction -- the cart screen would show a basket
+         * that looks fine while this gate said "Product not found." about a line the screen no
+         * longer lists, leaving the shopper with no affordance to clear it. So the verdict is made
+         * in ONE place, the one all ~15 callers go through.
+         *
+         * NOTHING IS WEAKENED by removing it. A basket with nothing orderable left in it comes back
+         * from the forward with an empty `product_list` and is still refused as "Cart is empty." by
+         * the branch below; a basket whose healthy lines survive is now priced and checked out,
+         * which is what GAP-241 asked for. The two `empty()` guards inside the stock loop STAY: a
+         * caller that reached that loop by some other route must not answer 500 again.
+         *
+         * The removed loop read `Cart::where('customer_id', $customer->id)->where('store_id',
+         * $store->id)` -- the same predicate as the forward, so no caller input ever reached it,
+         * and nothing about tenancy depended on it.
+         */
+        /*
+         * GAP-235(b), FOR THE RECORD -- the reasoning the removed pre-flight carried.
          *
          * WHAT WAS MEASURED, because the registered finding named this method's OWN dereferences
          * (`$productStock_data->stock`, `$product_data->name`) and they turn out NOT to be the
@@ -7019,19 +7167,6 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
          * false statement from the checkout gate, and the store containment it adds is not this
          * finding (the lines are already this store's by the query).
          */
-        if (!empty($customer->id)) {
-            foreach (Cart::where('customer_id', $customer->id)->where('store_id', $store->id)->get() as $cart_line) {
-                $line_product = Product::find($cart_line->product_id);
-                $line_variant_missing = ((int) ($cart_line->variant_id ?? 0)) > 0
-                    && ProductVariant::where('product_id', $cart_line->product_id)
-                        ->where('id', $cart_line->variant_id)
-                        ->first() === null;
-
-                if (empty($line_product) || $line_variant_missing) {
-                    return $this->error(['message' => __('Product not found.')], __('Product not found.'));
-                }
-            }
-        }
         // cart list api call. cart_list() now derives its own target from the session, so what is
         // forwarded here cannot steer it.
         if (!empty($customer->id)) {
@@ -7043,9 +7178,11 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
                     if ($product->variant_id > 0) {
                         $productStock_data = ProductVariant::where('product_id', $product->product_id)->where('id', $product->variant_id)->first();
                         $product_data = Product::find($product->product_id);
-                        /* GAP-235(b), second layer. The pre-flight above already refuses a basket
-                           whose rows are gone, so this is defence in depth rather than the fix --
-                           it is here because the finding named these two dereferences, and because
+                        /* GAP-235(b), second layer -- now the only layer in this method, and still
+                           defence in depth rather than the fix: `cart_list()` has already dropped
+                           any line whose product or variant is gone, so these cannot fire from the
+                           forward above. They stay because the finding named these two
+                           dereferences, and because
                            a future caller that reached this loop by another route would otherwise
                            answer 500 again. */
                         if (empty($productStock_data) || empty($product_data)) {
