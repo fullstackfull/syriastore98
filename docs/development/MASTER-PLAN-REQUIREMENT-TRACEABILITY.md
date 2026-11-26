@@ -144,8 +144,8 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **179** |
-| PARTIALLY IMPLEMENTED | **98** |
-| NOT IMPLEMENTED | **15** |
+| PARTIALLY IMPLEMENTED | **99** |
+| NOT IMPLEMENTED | **14** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -4537,7 +4537,19 @@ against a pre-reorganization original.
 
 ### `P04-P5-04` — Payment callbacks — data egress
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** The public-bin callback destination is gone from all five sites —
+> the two first-party ones under P4-F046 and the three VENDORED ones host-side, with
+> `packages/workdo/` unedited, so the literals are unreachable rather than removed. An
+> independent review found the first implementation left ONE rail open on a one-character class
+> (`LotteryPaymentService` spells the switch arm `benefit`, lower case, alone among the three),
+> reachable by an unauthenticated public POST; fixed narrowly, because the wider fix would have
+> enabled a payment branch that currently errors. **The other half of this row — Benefit capture
+> verification, `P5-FIN-6` — is NOT started**, and a tripwire test holds that absence so it
+> cannot be forgotten. Evidence: the `GAP-138` register row and
+> `docs/development/phase-4/PHASE-04-GAP-138-MODULE-BENEFIT-CALLBACK.md`. The original wording
+> of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** P4-F046 — 'Storefront Benefit/Tap charge sets its server-to-server callback to a hardcoded public webhook.site bin, and the storefront return performs no capture verification for benefit at all'. Owner principle 6: 'Payment callbacks require trusted destinations and server-side verification'.
 - **Source:** `docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md high table; PHASE-04-FINAL-REPORT.md §4; docs/finance/P4-FINANCIAL-POLICY-DECISION-PACKAGE.md §1 principle 6`
