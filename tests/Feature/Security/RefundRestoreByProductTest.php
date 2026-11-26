@@ -421,6 +421,28 @@ class RefundRestoreByProductTest extends SecurityTestCase
     //  RefundStock
     // =========================================================================================
 
+    /**
+     * GAP-140 / P4-F086: THE RESTOCK DOOR NOW ASKS THE STORE WHETHER IT RESTOCKS AT ALL.
+     *
+     * `RefundStock()` reads this store's `manage_stock` refund setting before it credits anything,
+     * and nothing seeds that table: a row appears only once a merchant saves the Refund tab, and
+     * `order/refund_details.blade.php:224` renders an absent or `0` row as NO BUTTON. So a store
+     * without this row is one the product never offers the action to, and the five cases below --
+     * which are about the ARITHMETIC of what comes back, not about the policy -- would otherwise
+     * assert their stock figures against a 403 the door returns before any of that code runs.
+     *
+     * Called per case, not from `restock()`, so the premise is visible where it is relied on. The
+     * gate's own off/on/never-configured legs belong to `Feature\Commerce\RefundPolicyEnforcementTest`.
+     */
+    private function allowsRestock(Store $store): void
+    {
+        DB::table('order_refund_settings')->insert([
+            'name' => 'manage_stock', 'is_active' => 1,
+            'user_id' => $store->created_by, 'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     private function stockFixture(Store $store, int $stock): int
     {
         return (int) DB::table('products')->insertGetId([
@@ -444,6 +466,7 @@ class RefundRestoreByProductTest extends SecurityTestCase
         ]);
         $refund = $this->hand($order, $store, 'Accept', [['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 2]]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
 
         $this->assertSame(200, $this->restock($refund)->getStatusCode());
@@ -460,6 +483,7 @@ class RefundRestoreByProductTest extends SecurityTestCase
         ]);
         $refund = $this->hand($order, $store, 'Accept', [['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 500]]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->restock($refund);
 
@@ -479,6 +503,7 @@ class RefundRestoreByProductTest extends SecurityTestCase
             ['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 2],
         ]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->restock($refund);
 
@@ -508,6 +533,7 @@ class RefundRestoreByProductTest extends SecurityTestCase
         ]);
         $refund = $this->hand($order, $store, 'Accept', [['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 500]]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->restock($refund);
 
@@ -526,6 +552,7 @@ class RefundRestoreByProductTest extends SecurityTestCase
         $order = $this->order($store, $shopper, [['product_id' => $product, 'name' => 'Beta', 'variant_id' => 0, 'qty' => 1, 'final_price' => 100]]);
         $refund = $this->hand($order, $store, 'Accept', [['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 3]]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->restock($refund);
 

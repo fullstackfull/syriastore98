@@ -24,14 +24,21 @@ use Tests\Support\StripsSourceComments;
  * ==============================================================================================
  *
  * WHAT WAS MEASURED BEFORE ANY CODE WAS CHANGED, because the register's claim had to be confirmed
- * rather than taken on trust. The complete set of `OrderRefundSetting` references outside its own
- * model was FOUR files, and in only two of them does a value decide anything:
+ * rather than taken on trust -- and RE-MEASURED, because the first write-up of this paragraph said
+ * "FOUR files" and then listed three of them. `git grep -n 'OrderRefundSetting|order_refund_settings'`
+ * at the parent commit is TEN lines in FIVE files under `app/`. Outside the model's own file, FOUR
+ * files, and in not one of them does a value decide anything a WRITER does:
  *
- *   app/Http/Controllers/OrderRefundController.php:289   show()   -> hands the array to a VIEW
- *   app/Http/Controllers/OrderRefundController.php:311-319        -> the settings WRITER itself
- *   app/Http/Controllers/AccountProfileController.php:1646 order_refund() -> hands it to a VIEW
- *   app/Http/Middleware/OrderDocumentAccessGuard.php:283         -> a COMMENT, nothing else
- *   resources/views/setting/refund_setting.blade.php:29          -> renders the three switches
+ *   app/Http/Controllers/OrderRefundController.php:7,289        an import, then show() -> a VIEW
+ *   app/Http/Controllers/OrderRefundController.php:311,319      the settings WRITER itself
+ *   app/Http/Controllers/AccountProfileController.php:31,1646   an import, then order_refund() -> a VIEW
+ *   app/Http/Middleware/OrderDocumentAccessGuard.php:283        a COMMENT, nothing else
+ *   app/Services/UserDeletionSafety.php:71                      the table as a CASCADE foreign key
+ *   resources/views/setting/refund_setting.blade.php:29         renders the three switches
+ *
+ * `UserDeletionSafety` is the row the first form missed. It reads the table as a foreign key to
+ * `users` and never as a toggle, so the claim survived -- but it had to be re-run to know that,
+ * which is why the census below is a command over `app/` rather than a remembered count.
  *
  * So all three toggles gated MARKUP and nothing else:
  *
@@ -79,6 +86,9 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
 
     /** @var list<string> */
     private array $temporary = [];
+
+    /** @var array<string, string>|null  app/'s comment-stripped source, scanned once per process */
+    private static ?array $applicationCode = null;
 
     protected function setUp(): void
     {
@@ -219,6 +229,79 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
         return (int) DB::table('products')->where('id', $productId)->value('product_stock');
     }
 
+    /**
+     * EVERY PHP FILE UNDER `app/`, COMMENT-STRIPPED, keyed by its repository-relative path.
+     *
+     * THE CENSUSES BELOW ARE SCOPED TO THE WHOLE APPLICATION AND NOT TO A LIST OF FILES I HAPPENED
+     * TO LOOK AT. That is failure mode 4 of the skill's census section -- "an exemption scoped to
+     * the methods somebody happened to look at" -- and the first form of
+     * `test_the_shipping_deduction_toggle_is_still_read_by_no_php_writer` had it: it asked three
+     * named files whether they mention `shiping_deduct`, so a fourth file enforcing it would have
+     * left the pin green while the claim it exists to protect became false.
+     *
+     * `static`, because it is the same answer for every case in this class and tokenizing ~690
+     * files is a few seconds each time.
+     *
+     * @return array<string, string>
+     */
+    private function applicationCode(): array
+    {
+        if (self::$applicationCode !== null) {
+            return self::$applicationCode;
+        }
+
+        $root = dirname(__DIR__, 3);
+        $code = [];
+
+        /** @var \SplFileInfo $file */
+        foreach (new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root . '/app', \FilesystemIterator::SKIP_DOTS)
+        ) as $file) {
+            if (! $file->isFile() || $file->getExtension() !== 'php') {
+                continue;
+            }
+
+            $relative = ltrim(str_replace($root, '', $file->getPathname()), '/');
+            $code[$relative] = $this->sourceWithoutComments($relative);
+        }
+
+        ksort($code);
+
+        return self::$applicationCode = $code;
+    }
+
+    /**
+     * THE REACHABILITY ASSERTION, run by every census below before it concludes anything.
+     *
+     * A scan that stopped looking at part of its subject reads exactly like one that looked and
+     * found nothing -- which is how a comment-stripper that ate seven code tokens out of
+     * `app/Http/Middleware/XSS.php` turned an absence census into a free pass. So each census
+     * first proves it is reading the file where the thing it asks about would have to live, and
+     * reading code rather than a husk.
+     */
+    private function assertTheCensusCanSeeTheRefundDoors(array $code): void
+    {
+        $this->assertGreaterThanOrEqual(
+            500,
+            count($code),
+            'The census read only ' . count($code) . ' files under app/; it cannot be complete.'
+        );
+
+        foreach ([
+            'app/Http/Controllers/OrderRefundController.php' => 'isTrendingChecked',
+            'app/Http/Controllers/AccountProfileController.php' => 'order_refund_request',
+            'app/Services/RefundPolicy.php' => 'order_refund_settings',
+        ] as $file => $token) {
+            $this->assertArrayHasKey($file, $code, $file . ' was not read by the census at all.');
+            $this->assertStringContainsString(
+                $token,
+                $code[$file],
+                $file . ': the census read this file but comment-stripping removed ' . $token
+                . ', so an absence answer from it would mean nothing.'
+            );
+        }
+    }
+
     /** @return list<array<string, mixed>> the audit rows for a refund action, raw */
     private function auditRows(string $like = 'refund.'): array
     {
@@ -313,36 +396,84 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
     // =============================================================================================
 
     /**
-     * Each enforced toggle is consulted by the door that enforces it, measured over
-     * COMMENT-STRIPPED source.
+     * THE CENSUS, KEYED ON THE DECISION RATHER THAN ON A SPELLING.
      *
-     * KEYED ON THE CONSTANT, NOT ON THE COLUMN VALUE, and the first version of this test was keyed
-     * on the value and FAILED against the finished fix -- which is the point. `manage_stock`
-     * appears nowhere in `OrderRefundController` any more; the literal lives once, in
-     * `RefundPolicy`, and the doors name the constant. A census keyed on the string would have had
-     * to be satisfied by a comment, which is exactly the failure mode this project has recorded
-     * nine times.
+     * WHAT THE FIRST TWO FORMS GOT WRONG, both recorded because the second looked like a fix.
+     * Form one grepped `OrderRefundController` for the literal `manage_stock`. That literal no
+     * longer occurs there -- it lives once, in `RefundPolicy` -- so the census failed against the
+     * finished fix. Worse, `manage_stock` is a VARIATION-OPTION string all over this application
+     * and `attachment` is a form-field name. Measured at the parent commit over `app/*.php`:
+     * `'manage_stock'` 53 occurrences in 15 files, `'attachment'` 73 in 14, and NOT ONE of either
+     * is this toggle. A census keyed on either string is asking a question whose answer it cannot
+     * interpret.
      *
-     * Comment-stripped all the same, because both controllers now carry long comments naming all
-     * three toggles, written while fixing this row.
+     * Form two keyed on `RefundPolicy::MANAGE_STOCK` in one file and `RefundPolicy::ATTACHMENT` in
+     * another. That is still a spelling, in two ways that matter: it is satisfied by any mention of
+     * the token anywhere in the file, and it is blind to a THIRD door starting to consult the
+     * policy without anybody reading the reasoning.
+     *
+     * SO THIS ONE ENUMERATES THE DECISION. It scans the comment-stripped source of every PHP file
+     * under `app/`, finds each `RefundPolicy::allows(` call, resolves the constant it is asked
+     * about, and asserts the resulting (door -> toggle) map is EXACTLY the two this change
+     * reviewed. It therefore fails in both directions -- a door that stops consulting the policy,
+     * and a door that starts -- which is what `.github/known-test-outcomes.json`'s own gate does
+     * for test outcomes and what a completeness claim has to do to be one.
+     *
+     * TWO SCANS, NOT ONE, because a call site is only resolvable if it names the constant. A door
+     * calling `RefundPolicy::allows('manage_stock', ...)` would be invisible to the resolving
+     * scan, so the set of files that call the policy AT ALL is collected separately and the two
+     * must agree. That is the hole form two would have had.
+     *
+     * AND THE DECISION ITSELF IS DRIVEN, not inferred from this census: `manage_stock` by
+     * `test_the_restock_door_{refuses_when_the_store_turned_manage_stock_off,credits_the_stock_when_the_store_turned_manage_stock_on}`
+     * and `attachment` by the two `test_a_refund_request_stores_*_attachment_*` cases, each with
+     * its off leg, its on leg and the stored-row oracle. A census proves nothing was missed; those
+     * prove the thing works.
      */
-    public function test_the_two_enforceable_toggles_are_consulted_by_the_doors_that_enforce_them(): void
+    public function test_the_refund_policy_is_consulted_at_exactly_the_doors_this_change_reviewed(): void
     {
-        $refundController = $this->sourceWithoutComments('app/Http/Controllers/OrderRefundController.php');
-        $storefront = $this->sourceWithoutComments('app/Http/Controllers/AccountProfileController.php');
+        $code = $this->applicationCode();
+        $this->assertTheCensusCanSeeTheRefundDoors($code);
 
-        $this->assertStringContainsString(
-            'RefundPolicy::MANAGE_STOCK',
-            $refundController,
-            'RefundStock() must consult the store\'s manage_stock refund setting; before GAP-140 it '
-            . 'gated only the button in order/refund_details.blade.php.'
+        $resolved = [];
+        $callers = [];
+
+        foreach ($code as $relative => $source) {
+            if (! str_contains($source, 'RefundPolicy::allows(')) {
+                continue;
+            }
+
+            $callers[] = $relative;
+
+            if (preg_match_all(
+                '/RefundPolicy::allows\(\s*(?:\\\\?[A-Za-z0-9_\\\\]*\\\\)?RefundPolicy::([A-Z][A-Z0-9_]*)\b/',
+                $source,
+                $matches
+            )) {
+                $constants = array_values(array_unique($matches[1]));
+                sort($constants);
+                $resolved[$relative] = $constants;
+            }
+        }
+
+        $this->assertSame(
+            [
+                'app/Http/Controllers/AccountProfileController.php' => ['ATTACHMENT'],
+                'app/Http/Controllers/OrderRefundController.php' => ['MANAGE_STOCK'],
+            ],
+            $resolved,
+            'The set of doors that decide on the store refund policy has changed. GAP-140 enforces '
+            . 'exactly two toggles and deliberately enforces nothing else -- read its row, and this '
+            . 'file\'s header, before adding to or removing from this set. Found: '
+            . json_encode($resolved)
         );
 
-        $this->assertStringContainsString(
-            'RefundPolicy::ATTACHMENT',
-            $storefront,
-            'The storefront refund request must consult the store\'s attachment refund setting; '
-            . 'before GAP-140 it gated only the file input in front_end/pages/refund_order.blade.php.'
+        $this->assertSame(
+            array_keys($resolved),
+            $callers,
+            'A file calls RefundPolicy::allows() without naming one of the class\'s constants, so '
+            . 'the census above cannot see which toggle it decides on. Pass the constant. Callers: '
+            . json_encode($callers)
         );
     }
 
@@ -351,9 +482,9 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
      * rather than against a list I typed twice.
      *
      * A constant spelled `manage-stock`, or a settings form renamed to post `restock`, would leave
-     * both gates permanently closed with every test above still green -- the gate would ask about
-     * a row that never exists, and default-deny would answer false for ever. Nothing else in this
-     * file can see that, because every fixture here writes the row through the constant.
+     * both gates permanently closed with every behavioural test above still green -- the gate would
+     * ask about a row that never exists, and default-deny would answer false for ever. Nothing else
+     * in this file can see that, because every fixture here writes the row through the constant.
      */
     public function test_each_enforced_constant_is_a_name_the_settings_form_actually_posts(): void
     {
@@ -373,27 +504,79 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
     }
 
     /**
-     * THE DELIBERATE NON-ENFORCEMENT, PINNED. `shiping_deduct` decides whether the delivery charge
-     * is folded into the amount refunded, and the amount reaches `RefundAmonut` as one
-     * client-typed figure with no breakdown. Enforcing it would change a refund AMOUNT, which is
-     * an owner decision, so it is reported and not changed.
+     * THE DELIBERATE NON-ENFORCEMENT, PINNED OVER THE WHOLE OF `app/`.
      *
-     * If this assertion ever fails, somebody has enforced it: read GAP-140's row first.
+     * Its first form asked three named files. `shiping_deduct` occurs in NO php file under `app/`
+     * at all -- measured at the parent commit, 0 files of 688 -- so the honest question is the
+     * application-wide one, and asking it of three was failure mode 4 of the skill's census
+     * section: an exemption scoped to what somebody happened to look at.
+     *
+     * WHY IT IS NOT ENFORCED is a money question and therefore not mine to settle:
+     * `RefundAmonut()` zeroes `orders.delivery_price` on the client's `isTrendingChecked` flag and
+     * then recomputes `orders.final_price` FROM that column in the same transaction, so honouring
+     * a switched-off toggle would raise `final_price` by the delivery charge -- and `final_price`
+     * is what `OrderEntitlementReversal::reverse()` takes back off the merchant's entitlement.
+     * `test_the_shipping_flag_still_reaches_the_order_total` pins that chain.
+     *
+     * If this assertion fails, somebody has enforced it: read GAP-140's row and get an owner
+     * decision first.
      */
-    public function test_the_shipping_deduction_toggle_is_still_read_by_no_php_writer(): void
+    public function test_the_shipping_deduction_toggle_is_read_by_no_php_in_the_application(): void
     {
-        foreach ([
-            'app/Http/Controllers/OrderRefundController.php',
-            'app/Http/Controllers/AccountProfileController.php',
-            'app/Services/RefundPolicy.php',
-        ] as $file) {
-            $this->assertStringNotContainsString(
-                'shiping_deduct',
-                $this->sourceWithoutComments($file),
-                $file . ': shiping_deduct decides a refund AMOUNT and the server has no breakdown to '
-                . 'enforce it with. See GAP-140 before wiring it up.'
-            );
+        $code = $this->applicationCode();
+        $this->assertTheCensusCanSeeTheRefundDoors($code);
+
+        $offenders = [];
+
+        foreach ($code as $relative => $source) {
+            if (str_contains($source, 'shiping_deduct')) {
+                $offenders[] = $relative;
+            }
         }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            'shiping_deduct decides a refund AMOUNT: zeroing orders.delivery_price moves '
+            . 'orders.final_price, which is what the merchant entitlement reversal reads. Enforcing '
+            . 'it is an owner decision, not an engineering one. See GAP-140. Found in: '
+            . json_encode($offenders)
+        );
+    }
+
+    /**
+     * THE CHAIN THAT MAKES `shiping_deduct` A MONEY TOGGLE, pinned so the reason above cannot go
+     * stale in silence.
+     *
+     * NO LINE NUMBERS. The first write-up of this cited two, and an edit of mine to the same file
+     * moved both before the change was even committed -- which CLAUDE.md records as the commonest
+     * way a correct claim becomes a false one. The ORDER is what matters, so the order is what is
+     * asserted: the flag zeroes `delivery_price`, and `final_price` is recomputed from
+     * `delivery_price` AFTER it, inside the same method.
+     */
+    public function test_the_shipping_flag_still_reaches_the_order_total(): void
+    {
+        $code = $this->applicationCode()['app/Http/Controllers/OrderRefundController.php'];
+
+        $zeroed = strpos($code, "\$order['delivery_price'] = 0.0;");
+        $recomputed = strpos($code, '$order->final_price = max(0.0, $grandTotal);');
+
+        $this->assertNotFalse($zeroed, 'The isTrendingChecked flag no longer zeroes delivery_price.');
+        $this->assertNotFalse($recomputed, 'The settlement no longer recomputes final_price.');
+
+        $this->assertLessThan(
+            $recomputed,
+            $zeroed,
+            'delivery_price is now zeroed AFTER final_price is recomputed, so the two no longer '
+            . 'form the chain GAP-140 declined to touch. Re-read that reasoning.'
+        );
+
+        $this->assertStringContainsString(
+            '(float) $order->delivery_price',
+            substr($code, (int) $zeroed, (int) $recomputed - (int) $zeroed),
+            'final_price is no longer recomputed from delivery_price, so shiping_deduct may no '
+            . 'longer be a money toggle. That would change GAP-140\'s disposition: re-measure it.'
+        );
     }
 
     // =============================================================================================
@@ -557,6 +740,102 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
 
         $this->assertSame(422, $response->getStatusCode(), $response->getContent());
         $this->assertStringContainsString('accepted', (string) $response->getContent());
+    }
+
+    /**
+     * THE GATE FAILS CLOSED INSTEAD OF THROWING, and this is the case that found it.
+     *
+     * `RefundPolicy::allows()` had no catch. Running GAP-140's blast radius turned up
+     * `Feature\Commerce\RefundStockIdempotencyTest`, which builds a minimal schema by hand with no
+     * `order_refund_settings` table, and the read raised `no such table: order_refund_settings`
+     * out of a GATE: nine cases failed as ERRORS. At this door that is only a worse status -- 500
+     * where 403 was meant, before any write. At the STOREFRONT door the refund is already
+     * COMMITTED by then, so a throw hands the shopper HTTP 500 over a return that WAS recorded --
+     * the half-written answer that invites them to send it twice;
+     * `test_a_refund_request_answers_the_shopper_when_the_policy_cannot_be_read` drives that half.
+     *
+     * THE POLICY ROW IS PRESENT AND SET TO 1 HERE, deliberately, so that the only thing capable of
+     * refusing is the unreadable table. Without that the case would pass with the catch deleted,
+     * because "absent row" and "unreadable table" would both be denials and the test could not
+     * tell the two readings apart.
+     */
+    public function test_the_restock_door_refuses_rather_than_crashing_when_the_policy_cannot_be_read(): void
+    {
+        [$merchant, $store] = $this->tenant();
+        $merchant = $this->asMerchantWithTheRefundPermission($merchant);
+        $this->refundSetting($store, $merchant, 'manage_stock', 1);
+
+        $customer = $this->shopper($store);
+        $productId = $this->productIn($store, 10);
+        $order = $this->order($store, $customer, $productId);
+        $refundId = $this->handRefund($order, $store, OrderRefundController::STATE_ACCEPT, $productId);
+
+        $this->actingAs($merchant, 'web');
+
+        // The premise, asserted: with the table readable and the row set to 1 this store restocks.
+        $this->assertTrue(
+            \App\Services\RefundPolicy::allows(\App\Services\RefundPolicy::MANAGE_STOCK, $store->id),
+            'Premise: the policy says yes, so only the unreadable table can refuse below.'
+        );
+
+        \Illuminate\Support\Facades\Schema::drop('order_refund_settings');
+
+        $response = $this->restock($refundId);
+
+        $this->assertSame(
+            403,
+            $response->getStatusCode(),
+            'An unreadable policy table must REFUSE the door, not crash it: '
+            . $response->getStatusCode() . ' ' . $response->getContent()
+        );
+
+        $this->assertSame(10, $this->stockOf($productId), 'No stock may move on a refusal.');
+        $this->assertSame([], $this->auditRows(), 'A crashed or refused door must sign no audit row.');
+    }
+
+    /**
+     * THE STOREFRONT HALF -- AND THE ASSERTION IS THE ANSWER THE SHOPPER GETS, not the row, which
+     * is a correction this case earned by being vacuous.
+     *
+     * Its first form asserted that `order_refunds` still held a row, on the stated premise that a
+     * throw from the gate would "lose the shopper's whole refund request". MUTATING THE CATCH AWAY
+     * LEFT IT GREEN, which is the only reason the premise got checked: the refund is built and
+     * `save()`d at `AccountProfileController` :1959 inside its own transaction, and the attachment
+     * gate is at :2007 -- AFTER it. So the row survives a throw either way and that assertion
+     * could not tell the two readings apart (failure mode 9).
+     *
+     * WHAT A THROW REALLY DOES IS WORSE-SHAPED THAN "LOSES IT": the return is COMMITTED and the
+     * shopper is handed HTTP 500, so they cannot tell whether it was recorded and the natural move
+     * is to send it again. That is the half-written state CLAUDE.md names -- a 500 after a commit
+     * is not a refusal. So this asserts the shopper is told it succeeded, which is the only thing
+     * the catch actually changes here, and the row and the file alongside it.
+     */
+    public function test_a_refund_request_answers_the_shopper_when_the_policy_cannot_be_read(): void
+    {
+        [$merchant, $store] = $this->tenant();
+        $this->refundSetting($store, $merchant, 'attachment', 1);
+
+        $customer = $this->shopper($store);
+        $productId = $this->productIn($store, 10);
+        $order = $this->order($store, $customer, $productId);
+
+        \Illuminate\Support\Facades\Schema::drop('order_refund_settings');
+
+        $response = $this->postRefundRequest($store, $customer, $order, $productId, [$this->upload('proof.png', $this->png())]);
+
+        $response->assertStatus(302);
+        $response->assertSessionHas('success');
+
+        $this->assertNotNull(
+            DB::table('order_refunds')->where('order_id', $order->id)->first(),
+            'The refund request itself must still be recorded: ' . json_encode(session('error'))
+        );
+
+        $this->assertSame(
+            [],
+            $this->stored(),
+            'and the file is still not stored, because the gate fails CLOSED: ' . json_encode($this->stored())
+        );
     }
 
     // =============================================================================================
@@ -858,5 +1137,65 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
         // And a refusal from the state machine, which is a different limb.
         $this->assertSame(422, $this->accept($refundId)->getStatusCode());
         $this->assertSame([], $this->auditRows(), 'A refused transition signed an audit row.');
+    }
+
+    /**
+     * AN AUDIT ROW MUST NAME THE STATUS THE REFUND CAME FROM, and the first form of
+     * `recordRefundAction()` could not: it read `$refund->getOriginal('refund_status')` AFTER the
+     * write, and `Model::save()` calls `syncOriginal()` through `finishSave()`, so the "original"
+     * is the NEW value by then. Every accepted refund was recorded as `Accept -> Accept` and every
+     * rejected one as `Cancel -> Cancel`: a false old value in the one table whose purpose is to
+     * say what changed. Nothing in the first version of this file could see it, because every
+     * attribution case asserted the actor and the subject and never the values.
+     *
+     * BOTH CLAIMS ARE DRIVEN, because they are different claims. A transition door records the
+     * status it left (`Processing`); the restock door does not move the status at all and records
+     * `null` -- which is not the same statement as "it was already Accept", and a test that only
+     * checked "the key is there" could not tell them apart (failure mode 9: the test cannot tell
+     * the two readings apart).
+     */
+    public function test_an_audit_row_records_the_status_the_refund_came_from(): void
+    {
+        [$merchant, $store] = $this->tenant();
+        $merchant = $this->asMerchantWithTheRefundPermission($merchant);
+        $this->refundSetting($store, $merchant, 'manage_stock', 1);
+        $customer = $this->shopper($store);
+        $productId = $this->productIn($store, 10);
+        $order = $this->order($store, $customer, $productId);
+        $refundId = $this->handRefund($order, $store, OrderRefundController::STATE_PROCESSING, $productId);
+
+        $this->actingAs($merchant, 'web');
+
+        $this->assertSame(200, $this->accept($refundId)->getStatusCode());
+
+        $accepted = $this->auditRows('refund.accepted');
+        $this->assertCount(1, $accepted);
+
+        $this->assertSame(
+            ['refund_status' => OrderRefundController::STATE_PROCESSING],
+            json_decode((string) $accepted[0]['old_values'], true),
+            'The accept door must record the status the refund came FROM. Got: '
+            . var_export($accepted[0]['old_values'], true)
+        );
+
+        $this->assertSame(
+            OrderRefundController::STATE_ACCEPT,
+            (json_decode((string) $accepted[0]['new_values'], true) ?: [])['refund_status'] ?? null,
+            'and the status it went to.'
+        );
+
+        // THE OTHER READING. Restocking moves goods, never the status, so there is no transition
+        // to claim -- and a repeated current status here would be exactly the false reading above.
+        $this->assertSame(200, $this->restock($refundId)->getStatusCode());
+
+        $restocked = $this->auditRows('refund.stock_restored');
+        $this->assertCount(1, $restocked);
+
+        $this->assertSame(
+            ['refund_status' => null],
+            json_decode((string) $restocked[0]['old_values'], true),
+            'The restock door does not move the status, so it must claim no transition. Got: '
+            . var_export($restocked[0]['old_values'], true)
+        );
     }
 }

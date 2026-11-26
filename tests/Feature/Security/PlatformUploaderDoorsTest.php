@@ -123,6 +123,28 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         $merchant->save();
         Cache::forget('admin_details');
 
+        /*
+         * GAP-140 / P4-F086: THE REFUND-EVIDENCE DOOR NOW ASKS THE STORE WHETHER IT TAKES FILES.
+         *
+         * `AccountProfileController::order_refund_request()` reads this store's `attachment` refund
+         * setting before it stores anything, and NOTHING SEEDS THAT TABLE -- a row exists only once
+         * a merchant saves the Refund tab, and both the settings screen and
+         * `front_end/pages/refund_order.blade.php:156` render an absent row as an OFF switch, so the
+         * shopper is offered no file input at all. Without this row every refund-door case in this
+         * file would assert `[]` against a door that was never reached, which is the vacuous pass
+         * CLAUDE.md records (a refusal satisfies an absence assertion whatever the uploader does).
+         *
+         * It is written here rather than per case because EVERY store in this file is one whose
+         * merchant accepts refund evidence -- that is the premise the refund half of the file is
+         * about. The gate itself is owned by `Feature\Commerce\RefundPolicyEnforcementTest`, which
+         * drives the off leg, the on leg and the never-configured leg.
+         */
+        DB::table('order_refund_settings')->insert([
+            'name' => 'attachment', 'is_active' => 1,
+            'user_id' => $merchant->id, 'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
         return [$merchant, $store];
     }
 

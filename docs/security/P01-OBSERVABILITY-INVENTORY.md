@@ -94,7 +94,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 260 lines
+### `warning` — 262 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -292,12 +292,14 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderController.php:1809` | Order replacement refused. |
 | `app/Http/Controllers/OrderController.php:2300` | Customer cancellation endpoint refused a status it does not serve |
 | `app/Http/Controllers/OrderController.php:2518` | Order assignment refused: the delivery boy is not in a store this caller owns |
-| `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
-| `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
-| `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
-| `app/Http/Controllers/OrderRefundController.php:814` | Refund restock skipped a line with an unusable quantity |
-| `app/Http/Controllers/OrderRefundController.php:830` | Refund restock clamped to the units the order lines lost |
-| `app/Http/Controllers/OrderRefundController.php:1376` | Refund settled but the order totals were left unchanged: product_json is unparseable |
+| `app/Http/Controllers/OrderRefundController.php:265` | Refund transition refused: unrecognised current state |
+| `app/Http/Controllers/OrderRefundController.php:287` | Refund transition refused: illegal transition |
+| `app/Http/Controllers/OrderRefundController.php:521` | Refund cancellation refused: the record does not match the order |
+| `app/Http/Controllers/OrderRefundController.php:974` | Refund restock skipped a line with an unusable quantity |
+| `app/Http/Controllers/OrderRefundController.php:990` | Refund restock clamped to the units the order lines lost |
+| `app/Http/Controllers/OrderRefundController.php:1546` | Refund settled but the order totals were left unchanged: product_json is unparseable |
+| `app/Http/Controllers/AccountProfileController.php:2014` | A refund request carried attachments to a store that accepts none; nothing was stored |
+| `app/Services/RefundPolicy.php:155` | A store refund policy could not be read; the action was refused |
 | `app/Http/Controllers/OzowController.php:217` | Ozow plan return refused: no TransactionId to key on. |
 | `app/Http/Controllers/PaiementProPaymentController.php:357` | PaiementPro return recorded PENDING: this gateway is not provider-verified |
 | `app/Http/Controllers/PaiementProPaymentController.php:488` | Pending partial payment refused: the balance named does not belong to this customer. |

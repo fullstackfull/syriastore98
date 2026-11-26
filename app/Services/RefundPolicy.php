@@ -10,11 +10,23 @@ use Illuminate\Support\Facades\DB;
  *
  * WHAT WAS WRONG. `order_refund_settings` holds three per-store switches a merchant sets on the
  * Settings screen's Refund tab, and before this class EVERY ONE OF THEM GATED MARKUP AND NOTHING
- * ELSE. Measured at HEAD: the complete set of `OrderRefundSetting` references outside its own
- * model was four files, and in none of them did a value decide anything a writer does --
- * `OrderRefundController::show()` and `AccountProfileController::order_refund()` each handed the
- * array to a view, `OrderRefundController::updateStatus()` is the writer of the rows themselves,
- * and `OrderDocumentAccessGuard` merely names the table in a comment.
+ * ELSE.
+ *
+ * RE-MEASURED AT THE PARENT COMMIT, because this paragraph's first form said "four files" and then
+ * named three of them. `git grep -n 'OrderRefundSetting\|order_refund_settings' <parent> -- app/`
+ * is TEN lines in FIVE files; outside the model's own file, EIGHT lines in FOUR files, and in not
+ * one of them does a value decide anything a writer does:
+ *
+ *   AccountProfileController.php:31,1646   an import, then `order_refund()` handing an array to a VIEW
+ *   OrderRefundController.php:7,289        an import, then `show()` handing an array to a VIEW
+ *   OrderRefundController.php:311,319      `updateStatus()`, the writer of the rows THEMSELVES
+ *   OrderDocumentAccessGuard.php:283       the table's name inside a COMMENT
+ *   UserDeletionSafety.php:71              the table's name in the cascade-dependency list
+ *
+ * That last row is the one the first form missed, and it is the reason this one is a command
+ * rather than a sentence: a census keyed on a count somebody remembered is not a census.
+ * `UserDeletionSafety` reads the table as a FOREIGN KEY to `users`, never a toggle, so the claim
+ * survives the correction -- but it had to be re-run to know that.
  *
  * So the server restored stock for a merchant who had switched restocking off, and stored
  * attachments for a merchant who had switched attachments off. That is worse than an absent
@@ -44,14 +56,30 @@ use Illuminate\Support\Facades\DB;
  * pre-existing wrinkle of the writer and is reported rather than changed here: a gate is not the
  * place to decide which of two merchants' choices is the store's.
  *
- * `shiping_deduct` IS DELIBERATELY NOT A CONSTANT HERE. It is the third toggle, and enforcing it
- * would change a refund AMOUNT rather than a permission or a stock movement: it decides whether
- * the delivery charge is folded into the figure refunded, and that figure reaches
- * `OrderRefundController::RefundAmonut()` as ONE client-typed number with no breakdown, so the
- * server cannot tell a total that already includes shipping from one that does not. Any
- * enforcement would therefore have to recompute the refund, which is an owner decision. Reported
- * under GAP-140 instead, and pinned by
- * `RefundPolicyEnforcementTest::test_the_shipping_deduction_toggle_is_still_read_by_no_php_writer`.
+ * `shiping_deduct` IS DELIBERATELY NOT A CONSTANT HERE, AND THE REASON IS STRONGER THAN THE ONE
+ * FIRST WRITTEN DOWN. The first form said the server "cannot tell a total that already includes
+ * shipping from one that does not", which is true of `$request->refund_amount` and beside the
+ * point. The measured reason is a chain of two writes inside ONE transaction in
+ * `OrderRefundController::RefundAmonut()`. NO LINE NUMBERS, deliberately -- the first form of this
+ * paragraph cited two and my own edit to the same file moved both before it was committed; a test
+ * asks the question instead, so the claim cannot go stale silently:
+ *
+ *   the flag's write       `if ($request->isTrendingChecked == 'true') { $order['delivery_price'] = 0.0; ... }`
+ *   the total's recompute  `$grandTotal = ($lineTotal + (float) $order->delivery_price + ...` then
+ *                          `$order->final_price = max(0.0, $grandTotal);`
+ *
+ * The second reads the column the first zeroed, and
+ * `RefundPolicyEnforcementTest::test_the_shipping_flag_still_reaches_the_order_total` pins exactly
+ * that ordering. So honouring a switched-off
+ * `shiping_deduct` -- i.e. declining to zero `delivery_price` -- RAISES `orders.final_price` by
+ * the delivery charge on every offline settlement where the merchant ticked the box, and
+ * `final_price` is the figure `OrderEntitlementReversal::reverse()` then takes back off the
+ * merchant's entitlement. That is a refund AMOUNT and a money-policy change, which is reserved to
+ * the owner, so it is REPORTED and not implemented. `isTrendingChecked` itself is applied
+ * unconditionally and that behaviour is unchanged by this class.
+ *
+ * Pinned by `RefundPolicyEnforcementTest::test_the_shipping_deduction_toggle_is_read_by_no_php_in_the_application`,
+ * which now asks the question over the whole of `app/` rather than over three files.
  */
 class RefundPolicy
 {
@@ -84,12 +112,54 @@ class RefundPolicy
             return false;
         }
 
-        $value = DB::table('order_refund_settings')
-            ->where('store_id', $storeId)
-            ->where('name', $name)
-            ->orderBy('id')
-            ->pluck('is_active')
-            ->last();
+        /*
+         * FAILS CLOSED RATHER THAN THROWING, AND THE REASON IS A MEASURED REGRESSION IN THE
+         * STOREFRONT DOOR -- not defensive habit.
+         *
+         * The first form of this method had no catch. Running the refund blast radius found
+         * `Feature\Commerce\RefundStockIdempotencyTest` building a minimal schema by hand with no
+         * `order_refund_settings` table, so the read raised
+         * `SQLSTATE[HY000]: 1 no such table: order_refund_settings` out of a GATE. At the restock
+         * door that is only a worse status (500 where 403 was meant, before any write).
+         *
+         * AT THE STOREFRONT DOOR IT IS WORSE-SHAPED, and this sentence is a correction: its first
+         * form said a throw "loses the whole request", which MUTATING THE CATCH AWAY disproved.
+         * `AccountProfileController::order_refund_request()` builds and saves the refund at :1959,
+         * and reads this policy at :2007 -- AFTER it. So the return is already COMMITTED and a
+         * throw hands the shopper HTTP 500 over a refund that WAS recorded: they cannot tell, and
+         * the natural move is to send it again. A 500 after a commit is a half-written state, not
+         * a refusal.
+         *
+         * `audit_logs` is the precedent this project already records -- applied to production out
+         * of band, its migration a documented no-op there -- so the schema a request path depends
+         * on is not something this code can assert. `order_refund_settings` does have a real
+         * migration (2024_02_07_090422) and is in the production dump's CASCADE list
+         * (`UserDeletionSafety::CASCADE_DEPENDENCIES`), so absence is not a production state I can
+         * demonstrate; the measured one is a harness, and the storefront cost of being wrong is
+         * the shopper's return.
+         *
+         * DENY IS THE SAFE DIRECTION FOR BOTH DOORS and it is already this class's answer for an
+         * absent row: no stock is credited, no file is stored, and nothing about an amount, a
+         * status or the refund record moves either way. It is logged at `warning` rather than
+         * swallowed, because a refusal whose reason nobody can read is the trap this repository
+         * keeps re-finding -- `docs/security/P01-OBSERVABILITY-INVENTORY.md` carries the line.
+         */
+        try {
+            $value = DB::table('order_refund_settings')
+                ->where('store_id', $storeId)
+                ->where('name', $name)
+                ->orderBy('id')
+                ->pluck('is_active')
+                ->last();
+        } catch (\Illuminate\Database\QueryException $e) {
+            \Log::warning('A store refund policy could not be read; the action was refused', [
+                'name' => $name,
+                'store_id' => $storeId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
 
         return is_numeric($value) && (int) $value === 1;
     }

@@ -715,7 +715,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            explicit `where('store_id', $order->store_id)` read at the call site when re-pointing
            this count, and that `$order` was itself selected on `getCurrentStore()`, so the
            predicate is session-derived rather than caller-supplied. */
-        $this->assertSame(['app' => 228, 'packages' => 45], $perDir,
+        /* 228 -> 229 [GAP-140 / P4-F086]: `App\Services\RefundPolicy::allows()`, the ONE place the
+           store's refund-policy toggles are read server-side. Raw deliberately and for two stated
+           reasons -- `OrderRefundSetting` is `Cachable`, so an Eloquent read can serve a row from
+           before the merchant's own save, and `order_refund_settings` is ABSENT from
+           `config/tenancy.php`'s `scoped_models`, so there is no global scope to bypass in the
+           first place (the model carries no `BelongsToStore` either; both read when re-pointing
+           this count, not assumed). It carries an explicit `where('store_id', $storeId)`, and that
+           `$storeId` is `getCurrentStore()` at the restock door and `getStore($slug)->id` -- the
+           ROUTE's store -- at the storefront door, so the predicate is session- or route-derived
+           and never caller-supplied. */
+        $this->assertSame(['app' => 229, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -848,8 +858,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            268 -> 270 [the two reviews of that change]: the four acknowledgement methods above,
            net +2 (225 + 45).
            272 -> 273 [GAP-140]: the refund door's in-transaction `product_json` re-read
-           (228 + 45). */
-        $this->assertSame(273, array_sum($perDir));
+           (228 + 45).
+           273 -> 274 [GAP-140 / P4-F086]: `RefundPolicy::allows()`, the one server-side read of the
+           store's refund-policy toggles (229 + 45). Scoped, so the UNSCOPED sums do not move. */
+        $this->assertSame(274, array_sum($perDir));
     }
 
     /**
@@ -966,6 +978,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // carries `->where('store_id', $store)`. The customer predicate is applied in PHP on the
             // row it returns, for the engine reason recorded on the per-directory assertion above.
             'order_partial_payments' => [1, 0],
+            'order_refund_settings' => [1, 0],    // GAP-140 / P4-F086: RefundPolicy::allows() -- one site, and it carries an explicit store_id predicate, so the unscoped half is zero
             'order_refunds' => [2, 2],    // P1-ORD-12: OrderDocumentAccessGuard resolves a refund id to its order id; the ORDER's store is what is compared to the caller
             // 1 -> 3 [2026-11-01]: OrderReplacement's lockForUpdate re-read (E13 / D-15 condition 8) and
             // TopSellersByRevenue's line-revenue query (F242). **THE UNSCOPED HALF STAYS AT 0, which is the
@@ -1285,7 +1298,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // UNSCOPED sum below does not move, which is the half that matters.
         // 196 -> 197 [2026-11-25, GAP-140]: the refund door's in-transaction `orders` re-read,
         // also scoped, and the unscoped sum again does not move.
-        $this->assertSame(197, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 197 -> 198 [2026-11-26, GAP-140 / P4-F086]: `RefundPolicy::allows()` on
+        // `order_refund_settings`, a table new to this map. Also scoped -- its row is [1, 0] -- so
+        // the unscoped sum does not move for a third time, which is the half that matters.
+        $this->assertSame(198, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
