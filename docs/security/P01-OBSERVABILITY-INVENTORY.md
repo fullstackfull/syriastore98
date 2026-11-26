@@ -94,8 +94,13 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 238 lines
+### `warning` — 259 lines
 
+> **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
+> twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
+> message sits on the line *after* the call while the census matched one line at a time. The ratchet
+> is what changed; the section below says why that is the finding.
+>
 > **[2026-11-25, third pass] 237 -> 238.** One `warning` line on the admin order-status door, for a
 > payment status moved on an order that is already cancelled or returned. Its destination and reader
 > are in their own section below.
@@ -163,6 +168,27 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Helper/helper.php:687` | an image upload was refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:323` | Delivery Syria order status transition refused |
 | `app/Http/Controllers/Api/DashboardController.php:1044` | Payment status changed on a settled order |
+| `app/Http/Controllers/Api/DashboardController.php:2499` | api category delete refused: products would be cascade-deleted with it |
+| `app/Http/Controllers/Api/DashboardController.php:3333` | api variant delete refused: the variant is still referenced |
+| `app/Http/Controllers/Auth/RegisteredUserController.php:125` | Registration refused: no Role named |
+| `app/Http/Controllers/CategoryController.php:212` | category update refused: the category belongs to another store |
+| `app/Http/Controllers/CategoryController.php:448` | category delete refused: the category belongs to another store |
+| `app/Http/Controllers/CategoryController.php:570` | category delete refused: products would be cascade-deleted with it |
+| `app/Http/Controllers/PaymentController.php:4625` | WhatsApp URL built for a cart line that is short on stock |
+| `app/Http/Controllers/PaymentController.php:4660` | WhatsApp URL built for a cart line that is short on stock |
+| `app/Http/Controllers/ProductController.php:3328` | variant panel refused: the product is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3557` | product image delete refused: the image belongs to another store |
+| `app/Http/Controllers/ProductController.php:3611` | product image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3701` | variant image upload refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3814` | variant image row replaced but the old file was not unlinked: StoredUpload |
+| `app/Http/Controllers/ProductController.php:3877` | variant image delete refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3906` | variant image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3948` | attribute combination edit refused: the product belongs to another store |
+| `app/Http/Controllers/ProductController.php:4114` | product variant delete refused: the variant belongs to another store |
+| `app/Http/Controllers/ProductController.php:4208` | product variant delete refused: the variant is still referenced |
+| `app/Http/Controllers/WoocomProductController.php:418` | woocommerce product edit refused: the mapped product is not in this store |
+| `app/Http/Middleware/BulkDeleteTenantGuard.php:677` | bulk category delete refused: products would be cascade-deleted with the categories |
+| `app/Models/Order.php:1362` | order return refused: the order carries no store_id |
 | `app/Services/PlatformUploadPolicy.php:314` | a platform upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
@@ -404,6 +430,47 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 <!-- counts: error=95 info=22 debug=1 -->
 
 ---
+
+### The twenty-one rows added 2026-11-26 — and the ratchet hole that hid them
+
+**These are not new log lines. They are old ones this document never knew about**, and that is the
+finding rather than the rows. `SecurityLogInventoryTest` claims to census every `critical` and
+`warning` in `app/`, in both directions. It matched its pattern against **one line at a time**, so
+every call written as `Log::warning(` with the message on the following line matched the level, found
+no opening quote, and was **silently skipped**. Twenty-one call sites across nine files were
+accountable to nothing — including one added on 2026-11-25, which is the only reason this came to
+light. Formatting decided whether a log line had a stated destination.
+
+**A wider match was the wrong fix and was tried first:** joining every line with the two after it and
+making the pattern dot-all reported **591** undeclared lines, because each call then matched from
+three overlapping windows and absorbed its neighbours' messages. The fix is an *opener-only*
+lookahead — the next line is consulted only when the current one ends in `Log::level(` with nothing
+after the parenthesis. Unambiguous, keeps the **call's** line number (what this table keys on), and
+cannot double-count.
+
+**Destination.** The default channel, as every other row here.
+
+**Reader, and why these twenty-one share one section rather than having twenty-one.** Nineteen are
+*refusals by a tenant or integrity guard* — "belongs to another store", "products would be
+cascade-deleted with it", "the variant is still referenced" — written where a door declines to act on
+another store's row, or on a row something else still points at. Their reader is the merchant's own
+operator asking **why an action was refused**, and the platform operator asking **whether a refusal
+is a misconfiguration or an attempt**. `warning` and not `critical` because each is a control
+working: the refusal is correct behaviour and the line is its audit trail.
+
+Two groups are different and worth reading first:
+
+- **`ProductController.php:3611`, `:3814`, `:3906` — the row was deleted and the FILE WAS NOT.** The
+  database no longer references an image still on disk. Nobody is harmed and nothing is exposed, but
+  storage grows silently and a later integrity sweep finds orphans it cannot attribute. The reader is
+  whoever runs that sweep.
+- **`PaymentController.php:4625` and `:4660` — a WhatsApp checkout URL built for a line short on
+  stock.** The one pair here that is **not** a refusal: the URL is still built and the shopper still
+  sends it, so a merchant may receive an order they cannot fulfil. The reader is the merchant, and it
+  is the only entry with money behind it.
+
+**Not changed, and said because the next reader will wonder:** none of the twenty-one was reworded or
+re-levelled to suit this table. They are recorded as they stand.
 
 ### The eighteen rows added 2026-11-25 (#204), with their destination and reader
 
