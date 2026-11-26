@@ -86,18 +86,49 @@ class BenefitCaptureVerificationTest extends SecurityTestCase
      *
      * @return object the recorder, whose `->calls` is a list of [chargeId, storeId]
      */
+    private ?object $recorder = null;
+
     private function bindRecordingController($answer): object
     {
-        $recorder = new class {
+        /*
+         * THE ANSWER IS MUTATED, NOT REBOUND, AND THAT COST A REAL FALSE READING.
+         *
+         * The first form of this helper called `$this->app->bind()` again for each new answer. It
+         * does not take: `Illuminate\Routing\Route::getController()` MEMOISES its controller
+         * instance on the Route object, and the Router -- with its routes -- survives from one test
+         * request to the next inside a single test. So the SECOND request in a test went on using
+         * the FIRST request's double.
+         *
+         * MEASURED: `test_every_refusal_records_its_reason` recorded the reason
+         * "the charge is not CAPTURED" TWICE -- once for the declined charge and once where an
+         * exception should have been thrown -- and `test_a_refused_charge_does_not_burn_its_own_id`
+         * read 0 orders because its CAPTURED retry was still answered DECLINED. Both looked like
+         * production defects and neither was: it is the memoised container binding CLAUDE.md's
+         * debugging notes name as this codebase's own pollution.
+         *
+         * So the binding is installed ONCE and the recorder carries the answer. The closure holds
+         * the recorder by handle, the memoised controller reads `$this->recorder->answer` at call
+         * time, and a later answer therefore reaches an instance built before it was set.
+         */
+        if ($this->recorder !== null) {
+            $this->recorder->answer = $answer;
+
+            return $this->recorder;
+        }
+
+        $this->recorder = new class {
             /** @var list<array{0: mixed, 1: mixed}> */
             public array $calls = [];
-        };
 
-        $this->app->bind(PaymentController::class, function ($app) use ($answer, $recorder) {
-            return new class($app->make(\App\Services\PaymentService::class), $answer, $recorder) extends PaymentController {
+            public mixed $answer = null;
+        };
+        $this->recorder->answer = $answer;
+        $recorder = $this->recorder;
+
+        $this->app->bind(PaymentController::class, function ($app) use ($recorder) {
+            return new class($app->make(\App\Services\PaymentService::class), $recorder) extends PaymentController {
                 public function __construct(
                     \App\Services\PaymentService $paymentService,
-                    private mixed $answer,
                     private object $recorder
                 ) {
                     parent::__construct($paymentService);
@@ -107,11 +138,11 @@ class BenefitCaptureVerificationTest extends SecurityTestCase
                 {
                     $this->recorder->calls[] = [$chargeId, $storeId];
 
-                    if ($this->answer instanceof \Throwable) {
-                        throw $this->answer;
+                    if ($this->recorder->answer instanceof \Throwable) {
+                        throw $this->recorder->answer;
                     }
 
-                    return $this->answer;
+                    return $this->recorder->answer;
                 }
             };
         });
@@ -355,6 +386,151 @@ class BenefitCaptureVerificationTest extends SecurityTestCase
         );
 
         $this->assertSame([['chg_captured', $store->id]], $spy->calls);
+    }
+
+    // =============================================================================================
+    //  ROUND 2 -- one captured charge pays for ONE order (found by independent review)
+    // =============================================================================================
+
+    /**
+     * A CAPTURED CHARGE ID CANNOT BE SPENT TWICE, which the first form of this branch allowed.
+     *
+     * `status === 'CAPTURED'` asked whether a charge was captured and nothing asked WHICH CHECKOUT
+     * it paid for. `processBenefit()` sends a CONSTANT reference, so the charge is tied to no
+     * basket, and `claimGatewayReturn()` keys on the checkout NONCE for this rail -- a fresh
+     * checkout mints a fresh nonce, so a re-used `tap_id` was not a replay. One real 1.00 payment
+     * therefore authorised unlimited further Benefit orders of any size.
+     *
+     * DRIVEN AS THE ATTACK, not as a unit call: two separate checkouts, the SECOND one expensive,
+     * replaying the SAME charge id. The first must succeed -- otherwise this case would pass with
+     * the door bricked shut -- and the second must be refused with no order written.
+     */
+    public function test_one_captured_charge_cannot_pay_for_a_second_order(): void
+    {
+        [, $store, $customer, $product] = $this->checkout();
+        $this->bindRecordingController($this->charge('CAPTURED'));
+
+        $first = $this->returnFromBenefit($store, $customer, ['tap_id' => 'chg_reused']);
+
+        $this->assertSame(
+            1,
+            $this->ordersIn($store),
+            'premise: the first return with a genuinely captured charge writes its order. '
+            . 'Status ' . $first->getStatusCode() . ' error ' . json_encode(session('error'))
+        );
+
+        /* A SECOND, SEPARATE CHECKOUT: a new basket and a new stored state, so the checkout nonce
+           is fresh and claimGatewayReturn() has nothing to object to. This is the attacker's second
+           order, and it is the expensive one. */
+        DB::table('carts')->insert([
+            'product_id' => $product->id, 'variant_id' => 0, 'qty' => 1,
+            'customer_id' => $customer->id, 'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->state['cartlist_final_price'] = 9999.00;
+
+        $second = $this->returnFromBenefit($store, $customer, ['tap_id' => 'chg_reused']);
+
+        $this->assertSame(
+            302,
+            $second->getStatusCode(),
+            'the replayed charge was not refused'
+        );
+        $this->assertSame(
+            1,
+            $this->ordersIn($store),
+            'A SECOND order was written from ONE captured charge. That is the replay the charge '
+            . 'claim exists to stop: the charge is bound to no basket and the nonce is fresh, so '
+            . 'nothing else on this rail can see it.'
+        );
+    }
+
+    /**
+     * AND THE CLAIM IS NOT TAKEN BY A REFUSAL, so a shopper who completes the payment on a second
+     * attempt is not refused for a charge that never paid for anything.
+     *
+     * The claim sits AFTER the status check deliberately. This case is what makes that ordering a
+     * measurement rather than a comment: the same charge id is first seen DECLINED, then CAPTURED.
+     */
+    public function test_a_refused_charge_does_not_burn_its_own_id(): void
+    {
+        [, $store, $customer] = $this->checkout();
+
+        $this->bindRecordingController($this->charge('DECLINED'));
+        $this->returnFromBenefit($store, $customer, ['tap_id' => 'chg_second_try']);
+        $this->assertSame(0, $this->ordersIn($store), 'premise: the declined attempt wrote nothing');
+
+        /* The shopper pays, and Tap now reports the same charge CAPTURED. */
+        $this->bindRecordingController($this->charge('CAPTURED'));
+        $this->returnFromBenefit($store, $customer, ['tap_id' => 'chg_second_try']);
+
+        $this->assertSame(
+            1,
+            $this->ordersIn($store),
+            'the charge id was burnt by its own refusal, so a shopper who really paid on the '
+            . 'second attempt cannot get their order'
+        );
+    }
+
+    /**
+     * EVERY REFUSAL SAYS WHY, in the log. Until an independent review named it the refusal was
+     * SILENT -- so a curl error and a declined charge were indistinguishable, and a Benefit shopper
+     * whose charge WAS captured could be refused with nothing anywhere recording it.
+     *
+     * The REASON is asserted and not merely the presence of a line: "a refusal asserted without its
+     * reason" is the trap this project records, and a thrown lookup and a declined charge must not
+     * produce the same entry.
+     */
+    public function test_every_refusal_records_its_reason(): void
+    {
+        [, $store, $customer] = $this->checkout();
+
+        $entries = [];
+        $levels = [];
+        \Illuminate\Support\Facades\Log::listen(function ($message) use (&$entries, &$levels) {
+            if (str_contains((string) $message->message, 'Benefit return refused')) {
+                $entries[] = $message->context['reason'] ?? '';
+                $levels[] = $message->level;
+            }
+        });
+
+        $this->bindRecordingController($this->charge('DECLINED'));
+        $this->returnFromBenefit($store, $customer, ['tap_id' => 'chg_declined']);
+
+        $this->bindRecordingController(new \Exception('cURL error 6: could not resolve host'));
+        $this->returnFromBenefit($store, $customer, ['tap_id' => 'chg_unreachable']);
+
+        $this->bindRecordingController($this->charge('CAPTURED'));
+        $this->returnFromBenefit($store, $customer);   // no charge id at all
+
+        $this->assertCount(3, $entries, 'each refusal must record one entry: ' . json_encode($entries));
+
+        $this->assertStringContainsString('not CAPTURED', $entries[0], $entries[0]);
+        $this->assertStringContainsString('lookup failed', $entries[1], $entries[1]);
+        $this->assertStringContainsString('no usable charge id', $entries[2], $entries[2]);
+
+        $this->assertNotSame(
+            $entries[0],
+            $entries[1],
+            'a declined charge and an unreachable provider recorded the SAME reason, so the log '
+            . 'cannot tell a refusal from an outage'
+        );
+
+        /*
+         * THE LEVEL IS ASSERTED, AND A SURVIVING MUTANT IS WHY. Changing `Log::warning` to
+         * `Log::debug` left this case GREEN, because `Log::listen` receives every level -- so the
+         * test proved an entry existed and said nothing about whether anyone would ever see it.
+         * `docs/security/P01-OBSERVABILITY-INVENTORY.md` tracks `critical` and `warning` ONLY, so a
+         * quiet drop to `debug` would remove this line from the declared set and from any alerting
+         * while every assertion above still held.
+         */
+        $this->assertSame(
+            ['warning', 'warning', 'warning'],
+            $levels,
+            'a Benefit refusal must be logged at `warning`: the observability inventory tracks only '
+            . 'critical and warning, so any other level is an entry nobody is accountable for. Got: '
+            . json_encode($levels)
+        );
     }
 
     /**

@@ -274,11 +274,25 @@ class GatewayCallbackDestinationTest extends TestCase
     {
         $code = $this->codeOf('app/Http/Controllers/PaymentController.php');
 
-        $this->assertStringContainsString("'Tap'", $code,
+        /*
+         * ANCHORED ON THE TAP BRANCH'S OWN COMPARISON, not on the bare literal. An independent
+         * review found that `'Tap'` also occurs in the `in_array(...)` dispatch list at :3194, so
+         * the first form of this line would have held with the Tap branch deleted.
+         */
+        $this->assertStringContainsString("\$requests_data['payment_type'] == 'Tap'", $code,
             'the Tap branch has moved — re-read this test before trusting it');
 
         $benefitBranch = strpos($code, "== 'benefit'");
-        $chargeLookup = strpos($code, 'benefitChargeStatus(');
+        /*
+         * THE CALL, NOT THE DECLARATION. `benefitChargeStatus(` alone matched the `protected
+         * function` declaration, which sits ABOVE the branch -- so both the presence assertion and
+         * the ordering assertion below held whether or not the branch ever called it. Found by the
+         * same review; the behavioural cases in `BenefitCaptureVerificationTest` did cover the gap,
+         * so this was tripwire hygiene rather than a hole, but a tripwire that can be satisfied by
+         * a declaration is not one.
+         */
+        $chargeLookup = strpos($code, '$this->benefitChargeStatus(');
+        $chargeClaim = strpos($code, '$this->claimBenefitCharge(');
         $claim = strpos($code, "claimGatewayReturn(\$request, 'storefront-return'");
 
         $this->assertNotFalse(
@@ -289,7 +303,21 @@ class GatewayCallbackDestinationTest extends TestCase
 
         $this->assertNotFalse(
             $chargeLookup,
-            'The `benefit` branch no longer reaches a charge lookup, so it verifies nothing.'
+            'The `benefit` branch no longer CALLS the charge lookup, so it verifies nothing.'
+        );
+
+        $this->assertNotFalse(
+            $chargeClaim,
+            'The `benefit` branch no longer claims the charge id, so one captured charge can pay '
+            . 'for unlimited orders again: the charge is bound to no basket (processBenefit sends a '
+            . 'CONSTANT reference) and claimGatewayReturn() keys on the checkout nonce alone for '
+            . 'this rail, so a fresh checkout is not a replay. See claimBenefitCharge().'
+        );
+
+        $this->assertLessThan(
+            $claim,
+            $chargeClaim,
+            'The charge claim now happens after the return has been claimed.'
         );
 
         $this->assertNotFalse($claim, 'the storefront claim has moved — re-read this test');
