@@ -5688,7 +5688,34 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             }
 
             if (!empty($request->rating)) {
-                $product_query->whereRaw('ROUND(average_rating) =' . $request->rating);
+                /*
+                 * BOUND, NOT CONCATENATED -- AND THE OLD LINE WAS A CROSS-TENANT DISCLOSURE, NOT
+                 * JUST AN INJECTION.
+                 *
+                 * It read `whereRaw('ROUND(average_rating) =' . $request->rating)`, so the request
+                 * value became part of the statement. MEASURED, with `rating=4 OR 1=1`:
+                 *
+                 *     select * from products where store_id = ? and ROUND(average_rating) =4 OR 1=1
+                 *
+                 * AND binds tighter than OR, so that is `(store_id = ? AND rating = 4) OR (1=1)` --
+                 * true for every row. The `store_id` predicate is still written and simply bypassed,
+                 * and `Product` carries no effective global scope (it is absent from
+                 * `config/tenancy.php`'s `scoped_models`, so `StoreScope` short-circuits for every
+                 * principal), so nothing else narrows it. A search of one store returned another
+                 * store's products; `SearchRatingRawSqlTest` drives that.
+                 *
+                 * REACHABLE BY ANYONE HOLDING ANY TOKEN. `POST api/{slug}/search` and
+                 * `search-guest` carry `custom.auth`, which resolves ANY Sanctum token; tokens here
+                 * never expire and all carry `['*']`.
+                 *
+                 * THE CAST IS DELIBERATE AND NOT REDUNDANT. A binding alone already closes the
+                 * injection, but production runs MySQL with `strict => false`, which would coerce a
+                 * bound `'4 OR 1=1'` to 4 silently -- the right answer by accident. Casting here
+                 * makes the intent explicit and gives the same result on sqlite, where that
+                 * coercion does not apply. Every neighbouring filter in this branch was already
+                 * safe: `name` is a bound `like`, `tag` goes through `whereIn`.
+                 */
+                $product_query->whereRaw('ROUND(average_rating) = ?', [(float) $request->rating]);
             }
 
             if ($request->min_price != '' && $request->max_price != '') {
