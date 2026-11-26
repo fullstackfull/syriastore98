@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 178 VERIFIED COMPLETE. 172 are not.**
+**350 requirements recovered. 179 VERIFIED COMPLETE. 171 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 178 verified complete, 192 not.** It read 368/198
+project-wide figure is **370 known requirements, 179 verified complete, 191 not.** It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -143,9 +143,9 @@ against a pre-reorganization original.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **178** |
-| PARTIALLY IMPLEMENTED | **94** |
-| NOT IMPLEMENTED | **20** |
+| VERIFIED COMPLETE | **179** |
+| PARTIALLY IMPLEMENTED | **95** |
+| NOT IMPLEMENTED | **18** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -154,7 +154,7 @@ against a pre-reorganization original.
 
 | phase | recovered | verified complete | not complete |
 |---|---|---|---|
-| 01 Foundation — architecture, security, tenant isolation, pe | 70 | 17 | **53** |
+| 01 Foundation — architecture, security, tenant isolation, pe | 70 | 18 | **52** |
 | 02 Merchant Experience | 114 | 100 | **14** |
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
 | 03 Storefront, Themes, Official Website and Documentation (M | 36 | 13 | **23** |
@@ -652,7 +652,14 @@ against a pre-reorganization original.
 
 ### `P01-G1` — G. Phase-wide verification (the directive's §9)
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **CLOSED/ADVANCED 2026-11-26 by the journey exercises built for this gate.** The end-to-end MERCHANT journey exercise now exists and was run: `tests/Feature/Journeys/MerchantJourneyTest::test_the_merchant_journey_runs_end_to_end_as_one_exercise` drives §G step 1 as ONE test method, one process, one session, nothing inserted between legs -- register, dashboard, a two-variant product created through `POST /product`, a shopper's COD order arriving through the real storefront checkout, four fulfilment moves read back from the column, settlement with a matching `store_order_financials` row, and the return accepted with the VARIANT restocked. 9 controls; 2 mutations CAUGHT, each asserted to fail at the leg that owns the behaviour. Verified independently of the agent that wrote it: 23 passed, 251 assertions.
+>
+> Evidence: `docs/development/phase-1/PHASE-01-G1-G2-JOURNEY-EVIDENCE.md`, and the gap
+> register rows `GAP-020` / `GAP-022`. The exercises also produced three findings no unit
+> test had reached, registered as `GAP-265`…`GAP-267`. The original wording of this section
+> is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** "End-to-end **merchant** journey: create product with variants → receive order → fulfil → return" — run "as one exercise, not as a sum of task tests"
 - **Source:** `docs/development/phase-1/14-PHASE-01-ACCEPTANCE-CRITERIA.md §G, step 1`
@@ -679,7 +686,14 @@ against a pre-reorganization original.
 
 ### `P01-G2` — G. Phase-wide verification (the directive's §9)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **CLOSED/ADVANCED 2026-11-26 by the journey exercises built for this gate.** The end-to-end CUSTOMER journey exercise exists for the COD path and was run (`tests/Feature/Journeys/CustomerJourneyTest`), with 6 controls and 2 caught mutations. **The online-gateway leg of §G step 2 is NOT exercised and is measured as blocked rather than faked:** it needs a provider sandbox credential written as per-store `settings` rows, outbound reachability to that sandbox host, and a public callback hostname for a provider-initiated return. No capture is faked and no test double is offered as the leg. The blockage itself is asserted by a test that fails the moment a credential appears -- and that test was VACUOUS in its first form (it read two `config/services.php` keys that do not exist, comparing null to null) and was repaired to read the real per-store settings with a positive control.
+>
+> Evidence: `docs/development/phase-1/PHASE-01-G1-G2-JOURNEY-EVIDENCE.md`, and the gap
+> register rows `GAP-020` / `GAP-022`. The exercises also produced three findings no unit
+> test had reached, registered as `GAP-265`…`GAP-267`. The original wording of this section
+> is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** "End-to-end **customer** journey: browse → cart → checkout (COD and one online gateway) → order history → return request"
 - **Source:** `docs/development/phase-1/14-PHASE-01-ACCEPTANCE-CRITERIA.md §G, step 2`
