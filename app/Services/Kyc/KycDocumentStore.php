@@ -228,7 +228,22 @@ final class KycDocumentStore
          */
         $name = bin2hex(random_bytes(32));
 
+        /*
+         * READ OFF THE UPLOAD BEFORE IT IS WRITTEN ANYWHERE, both of them, so neither depends on
+         * the temporary file surviving the copy.
+         *
+         * `getMimeType()`, NOT `getClientMimeType()`, AND THE FIRST VERSION HAD THE WRONG ONE.
+         * `getClientMimeType()` is the BROWSER'S CLAIM -- attacker-controlled, and the validator
+         * never looked at it: `mimes:` reads the file's own signature. So the column would have held
+         * a stranger's string, and the download door was handing it straight back as
+         * `Content-Type`. Found by reviewing this change against
+         * `.claude/agents/tenant-authz-reviewer.md`'s shape 6, not by a failing test.
+         * `getMimeType()` guesses from the bytes, which is what `mimes:` judged. The download door
+         * does not trust even this one -- it maps the extension to a fixed type from a whitelist --
+         * so the column is a record of what was received rather than an instruction to a browser.
+         */
         $sha256 = (string) hash_file('sha256', $file->getRealPath());
+        $mime = (string) ($file->getMimeType() ?: 'application/octet-stream');
 
         /*
          * BOTH FAILURE SHAPES, BECAUSE WHICH ONE ARRIVES IS CONFIGURATION. The `kyc` disk sets
@@ -255,7 +270,7 @@ final class KycDocumentStore
         }
 
         try {
-            $document = DB::transaction(function () use ($profile, $file, $kind, $disk, $directory, $name, $sha256, $actor, $attributes): KycDocument {
+            $document = DB::transaction(function () use ($profile, $file, $kind, $disk, $directory, $name, $sha256, $mime, $actor, $attributes): KycDocument {
                 self::supersedePrevious($profile, $kind, $actor);
 
                 $document = new KycDocument();
@@ -266,21 +281,7 @@ final class KycDocumentStore
                 $document->authority = (string) $profile->authority;
                 $document->disk = $disk;
                 $document->storage_name = $directory . '/' . $name;
-                /*
-                 * `getMimeType()`, NOT `getClientMimeType()`, AND THE FIRST VERSION HAD THE WRONG
-                 * ONE. `getClientMimeType()` is the BROWSER'S CLAIM — attacker-controlled, and the
-                 * validator never looked at it: `mimes:` reads the file's own signature. So the
-                 * column would have held a stranger's string, and the download door was handing it
-                 * straight back as `Content-Type`. Found by reviewing this change against
-                 * `.claude/agents/tenant-authz-reviewer.md`'s shape 6 ("obscurity and
-                 * caller-supplied values are not controls"), not by a failing test.
-                 *
-                 * `getMimeType()` guesses from the bytes on disk, which is the same thing `mimes:`
-                 * judged. The download door does not trust even this one — it maps the extension to
-                 * a fixed type from a whitelist — so this column is a record of what was received
-                 * rather than an instruction to a browser.
-                 */
-                $document->mime = (string) ($file->getMimeType() ?: 'application/octet-stream');
+                $document->mime = $mime;
                 $document->size_bytes = (int) $file->getSize();
                 $document->sha256 = $sha256;
                 $document->status = KycDocument::PENDING;
@@ -301,6 +302,20 @@ final class KycDocumentStore
 
                 $document->save();
 
+                /*
+                 * THE UPLOAD ROW IS WRITTEN INSIDE THE TRANSACTION, so a document row and its
+                 * access-log row are both there or neither is. It sat after the commit in the first
+                 * version, which left one failure mode open: an audit write that failed would have
+                 * produced a stored private document with NO trail — precisely what KYC-002's
+                 * fourth clause exists to prevent. Atomic is the correct answer here even though it
+                 * means an audit failure fails the upload: a document nobody can account for is
+                 * worse than an upload the merchant retries.
+                 */
+                KycAccessLog::record(KycAccessLog::UPLOADED, $document, [
+                    'size_bytes' => (int) $document->size_bytes,
+                    'sha256' => (string) $document->sha256,
+                ], $actor);
+
                 return $document;
             });
         } catch (\Throwable $e) {
@@ -308,11 +323,6 @@ final class KycDocumentStore
 
             throw $e;
         }
-
-        KycAccessLog::record(KycAccessLog::UPLOADED, $document, [
-            'size_bytes' => (int) $document->size_bytes,
-            'sha256' => (string) $document->sha256,
-        ], $actor);
 
         return $document;
     }

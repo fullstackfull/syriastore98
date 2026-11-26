@@ -74,6 +74,42 @@ class KycAccessLogTest extends TestCase
         $this->assertSame((int) $document->id, (int) $rows[0]->subject_id);
     }
 
+    /**
+     * A STORED DOCUMENT AND ITS UPLOAD ROW ARE ATOMIC: both, or neither.
+     *
+     * Driven by making the access-log write fail — the action vocabulary is closed, so renaming
+     * the constant's value for one call is the cheapest real failure — and then asserting that the
+     * document row, and the FILE, are both gone. The upload row used to be written after the
+     * commit, which left a stored private document with no trail reachable by one failed insert.
+     */
+    public function test_a_document_is_not_stored_at_all_if_its_upload_row_cannot_be_written(): void
+    {
+        Storage::fake('kyc');
+
+        [$merchant, $store] = $this->kycMerchantWithStore();
+        $this->configureKycKinds(KycVerification::COMPANY, KycAuthority::STORE_SYRIA, ['commercial_register']);
+        $record = $this->kycRecord($store, KycAuthority::STORE_SYRIA, KycVerification::COMPANY, $merchant);
+
+        // `audit_logs.action` is NOT NULL in the measured production structure and the column is
+        // what the writer fills, so dropping the table is the honest way to make that one insert
+        // fail without touching the code under test.
+        DB::statement('DROP TABLE audit_logs');
+
+        try {
+            KycDocumentStore::store($record, $this->kycPngUpload(), 'commercial_register', $merchant);
+            $this->fail('a document was stored although its access-log row could not be written');
+        } catch (\Throwable $e) {
+            $this->assertStringContainsString('audit_logs', $e->getMessage());
+        }
+
+        $this->assertSame(0, DB::table('kyc_documents')->count(), 'the row outlived the trail');
+        $this->assertSame(
+            [],
+            Storage::disk('kyc')->allFiles(),
+            'the file outlived the trail: a private document nobody can account for'
+        );
+    }
+
     public function test_reading_the_bytes_writes_exactly_one_read_row(): void
     {
         [$merchant, $store, , $document] = $this->storedDocument();

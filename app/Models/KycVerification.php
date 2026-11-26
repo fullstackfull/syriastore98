@@ -74,7 +74,16 @@ class KycVerification extends Model
     /** The merchant has said they are done; nobody has looked. */
     public const SUBMITTED = 'submitted';
 
-    /** A reviewer has picked it up. */
+    /**
+     * A reviewer has picked it up.
+     *
+     * DECLARED AND NOT YET WRITTEN BY ANY DOOR, stated here rather than left to be discovered. The
+     * operator's queue admits it (`whereIn(['submitted', 'in_review'])`) so that a future "claim
+     * this for review" step needs no migration and no change to the queue; nothing claims a record
+     * today, because whether reviews are assigned to a named reviewer — and whether a merchant
+     * should be told who is looking at their papers — is a workflow question nobody has asked for.
+     * `KycStatusVocabularyTest` writes it directly, so the column really accepts it.
+     */
     public const IN_REVIEW = 'in_review';
 
     public const APPROVED = 'approved';

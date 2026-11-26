@@ -26,7 +26,7 @@
 
 @section('breadcrumb')
     <li class="ss-breadcrumb__item">
-        <a href="{{ route('kyc.index') }}">{{ __('Verification') }}</a>
+        <a class="ss-breadcrumb__link" href="{{ route('kyc.index') }}">{{ __('Verification') }}</a>
     </li>
     <li aria-current="page" class="ss-breadcrumb__item">
         {{ __('Document access log') }}

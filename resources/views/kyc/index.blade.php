@@ -189,7 +189,7 @@
                     @csrf
 
                     <div class="mb-3">
-                        <label class="form-label" for="kyc-subject-type">{{ __('You are verifying') }}</label>
+                        <label class="form-label" for="kyc-subject-type">{{ __('You are verifying') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <select class="form-select" id="kyc-subject-type" name="subject_type" required>
                             <option value="individual">{{ __('An individual') }}</option>
                             <option value="company">{{ __('A company') }}</option>
@@ -197,7 +197,7 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label" for="kyc-authority">{{ __('Kind of verification') }}</label>
+                        <label class="form-label" for="kyc-authority">{{ __('Kind of verification') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <select class="form-select" id="kyc-authority" name="authority" required>
                             @foreach ($authorities as $authority)
                                 <option value="{{ $authority }}">{{ $authorityLabels[$authority] ?? $authority }}</option>
@@ -206,7 +206,7 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label" for="kyc-kind">{{ __('Document type') }}</label>
+                        <label class="form-label" for="kyc-kind">{{ __('Document type') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <select class="form-select" id="kyc-kind" name="document_kind" required>
                             @foreach ($configured as $subjectType => $byAuthority)
                                 @foreach ($byAuthority as $authority => $kinds)
@@ -219,7 +219,7 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label" for="kyc-file">{{ __('Document file') }}</label>
+                        <label class="form-label" for="kyc-file">{{ __('Document file') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input class="form-control" type="file" id="kyc-file" name="document"
                                aria-describedby="kyc-file-help" required>
                         <x-ss.field-help for="kyc-file">
