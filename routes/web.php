@@ -1148,7 +1148,14 @@ Route::get(
 
     Route::resource('woocom_coupon', WoocomCouponController::class);
     // GAP-268. MEASURED: WoocomProductController has no `create` or `store`; the other five exist.
-    Route::resource('woocom_product', WoocomProductController::class)->except(['create', 'store']);
+    // GAP-268 follow-up. `->whereNumber()` because withdrawing `create` UNSHADOWED `show`:
+    // `Route::resource` declares `<r>/create` before `<r>/{param}`, so `GET woocom_product/create`
+    // began binding `{woocom_product} = 'create'` and reaching `@show`. MEASURED safe -- every
+    // link passes a numeric id (`route('woocom_product.show'|'.edit', $customer->id)`,
+    // resources/views/woocommerce/product_action.blade.php) -- and it hardens the parameter.
+    Route::resource('woocom_product', WoocomProductController::class)
+        ->except(['create', 'store'])
+        ->whereNumber('woocom_product');
     // GAP-268. MEASURED: WoocomCategoryController has no `update` or `destroy`; the other five exist.
     Route::resource('woocom_category', WoocomCategoryController::class)->except(['update', 'destroy']);
     Route::resource('woocom_customer', WoocomCustomerController::class);
@@ -1158,9 +1165,17 @@ Route::get(
 
     // GAP-268. MEASURED: ShopifyProductController defines index, show and edit (plus
     // fetchProducts / getNextPageInfo). create / store / update / destroy were each an HTTP 500.
-    Route::resource('shopify_product', ShopifyProductController::class)->only(['index', 'show', 'edit']);
+    // GAP-268 follow-up: see `woocom_product` above. `route('shopify_product.show'|'.edit',
+    // $product_data['id'])` (resources/views/shopify/product.blade.php) is a Shopify numeric id.
+    Route::resource('shopify_product', ShopifyProductController::class)
+        ->only(['index', 'show', 'edit'])
+        ->whereNumber('shopify_product');
     // GAP-268. MEASURED: ShopifyCategoryController has no `create` or `store`; the other five exist.
-    Route::resource('shopify_category', ShopifyCategoryController::class)->except(['create', 'store']);
+    // GAP-268 follow-up: see `woocom_product` above. `route('shopify_category.show'|'.edit',
+    // $cat_data['id'])` (resources/views/shopify/category.blade.php) is a Shopify numeric id.
+    Route::resource('shopify_category', ShopifyCategoryController::class)
+        ->except(['create', 'store'])
+        ->whereNumber('shopify_category');
     Route::resource('shopify_customer', ShopifyCustomerController::class);
     Route::resource('shopify_coupon', ShopifyCouponController::class);
 
@@ -2077,6 +2092,15 @@ Route::get(
   // GAP-268. MEASURED: OrderRefundController defines index and show (plus updateStatus /
   // CancelRefundStatus / RefundStock / RefundAmonut). create / store / edit / update / destroy
   // were each an HTTP 500.
+  // GAP-268 follow-up. DELIBERATELY NOT `->whereNumber()`, unlike the three import resources.
+  // Withdrawing `create` unshadowed `show` here too, so `GET refund-request/create` now binds
+  // `{refund_request} = 'create'` and reaches `@show`, where `Crypt::decrypt('create')` throws
+  // and `catch (\Throwable $th)` redirects back with an error. That is not a 404 -- and the
+  // obvious tidy-up is a LIVE REGRESSION: this id is an ENCRYPTED BLOB, not a number
+  // (`route('refund-request.show', Crypt::encrypt($refund_request->order_id))`,
+  // resources/views/order/refund-action.blade.php:2), so a numeric constraint would 404 every
+  // real refund link to tidy a URL nothing requests. Pinned as-is by
+  // tests/Unit/Routing/ResourceWithdrawalDoesNotRedirectTrafficTest.
   Route::resource('refund-request', OrderRefundController::class)
       ->only(['index', 'show'])
       ->middleware('themelanguage');
