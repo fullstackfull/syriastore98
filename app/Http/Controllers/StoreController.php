@@ -1134,6 +1134,75 @@ foreach ($defaultCurrencies as $currency) {
         $this->authorize('impersonate', $user);
 
         /*
+         * `SUPPORT-004` / `SUPPORT-005` — THE CONSENT, EXPIRY AND SCOPE CLAUSES, CONSULTED HERE.
+         *
+         * Until this call the only control on "log in as this merchant" was
+         * `UserPolicy::impersonate` (operator only, not self, not another operator) plus the audit
+         * row `App\Support\Audit\RecordImpersonation` writes. That satisfies the AUDIT clause of
+         * `SUPPORT-004` and none of the other three: the operator self-authorised, the session
+         * never expired, and there was no way to ask for less than everything.
+         *
+         * AFTER `authorize()`, DELIBERATELY. The policy answers "is this person allowed to do
+         * support work at all"; the grant answers "is there a live authorisation for THIS access".
+         * A grant must never admit someone the policy refuses, so the policy runs first and this is
+         * strictly narrowing. It also means a `tenant-authz-reviewer` reading the policy still sees
+         * the whole permission story in one place.
+         *
+         * TWO MODES, AND NEITHER IS SILENT — `config('support_access.enforce')`, owner question 1:
+         *
+         *   ENFORCED      no live grant covering every store the merchant owns => refused, with a
+         *                 `support_access_refused` audit row naming why.
+         *   NOT ENFORCED  (the shipped default) the access proceeds exactly as it does today, and a
+         *                 `support_access_ungranted` row is written. That row is the point: it makes
+         *                 the gap `SUPPORT-004` names COUNTABLE before the owner has to decide
+         *                 whether to switch enforcement on, and nobody has that number today.
+         *
+         * When a grant IS live, `recordUse()` writes one `support_access_used` row and advances the
+         * grant's counters, so "what did support actually do with the access I gave them" has an
+         * answer per use rather than per session.
+         *
+         * WHY THE DEFAULT IS `false`. With the table empty, `true` refuses every support login on
+         * the first deploy — support staff could not help a merchant who is on the phone — and the
+         * merchant-facing consent screen is the half of this requirement that is not built here.
+         * Switching it on is an operational decision with a prerequisite, so it is named as owner
+         * question 1 rather than taken by this change. `SupportAccessEnforcementTest` drives both
+         * modes and asserts opposite outcomes, so the enforced path is executed in CI and is not
+         * dormant code.
+         */
+        $supportAccess = \App\Support\SupportAccess\SupportAccessGate::impersonationDecision(
+            $request->user(),
+            $user
+        );
+
+        /*
+         * THE ACTOR IS CAPTURED BEFORE `take()`, and every audit call below uses it.
+         *
+         * `take()` calls `quietLogin($to)`, so after it the session guard holds the IMPERSONATED
+         * MERCHANT -- `RecordImpersonation`'s docblock measured this in the vendor source. A row
+         * built from `$request->user()` after that point reads as the merchant having acted on
+         * themselves. `AuditLog::record()` takes an explicit actor for exactly this hazard.
+         */
+        $actingOperator = $request->user() instanceof \App\Models\User ? $request->user() : null;
+
+        /*
+         * THE ENFORCED REFUSAL. `take()` never runs, so this row IS the fact: an access was asked
+         * for and refused for want of consent.
+         */
+        if (! $supportAccess['allowed'] && \App\Support\SupportAccess\SupportAccessGate::isEnforced()) {
+            \App\Support\SupportAccess\SupportAccessAudit::recordUngranted(
+                \App\Support\SupportAccess\SupportAccessAudit::REFUSED,
+                $user,
+                $actingOperator,
+                ['stores' => $supportAccess['stores'], 'scope' => 'full']
+            );
+
+            return redirect()->back()->with(
+                'error',
+                __('Support access to that merchant needs their consent. Request access first.')
+            );
+        }
+
+        /*
          * `take()` SWALLOWS EVERY EXCEPTION AND RETURNS false, and this ignored it.
          *
          * `ImpersonateManager::take()` is `catch (\Exception $e) { unset($e); return false; }`, so a
@@ -1147,6 +1216,62 @@ foreach ($defaultCurrencies as $currency) {
          */
         if (Impersonate::take($request->user(), $user) !== true) {
             return redirect()->back()->with('error', __('Could not sign in as that merchant.'));
+        }
+
+        /*
+         * THE UNGRANTED ROW IS WRITTEN HERE, AFTER THE TAKE SUCCEEDED, AND AN EXISTING TEST IS WHY.
+         *
+         * It was written above, before `take()`, and that broke
+         * `ImpersonationIsAuditedTest::test_an_impersonation_that_fails_is_reported_rather_than_redirected_as_success`,
+         * which asserts that a FAILED impersonation leaves the trail empty. That test is right and
+         * the placement was wrong: `take()` swallows every exception and returns false, so a row
+         * written before it claims support reached a merchant's data when it did not.
+         *
+         * It is also this controller's own stated principle, three methods down in `switchStore()`:
+         * "AFTER THE WRITE, DELIBERATELY. A row written before it would claim a tenant was entered
+         * when the switch was refused, and a trail that over-reports is worse than one that is
+         * silent, because it will be believed." The same applies to the gap counter -- and it
+         * applies with more force here, because this row's whole purpose is to be COUNTED by the
+         * owner when they decide whether to switch enforcement on. A count inflated by failed
+         * attempts would overstate the gap and corrupt the one number that decision needs.
+         *
+         * The enforced REFUSED row above is the opposite case and belongs where it is: there
+         * `take()` never runs, and the refusal is itself the fact being recorded.
+         */
+        if (! $supportAccess['allowed']) {
+            \App\Support\SupportAccess\SupportAccessAudit::recordUngranted(
+                \App\Support\SupportAccess\SupportAccessAudit::UNGRANTED,
+                $user,
+                $actingOperator,
+                ['stores' => $supportAccess['stores'], 'scope' => 'full', 'door' => 'impersonation']
+            );
+        }
+
+        /*
+         * ONE `support_access_used` ROW PER GRANT, AND ONLY ONCE THE TAKE SUCCEEDED.
+         *
+         * Same reasoning as the `operator_store_switched` row below in `switchStore()`: a row
+         * written before the action would claim access was used when it was refused, and a trail
+         * that over-reports is worse than one that is silent, because it will be believed.
+         * `take()` returns false on any internal failure, so the boolean above is the only honest
+         * signal that access actually happened.
+         *
+         * THE ACTOR IS CAPTURED BEFORE `take()`. CLAUDE.md and `RecordImpersonation`'s docblock both
+         * record why: `take()` calls `quietLogin($to)`, so after it the session guard holds the
+         * IMPERSONATED MERCHANT, and a row built from `$request->user()` here would read as the
+         * merchant having used their own support grant. `AuditLog::record()` takes an explicit actor
+         * for exactly this hazard; `$actingOperator` is read above the call.
+         *
+         * `$supportAccess['grants']` is one grant per store the merchant owns, each already checked
+         * live by the gate — so a merchant with four stores sees the use recorded against all four
+         * consents, which is what they consented to.
+         */
+        foreach ($supportAccess['grants'] as $liveGrant) {
+            \App\Support\SupportAccess\SupportAccessGrants::recordUse(
+                $liveGrant,
+                $actingOperator,
+                ['door' => 'impersonation', 'target_user_id' => (int) $user->id]
+            );
         }
 
         return redirect('dashboard');

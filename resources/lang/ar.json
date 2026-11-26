@@ -4730,5 +4730,6 @@
     "This order has no line items to pick.": "لا توجد في هذا الطلب بنود للتجهيز.",
     "Items to pick and pack for this order, with quantities. No prices.": "البنود المطلوب تجهيزها وتغليفها لهذا الطلب، مع الكميات. بدون أسعار.",
     "Picked": "تم التجهيز",
-    "Total units to pack": "إجمالي الوحدات المطلوب تغليفها"
+    "Total units to pack": "إجمالي الوحدات المطلوب تغليفها",
+    "Support access to that merchant needs their consent. Request access first.": "يتطلب وصول الدعم إلى بيانات هذا التاجر موافقته. اطلب الوصول أولاً."
 }
