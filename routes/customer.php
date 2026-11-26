@@ -242,7 +242,19 @@ Route::post(
     Route::post('{storeSlug?}/wish-list-count', [WishlistController::class, 'wishlistCount'])->name('wish.list.count');
     Route::post('{storeSlug?}/wish-list', [WishlistController::class, 'wishlist'])->name('wish.list');
 
-    Route::any('{storeSlug?}/process-order', [PaymentController::class, 'processOrder'])->name('payment.process');
+    /*
+     * SAAS-004. THE SHIPPED CHECKOUT'S ONLY SUBMISSION, so this is where "no new selling after the
+     * grace period" belongs. `front_end/common/checkout/checkout_form.blade.php` builds
+     * `['payment.process', $store->slug]`; `GAP-267` records the old `{storeSlug?}/place-order` web
+     * route pointing at a method that does not exist and being withdrawn, so there is no second
+     * web door. The guard is INERT until `config('saas.grace_period_days')` is set -- see
+     * `config/saas.php` for the owner's one-line question -- and the preserved surfaces
+     * (`track-order`, `support-ticket`, the cart) carry it on none of their declarations, asserted
+     * in both directions by `tests/Feature/Saas/LapsedSubscriptionSellingGuardTest.php`.
+     */
+    Route::any('{storeSlug?}/process-order', [PaymentController::class, 'processOrder'])
+        ->middleware(\App\Http\Middleware\LapsedSubscriptionSellingGuard::class)
+        ->name('payment.process');
     Route::post('{storeSlug?}/get-massage', [PaymentController::class, 'getWhatsappUrl'])->middleware('throttle:storefront-relay')->name('get.whatsappurl');
     Route::post('{storeSlug?}/telegram', [PaymentController::class, 'whatsapp'])->name('user.telegram');
     Route::post('{storeSlug?}/whatsapp', [PaymentController::class, 'whatsapp'])->name('user.whatsapp');

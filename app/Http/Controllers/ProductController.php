@@ -617,6 +617,36 @@ class ProductController extends Controller
                 $creator = User::find($user->creatorId());
                 $total_products = $user->countProducts();
                 $plan = Plan::find($creator->plan_id);
+
+                /*
+                 * SAAS-001. `$plan` IS NULLABLE AND THE TWO LIMIT CHECKS BELOW DEREFERENCED IT.
+                 *
+                 * `users.plan_id` is nullable, and `PlanController::destroy()` deletes a plan
+                 * without repointing its subscribers, so a stored id can dangle. Reading
+                 * `->max_products` on null is a PHP warning promoted to an `ErrorException`, which
+                 * this method's `catch (\Exception $e)` turns into
+                 * `{"flag":"error","msg":"Attempt to read property \"max_products\" on null"}` --
+                 * the merchant is shown the name of a database column, and the limit is neither
+                 * enforced nor refused. Driven by
+                 * `tests/Feature/Saas/UsageLimitWithoutAPlanTest.php`.
+                 *
+                 * THE DEFECT WAS ALREADY KNOWN AND WORKED AROUND RATHER THAN FIXED: both
+                 * `ProductShippingClassOwnershipTest::twoTenants()` and
+                 * `OperatorCatalogueWriteTest` build a plan in their fixtures with a comment saying
+                 * this path "answers HTTP 500 for every principal" without one.
+                 *
+                 * NO ALLOWANCE IS INVENTED. `SAAS-001` names usage limits but does not say what a
+                 * merchant with no readable plan may create, so they get the refusal this handler
+                 * already has for an exhausted allowance -- the conservative answer, and identical
+                 * for every merchant who has a plan.
+                 */
+                if (! $plan) {
+                    return [
+                        'flag' => 'error',
+                        'msg' => __('Your Product limit is over, Please upgrade plan'),
+                    ];
+                }
+
                 $store_id = getStoreById(getCurrentStore());
 
                 if ($request->variant_product == 0) {

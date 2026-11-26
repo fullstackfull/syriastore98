@@ -137,8 +137,16 @@ Route::post('{slug}/delete-address', [ApiController::class, 'delete_address'])->
 Route::post('{slug}/update-address', [ApiController::class, 'update_address'])->middleware(['custom.auth', 'APILog']);
 Route::post('{slug}/update-user-image', [ApiController::class, 'update_user_image'])->middleware(['custom.auth', 'APILog']);
 Route::post('{slug}/confirm-order', [ApiController::class, 'confirm_order'])->middleware(['custom.auth', 'APILog']);
-Route::post('{slug}/place-order', [ApiController::class, 'place_order'])->middleware(['custom.auth', 'APILog']);
-Route::post('{slug}/place-order-guest', [ApiController::class, 'place_order'])->middleware(['custom.auth','APILog']);
+/*
+ * SAAS-004. THE OTHER TWO DOORS THAT OPEN A NEW ORDER. No client in either repository calls the
+ * storefront API, but these create orders, so they carry the same guard as the web checkout. The
+ * guard reads the store from the ROUTE -- and these spell the parameter `{slug}` where
+ * `routes/customer.php` spells it `{storeSlug?}`, which is why
+ * `LapsedSubscriptionSellingGuard::resolveStore()` reads both rather than calling `getStore()`.
+ * INERT until `config('saas.grace_period_days')` is set.
+ */
+Route::post('{slug}/place-order', [ApiController::class, 'place_order'])->middleware(['custom.auth', 'APILog', \App\Http\Middleware\LapsedSubscriptionSellingGuard::class]);
+Route::post('{slug}/place-order-guest', [ApiController::class, 'place_order'])->middleware(['custom.auth','APILog', \App\Http\Middleware\LapsedSubscriptionSellingGuard::class]);
 Route::post('{slug}/order-list', [ApiController::class, 'order_list'])->middleware([ 'custom.auth','APILog']);
 Route::post('{slug}/return-order-list', [ApiController::class, 'return_order_list'])->middleware(['custom.auth', 'APILog']);
 Route::post('{slug}/order-detail', [ApiController::class, 'order_detail'])->middleware([ 'custom.auth','APILog']);
@@ -163,14 +171,28 @@ Route::post('{slug}/releted-product-guest', [ApiController::class, 'releted_prod
 // (tests/Support/ApiContract/manifests/flutter-endpoints.json, zero hits), which is what
 // .github's check-contract.php gates on -- and that gate only requires every FLUTTER endpoint to
 // resolve to a server route, never the reverse, so removing a server route no client names
-// cannot redden it; it sits BEFORE `Route::prefix('admin')` (line 182, closing at 436 -- and the
-// deletion this comment records is itself what moved those from 169/423, so the figures are
-// re-measured by brace count here rather than carried over), so it is a storefront
-// route, which no client in either repository calls; and the one way the admin app could have
+// cannot redden it; it sits BEFORE the `Route::prefix('admin')->as('admin.')->group(...)` below,
+// so it is a storefront route, which no client in either repository calls; and the one way the
+// admin app could have
 // touched it -- `{slug}` matching the literal `admin`, i.e. POST api/admin/random-product -- is
 // not an endpoint the app has. Deleted rather than implemented: a storefront-API handler is the
 // `auth('customers')`-fallback family that produced 31 measured defects, and `random_product`'s
 // intent is not determinable from its siblings.
+//
+// THE LINE NUMBERS THIS COMMENT USED TO CARRY ARE GONE ON PURPOSE, 2026-11-26 (SAAS-004).
+// It read "line 182, closing at 436". Measured at that commit the real values were **184 and
+// 438** -- it was ALREADY TWO STALE and nothing noticed, because no test asserts them. The
+// SAAS-004 guard added to the two `place-order` declarations above then moved them a further
+// eight -- and then the first two drafts of THIS COMMENT moved them eight and seven more, each
+// draft invalidating the number it had just measured. CLAUDE.md records a workstream's own
+// citations going stale four times inside one task, "twice by the change that was citing them";
+// this paragraph managed it twice by itself in five minutes. SO NO NUMBER IS RECORDED HERE. The
+// citation is the declaration below, which a grep finds and which cannot drift.
+//
+// NOTE FOR THE COORDINATOR: `CLAUDE.md` §1 (Routing) still carries a line RANGE for that group.
+// It was already stale before this workstream touched the file, no test asserts it, and any
+// insertion above it restales it -- including the correction. The recommendation is to name the
+// declaration instead of a range. `CLAUDE.md` is not this workstream's to edit.
 
 Route::post('{slug}/payment-sheet', [ApiController::class, 'payment_sheet'])->middleware(['custom.auth','APILog']);
 Route::post('{slug}/user-delete', [ApiController::class, 'user_delete'])->middleware(['custom.auth', 'APILog']);

@@ -129,7 +129,27 @@ class StoreController extends Controller
 
         $plan = Plan::find($user->plan_id);
 
-        if ($total_store < $plan->max_stores || $plan->max_stores == -1) {
+        /*
+         * SAAS-001. `$plan` IS NULLABLE AND THE LIMIT CHECK BELOW DEREFERENCED IT.
+         *
+         * Two row shapes make it null and both are real in this schema: `users.plan_id` is
+         * nullable, so a merchant can hold no plan at all; and `PlanController::destroy()` calls
+         * `$plan->delete()` without repointing its subscribers, so a stored `plan_id` can dangle.
+         * `PlatformRevenueFiguresTest` has a case for each (`test_a_merchant_with_no_plan_is_in_no
+         * _bucket`, `test_a_subscription_pointing_at_a_missing_plan_is_counted_as_unreadable`), and
+         * `PlanAssignmentCascadeSafetyTest::test_a_dangling_old_plan_id_does_not_throw_before_the
+         * _entitlement_is_saved` records the same shape costing a captured payment elsewhere.
+         *
+         * Reading `->max_stores` on null is a PHP warning that Laravel promotes to an
+         * `ErrorException`, so this door answered HTTP 500 instead of enforcing the limit. Driven,
+         * both shapes, by `tests/Feature/Saas/UsageLimitWithoutAPlanTest.php`.
+         *
+         * NO ALLOWANCE IS INVENTED HERE. `SAAS-001` names usage limits but does not say what
+         * "no plan" is allowed, and that is an owner decision -- so a merchant without a readable
+         * plan gets the refusal this handler already has for an exhausted allowance. That is the
+         * conservative answer and it changes nothing for any merchant who has a plan.
+         */
+        if ($plan && ($total_store < $plan->max_stores || $plan->max_stores == -1)) {
 
             $slug = User::slugs($request->storename);
 

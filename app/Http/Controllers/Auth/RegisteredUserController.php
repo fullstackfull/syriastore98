@@ -246,11 +246,22 @@ class RegisteredUserController extends Controller
                     {
                         if($plan->duration != 'Unlimited')
                         {
-                            $datetime1 = new \DateTime($user->plan_expire_date);
-                            $datetime2 = new \DateTime(date('Y-m-d'));
-                            $interval = $datetime2->diff($datetime1);
-                            $days     = $interval->format('%r%a');
-                            if($days <= 0)
+                            /*
+                             * SAAS-002. THE EXPIRY DATE IS THE LAST DAY OF SERVICE, and the expression that used
+                             * to stand here treated it as the first day after. `$datetime2->diff($datetime1)
+                             * ->format('%r%a')` is 0 on the expiry date, so `$days <= 0` was true and a merchant
+                             * who logged in on a day they had paid for was downgraded to plan 1: expiry nulled,
+                             * modules cut to plan 1's, and every store and staff seat past plan 1's limits
+                             * switched off. Meanwhile `SaasRevenueFigures` counted that same row as `live` and the
+                             * merchant's own plan screen did not say `Expired` -- three surfaces, two answers.
+                             *
+                             * One predicate now, for all three auth sites and the revenue classifier's own
+                             * boundary. An empty `plan_expire_date` on a recurring plan still downgrades, exactly
+                             * as `new \DateTime('')` made it: see the predicate's docblock for why that half is
+                             * preserved rather than quietly changed. Driven by
+                             * `tests/Feature/Saas/LoginExpiryBoundaryTest.php`.
+                             */
+                            if (\App\Support\Saas\SubscriptionLifecycle::recurringSubscriptionNeedsDowngrade($user))
                             {
                                 $user->assignPlan(1);
 
@@ -363,11 +374,22 @@ class RegisteredUserController extends Controller
                 {
                     if($plan->duration != 'Unlimited')
                     {
-                        $datetime1 = new \DateTime($user->plan_expire_date);
-                        $datetime2 = new \DateTime(date('Y-m-d'));
-                        $interval = $datetime2->diff($datetime1);
-                        $days     = $interval->format('%r%a');
-                        if($days <= 0)
+                        /*
+                         * SAAS-002. THE EXPIRY DATE IS THE LAST DAY OF SERVICE, and the expression that used
+                         * to stand here treated it as the first day after. `$datetime2->diff($datetime1)
+                         * ->format('%r%a')` is 0 on the expiry date, so `$days <= 0` was true and a merchant
+                         * who logged in on a day they had paid for was downgraded to plan 1: expiry nulled,
+                         * modules cut to plan 1's, and every store and staff seat past plan 1's limits
+                         * switched off. Meanwhile `SaasRevenueFigures` counted that same row as `live` and the
+                         * merchant's own plan screen did not say `Expired` -- three surfaces, two answers.
+                         *
+                         * One predicate now, for all three auth sites and the revenue classifier's own
+                         * boundary. An empty `plan_expire_date` on a recurring plan still downgrades, exactly
+                         * as `new \DateTime('')` made it: see the predicate's docblock for why that half is
+                         * preserved rather than quietly changed. Driven by
+                         * `tests/Feature/Saas/LoginExpiryBoundaryTest.php`.
+                         */
+                        if (\App\Support\Saas\SubscriptionLifecycle::recurringSubscriptionNeedsDowngrade($user))
                         {
                             $user->assignPlan(1);
 
