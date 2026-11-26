@@ -49,6 +49,21 @@ use Tests\Feature\Security\SecurityTestCase;
  * USD→X change for no safety gain. The real defect on a USD store is the same one as everywhere
  * else: the panel submitting a currency nobody chose. That is what is fixed.
  *
+ * EXACTLY WHICH SAVES CAN CONVERT, enumerated from the callers of
+ * `StoreCurrencyChange::apply()` / `convertStoreCurrentValues()` rather than from the screens:
+ * there are TWO, and only one had the absent-field hole.
+ *
+ *   `SettingController::currencySettings()`  POST /currency-settings (web). The panel is one form,
+ *       so a Save of the decimal format or either separator posts the currency select too. Its
+ *       `else` limb invented `'USD'` for an absent field. BOTH ways in, fixed here.
+ *
+ *   `Api\DashboardController::updateCurrencyApi` (`:10627`). Validates `defult_currancy` as
+ *       **required**, so it cannot invent one, and it carries no separator controls -- the panel
+ *       shape that makes (a) reachable does not exist on this door. Checked, and deliberately not
+ *       changed: the hole was web-only.
+ *
+ * Nothing else in `app/` reaches a conversion. `TopSellersByRevenue` only mentions it in a comment.
+ *
  * EVERY ASSERTION READS THE RAW ROW. `Product` and `Setting` are `Cachable` and the suite runs
  * under `CACHE_STORE=array`.
  *
