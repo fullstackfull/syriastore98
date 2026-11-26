@@ -2857,8 +2857,10 @@ $Product->cost_price = $request->cost_price;
                                  * naming the strict choice there is the whole fix for that.
                                  *
                                  * WHAT WAS TRIED AND REVERTED: wrapping this call in
-                                 * `BackorderPolicy::forUpdate()` to also resolve an ambiguous value already
-                                 * STORED on an existing variant. That broke
+                                 * `BackorderPolicy`'s update-side resolver -- named here WITHOUT its call
+                                 * parens, per CLAUDE.md §6, so a future census of that method's call sites
+                                 * cannot be moved by this prose -- to also resolve an ambiguous value
+                                 * already STORED on an existing variant. That broke
                                  * `ProductVariantPersistenceTest`'s census -- which requires every
                                  * per-variant column to be written through `ssVariantValue()` verbatim,
                                  * because one surviving emptiness-guarded ternary over the request bag
