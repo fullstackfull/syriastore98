@@ -408,15 +408,23 @@ class Gap279NullStoreRoleWriterTest extends SecurityTestCase
     }
 
     /**
-     * THE CONTROL, and it is not optional: a gate that answers false for everybody passes the case
-     * above and breaks the product.
+     * THE CONTROL, and it is not optional: a reader that answers false for everybody passes the
+     * sibling-store case above and breaks the product.
      *
-     * The same minted role, read for the store the minter is actually in. Under the remedy the
-     * minted row carries store A, so this must still be true — and under the unfixed code the
-     * NULL-store row also answers true here. The two readings agree for store A and disagree for
-     * store B, which is why store B is where the finding lives.
+     * **DESCRIPTION CORRECTED after the independent review of `a457f994e`.** It used to say "the
+     * same minted role, read for the store the minter is actually in" — and the body never posts to
+     * `/roles` at all. It reads the FIXTURE CARRIER, the store-A-scoped role that grants
+     * `Create Role`, which is what makes it a control on the reader's store arm rather than on the
+     * writer. The assertion messages were already accurate; only this paragraph was not, and this
+     * project treats an untrue comment as a defect in its own right. The method is renamed to say
+     * what it does.
+     *
+     * What it buys: store A is where both readings AGREE (a store-A role and a NULL-store role both
+     * answer for store A), so a failure here means the store arm itself is broken and every other
+     * case in this file is measuring a lockout rather than a grant. Store B is where they DISAGREE,
+     * which is why the finding lives there.
      */
-    public function test_the_control_a_minted_role_still_answers_for_the_minters_own_store(): void
+    public function test_the_control_the_readers_store_arm_still_answers_for_the_staff_members_own_store(): void
     {
         [$merchant, $storeA, $storeB, $staff] = $this->tenantWithAnUnresolvedStaffMember();
         $this->assertTheMeasuredStateHolds($staff, $merchant, $storeB);
@@ -470,6 +478,70 @@ class Gap279NullStoreRoleWriterTest extends SecurityTestCase
             (int) $storeA->id,
             (int) $written->store_id,
             'control: and the role carries THEIR store, unchanged by the remedy.'
+        );
+    }
+
+    /**
+     * **THE REFUSAL IS PERMANENT: an operator-rooted staff member CANNOT recover by selecting a
+     * store.** Raised by the independent review of `a457f994e`, and MEASURED here rather than
+     * reasoned about, because the moment it goes in a comment the claim is mine.
+     *
+     * The first version of the controller's disclosure paragraph said *"they can still create one
+     * by selecting a store"*. That is FALSE for the principals the paragraph is about, and this
+     * case is why the sentence is gone. `StoreController::changeStore():882` sends every `type`
+     * that is not exactly `'super admin'` -- a strict, case-SENSITIVE `!==` -- through
+     * `UserPolicy::merchantTenantRoot()`, which requires the tenant root to be a **type-`admin`
+     * row** (`isMerchantRow():151`). For an operator-rooted staff member the root IS the operator,
+     * whose type is `'super admin'`, so `isMerchantRow()` refuses it, `merchantTenantRoot()`
+     * answers null and the handler `abort(403)`s. The admin API twin refuses identically through
+     * `resolveOwnedStore()`.
+     *
+     * So the row's `current_store` has to be set OUT OF BAND -- by the operator editing the user, or
+     * directly in the database. That is the honest statement of the cost, and the capability removed
+     * is the defect itself (a role counting for every store), so the fix is NOT widened to restore
+     * it.
+     *
+     * NOT A NEW DEFECT AND NOT INTRODUCED BY GAP-279: `changeStore()` refused this principal before
+     * the role guard existed. What changed is that the consequence is now visible -- previously they
+     * could still mint a (wrong) role, so nothing surfaced the fact that they resolve no store.
+     *
+     * LIKE THE REACHABILITY CASE BELOW, THIS PASSES WITH THE GUARD IN PLACE AND WITH IT REVERTED,
+     * and saying so is the point: it measures a PRE-EXISTING property of `changeStore()`, not the
+     * fix. It is in this file because the controller's disclosure paragraph depends on it, and a
+     * sentence in a comment is not evidence.
+     */
+    public function test_an_operator_rooted_staff_member_cannot_recover_by_selecting_a_store(): void
+    {
+        [$merchant, $storeA] = $this->makeTenant();
+        $operator = $this->makePlatformAdmin(['current_store' => null]);
+
+        /* The row `POST /users` leaves behind when an operator with no chosen store creates it --
+           the same shape `test_reachability_...` drives through the real form. */
+        $staff = User::factory()->create([
+            'type' => 'staff', 'created_by' => $operator->id, 'current_store' => null,
+            'is_active' => 1, 'email_verified_at' => now(),
+        ]);
+
+        $this->assertNull(getCurrentStore($staff->id),
+            'premise: this principal resolves no store, which is why `POST /roles` refuses them.');
+        $this->assertSame((int) $operator->id, (int) $staff->creatorId(),
+            'premise: their tenant root is the OPERATOR, not a merchant.');
+        $this->assertNull(\App\Policies\UserPolicy::merchantTenantRoot($staff),
+            'premise: and `merchantTenantRoot()` therefore answers null -- the operator is not a '
+            . 'type-`admin` row, which `isMerchantRow()` requires.');
+
+        $response = $this->actingAs($staff)->post('/change-store/' . $storeA->id);
+
+        $this->assertSame(403, $response->status(), sprintf(
+            'the recovery path is OPEN: this principal can now select a store, so the refusal at '
+            . '`POST /roles` is no longer permanent and `RoleController`s disclosure paragraph '
+            . 'must be corrected again. Status %s.', $response->status()
+        ));
+
+        $this->assertNull(
+            User::findOrFail($staff->id)->current_store,
+            'and nothing was written: the pointer is still empty, so the role writer keeps '
+            . 'refusing them.'
         );
     }
 

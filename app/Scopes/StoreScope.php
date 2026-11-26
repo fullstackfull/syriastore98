@@ -114,7 +114,7 @@ use Throwable;
  *     "app/Http/Controllers/RoleController.php:182 is a live example". THAT SITE NO LONGER
  *     EXISTS: the `DB::table('role_user')->where('role_id', ...)` / `User::whereIn(...)
  *     ->update(['type' => ...])` pair WAS the SEC-F3 privilege-escalation primitive and was
- *     deleted in that fix -- all that survives at RoleController.php:232-240 is the commented
+ *     deleted in that fix -- all that survives at RoleController.php:373-392 is the commented
  *     record of what it was. Re-measured over the paths this workstream owns (the seven
  *     controllers, app/Policies, app/Http/Middleware, routes/), the raw query ENTRY POINTS are:
  *       app/Http/Controllers/StoreController.php:800      shetabit_visits, `where('store_id', $store->id)`

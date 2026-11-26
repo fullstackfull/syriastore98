@@ -22,7 +22,7 @@ use Tests\Feature\Security\SecurityTestCase;
  *     +  return redirect()->back()->with('error', implode(' ', $messages->all()));
  *
  * SIX sites are repaired, at StoreController:116, :478, :620, UserController:97 and
- * RoleController:146, :277. FOUR MORE SITES EXIST IN THESE SAME THREE FILES AND ARE DELIBERATELY
+ * RoleController:230, :368. FOUR MORE SITES EXIST IN THESE SAME THREE FILES AND ARE DELIBERATELY
  * LEFT ALONE; section 5 pins them as untouched and says why for each.
  *
  * ------------------------------------------------------------------------------------------------
@@ -393,7 +393,7 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
     }
 
     /**
-     * `RoleController::store()` :146 -- `name` and `permissions`, and `permissions` was discarded
+     * `RoleController::store()` :230 -- `name` and `permissions`, and `permissions` was discarded
      * on a form whose permission grid is the entire point.
      */
     public function test_the_role_create_refusal_reports_the_missing_permissions_too(): void
@@ -436,7 +436,7 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
     }
 
     /**
-     * `RoleController::update()` :277, driven as the merchant who really OWNS the role, so
+     * `RoleController::update()` :368, driven as the merchant who really OWNS the role, so
      * `authorize('update', $role)` is passed rather than bypassed. Renaming is this site's blind
      * spot (see the controller comment at :264-267), which is exactly why its refusal has to be
      * readable.

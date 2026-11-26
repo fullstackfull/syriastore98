@@ -53,7 +53,7 @@ class RoleController extends Controller
         // NEW-ROLE-FORM-UNGATED-01. This method had NO authorization at all, and
         // the view it renders lists every Permission row on the platform -- the
         // config/superadminaccess.php platform-operator names included. store()
-        // has always required 'Create Role' (:67), so the gate existed on the
+        // has always required 'Create Role' (:104), so the gate existed on the
         // write and not on the screen. Same sibling-endpoint asymmetry as SEC-F3,
         // where update() filtered server-side and store() did not.
         //
@@ -135,22 +135,44 @@ class RoleController extends Controller
             // store this principal has no context for and hand them a grant somewhere they were
             // not working, which is a quieter version of the same defect.
             //
-            // WHO ELSE THIS REFUSES, NAMED RATHER THAN DENIED. `getCurrentStore()` returns
-            // `current_store` when set, the hardcoded literal 1 for a `super admin` with none, and
-            // otherwise the caller's own store -- so an ordinary merchant and an ordinary operator
-            // are both unaffected, and `test_the_control_a_merchant_with_a_store_still_creates_roles`
-            // pins the merchant half. But that helper's operator branch is
-            // `$user->type == 'super admin'` -- LOOSE AND CASE-SENSITIVE, unlike
-            // `UserPolicy::isOperator()`, which accepts `'Super Admin'` and `'super admin '` and
-            // which MySQL's utf8mb4_unicode_ci treats as the same value. So an operator row spelled
-            // any other way falls to the owned-store branch, and if they own no store they are
-            // refused here where they previously minted a role that counted for every store. That
-            // is the intended trade -- the role they were creating was wrong -- and they can still
-            // create one by selecting a store. Recorded because an earlier version of this comment
-            // claimed the guard narrowed nobody, which was not true. Normalising that helper's
-            // comparison is NOT done here: it is read by most handlers on the platform and
-            // `config/tenancy.php:60-63` records two storefront outages shipped by changing a
-            // helper that central.
+            // WHO ELSE THIS REFUSES, NAMED IN FULL. `getCurrentStore()` returns `current_store`
+            // when set, the hardcoded literal 1 for a `super admin` with none, and otherwise the
+            // caller's own store. So an ordinary merchant and a CANONICALLY typed operator are
+            // both unaffected -- the merchant half is pinned by
+            // `test_the_control_a_merchant_with_a_store_still_creates_roles`, and a storeless
+            // `'super admin'` was never refused because the helper hands them the literal 1. TWO
+            // principals ARE refused, and BOTH ARE NAMED HERE BECAUSE THIS PARAGRAPH HAS NOW BEEN
+            // WRONG TWICE: its first version claimed the guard narrowed nobody, and its second
+            // claimed the refused principal "can still create one by selecting a store". Neither
+            // was true.
+            //
+            //   1. OPERATOR-ROOTED STAFF -- live, product-reachable, and the row this change's own
+            //      test is built from. `POST /users` while the operator's `current_store` is empty
+            //      copies that empty pointer (`UserController` writes the creator's verbatim), so
+            //      `getCurrentStore()` answers NULL for the new row and every `POST /roles` by it
+            //      is refused from now on.
+            //
+            //   2. AN OPERATOR WHOSE `type` IS SPELLED ANY OTHER WAY. The helper's operator branch
+            //      compares loosely and CASE-SENSITIVELY, unlike `UserPolicy::isOperator()`, which
+            //      accepts `'Super Admin'` and `'super admin '` -- values MySQL's
+            //      utf8mb4_unicode_ci treats as equal to the literal. Such a row falls to the
+            //      owned-store branch and, owning no store, resolves NULL.
+            //
+            // AND THE REFUSAL IS PERMANENT: NEITHER CAN RECOVER THROUGH THE PRODUCT. MEASURED, not
+            // argued -- `test_an_operator_rooted_staff_member_cannot_recover_by_selecting_a_store`
+            // drives `POST /change-store/{id}` and reads 403 with the pointer still empty.
+            // `StoreController::changeStore()` sends every `type` that is not exactly
+            // `'super admin'` through `UserPolicy::merchantTenantRoot()`, which requires a
+            // type-`admin` tenant root; for both principals above the root is the operator or
+            // nobody, so it answers null and the handler aborts. The admin API twin refuses
+            // identically via `resolveOwnedStore()`. Such a row therefore needs its
+            // `current_store` SET OUT OF BAND -- the operator editing the user, or the database.
+            //
+            // THE FIX IS DELIBERATELY NOT WIDENED TO RESTORE THE CAPABILITY, because the capability
+            // IS the defect: what these principals could do before was mint a role that counted for
+            // every store in the tenant. Normalising the helper's comparison is also NOT done here:
+            // it is read by most handlers on the platform and `config/tenancy.php:60-63` records two
+            // storefront outages shipped by changing a helper that central.
             //
             // `filter_var` STRICTLY, never `is_numeric` or a cast: a cast turns junk into 0,
             // which is a store id some rows really carry and is literally
@@ -225,7 +247,7 @@ class RoleController extends Controller
             $permissions      = $request['permissions'];
             $role->save();
 
-            // SAME CONTROL AS update() AT :227, which this path was missing.
+            // SAME CONTROL AS update() AT :405, which this path was missing.
             //
             // config/superadminaccess.php was enforced only in Blade
             // (roles/create.blade.php:72,98), so a crafted POST to roles.store
@@ -277,7 +299,7 @@ class RoleController extends Controller
         // the shared global `admin` role and roles belonging to other merchants --
         // and the view renders $role, disclosing its name.
         //
-        // update() (:177) and destroy() (:341) already authorize; the form that
+        // update() (:339) and destroy() (:506) already authorize; the form that
         // leads to update() did not, which is the same omission one step earlier in
         // the flow. Gated on the SAME policy decision as the write it leads to, so
         // the screen and the action cannot drift apart: a role you may not update
