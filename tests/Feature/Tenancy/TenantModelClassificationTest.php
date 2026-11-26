@@ -310,7 +310,22 @@ class TenantModelClassificationTest extends TestCase
         // the page's). A scope there would blank the page for the person it exists for, and a predicate
         // built from the caller's own store buys no confidentiality: the token already names the store.
         // They are not `Cachable` either, because a cached answer to "may I send this" is a stale one.
-        $this->assertSame(106, $total, 'The model count changed. Re-run the classification and '
+        // 107, UP FROM 106. `IAM-003` added `App\Models\OperatorActionApproval` -- one request for a
+        // dangerous PLATFORM operator action, and its approval. It lands in the platformGlobal
+        // partition, and that is a decision rather than an omission: every action the two-person
+        // mechanism governs is a platform action (a plan, a module, another tenant's money), so the
+        // table carries NO `store_id` and the model carries neither `BelongsToStore` nor an
+        // enforcement allowlist entry. A `store_id` here would be the `getCurrentStore()`
+        // fabrication `App\Support\Audit\AuditAttribution` exists to undo -- that helper returns the
+        // hardcoded literal 1 for a `super admin`, so every operator action would be filed under
+        // store 1 whoever it was taken against. Its isolation is `PlatformOperatorOnly` on the three
+        // `platform/approvals` routes PLUS `OperatorApprovalController::refuseAnyoneButTheOperator()`
+        // in every handler, and `App\Support\Iam\TwoPersonApproval`'s own operator test on every
+        // decision -- never a scope. It is also deliberately NOT `Cachable`: the gate writes a
+        // pending row and the next request reads it back, which is the shape CLAUDE.md records as
+        // three measured false readings, and a stale answer here costs a SECOND execution of a
+        // dangerous action.
+        $this->assertSame(107, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -371,7 +386,7 @@ class TenantModelClassificationTest extends TestCase
         );
     }
 
-    public function test_platform_global_models_are_the_measured_twenty_eight(): void
+    public function test_platform_global_models_are_the_measured_twenty_nine(): void
     {
         // 28, UP FROM 25 -- GATE F CLOSED ON 2026-11-02. Three models' tables now exist and have
         // NO `store_id` column, which is a finding rather than a bookkeeping change:
@@ -382,8 +397,14 @@ class TenantModelClassificationTest extends TestCase
         // handler filtering by that driver. Measured, docs/GATE-F-VERIFIED-SCHEMA.md section 2:
         // all three foreign-key to `delivery_boys` (and `orders`) with ON DELETE CASCADE and
         // none to `stores`.
+        // 29, UP FROM 28 -- `IAM-003` added `App\Models\OperatorActionApproval`. Its table has no
+        // `store_id` BY DESIGN, not by oversight: every governed action is a platform action, and a
+        // `store_id` would make `getCurrentStore()`'s hardcoded literal 1 for a `super admin` into
+        // the attribution of every operator request. The full reasoning is beside the model count
+        // above; the control is `PlatformOperatorOnly` plus a handler-level operator test on every
+        // method, never a scope.
         $this->assertCount(
-            28,
+            29,
             $this->platformGlobal,
             "The set of models whose table has NO `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->platformGlobal)

@@ -528,6 +528,32 @@ return Application::configure(basePath: dirname(__DIR__))
          */
         $middleware->appendToGroup('web', \App\Http\Middleware\DisabledModuleRouteGuard::class);
         $middleware->appendToGroup('api', \App\Http\Middleware\DisabledModuleRouteGuard::class);
+
+        /*
+         * `IAM-003` — TWO-PERSON APPROVAL FOR DANGEROUS OPERATOR ACTIONS.
+         *
+         * Recovered decision text (`docs/development/master-plan/DECISION-ID-REGISTER.md:239`):
+         * *"موافقات ثنائية للإجراءات الخطرة."*
+         *
+         * APPENDED TO THE GROUP AND NOT DECLARED ON THE ROUTE, which is CLAUDE.md's rule rather
+         * than convenience: "Later route declarations replace earlier ones for the same
+         * method+URI, silently dropping the earlier middleware." The governed handler is
+         * `PlanController@planDisable`, whose route this workstream does not own; a group
+         * registration survives a re-declaration of it, and survives `route:cache` too, because
+         * the cache stores declared middleware NAMES unexpanded.
+         *
+         * INERT ON EVERY OTHER REQUEST, and inert on ALL of them on a stock install:
+         * `config/operator_approvals.php`'s `enforced` is false by default (its header gives the
+         * measured reason — one seeded operator account makes enforcement a lockout), so this
+         * middleware's first test short-circuits. It keys on `$route->getActionName()` rather than
+         * on the URI, because the skill records four censuses in this repository that missed what
+         * they claimed to cover by keying on spelling.
+         *
+         * It reads nothing from the session and writes nothing to it, so its position after
+         * `StartSession` is incidental rather than required — but it DOES read `auth()->user()`,
+         * which needs the session, so it must not be moved ahead of it.
+         */
+        $middleware->appendToGroup('web', \App\Http\Middleware\RequiresTwoPersonApproval::class);
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and

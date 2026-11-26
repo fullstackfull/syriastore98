@@ -24,7 +24,7 @@ use Illuminate\Http\Request;
  * largely self-assignable. A permission name would therefore be the wrong kind of gate here even
  * though it is the right kind for `/analytics`, where the data is the caller's own either way.
  *
- * `config/superadminaccess.php` does hold 15 names a merchant may NOT grant themselves, filtered
+ * `config/superadminaccess.php` does hold 13 names a merchant may NOT grant themselves, filtered
  * server-side on both role write paths by `RoleController::filterGrantablePermissions`. It was
  * considered and not used: it is a GRANTABILITY control over plan, country, language, module and
  * currency administration, and widening it to cover reporting would change an unrelated surface to

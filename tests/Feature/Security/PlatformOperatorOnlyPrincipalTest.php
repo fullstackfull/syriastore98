@@ -16,22 +16,24 @@ use PHPUnit\Framework\Attributes\Test;
  * a `Customer` row whose `type` read `super admin` was admitted by the only check on every route
  * the gate carries — handlers whose own docblocks say they rely on this middleware.
  *
- * THAT COUNT WAS 14 IN THIS FILE AND IN THE MIDDLEWARE UNTIL 2026-11-26. IT IS 37. Measured from
- * the booted route table while surveying the platform-admin surface for `GAP-178`, and the
- * partition is written out so the arithmetic is checkable from the file rather than trusted:
+ * THAT COUNT WAS 14 IN THIS FILE AND IN THE MIDDLEWARE UNTIL 2026-11-26, WHEN IT WAS MEASURED AT
+ * 37. IT IS NOW 40: `IAM-003` added the three `platform/approvals` routes (the two-person approval
+ * queue) in the same change that updated this table, which is the procedure the failure message
+ * below asks for. Measured from the booted route table, and the partition is written out so the
+ * arithmetic is checkable from the file rather than trusted:
  *
  *     LynomiaChat super-admin group   15
- *     platform/* operator screens      9   (the file said "three")
+ *     platform/* operator screens     12   (the file said "three", then 9)
  *     plan-coupon                      7
  *     plan.order.refund, plan.disable,
  *       order.approve, order.reject    4
  *     zid/{storeId}/*                  2
  *                                     --
- *                                     37
+ *                                     40
  *
  * The figure grew with the Lynomia group and with the `platform/*` screens that `GAP-192`,
  * `GAP-195` and `GAP-107` added. Nothing behaved wrongly at 14; a reader's threat model was
- * understated by 23 routes, which is why `test_premise_the_measured_blast_radius_is_still_37`
+ * understated by 23 routes, which is why `test_premise_the_measured_blast_radius_is_still_40`
  * asserts the partition instead of leaving the number in prose where it went stale once already.
  *
  * LATENT RATHER THAN LIVE, measured on both links before the fix was called hardening: nothing in
@@ -91,7 +93,9 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
     /** The measured size of each group, summing to the blast radius in the docblock. */
     private const GROUP_SIZES = [
         'super-admin/lynomia' => 15,
-        'platform/' => 9,
+        // 9 until `IAM-003` added the three `platform/approvals` routes (the two-person
+        // approval queue) in the same change as this line.
+        'platform/' => 12,
         'plan-coupon' => 7,
         'plan/order actions' => 4,
         'zid/' => 2,
@@ -142,7 +146,7 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
      * table in `PlatformOperatorOnly`'s docblock -- they are the same claim in two files.
      */
     #[Test]
-    public function test_premise_the_measured_blast_radius_is_still_37(): void
+    public function test_premise_the_measured_blast_radius_is_still_40(): void
     {
         $measured = $this->measuredGroups();
 
@@ -158,9 +162,9 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
         );
 
         $this->assertSame(
-            37,
+            40,
             array_sum($measured),
-            'the group counts no longer sum to the 37 this file documents.'
+            'the group counts no longer sum to the 40 this file documents.'
         );
     }
 
