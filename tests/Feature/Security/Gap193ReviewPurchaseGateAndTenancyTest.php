@@ -26,8 +26,14 @@ use Tests\Support\StripsSourceComments;
  * -------------------------------------------------------------------------------------------------
  * 1. THE PURCHASE GATE: **ABSENT.** Measured, and reported rather than built.
  * -------------------------------------------------------------------------------------------------
- * There are four writers of the `testimonials` table and **not one of them consults `orders`,
- * `order_details`, `product_json` or anything else that records a purchase.** Driven below: a
+ * There are **at least six** writers of the `testimonials` table and **not one of them consults
+ * `orders`, `order_details`, `product_json` or anything else that records a purchase.**
+ *
+ * **THE COUNT SAID "FOUR" AND THAT WAS THE BUG IN THE CENSUS, NOT A TYPO.** The census below was
+ * built to BOUND the writer set and it is what missed a writer: `Api\DashboardController::UpdateReview`
+ * (seven columns, including `product_id`) and `::ReviewStatus` (`status`) were never in the
+ * hand-picked list, and `UpdateReview` turned out to carry a LIVE cross-tenant write -- see the F1
+ * cases below. A census keyed on a list somebody wrote down is a census of that list. Driven below: a
  * customer who has bought nothing publishes a live 5-star review, `status = 1`, no moderation.
  *
  * So a rating is "what signed-in shoppers said", not "what buyers said", and nothing on the
@@ -121,6 +127,26 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
             'mobile' => '555' . random_int(100000, 999999), 'password' => bcrypt('x'),
             'store_id' => $store->id, 'status' => 1, 'register_type' => 'email',
         ]);
+    }
+
+    /**
+     * F3: THE FLASHED REFUSAL MUST BE THE ONE THIS CASE IS ABOUT.
+     *
+     * Raised by the independent review of `8834cef15`: three of the five refusal cases here
+     * discarded the response and asserted only "no row was written", which is ALSO what a 500, a
+     * 419, or a refusal from any other guard produces -- CLAUDE.md's "a refusal asserted without
+     * its reason". It also pins WHICH ARM refused, by assertion rather than by construction:
+     * `ReviewTargetOwnership::refusalFor()` returns on the FIRST failing field and checks
+     * `product_id` first, so a case meaning to exercise the category arm was previously isolated
+     * only by a mutation nobody will re-run.
+     */
+    private function assertFlashedRefusalIs(string $expected): void
+    {
+        $this->assertSame($expected, (string) session('error'), sprintf(
+            'the write was refused for the WRONG reason, so this case is measuring something other '
+            . 'than the arm it is named for -- or it is measuring a 500. Flashed: %s',
+            var_export(session('error'), true)
+        ));
     }
 
     /** `Create Testimonial` / `Edit Testimonial` — the names the panel writers gate on. */
@@ -256,7 +282,22 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
                 'app/Http/Controllers/Api/ApiController.php', 'product_rating'),
             'DashboardController::AddReview' => $this->methodBody(
                 'app/Http/Controllers/Api/DashboardController.php', 'AddReview'),
+            /* ADDED AFTER THE INDEPENDENT REVIEW OF `8834cef15` FOUND THEM MISSING. `UpdateReview`
+               writes seven columns including `product_id` and recomputes the product's average;
+               `ReviewStatus` writes `status`, i.e. it PUBLISHES a review. Both were absent from the
+               hand-picked list above, and `UpdateReview` carried a live cross-tenant write. */
+            'DashboardController::UpdateReview' => $this->methodBody(
+                'app/Http/Controllers/Api/DashboardController.php', 'UpdateReview'),
+            'DashboardController::ReviewStatus' => $this->methodBody(
+                'app/Http/Controllers/Api/DashboardController.php', 'ReviewStatus'),
+            'TestimonialController::update' => $this->methodBody(
+                'app/Http/Controllers/TestimonialController.php', 'update'),
         ];
+
+        /* A DUPLICATE KEY WOULD SILENTLY SHRINK THIS CENSUS -- PHP overwrites it and the array is
+           one shorter than the list above reads. Asserted, because this whole case exists because a
+           writer set was wrong. */
+        $this->assertCount(7, $blocks, 'the block list lost an entry to a duplicate key.');
 
         foreach ($blocks as $name => $body) {
             $this->assertNotSame('', trim($body), "premise: {$name}'s body was located and is not "
@@ -362,6 +403,8 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
            but an absence assertion that relies on that is one config change from being vacuous. */
         $planted = Testimonial::withoutGlobalScopes()
             ->where('product_id', $victimProduct->id)->first();
+
+        $this->assertFlashedRefusalIs(__('The selected product is not available in this store.'));
 
         $this->assertNull($planted, sprintf(
             'GAP-193 TENANCY DEFECT REPRODUCES: merchant A wrote a review naming store B\'s '
@@ -494,6 +537,8 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
             'rating_no' => 1, 'title' => 'Foreign product only', 'description' => 'x', 'status' => 1,
         ]);
 
+        $this->assertFlashedRefusalIs(__('The selected product is not available in this store.'));
+
         $this->assertNull(
             Testimonial::withoutGlobalScopes()->where('product_id', $victimProduct->id)->first(),
             'GAP-193 PRODUCT ARM at `store()`: a review was attached to another store\'s product '
@@ -528,6 +573,8 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
             'product_id' => $ownProduct->id,          // OUR product, so only the category is foreign
             'rating_no' => 3, 'title' => 'Foreign category', 'description' => 'x', 'status' => 1,
         ]);
+
+        $this->assertFlashedRefusalIs(__('The selected category is not available in this store.'));
 
         $this->assertNull(
             Testimonial::withoutGlobalScopes()->where('category_id', $victimCategory->id)->first(),
@@ -617,6 +664,8 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
             'rating_no' => 1, 'title' => 'Operator across stores', 'description' => 'x', 'status' => 1,
         ]);
 
+        $this->assertFlashedRefusalIs(__('The selected product is not available in this store.'));
+
         $this->assertNull(
             Testimonial::withoutGlobalScopes()->where('title', 'Operator across stores')->first(),
             'the operator wrote a store-1 review naming another store\'s product -- the exact row '
@@ -661,6 +710,8 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
             'status' => 1,
         ]);
 
+        $this->assertFlashedRefusalIs(__('The selected product is not available in this store.'));
+
         $this->assertSame(
             (int) $attackerProduct->id,
             (int) Testimonial::withoutGlobalScopes()->findOrFail($own->id)->product_id,
@@ -668,6 +719,203 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
             . 'product. The row-ownership guard admits this by design -- the row IS the caller\'s '
             . '-- so the product id needs its own store predicate, exactly as in `store()`.'
         );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | F1 — THE FOURTH WRITER, which this file's own census missed
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * **F1, LIVE AND MONEY-ADJACENT: `Api\DashboardController::UpdateReview` writes
+     * `testimonials.product_id` from request input and then recomputes the FOREIGN product's
+     * average rating — writing another store's `products.average_rating`.**
+     *
+     * Found by the independent review of `8834cef15`, and it falsifies that batch's central
+     * argument by name: this file used to claim that restoring the writer's premise "makes every
+     * existing reader correct at once". It does not, while this writer stands.
+     *
+     * THE ROW IS SCOPED AND THE COLUMN IS NOT. `UpdateReview` resolves the review with
+     * `->where('store_id', $store->id)`, so a merchant can only edit THEIR OWN review — and then:
+     *
+     *     if ($request->has('product_id') && ...) { $review->product_id = $request->product_id; }
+     *     ...
+     *     if ($request->has('rating_no') || $request->has('product_id')) {
+     *         Testimonial::AvregeRating($review->product_id);          // <- the FOREIGN id
+     *     }
+     *
+     * and `AvregeRating()` is `Testimonial::where('product_id', $id)->get()` with no store
+     * predicate, then `Product::find($id)` — `Product` carries `StoreScope` but is ABSENT from
+     * `scoped_models`, so no predicate is added for any principal — and then `$Product->save()`.
+     * One request writes store B's row.
+     *
+     * NO PERMISSION ROW IS NEEDED. `callerMayActInStore()`'s first limb is
+     * `callerIsStoreOwner($storeId)`, so the store's own owner is admitted outright. Product ids
+     * are small sequential integers.
+     *
+     * **MY CENSUS IS WHAT MISSED IT** — `test_no_review_writer_consults_an_order()` bounded the
+     * writer set to four methods chosen by hand, and `UpdateReview` was not among them. That is
+     * this batch's own GAP-305 shape one layer up: a census keyed on a hand-picked list rather than
+     * on the handlers. The census now names it, and the class docblock's count is corrected.
+     */
+    public function test_the_admin_api_cannot_repoint_a_review_at_another_stores_product(): void
+    {
+        [$attacker, $attackerStore, $ownCategory, $ownProduct] = $this->tenantWithAProduct('g193-f1a');
+        [, $victimStore, , $victimProduct] = $this->tenantWithAProduct('g193-f1b');
+
+        $own = Testimonial::forceCreate([
+            'category_id' => $ownCategory->id, 'product_id' => $ownProduct->id,
+            'rating_no' => 5, 'title' => 'Mine', 'description' => 'Mine.',
+            'status' => 1, 'store_id' => $attackerStore->id,
+        ]);
+        (new Testimonial)->flushCache();
+
+        /* The victim's product carries a KNOWN average, so a cross-tenant write is visible as a
+           changed figure rather than as the absence of one. Written through Eloquent so the
+           `Cachable` read below cannot serve a pre-write row. */
+        $victimProduct->average_rating = 5;
+        $victimProduct->save();
+        (new Product)->flushCache();
+
+        $this->assertSame(5, (int) Product::withoutGlobalScopes()
+            ->findOrFail($victimProduct->id)->average_rating,
+            'premise: the victim product starts at 5 stars.');
+
+        $bearer = $attacker->createToken('g193-f1')->plainTextToken;
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $bearer])
+            ->postJson('/api/admin/updatereview', [
+                'store_id' => $attackerStore->id,     // the attacker's OWN store
+                'id' => $own->id,                     // the attacker's OWN review
+                'product_id' => $victimProduct->id,   // the VICTIM's product
+                'rating_no' => 1,
+            ]);
+
+        $this->assertNotSame(404, $response->status(),
+            'premise: api/admin/updatereview exists -- these paths sit inside the `admin` prefix '
+            . 'group, and getting that wrong makes the whole case vacuous.');
+        $this->assertNotSame(401, $response->status(),
+            'premise: the token was accepted. A 401 here would also be a REGRESSION in its own '
+            . 'right -- the shipped Flutter app force-clears its session on any 401.');
+
+        $this->assertSame(0, (int) $response->json('status'), sprintf(
+            'premise: the request was refused at all -- ApiResponser::error() answers HTTP 200 '
+            . 'with status 0, so the code cannot say. Body: %s', $response->getContent()));
+        $this->assertSame(
+            __('The selected product is not available in this store.'),
+            (string) $response->json('data.message'),
+            sprintf('refused for the WRONG reason -- a 500, "Review not found." or '
+                . '"Store not found!" would also leave the rows alone. Body: %s',
+                $response->getContent())
+        );
+
+        $this->assertSame(
+            5,
+            (int) Product::withoutGlobalScopes()->findOrFail($victimProduct->id)->average_rating,
+            sprintf('F1, THE CROSS-TENANT WRITE: store %s\'s `products.average_rating` was '
+                . 'rewritten by a request from another tenant, through '
+                . '`AvregeRating($review->product_id)` with the foreign id. Body: %s',
+                var_export($victimProduct->store_id, true), $response->getContent())
+        );
+
+        $this->assertSame(
+            (int) $ownProduct->id,
+            (int) Testimonial::withoutGlobalScopes()->findOrFail($own->id)->product_id,
+            sprintf('F1: `UpdateReview` repointed the review at store %s\'s product. The ROW was '
+                . 'scoped and the COLUMN was not. Body: %s',
+                var_export($victimProduct->store_id, true), $response->getContent())
+        );
+    }
+
+    /**
+     * THE SAME DOOR, THE CATEGORY COLUMN -- pinned on its own, because `foreignRowRefusal()` returns
+     * on the FIRST failing field and `product_id` is checked first. Without a case that posts a
+     * foreign category and a legitimate product, the category arm here is reachable only by a
+     * mutation nobody will re-run -- the exact criticism F3 makes of this file's other arms.
+     */
+    public function test_the_admin_api_cannot_refile_a_review_under_another_stores_category(): void
+    {
+        [$attacker, $attackerStore, $ownCategory, $ownProduct] = $this->tenantWithAProduct('g193-f1c');
+        [, , $victimCategory, ] = $this->tenantWithAProduct('g193-f1d');
+
+        $own = Testimonial::forceCreate([
+            'category_id' => $ownCategory->id, 'product_id' => $ownProduct->id,
+            'rating_no' => 5, 'title' => 'Mine', 'description' => 'Mine.',
+            'status' => 1, 'store_id' => $attackerStore->id,
+        ]);
+        (new Testimonial)->flushCache();
+
+        $bearer = $attacker->createToken('g193-f1')->plainTextToken;
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $bearer])
+            ->postJson('/api/admin/updatereview', [
+                'store_id' => $attackerStore->id,
+                'id' => $own->id,
+                'category_id' => $victimCategory->id,   // only the CATEGORY is foreign
+                'title' => 'Refiled',
+            ]);
+
+        /* F3 ON THE ADMIN DOOR TOO. `ApiResponser::error()` answers HTTP 200 with `status: 0`, so
+           neither the status code nor "the row did not move" distinguishes this refusal from a 500
+           or from the handler's own "Review not found." / "Store not found!". The MESSAGE does, and
+           it is also what pins the CATEGORY arm -- `refusalFor()` returns on the first failing
+           field and checks `product_id` first. */
+        $this->assertSame(0, (int) $response->json('status'), sprintf(
+            'premise: the request was refused at all. Body: %s', $response->getContent()));
+        $this->assertSame(
+            __('The selected category is not available in this store.'),
+            (string) $response->json('data.message'),
+            sprintf('refused for the WRONG reason, so this case is not measuring the category '
+                . 'arm. Body: %s', $response->getContent())
+        );
+
+        $this->assertSame(
+            (int) $ownCategory->id,
+            (int) Testimonial::withoutGlobalScopes()->findOrFail($own->id)->category_id,
+            'F1 CATEGORY ARM: `UpdateReview` refiled the review under another store\'s category. '
+            . '`testimonials.category_id` carries a real FK to `categories` and '
+            . '`Testimonial::MainCategoryData()` joins on it.'
+        );
+    }
+
+    /**
+     * THE CONTROL FOR THE ADMIN DOOR, and it is not optional: a guard that refuses every
+     * `product_id` passes both cases above and breaks the merchant's own review editor.
+     */
+    public function test_the_control_the_admin_api_can_still_edit_a_review_of_its_own_product(): void
+    {
+        [$merchant, $store, $category, $product] = $this->tenantWithAProduct('g193-f1e');
+
+        $own = Testimonial::forceCreate([
+            'category_id' => $category->id, 'product_id' => $product->id,
+            'rating_no' => 5, 'title' => 'Before', 'description' => 'Before.',
+            'status' => 1, 'store_id' => $store->id,
+        ]);
+        (new Testimonial)->flushCache();
+
+        $bearer = $merchant->createToken('g193-f1')->plainTextToken;
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $bearer])
+            ->postJson('/api/admin/updatereview', [
+                'store_id' => $store->id,
+                'id' => $own->id,
+                'product_id' => $product->id,       // their OWN product
+                'category_id' => $category->id,     // their OWN category
+                'rating_no' => 3,
+                'title' => 'After',
+            ]);
+
+        $this->assertSame(1, (int) $response->json('status'), sprintf(
+            'control: an ordinary edit through the admin API must still succeed. '
+            . 'ApiResponser::error() answers HTTP 200 with status 0, so the status CODE cannot '
+            . 'tell a refusal from an acceptance here. Body: %s', $response->getContent()
+        ));
+
+        $fresh = Testimonial::withoutGlobalScopes()->findOrFail($own->id);
+        $this->assertSame('After', (string) $fresh->title);
+        $this->assertSame(3, (int) $fresh->rating_no,
+            'control: and the rating landed, so the guard did not short-circuit the write.');
     }
 
     /**

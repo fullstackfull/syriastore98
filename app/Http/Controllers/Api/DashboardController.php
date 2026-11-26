@@ -4736,6 +4736,31 @@ public function DeleteReview($id)
         return $this->error(['message' => __('Review not found.')], 404);
     }
 
+    /*
+     * F1 OF THE GAP-193 REVIEW. THE ROW WAS SCOPED AND THE COLUMNS WERE NOT.
+     *
+     * The lookup above confines the review to this store, so a merchant may only edit their OWN
+     * review -- and `product_id`/`category_id` were then written STRAIGHT FROM REQUEST INPUT, after
+     * which `AvregeRating($review->product_id)` ran with the FOREIGN id and wrote another store's
+     * `products.average_rating`. Measured here as the owning merchant, own token, own store, own
+     * review: store B's average went 5 -> 1, HTTP 200 `{"status":1}`.
+     *
+     * The predicate, why it is SHARED with the two panel writers rather than copied, and why
+     * `$store->id` rather than `$request->store_id`, are all in
+     * `App\Support\Commerce\ReviewTargetOwnership`. `$this->error()` and NEVER 401 (the shipped
+     * Flutter app force-clears its session on a 401); it is the envelope the sibling `AddReview`
+     * already uses for this same condition. ABOVE every write, so a refusal changes nothing.
+     */
+    $reviewTargetRefusal = \App\Support\Commerce\ReviewTargetOwnership::refusalFor(
+        $store->id,
+        $request->input('product_id'),
+        $request->input('category_id')
+    );
+
+    if ($reviewTargetRefusal !== null) {
+        return $this->error(['message' => $reviewTargetRefusal], $reviewTargetRefusal);
+    }
+
     if ($request->has('user_id') && $request->user_id !== null && $request->user_id !== '') {
         $review->user_id = $request->user_id;
     }

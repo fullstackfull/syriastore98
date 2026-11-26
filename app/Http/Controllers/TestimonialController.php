@@ -425,30 +425,31 @@ class TestimonialController extends Controller
      * `products.average_rating`, so the planted score is folded into the victim's average as soon
      * as anyone rates that product.
      *
-     * FIXED AT THE WRITER, AND NOT AT THOSE TWO READERS, for three reasons: the readers live in a
-     * file this workstream must not edit; their own docblock argues against a second predicate on a
-     * NULLABLE `store_id` column, citing a measured case of `product_variants.store_id` drifting
-     * (`ProductController:2873-2895`, where an operator's no-op save stamped store 1 on a store-7
-     * product's variants) -- such a predicate would silently refuse a store its own reviews; and
-     * restoring the premise is what makes every existing reader correct at once, including
-     * `AvregeRating()`. The three API writers already do exactly this
-     * (`ApiController::add_review`, `::product_rating`, `DashboardController::AddReview` each scope
-     * `product_id` to the store in the path), so this closes an asymmetry rather than inventing a
-     * rule.
+     * FIXED AT THE WRITERS, AND NOT AT THOSE TWO READERS, for two reasons: the readers live in a
+     * file this workstream must not edit; and their own docblock argues against a second predicate
+     * on a NULLABLE `store_id` column, citing a measured case of `product_variants.store_id`
+     * drifting (`ProductController:2873-2895`, where an operator's no-op save stamped store 1 on a
+     * store-7 product's variants) -- such a predicate would silently refuse a store its own reviews.
      *
-     * VALIDATED, NOT DERIVED, and that is deliberate. The API writers DERIVE `category_id` from the
-     * product; doing that here would change behaviour for the product-less testimonial, which this
-     * form supports -- `product_id` and `category_id` are both commented OUT of both validators, so
-     * a general store testimonial with neither is an ordinary save. An absent or empty id is
-     * therefore left exactly as it was and only a NON-EMPTY foreign one is refused.
+     * **A THIRD REASON USED TO BE GIVEN HERE AND IT WAS FALSE. WITHDRAWN.** It said "restoring the
+     * premise is what makes every existing reader correct at once, including `AvregeRating()`", on
+     * the premise that there were FOUR writers and this change fixed the two that needed it. The
+     * independent review of that change found a SIXTH: `Api\DashboardController::UpdateReview`
+     * scoped the review ROW and not the `product_id` COLUMN, so one request by a merchant acting on
+     * their own store and their own review repointed it at another tenant's product and
+     * `AvregeRating()` then wrote that tenant's `products.average_rating` -- measured, 5 -> 1, HTTP
+     * 200 `{"status":1}`. The claim is only true once EVERY writer holds the premise, which is why
+     * the predicate now lives in `App\Support\Commerce\ReviewTargetOwnership` and is SHARED with
+     * that door rather than copied into it. The census that was built to bound the writer set is
+     * what missed the writer -- recorded in the test file, because it is the same shape as the
+     * finding.
      *
-     * `filter_var` STRICTLY, never `is_numeric` or a cast: MySQL coerces `'5abc'` to 5 in a `WHERE`
-     * comparison, and a cast turns junk into 0 -- a store id some rows really carry. Same spelling
-     * as `DocumentDirection::ownRow()` and `RoleController::store()`.
-     *
-     * `Product` AND `Category` BOTH CARRY `StoreScope` AND ARE BOTH ABSENT FROM `scoped_models`, so
-     * the scope adds NO predicate for any principal and these explicit `where('store_id', ...)`
-     * clauses are the whole control -- not defence in depth.
+     * THE PREDICATE ITSELF LIVES IN `App\Support\Commerce\ReviewTargetOwnership`, NOT HERE, and
+     * this method is a one-line delegation. Read that class for why the ids are validated rather
+     * than derived, why `filter_var` is strict, why `Product` and `Category` need an explicit
+     * `store_id` clause (both carry `StoreScope` and both are ABSENT from `scoped_models`, so the
+     * global scope adds nothing for any principal), and for the two recorded residuals on its
+     * `exists()` reads. It is shared because F1 above proves what a copy costs.
      *
      * WHO ELSE THIS NARROWS, NAMED RATHER THAN LEFT OUT. `store()` has no row to own, so before
      * this guard NOTHING scoped the PLATFORM OPERATOR there: they could name any store's product
@@ -461,36 +462,28 @@ class TestimonialController extends Controller
      * `callerOwnsTestimonial()` already records that *"an operator is scoped to store 1 here rather
      * than refused"*.
      *
+     * AND IT COSTS THE OPERATOR NO WORKFLOW, which the first version of this paragraph left out --
+     * an omission in the REASSURING direction, and the exact mirror of the `GAP-279` mistake where
+     * the refusal was permanent and the draft claimed recovery. `StoreController::changeStore()`
+     * SKIPS the ownership predicate entirely for the operator, so they may point `current_store` at
+     * any store and then write that store's testimonials for that store's products. The only thing
+     * they lose is filing a store-1 review of a store-7 product, which IS the defect.
+     *
+     * THE PERMISSION DOOR IN FRONT OF THIS GUARD HAS NO OPERATOR LIMB, and this guard does not fix
+     * that. `index()`, `store()`, `update()` and `destroy()` gate on a bare `isAbleTo()`, which
+     * CLAUDE.md records as always refusing the platform operator -- so an operator holding no role
+     * never reaches here at all. Pre-existing, outside this finding, and NOT papered over: the
+     * operator case in the test grants `Create Testimonial` before driving the door, so what it
+     * proves is that THE GUARD is not an operator lockout, and it is silent about the door.
+     *
      * @return string|null the message to flash, or null when every named row is this store's
      */
     private function foreignRowRefusal(Request $request): ?string
     {
-        $storeId = filter_var(getCurrentStore(), FILTER_VALIDATE_INT);
-
-        if ($storeId === false || $storeId <= 0) {
-            return __('No store is selected, so a testimonial cannot be saved. Open the store it belongs to and try again.');
-        }
-
-        foreach ([
-            'product_id' => [Product::class, __('The selected product is not available in this store.')],
-            'category_id' => [Category::class, __('The selected category is not available in this store.')],
-        ] as $field => [$model, $message]) {
-            $posted = $request->input($field);
-
-            // An absent or empty id is left alone: a testimonial naming no product is an ordinary
-            // save, and both fields are commented out of both validators.
-            if (empty($posted)) {
-                continue;
-            }
-
-            $id = filter_var($posted, FILTER_VALIDATE_INT);
-
-            if ($id === false || $id <= 0
-                || ! $model::where('id', $id)->where('store_id', $storeId)->exists()) {
-                return $message;
-            }
-        }
-
-        return null;
+        return \App\Support\Commerce\ReviewTargetOwnership::refusalFor(
+            getCurrentStore(),
+            $request->input('product_id'),
+            $request->input('category_id')
+        );
     }
 }
