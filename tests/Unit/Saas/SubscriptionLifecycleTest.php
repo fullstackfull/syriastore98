@@ -393,6 +393,110 @@ class SubscriptionLifecycleTest extends TestCase
         $this->assertSame(7, SubscriptionLifecycle::graceDays());
     }
 
+    /**
+     * A STORED VALUE THAT IS NOT A DATE MUST NOT THROW ON A SELLING DOOR.
+     *
+     * FOUND BY SELF-REVIEW, NOT BY A FAILURE, and it is a 500 on a checkout. The grace arithmetic
+     * needs a real date, so it calls `CarbonImmutable::parse()`. `users.plan_expire_date` is a
+     * free-text `string` column -- `create_users_table` declares `$table->string(...)->nullable()`
+     * -- and while `assignPlan()` only ever writes `isoFormat('YYYY-MM-DD')`, CLAUDE.md's rule is
+     * that the migrations are not the schema and an import or a hand edit can put anything there.
+     *
+     * `'1999-99-99'` is the case that matters: it compares as EARLIER than today lexicographically,
+     * so it passes the lapse test and reaches the parse, where it throws
+     * `InvalidFormatException`. With a grace period configured that is an uncaught exception inside
+     * `LapsedSubscriptionSellingGuard`, i.e. HTTP 500 on `payment.process`.
+     *
+     * The answer is the same fail-open direction the rest of this class takes: an expiry this class
+     * cannot read is not a lapse it can act on, so nothing is restricted. Note that `'not-a-date'`
+     * never reaches the parse at all -- `'n' > '2'`, so it compares as LATER than today and reads
+     * as active -- which is why the test uses a value that is numerically early and calendrically
+     * impossible.
+     *
+     * IT GETS ITS OWN STATE RATHER THAN BORROWING `EXPIRED_GRACE_UNDEFINED`. "The owner has not set
+     * a grace period" and "this row's expiry is not a date" are opposite facts, and collapsing them
+     * is the shape CLAUDE.md records costing real dispositions. The vocabulary already exists:
+     * `SaasRevenueFigures` has `duration_unreadable` and `plan_missing` buckets for exactly this
+     * reason.
+     */
+    #[Test]
+    public function test_an_unparseable_expiry_does_not_throw_and_does_not_restrict(): void
+    {
+        config(['saas.grace_period_days' => 7]);
+
+        /*
+         * THE THIRD VALUE IS A DIFFERENT DEFECT AND IT IS THE WORSE ONE, found when this case first
+         * ran. `'1999-99-99'` and `'2026-13-45'` THROW. `'0000-00-00'` — MySQL's zero-date sentinel,
+         * which is what the server writes for an invalid date outside strict mode, and production is
+         * MySQL — PARSES, to `-0001-11-30`, year **-1**. So it did not 500: it classified as
+         * `past_grace` and would have stopped a merchant's sales because their expiry column held
+         * MySQL's "no value". Measured with `CarbonImmutable::parse()` directly.
+         *
+         * `'2026-13-45'` IS NOT IN THIS LIST, and the premise assertion below is what moved it out.
+         * It sorts AFTER today (`'13' > '11'`), so the string comparison reads it as not-yet-lapsed
+         * and it never reaches the parse at all — the asymmetry this case's docblock describes. It
+         * is asserted in the case that follows, with its own value, rather than left implied.
+         */
+        foreach (['1999-99-99', '0000-00-00', '0000-01-01'] as $value) {
+            $user = $this->merchant(['plan_expire_date' => $value]);
+
+            $this->assertTrue(
+                $value < self::TODAY,
+                'premise: ' . $value . ' really does compare as earlier than today, so it reaches '
+                . 'the grace arithmetic rather than reading as active'
+            );
+
+            $this->assertSame(
+                SubscriptionLifecycle::EXPIRY_UNREADABLE,
+                SubscriptionLifecycle::stateFor($user, $this->recurringPlan(), $this->now()),
+                'an expiry of ' . $value . ' must be reported as unreadable, not parsed'
+            );
+            $this->assertSame(
+                SubscriptionLifecycle::REASON_EXPIRY_UNREADABLE,
+                SubscriptionLifecycle::whyNotRestricted($user, $this->recurringPlan(), $this->now()),
+                'and the reason must say so, not "no grace period configured"'
+            );
+            $this->assertFalse(
+                SubscriptionLifecycle::restrictsNewSelling($user, $this->recurringPlan(), $this->now()),
+                'and must not stop the merchant selling'
+            );
+        }
+    }
+
+    /**
+     * THE OTHER HALF OF THE ASYMMETRY, ASSERTED RATHER THAN IMPLIED.
+     *
+     * A garbage expiry that sorts AFTER today reads as ACTIVE and never reaches the parse. Both
+     * values here are real shapes a free-text column can hold, and both sort high: `'2026-13-45'`
+     * because `'13' > '11'`, `'not-a-date'` because `'n' > '2'`. The outcome is the same
+     * fail-open direction — nothing restricted, nothing thrown — reached by a different route, and
+     * it is recorded so that a future change to the comparison cannot alter it silently.
+     */
+    #[Test]
+    public function test_a_garbage_expiry_that_sorts_after_today_reads_as_active(): void
+    {
+        config(['saas.grace_period_days' => 7]);
+
+        foreach (['2026-13-45', 'not-a-date'] as $value) {
+            $this->assertGreaterThan(
+                self::TODAY,
+                $value,
+                'premise: ' . $value . ' really does sort after today, which is why it never parses'
+            );
+
+            $user = $this->merchant(['plan_expire_date' => $value]);
+
+            $this->assertSame(
+                SubscriptionLifecycle::ACTIVE,
+                SubscriptionLifecycle::stateFor($user, $this->recurringPlan(), $this->now()),
+                'an expiry of ' . $value . ' sorts high, so the cheap comparison reads it as live'
+            );
+            $this->assertFalse(
+                SubscriptionLifecycle::restrictsNewSelling($user, $this->recurringPlan(), $this->now())
+            );
+        }
+    }
+
     // ------------------------------------------------- the auth sites' preserved edge case
 
     /**
