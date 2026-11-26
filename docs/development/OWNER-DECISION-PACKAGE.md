@@ -981,3 +981,49 @@ contain **no numeric literal at all**, so no threshold can arrive by accident.
   host list or an agent per node.
 - **A time series** of resource figures needs a retention rule (yours) and a running scheduler —
   and this project's own notes record that production may have no `schedule:run` cron at all.
+
+---
+
+## N. One decision that is not a feature: what should the `xss` middleware do to prose?
+
+### J43 — `GAP-370`: a blind substring strip is silently corrupting merchant text, and it is being fixed one route at a time
+
+**The mechanism.** `App\Http\Middleware\XSS::handle()` runs
+`str_replace(['&lt;', '&gt;', 'javascript', 'alert'], '', $value)` over every non-credential input,
+and `xss` sits on the two route groups that cover the whole merchant panel.
+
+**Measured, and the case-sensitivity is the part that makes it indefensible as-is:**
+
+| typed | stored |
+|---|---|
+| `alert` | *(empty)* |
+| `alert10` | `10` |
+| `alerta` | `a` |
+| `stock-alerts` | `stock-s` |
+| `low-stock alert` | `low-stock ` |
+| `I get a javascript error on checkout` | `I get a  error on checkout` |
+| `no-javascript fallback` | `no- fallback` |
+| `Alert` · `ALERT10` · `Alerta` · `JavaScript` · `Alert Dog Collar` | **unchanged** |
+
+So two merchants typing the same word in different cases get different data, with no error and no
+notice. It reaches product names, descriptions, category names, coupon codes, email templates and
+ticket replies.
+
+**Why this is a decision and not a patch.** `XSS` is an **input** sanitiser; the controls that
+actually stop markup reaching a reader are downstream and tested — Blade escaping, and
+`DocumentationRenderer::html()` with `html_input => 'strip'` and `allow_unsafe_links => false`. The
+previous workstream that hit this proved exactly that, by showing the mutation which replaces the
+renderer with a raw echo reddens its own test. So the substring strip is not load-bearing for XSS;
+it is belt-and-braces that corrupts data.
+
+**Three options:**
+
+1. **Drop the substring strip** and rely on output encoding, which is where the real control is.
+2. **Keep the two HTML-entity needles** (`&lt;`, `&gt;`) and drop the two English words.
+3. **Go on opting out route by route.**
+
+**Option 3 is what is happening by default, and it is the worst of the three.** `platform/site-content`
+opted out and documented it; `CTRL-003` independently hit the identical defect and opted out on four
+more routes. Neither registered the general case, so the next workstream finds it again — and every
+route nobody has reached yet is still silently corrupting text. Any of (1) or (2) changes what every
+panel write stores, which is why it is yours.
