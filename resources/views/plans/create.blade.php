@@ -49,21 +49,21 @@
                             <div class="form-group">
                                 {{ Form::label('max_stores', __('Maximum Store'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::number('max_stores', null, ['class' => 'form-control', 'id' => 'max_stores', 'placeholder' => __('Enter Max Store'), 'required' => 'required']) }}
-                                <span><small class="text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
+                                <span><small class="ss-text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('max_products', __('Maximum Products Per Store'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::number('max_products', null, ['class' => 'form-control', 'id' => 'max_products', 'placeholder' => __('Enter Max Products'), 'required' => 'required']) }}
-                                <span><small class="text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
+                                <span><small class="ss-text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('max_users', __('Maximum Users Per Store'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::number('max_users', null, ['class' => 'form-control', 'id' => 'max_users', 'placeholder' => __('Enter Max User'), 'required' => 'required']) }}
-                                <span><small class="text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
+                                <span><small class="ss-text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -71,9 +71,9 @@
                                 {{ Form::label('storage_limit', __('Storage Limit'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 <div class ='input-group'>
                                     {{ Form::number('storage_limit', null, ['class' => 'form-control', 'id' => 'storage_limit', 'placeholder' => __('Enter Storage Limit'), 'required' => 'required', 'min' => '0']) }}
-                                    <span class="input-group-text bg-transparent">{{ __('MB') }}</span>
+                                    <span class="ss-input-group__suffix">{{ __('MB') }}</span>
                                 </div>
-                                <span><small class="text-danger">{{ __('Note: upload size ( In MB)') }}</small></span>
+                                <span><small class="ss-text-danger">{{ __('Note: upload size ( In MB)') }}</small></span>
                             </div>
                         </div>
                     </div>

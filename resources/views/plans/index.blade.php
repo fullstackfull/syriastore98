@@ -48,11 +48,26 @@
                                     @if (\Auth::user()->type != 'admin')
                                         @permission('Edit Plan')
                                         <div class="d-inline-flex align-items-center">
-                                            <a class="btn btn-sm btn-info"
+                                            {{-- GAP-179 / P06-06 slice 2. THE GLYPH WAS INVISIBLE, not merely
+                                                 dim. `.btn-info` in the dark admin fills with the host's pale
+                                                 rgb(232,248,255) and the `<i>` inside is painted WHITE:
+                                                 1.09:1, against a 3:1 non-text floor, on the only edit
+                                                 affordance this card has. The button's own ink was legible,
+                                                 which is why a reading that measured the BUTTON and not the
+                                                 glyph would have called this fine.
+
+                                                 `.ss-btn--ghost` is this screen's own precedent -- the row
+                                                 actions in `plans/action.blade.php` already use exactly
+                                                 `ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost` -- and takes
+                                                 `--ss-fg-muted`, which re-themes. `aria-label` and
+                                                 `aria-hidden` come from that precedent too: a `title` alone
+                                                 is not an accessible name on every assistive technology. --}}
+                                            <a class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost"
                                                 href="{{ route('plan.edit', $plan->id) }}"
+                                                aria-label="{{ __('Edit') }}"
                                                 data-bs-toggle="tooltip"
                                                 title="{{ __('Edit') }}">
-                                                <i class="ti ti-pencil" ></i>
+                                                <i class="ti ti-pencil" aria-hidden="true"></i>
                                             </a>
                                         </div>
                                         @endpermission
@@ -103,31 +118,31 @@
                             <div class="row mb-0">
                                 <div class="col-4 text-start">
                                     @if ($plan->max_products == '-1')
-                                        <span class="h5 mb-0">{{ __('Unlimited') }}</span>
+                                        <span class="h5 mb-0 ss-text-strong">{{ __('Unlimited') }}</span>
                                     @else
-                                        <span class="h5 mb-0">{{ $plan->max_products }}</span>
+                                        <span class="h5 mb-0 ss-text-strong">{{ $plan->max_products }}</span>
                                     @endif
-                                    <span class="d-block text-sm">{{ __('Products') }}</span>
+                                    <span class="d-block text-sm"><span class="ss-muted">{{ __('Products') }}</span></span>
                                 </div>
                                 <div class="col-4 text-start">
-                                    <span class="h5 mb-0">
+                                    <span class="h5 mb-0 ss-text-strong">
                                         @if ($plan->max_stores == '-1')
-                                            <span class="h5 mb-0">{{ __('Unlimited') }}</span>
+                                            <span class="h5 mb-0 ss-text-strong">{{ __('Unlimited') }}</span>
                                         @else
-                                            <span class="h5 mb-0">{{ $plan->max_stores }}</span>
+                                            <span class="h5 mb-0 ss-text-strong">{{ $plan->max_stores }}</span>
                                         @endif
                                     </span>
-                                    <span class="d-block text-sm">{{ __('Store') }}</span>
+                                    <span class="d-block text-sm"><span class="ss-muted">{{ __('Store') }}</span></span>
                                 </div>
                                 <div class="col-4 text-start">
-                                    <span class="h5 mb-0">
+                                    <span class="h5 mb-0 ss-text-strong">
                                         @if ($plan->max_users == '-1')
-                                            <span class="h5 mb-0">{{ __('Unlimited') }}</span>
+                                            <span class="h5 mb-0 ss-text-strong">{{ __('Unlimited') }}</span>
                                         @else
-                                            <span class="h5 mb-0">{{ $plan->max_users }}</span>
+                                            <span class="h5 mb-0 ss-text-strong">{{ $plan->max_users }}</span>
                                         @endif
                                     </span>
-                                    <span class="d-block text-sm">{{ __('Users') }}</span>
+                                    <span class="d-block text-sm"><span class="ss-muted">{{ __('Users') }}</span></span>
                                 </div>
                             </div>
                             <div class="plan-card-detail d-flex text-center">
@@ -136,85 +151,85 @@
                                         <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
                                                 <i
-                                                    class="text-primary ti ti-circle-plus"></i></span>{{ __('Custom Domain') }}
+                                                    class="text-primary ti ti-circle-plus"></i></span><span class="ss-text-strong">{{ __('Custom Domain') }}</span>
                                         </li>
                                     @else
-                                        <li class="text-danger d-flex align-items-center">
+                                        <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
                                                 <i
-                                                    class="text-danger ti ti-circle-plus"></i></span>{{ __('Custom Domain') }}
+                                                    class="ss-text-danger ti ti-circle-plus"></i></span><span class="ss-text-danger">{{ __('Custom Domain') }}</span>
                                         </li>
                                     @endif
                                     @if ($plan->enable_subdomain == 'on')
                                         <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
-                                                <i class="text-primary ti ti-circle-plus"></i></span>{{ __('Sub Domain') }}
+                                                <i class="text-primary ti ti-circle-plus"></i></span><span class="ss-text-strong">{{ __('Sub Domain') }}</span>
                                         </li>
                                     @else
-                                        <li class="text-danger d-flex align-items-center">
+                                        <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
-                                                <i class="text-danger ti ti-circle-plus"></i></span>{{ __('Sub Domain') }}
+                                                <i class="ss-text-danger ti ti-circle-plus"></i></span><span class="ss-text-danger">{{ __('Sub Domain') }}</span>
                                         </li>
                                     @endif
                                     @if ($plan && $plan->enable_chatgpt == 'on')
                                         <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
-                                                <i class="text-primary ti ti-circle-plus"></i></span>{{ __('Chatgpt') }}
+                                                <i class="text-primary ti ti-circle-plus"></i></span><span class="ss-text-strong">{{ __('Chatgpt') }}</span>
                                         </li>
                                     @else
-                                        <li class="text-danger d-flex align-items-center">
+                                        <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
-                                                <i class="text-danger ti ti-circle-plus"></i></span>{{ __('Chatgpt') }}
+                                                <i class="ss-text-danger ti ti-circle-plus"></i></span><span class="ss-text-danger">{{ __('Chatgpt') }}</span>
                                         </li>
                                     @endif
                                     @if ($plan && $plan->pwa_store == 'on')
                                         <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
                                                 <i class="text-primary ti ti-circle-plus"></i></span>
-                                            {{ __('Progressive Web App (PWA)') }}
+                                            <span class="ss-text-strong">{{ __('Progressive Web App (PWA)') }}</span>
                                         </li>
                                     @else
-                                        <li class="text-danger d-flex align-items-center">
+                                        <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
                                                 <i
-                                                    class="text-danger ti ti-circle-plus"></i></span>{{ __('Progressive Web App (PWA)') }}
+                                                    class="ss-text-danger ti ti-circle-plus"></i></span><span class="ss-text-danger">{{ __('Progressive Web App (PWA)') }}</span>
                                         </li>
                                     @endif
                                     @if ($plan && $plan->shipping_method == 'on')
                                         <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
                                                 <i class="text-primary ti ti-circle-plus"></i></span>
-                                            {{ __('Shipping Method') }}
+                                            <span class="ss-text-strong">{{ __('Shipping Method') }}</span>
                                         </li>
                                     @else
-                                        <li class="text-danger d-flex align-items-center">
+                                        <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
                                                 <i
-                                                    class="text-danger ti ti-circle-plus"></i></span>{{ __('Shipping Method') }}
+                                                    class="ss-text-danger ti ti-circle-plus"></i></span><span class="ss-text-danger">{{ __('Shipping Method') }}</span>
                                         </li>
                                     @endif
                                     @if ($plan && $plan->enable_tax == 'on')
                                         <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
-                                                <i class="text-primary ti ti-circle-plus"></i></span>{{ __('Enable Tax') }}
+                                                <i class="text-primary ti ti-circle-plus"></i></span><span class="ss-text-strong">{{ __('Enable Tax') }}</span>
                                         </li>
                                     @else
-                                        <li class="text-danger d-flex align-items-center">
+                                        <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
-                                                <i class="text-danger ti ti-circle-plus"></i></span>{{ __('Enable Tax') }}
+                                                <i class="ss-text-danger ti ti-circle-plus"></i></span><span class="ss-text-danger">{{ __('Enable Tax') }}</span>
                                         </li>
                                     @endif
                                     @if ($plan && $plan->storage_limit != '0.00')
                                         <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
                                                 <i class="text-primary ti ti-circle-plus"></i></span>
-                                            {{ $plan->storage_limit }}{{ __('MB Storage') }}
+                                            <span class="ss-text-strong">{{ $plan->storage_limit }}{{ __('MB Storage') }}</span>
                                         </li>
                                     @else
-                                        <li class="text-danger d-flex align-items-center">
+                                        <li class="d-flex align-items-center">
                                             <span class="theme-avtar">
                                                 <i
-                                                    class="text-danger ti ti-circle-plus"></i></span>{{ __('0 MB Storage') }}
+                                                    class="ss-text-danger ti ti-circle-plus"></i></span><span class="ss-text-danger">{{ __('0 MB Storage') }}</span>
                                         </li>
                                     @endif
                                 </ul>

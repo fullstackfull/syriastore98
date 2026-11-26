@@ -94,6 +94,15 @@ class SuperAdminPremiumSurfaceTest extends TestCase
     private const OPERATOR_VIEWS = [
         'resources/views/plans/index.blade.php',
         'resources/views/plans/create.blade.php',
+        /* ADDED IN SLICE 2, AND IT IMMEDIATELY FAILED — which is the finding, not the fix.
+           `plans/edit.blade.php` was absent from this list in slice 1 because `/plan/{id}/edit`
+           was not one of the 24 measured surfaces, so its two controls were never seen: the AI
+           button and an `input.btn.btn-primary.ms-2` "Update" still measuring 2.58:1 in the dark
+           admin. Comment-stripped, this file carries the SAME five offending elements as
+           `create.blade.php` and differs from it only in indentation and quote style, so fixing
+           one of a byte-similar pair was always going to leave the other. The surface is in the
+           live harness now too. */
+        'resources/views/plans/edit.blade.php',
         'resources/views/plan-coupon/index.blade.php',
         'resources/views/plan-coupon/create.blade.php',
         'resources/views/store/index.blade.php',

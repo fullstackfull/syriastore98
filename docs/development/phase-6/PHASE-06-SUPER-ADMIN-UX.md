@@ -421,3 +421,235 @@ checked rather than assumed.
 `.ss-code` sets `unicode-bidi: isolate` and **no `dir`**: a filesystem path is Latin inside an
 Arabic sentence, and isolation is what stops a trailing slash jumping to the wrong end of the line
 in the RTL build.
+
+---
+
+# Slice 2 — the subscription plan screens and the country grid's tools
+
+Measured 2026-11-26, after slice 1 (`3408a4fd`). §1–§6 above are slice 1 and are unchanged.
+
+> Still engineering evidence only. `GAP-179` is **not** closed by this slice either; §11 names what
+> remains, with counts.
+
+## 7. A surface slice 1 never measured, and what was hiding on it
+
+**`/plan/{id}/edit` was not one of slice 1's 24 surfaces, so `plans/edit.blade.php` was never
+measured — and it still carried an `input.btn.btn-primary.ms-2` "Update" at 2.58:1, the exact
+defect slice 1 existed to close, plus an unconverted AI button.** Comment-stripped, that file is
+`plans/create.blade.php` with different indentation and quote style: the same four `.text-danger`
+notes and the same `.input-group-text`. Fixing one of a byte-similar pair and measuring only that
+one is how a defect survives its own repair.
+
+The surface is in the live harness now, and adding `resources/views/plans/edit.blade.php` to
+`SuperAdminPremiumSurfaceTest::OPERATOR_VIEWS` made **slice 1's own ratchet fail and name both
+controls** — which is how it should have been found.
+
+Adding that one surface took the measured baseline on these screens from 74 findings to **94**.
+
+## 8. The baseline and the result
+
+```
+surfaces                   /plan  /plan/create  /plan/1/edit  /countries
+combinations               4 (light-en, dark-en, light-ar, dark-ar)
+measured (surface x combo) 16 of 16
+premise failures           0
+unreachable                0
+
+BEFORE   94 findings in 14 groups
+AFTER     4 findings in  1 group    (the shared sidebar only — D-25, excluded)
+```
+
+| surface | before (t/c/i, light-en · dark-en · light-ar · dark-ar) | after |
+|---|---|---|
+| `/plan` | 6/0/0 · 14/0/1 · 6/0/0 · 14/0/1 | 0/0/0 · **1**/0/0 · 0/0/0 · **1**/0/0 |
+| `/plan/create` | 4/0/0 · 5/0/0 · 4/0/0 · 5/0/0 | **0/0/0 in all four** |
+| `/plan/1/edit` | 4/0/0 · 5/**1**/0 · 4/0/0 · 5/**1**/0 | **0/0/0 in all four** |
+| `/countries` | 0/0/**3** · 1/0/**3** · 0/0/**3** · 1/0/**3** | 0/0/0 · **1**/0/0 · 0/0/0 · **1**/0/0 |
+
+The four that remain are `span.dash-mtext`, the sidebar's active item, two on `/plan` and two on
+`/countries`. **90 of 90 addressable findings closed.**
+
+## 9. THE FINDING THAT MATTERS MOST: two of the three repairs were inert on the first attempt
+
+The obvious repair is to put the design system's tone class on the element that is failing. **It
+did not work, and the re-measurement said so in the clearest possible way** — the same colours and
+the same ratios came back, now reported under `.ss-text-danger` and `.ss-muted` selectors:
+
+```
+DARK TEXT rgb(51,93,168) on rgb(41,42,51)  2.22:1  x14
+     selectors: li.ss-text-danger.d-flex.align-items-center | li.d-flex...ss-text-strong
+DARK TEXT rgb(128,129,145) on rgb(41,42,51) 3.71:1  x6
+     selectors: span.d-block.text-sm.ss-muted
+```
+
+Measured in the browser, rule by rule, rather than reasoned:
+
+| element | the rule that wins | why |
+|---|---|---|
+| the feature `<li>` | `.plan-card-detail li` — `color: var(--theme-color)` | **(0,1,1) beats a single class (0,1,0).** No `!important` needed |
+| the figure label | `.plan_card .card.price-card .card-body span.text-sm` — `#808191 !important` | **(0,4,1) AND `!important`**, so nothing without `!important` can win |
+| the figure `<span class="h5">` | `.ss-text-strong` **wins** | `.h5` is (0,1,0) with no `!important`, so source order decides and `store-syria-ds.css` loads later |
+
+**The remedy needed no new CSS and no `!important` of ours.** `store-syria-ds.css` already
+prescribes it for the heading case — *"Wrap the word in a `<span>` inside the heading"* — and the
+same move works here for a different blocking rule: the text goes into a `<span>` the host
+selector cannot match, and the tone class goes on that span.
+
+So the markup is:
+
+```blade
+<li class="d-flex align-items-center">
+    <span class="theme-avtar"><i class="ss-text-danger ti ti-circle-plus"></i></span>
+    <span class="ss-text-danger">{{ __('Custom Domain') }}</span>
+</li>
+
+<span class="d-block text-sm"><span class="ss-muted">{{ __('Products') }}</span></span>
+```
+
+`PlanScreenLegibilityTest::test_premise_two_host_rules_outrank_a_tone_class_on_the_element_itself`
+pins both blocking rules, and
+`test_every_feature_row_carries_its_tone_on_a_span_and_not_on_the_list_item` **fails if the class
+goes back on the `<li>`** — because an inert class reads as a finished repair.
+
+## 10. The six repairs, each reusing a class the design system already owns
+
+No new CSS was written in this slice. `store-syria-ds.css` is unchanged.
+
+| # | what | findings | measured before | measured after |
+|---|---|---|---|---|
+| 1 | `.text-danger` → `.ss-text-danger` on 22 elements across three views | **56** | `rgb(255,0,0)`: 4.00:1 light, 3.56:1 dark — **fails in BOTH** | `--ss-danger-fg`: `rgb(140,29,23)` light, `rgb(243,169,164)` dark |
+| 2 | the plan card's 8 figure spans → `.ss-text-strong` | **12** (with #3) | `rgb(128,129,145)` 3.71:1 dark | `rgb(232,234,237)` light-theme `rgb(26,29,35)` |
+| 3 | its 3 labels → an inner `.ss-muted` span | — | `rgb(128,129,145)` 3.71:1 dark | `rgb(167,171,178)` / `rgb(91,95,102)` |
+| 4 | the 7 included feature rows → an inner `.ss-text-strong` span | **2** | inherited `rgb(51,93,168)` 2.22:1 dark | `--ss-fg` |
+| 5 | the storage unit suffix → `.ss-input-group__suffix` (2 views) | **4** | `rgb(41,50,64)` on `rgb(41,42,51)` = **1.10:1** | `--ss-fg-muted` on `--ss-surface-sunken` |
+| 6 | the plan card Edit → `.ss-btn--ghost` | **2** | the `<i>` painted **white on `rgb(232,248,255)` = 1.09:1** against a 3:1 floor | `rgb(167,171,178)` / `rgb(91,95,102)` |
+| 7 | `plans/edit`'s Update + AI button (slice 1 escapees) | **2** | 2.58:1 | 7.92:1 / secondary |
+| 8 | `/countries`' three grids → `.ss-dt-card-body` | **12** | delete 2.66/1.30, reset 1.73/1.15, reload 1.74/1.16 | tools `rgb(71,80,105)` / `rgb(198,204,219)`; delete `rgb(180,35,24)` / `rgb(255,155,147)` |
+
+**The AI button goes to `.ss-btn--secondary`, not `--primary`**, following
+`category/create.blade.php:54` and slice 1: the form's real primary action is its submit.
+
+**The included-feature ICONS are deliberately untouched, and that is measured rather than assumed.**
+`.text-primary` computes `rgb(120,148,198)` on the dark card = **4.65:1**, which passes both the
+3:1 non-text floor and 4.5:1. `test_premise_the_included_feature_icon_passes_and_is_therefore_not_touched`
+asserts the negative result so it cannot quietly become a repair somebody takes credit for.
+
+### 10.1 How the `/countries` inline style was resolved — the whole risk of repair 8
+
+`country/index.blade.php` carries **92 lines of its own `<style>` in two direction-specific
+blocks**. It was measured selector by selector rather than read for impressions:
+
+- It declares **nine** selectors. Compared against `.ss-dt-card-body`'s **49** by **rule subject**
+  — the last compound, i.e. the element each rule actually styles — exactly **one** overlaps:
+  `.ecom-data-table div.dt-buttons`.
+- That rule declares exactly **one property, `width: 100%`**, and it is **inside
+  `@media only screen and (max-width: 767px)`**. `.ss-dt-card-body .dt-buttons` declares border,
+  border-radius, padding, gap, display and align-items — and **no width**. So the two rules do not
+  compete for any property at all, and above 767px the inline rule does not apply.
+- **Measured at 1440px:** the tool group is a compact `162×46` segmented control with the DS's 1px
+  border, `display: flex`, in both directions. **Measured at 390px:** `320×46`, full content width,
+  **page overflow 0 and no viewport overflow**, in dark-ltr and light-rtl.
+
+**Nothing was removed from the inline style and nothing was out-specificity'd from the design
+system.** `.ecom-data-table div.dt-buttons` is (0,2,1); beating it would mean naming a vendor class
+inside `store-syria-ds.css`, for a phone-width cosmetic that is not a contrast failure.
+
+**My first measurement of this collision was wrong in the safe direction and is worth recording.**
+Intersecting every class token of both selector sets reported a second collision,
+`.card .card-header .state-set` against
+`.card:not(.table-card) .ss-dt-card-body table.dataTable > tbody > tr > td`, because both mention
+`.card`. One styles a card header and the other a table cell: sharing an **ancestor** cannot make
+two rules fight. `test_the_country_views_inline_style_still_collides_on_nothing` now compares
+subjects, and is a **forward** ratchet — it passes before and after this slice, and stops being
+true if either side is edited.
+
+**All three tabs are wrapped, not just the open one.** A hidden tab is not measured, so wrapping
+only the country tab would have left the state and city tools untouched and the run would still
+have read clean.
+
+### 10.2 One consequence of reuse, recorded rather than fixed
+
+Inside `.ss-dt-card-body` the tool **glyphs** stay `rgb(255,255,255)` while the button's own ink
+becomes the DS token; they pass because the FILL changed (white on `rgb(58,35,33)` and on the dark
+card). It is a small inconsistency that `/countries` now shares with **every merchant grid using
+this block**, so changing it is a change to all of them and not this slice's.
+
+## 11. What slice 2 did NOT fix
+
+| n | finding | why not |
+|---|---|---|
+| **4** | `span.dash-mtext`, the sidebar's active item, at 2.58:1 dark on `/plan` and `/countries` | **`D-25`**, excluded by instruction: `layouts/app.blade.php` and `partision/sidebar.blade.php` reach every merchant screen and all 70 modules |
+
+The slice-1 exclusions stand unchanged: the other 18 `D-25` findings on the remaining surfaces, the
+4 in `packages/workdo/LynomiaChat`, and the 2 needing the Phase 2.5 white-dialog decision re-read.
+The two `plans/index` "Expired" notices are still left alone — moving them to `.ss-badge--danger`
+is a semantic change to a merchant-visible screen.
+
+**Found while measuring, NOT fixed, and not a contrast finding:**
+
+- **`plans/index` distinguishes an included feature from an excluded one BY COLOUR ALONE.** Both
+  states print the same label and the same `ti-circle-plus` glyph; only the tone differs. That is
+  WCAG 2.1 **1.4.1 Use of Colour**, and this slice makes both tones legible without making them
+  distinguishable without colour. The fix is a different glyph on the excluded branch
+  (`ti-circle-minus`), which is a visual decision on a merchant-visible screen rather than a
+  contrast repair.
+- **`-1MB Storage`** renders literally on a plan whose `storage_limit` is `-1`, where every other
+  unlimited value prints "Unlimited". A data-presentation defect in `plans/index`, not a legibility
+  one.
+- `plans/stripe.blade.php` (13 `.text-danger`), `plans/payment_status.blade.php` (1),
+  `plans/request.blade.php` and `plans/cybersourcerequest.blade.php` (`.input-group-text`) carry the
+  same patterns and are **out of scope**: they are payment-gateway surfaces, none is a measured
+  operator surface, and financial configuration is a standing escalation.
+
+## 12. Slice 2 evidence
+
+| | |
+|---|---|
+| source census + arithmetic | `tests/Unit/Ui/PlanScreenLegibilityTest.php` — **22 tests, 164 assertions** (14 premises passing before the change, 7 ratchets failing) |
+| slice 1's ratchet, widened | `tests/Unit/Ui/SuperAdminPremiumSurfaceTest.php` — `plans/edit.blade.php` added to `OPERATOR_VIEWS`; 14 tests |
+| before / after logs and 32 captures | `evidence/gap-179-superadmin-ux-slice-2/` |
+
+**Failing first:** 14 premises pass, 7 ratchets fail on the unchanged tree.
+
+**Reverted, 10 mutations, ALL CAUGHT** — including the inert-class trap (the tone put back on the
+`<li>`) and `plans/edit`'s Update button through slice 1's own ratchet.
+
+**THREE of the ten SURVIVED on the first run and each one improved the test.** This is the step
+earning its keep for the second slice running:
+
+1. *"the label takes `.ss-muted` on the `.text-sm` span itself"* survived, because the assertion
+   looked for the repaired shape **somewhere** in the file and the other two labels still matched.
+2. *"`plans/edit` loses the danger tone entirely"* survived for the same reason — three of four
+   notes remained and `assertStringContainsString` was satisfied.
+3. Two more could not be applied at all (anchor counts 4 and 8), which the harness refuses rather
+   than scoring, because a `str.replace` that matches eight places proves nothing about one.
+
+Both weaknesses are the census trap in its per-element form: *an assertion over a file answers a
+question about the file, not about every element in it.* Every such assertion is now an exact
+**count** — 14 / 4 / 4 danger elements, 8 figures, 3 labels, 7 and 7 feature spans — and a single
+reverted element fails it.
+
+**Live revert:** the five views reverted by scripted transform reproduce **exactly 94 findings in
+the same 14 groups** with the same per-surface distribution, then restore to 4.
+
+**Suites:** `tests/Unit/Ui` **1,597 pass** (11,294 assertions) · `tests/Feature/Saas` +
+`tests/Feature/Platform` + `tests/Unit/Localisation` + `PublicAssetPathDoublingTest` **447 pass** ·
+the nine `Feature/Security` and `Feature/Tenancy` files that reference the plan or country views
+**188 pass** (2,228 assertions) · `ArabicUiCoverageTest` **3 pass**. All three country TABS were
+driven and measured, not only the one that opens: in scope, identical 162x46 tool groups, worst
+tool ratio **7.18:1 dark and 6.05:1 light**, up from 1.15-2.66:1.
+
+The whole `Feature/Security` directory was started and **stopped unfinished** rather than reported:
+it buffers its output and had produced none at the point it was cut, so there is no result to
+quote. The nine files above are the ones that reference the views this slice changed.
+
+## 13. Bilingual — no new strings
+
+**This slice adds no new user-facing string.** Every label it touched was already `__()`-wrapped;
+the changes are class attributes plus an `aria-label` and an `aria-hidden` on the Edit control,
+both reusing the existing `__('Edit')`. `ArabicUiCoverageTest` passes unchanged and
+`ArabicUiCoverageTest::SURFACES` needs no widening — no view directory was added.
+
+Read back in Arabic at the repaired tones: "نطاق مخصص" and "النطاق الفرعي" at `rgb(140,29,23)`,
+"غير محدود" at `rgb(26,29,35)`, "المنتجات" and "مخزن" at `rgb(91,95,102)`, the Edit control named
+"تحرير". The `/countries` grid was checked for horizontal overflow in RTL at 1440px and 390px: none.

@@ -121,6 +121,13 @@ const TIER_B = [
   ['/dashboard', 'resources/views/superadmin/dashboard.blade.php'],
   ['/plan', 'resources/views/plans/index.blade.php'],
   ['/plan/create', 'resources/views/plans/create.blade.php'],
+  /* GAP-179 slice 2. `plans/edit.blade.php` was NOT in slice 1's list and that was an omission,
+     not a judgement: comment-stripped, it carries the SAME five offending elements as
+     `plans/create.blade.php` (four `.text-danger` notes and one `.input-group-text`) and differs
+     from it only in indentation and quote style. Fixing one of a byte-similar pair and measuring
+     only that one is how a defect survives its own repair, so the edit form is a surface now.
+     The id is the dev fixture's only plan (`plans.id = 1`, "P2 Dev Plan"). */
+  ['/plan/1/edit', 'resources/views/plans/edit.blade.php'],
   ['/plan-request', 'resources/views/plan_request/index.blade.php'],
   ['/stores', 'resources/views/store/index.blade.php'],
   ['/stores/create', 'resources/views/store/create.blade.php'],

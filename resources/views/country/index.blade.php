@@ -178,7 +178,7 @@
                                     </div>
                                 </div>
                                 <div class="row mt-3 g-0">
-                                    <div class="card-body table-border-style">
+                                    <div class="card-body table-border-style ss-dt-card-body">
                                         <div class="table-responsive ecom-data-table">
                                             <table class="table" id="country-table" style="width:100%">
                                                 <thead>
@@ -243,7 +243,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-body table-border-style">
+                            <div class="card-body table-border-style ss-dt-card-body">
                                 <div class="table-responsive ecom-data-table">
                                     <table class="table" id="state-data-table" style="width:100%">
                                         <thead>
@@ -307,7 +307,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-body table-border-style">
+                            <div class="card-body table-border-style ss-dt-card-body">
                                 <div class="table-responsive ecom-data-table">
                                     <table class="table" id="city-table" style="width:100%">
                                         <thead>
