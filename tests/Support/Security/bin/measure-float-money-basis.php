@@ -9,6 +9,15 @@
  * docblock grounds that in: *"The figure comes off `orders.final_price`, which is FLOAT -- about
  * seven significant digits on a currency that runs to millions."*
  *
+ * **THE DOCBLOCK NO LONGER SAYS THAT, as of 2026-11-26 — this script is what corrected it.** The
+ * quotation above is kept verbatim because it is the claim under test and the reason this file
+ * exists; `MetricCaveat::FLOAT_PRECISION`'s docblock now carries the measurement below instead, and
+ * records that the caveat STAYS ATTACHED for a different reason: the migrations are not the schema,
+ * nothing here can read production's `orders` table, and withdrawing a disclosure on the strength of
+ * a FRESH schema would be the same error in the opposite direction. The merchant-facing SENTENCE is
+ * unchanged and escalated as owner decision `J24`, because a more accurate wording is a string on
+ * eleven surfaces with an Arabic translation beside it.
+ *
  * CLAUDE.md §1 records the opposite, and records that a caveat was once attached and then WITHDRAWN
  * on exactly this point: **`$table->float()` emits a MySQL `double`**, so money off such a column is
  * not that caveat's basis. Two documents in this repository disagreed about a sentence merchants

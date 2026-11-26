@@ -561,6 +561,19 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **Already closed without you** | The replay half: one charge id used to write **two** orders, and now claims. That needed no decision. |
 | **Blocked** | Only the amount refusal. |
 
+### J24 — `GAP-287`: a caveat on eleven merchant surfaces overstates its own risk by a thousandfold
+
+| | |
+|---|---|
+| **The choice** | Re-word the caveat, or withdraw it? |
+| **Why it is yours** | It is a sentence merchants read, on eleven surfaces, with an Arabic translation beside it. A more accurate wording is copy, and engineering must not write it. |
+| **What it says now** | *"This figure is stored at limited precision and may differ from the ledger in the smallest units."* |
+| **Measured, and it is wrong in both directions** | **(1) The stated basis is refuted.** Its docblock grounded the caveat in `orders.final_price` being *"FLOAT — about seven significant digits"*. `$table->float()` emits a MySQL **`double`**: `COLUMN_TYPE double`, `NUMERIC_PRECISION 22`, and **0 of 5 money values lose precision** — while the control, a column declared literally `FLOAT`, loses **3 of 5**. **(2) The magnitude is overstated by three orders of magnitude.** Over 10,000 accumulated rows the running total diverged from the exact decimal by **0.0000111163 on 253,136,425.00** — about a thousandth of a cent. The sentence promises a difference *in* the smallest units; the measured difference is a thousandth of one. |
+| **Why engineering did not simply withdraw it** | **The migrations are not the schema**, and nothing in this environment can read production's `orders` table. A column altered by hand years ago reads however it was altered. Withdrawing a disclosure on the strength of a *fresh* schema would be the same error in the opposite direction. |
+| **What engineering did do** | Corrected both docblocks, which are developer-facing and need no translation, and left the merchant string byte-identical. The existing Arabic is a faithful translation of a sentence that overstates, so it is wrong in the same way and by the same amount — **one content decision fixes both.** |
+| **What would settle it outright** | `SHOW CREATE TABLE orders` on production. If the column is a `double` there too, the caveat can be re-worded to the measured magnitude or dropped; if it is a real `FLOAT`, the present wording is roughly right and should stay. |
+| **Blocked** | The wording only. Nothing else waits on this. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to

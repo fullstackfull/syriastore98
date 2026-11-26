@@ -93,10 +93,43 @@ final class MetricCaveat
     public const MIXED_CURRENCY = 'mixed_currency';
 
     /**
-     * Section 11 rule 4. The figure comes off `orders.final_price`, which is FLOAT -- about seven
-     * significant digits on a currency that runs to millions. Aggregate on
-     * `store_order_financials` (DECIMAL(15,2)) wherever both are available; GMV is the one metric
+     * Section 11 rule 4. The figure comes off `orders.final_price`; aggregate on
+     * `store_order_financials` (DECIMAL(15,2)) wherever both are available. GMV is the one metric
      * where they are not.
+     *
+     * THIS DOCBLOCK SAID "which is FLOAT -- about seven significant digits on a currency that runs
+     * to millions". THAT BASIS IS REFUTED BY MEASUREMENT, in both directions, and the caveat it
+     * grounds is still attached because its WORDING is a merchant-facing sentence and not
+     * engineering's to rewrite (`GAP-287`, owner decision `J24`).
+     * =============================================================================================
+     *
+     * 1. THE COLUMN IS NOT A `FLOAT`. `$table->float()` emits a MySQL **`double`**. Measured on
+     *    10.11.14-MariaDB with the exact declarations the two migrations use: `COLUMN_TYPE` is
+     *    `double`, `information_schema.NUMERIC_PRECISION` is 22, and **0 of 5 money values lost
+     *    precision** -- `2500000.49`, `1234567.89` and `999999.99` all round-trip exactly. The
+     *    control settles that this is discriminating rather than lucky: the same five values
+     *    through a column declared literally `FLOAT` lose **3 of 5** (`2500000.49` -> `2500000`,
+     *    `1234567.89` -> `1234570`). Script:
+     *    `tests/Support/Security/bin/measure-float-money-basis.php`.
+     *
+     * 2. THE MAGNITUDE IS OVERSTATED BY THREE ORDERS OF MAGNITUDE, which is the half that matters
+     *    for the sentence a merchant reads. Accumulation, not a single value, is what a report
+     *    does -- and over 10,000 rows the running total diverged from the exact decimal by
+     *    **0.0000111163 on 253,136,425.00**, with `DECIMAL(15,2)` exact to the cent. That is about
+     *    a thousandth of a cent. The message promises a difference "in the smallest units"; the
+     *    measured difference is a thousandth of one.
+     *
+     * 3. SO WHY IS THE CAVEAT STILL HERE. Because **the migrations are not the schema** (CLAUDE.md
+     *    section 1) and nothing in this environment can read production's `orders` table. A column
+     *    altered by hand reads however it was altered, and `SHOW CREATE TABLE orders` on production
+     *    is the only thing that closes it. Withdrawing a disclosure on the strength of a FRESH
+     *    schema would be the same error in the opposite direction.
+     *
+     * WHAT IS WRONG IS THEREFORE THE WORDING, NOT THE PRESENCE. A more accurate sentence is a
+     * merchant-facing string on eleven surfaces with an Arabic translation beside it, and that
+     * Arabic is content -- so it is escalated rather than guessed at. The existing Arabic is a
+     * faithful translation of a sentence that overstates, so it is wrong in the same way and by the
+     * same amount; one content decision fixes both.
      */
     public const FLOAT_PRECISION = 'float_precision';
 
@@ -109,9 +142,14 @@ final class MetricCaveat
      * two including shipping and tax, Shipping charged and Coupon value applied -- so a cell
      * saying "This figure" leaves the reader to guess which of the six it means.
      *
-     * The basis is identical and was measured, not assumed: every one of those six is accumulated
-     * in `ReportController` as `+= (float) $order->...` off `orders.final_price`, which is FLOAT
-     * (see `FLOAT_PRECISION` above). This constant states that about all of them at once. It adds
+     * The basis is identical: every one of those six is accumulated in `ReportController` as
+     * `+= (float) $order->...` off `orders.final_price`. This constant states that about all of
+     * them at once. **It also inherits `FLOAT_PRECISION`'s refuted premise verbatim** -- this
+     * paragraph read "which is FLOAT (see `FLOAT_PRECISION` above)" and the column is a `double`;
+     * read that docblock for the measurement and for why the caveat stays attached anyway. The
+     * accumulation this constant is specifically about is the half that was measured: 10,000 rows
+     * diverge by 0.0000111163 on 253,136,425.00, so the plural form overstates by the same three
+     * orders of magnitude as the singular. It adds
      * no inclusion rule, no payment-status predicate and no new definition of any figure -- those
      * belong to the owner's D1/D2 labelling decisions, and the column HEADERS already carry the
      * labels those decisions settled.
