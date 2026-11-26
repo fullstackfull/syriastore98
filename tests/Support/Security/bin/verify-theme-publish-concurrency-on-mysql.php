@@ -405,12 +405,53 @@ try {
     check('EXACTLY ONE of two concurrent first-publishes is accepted', $accepted === 1,
         "accepted={$accepted}; parent={$parentSays}; child=" . substr($childSays, 0, 120));
 
+    /*
+     * GAP-315 -- ATTRIBUTE THE THROW, DO NOT MERELY REPORT IT.
+     *
+     * This script failed about one run in five, in BOTH load conditions (so not a scheduler
+     * artefact), and the two checks below were the ones that failed -- together, which is their
+     * signature when the child THREW instead of being cleanly refused. Two hypotheses were offered
+     * and BOTH WERE WRONG: an InnoDB lock-wait timeout (1205), and a deadlock (1213) or a duplicate
+     * key on the pointer insert. The captured child said:
+     *
+     *     ErrorException: file_put_contents(storage/framework/cache/data/85/8c/858c0f4e...):
+     *                     Failed to open stream
+     *
+     * It is the FILE CACHE, not the database. `MODEL_CACHE_STORE=file` is set deliberately above --
+     * on the database store `flushCache()` is `DELETE FROM cache`, which joins the open transaction
+     * and makes the in-transaction flush behave like a post-commit one, so the race cannot occur at
+     * all. File is the only configuration in which the control under test is load-bearing. But
+     * `flushCache()` on a non-taggable store is a WHOLE-STORE `Cache::flush()`, which removes the
+     * `data/` tree -- so one racer unlinks the directory the other is writing into, and the loser
+     * dies with an ErrorException instead of being told.
+     *
+     * SO THE RESIDUAL IS REAL AND IT IS NOT `ThemePublishingService`'s. It belongs to the file
+     * store, which production does not use (`config/laravel-model-caching.php:35` is
+     * `env('MODEL_CACHE_STORE')` with NO default, `.env.example` leaves it commented out, so the
+     * default store applies and production's is `database`).
+     *
+     * FIXING THE BARRIER IS WHAT EXPOSED IT, exactly as the author of that fix predicted: with a
+     * fake barrier the two publishes rarely overlapped, so the collision window was rarely entered.
+     *
+     * The checks below STILL FAIL on it -- it is a genuine defect of that configuration and must not
+     * be tolerated into a pass. What changes is that they now say WHICH defect, so the next failure
+     * is readable in one line rather than in a 45-minute capture loop.
+     */
+    $throwCause = ! str_contains($childSays, 'THREW')
+        ? ''
+        : (str_contains($childSays, 'framework/cache')
+            ? ' [CAUSE: GAP-315, the MODEL_CACHE_STORE=file whole-store flush racing a concurrent'
+              . ' cache write -- NOT the publishing path, and not reachable on production\'s'
+              . ' database store. Expected failure mode until GAP-315 is closed.]'
+            : ' [CAUSE: NOT GAP-315 -- this throw does not name framework/cache, so it is the'
+              . ' publishing path itself. THIS IS THE ONE WORTH CHASING.]');
+
     check('the loser is TOLD rather than answering 500',
         str_contains($parentSays, 'REFUSED') || str_contains($childSays, 'REFUSED'),
-        "parent={$parentSays}; child=" . substr($childSays, 0, 120));
+        "parent={$parentSays}; child=" . substr($childSays, 0, 120) . $throwCause);
 
     check('neither racer threw', ! str_contains($childSays, 'THREW'),
-        substr($childSays, 0, 160));
+        substr($childSays, 0, 160) . $throwCause);
 
     /*
      * GAP-295 -- THE INSTRUMENT, ASSERTED. The child records `PARKED` when it reached its wait
