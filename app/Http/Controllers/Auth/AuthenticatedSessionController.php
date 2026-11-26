@@ -73,8 +73,45 @@ class AuthenticatedSessionController extends Controller
             return redirect()->back()->with('status', __('Your Account is disable,please contact your Administrator.'));
         }
 
-        $request->authenticate();
+        /*
+         * `IAM-002` / `IAM-004` — THE OPERATOR'S INTERACTIVE SESSION REACHES THE CENTRAL AUDIT LOG.
+         *
+         * This file carried ZERO references to `AuditLog` before this change, so the trail
+         * recorded what the operator DID and never that they had signed in, from where, or that
+         * somebody had tried and failed. `IAM-004`'s load-bearing word is "مركزي" (central), and
+         * `IAM-002` is "مصادقة قوية وإدارة الجلسات" (strong authentication and session
+         * management).
+         *
+         * THE FAILURE IS CAUGHT AND RE-THROWN UNCHANGED. `LoginRequest::authenticate()` throws
+         * `ValidationException` both for bad credentials and for the rate limiter, and both are
+         * failures worth a row. Re-throwing the SAME exception keeps the response, the status, the
+         * error bag and the throttle behaviour byte-for-byte what they were: nothing a visitor
+         * sees changes, which is the requirement for touching a sign-in path at all.
+         *
+         * `App\Support\Iam\OperatorSessionAudit` is a NO-OP for every principal but the platform
+         * operator, and its docblock gives the measured reason (an `Illuminate\Auth\Events\Login`
+         * listener would write one row per Sanctum-authenticated API request, because
+         * `CustomAuth:110-117` calls `auth()->login()` on 189 route declarations).
+         */
+        try {
+            $request->authenticate();
+        } catch (\Throwable $e) {
+            \App\Support\Iam\OperatorSessionAudit::signInFailed($user);
+
+            throw $e;
+        }
+
         $request->session()->regenerate();
+
+        /*
+         * AFTER `regenerate()`, so the row belongs to the session the operator actually holds
+         * rather than to the pre-authentication one. The principal is read from the `web` guard
+         * explicitly and not from `$user` above: `$user` came from a lookup on request input,
+         * while the guard holds whoever was actually authenticated, and those are the same row
+         * here only because `authenticate()` succeeded. Taking it from the guard means this
+         * cannot drift into recording an identity that was not signed in.
+         */
+        \App\Support\Iam\OperatorSessionAudit::signedIn(Auth::guard('web')->user());
         if (isset($settings['email_verification']) && $settings['email_verification'] == "on") {
             if ($user != null && $user->type == 'admin' && empty($user->email_verified_at)) {
                 return redirect()->route('verify-email')->with('status', __('Your email is not verified,please verfiy email then you can access dashboard.'));
@@ -143,6 +180,12 @@ class AuthenticatedSessionController extends Controller
      */
     public function destroy(Request $request): RedirectResponse
     {
+        /*
+         * `IAM-004` — RECORDED BEFORE `logout()`, because afterwards there is no principal to
+         * name. The recorder is a no-op for everyone but the platform operator; see its docblock.
+         */
+        \App\Support\Iam\OperatorSessionAudit::signedOut(Auth::guard('web')->user());
+
         // Clear the language cookie
         Cookie::queue(Cookie::forget('LANGUAGE'));
         Auth::guard('web')->logout();

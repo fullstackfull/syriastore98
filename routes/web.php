@@ -1459,6 +1459,50 @@ Route::get(
         ->name('platform.documentation.preview');
 
     /*
+     * `IAM-003` — TWO-PERSON APPROVAL FOR DANGEROUS OPERATOR ACTIONS. The second operator's queue.
+     *
+     * Recovered decision text (`docs/development/master-plan/DECISION-ID-REGISTER.md:239`):
+     * *"موافقات ثنائية للإجراءات الخطرة."* — two-person approval for dangerous actions.
+     *
+     * DECLARED HERE, BESIDE THE OTHER `platform/*` SCREENS, and taking the same gate for the same
+     * reason: `PlatformOperatorOnly` and NOT a permission name. A merchant creates their own roles
+     * through the product, so a permission is substantially self-assignable — and `isAbleTo()`
+     * alone would refuse the platform operator outright, since there is no super-admin bypass in
+     * this codebase, so a permission gate would be wrong in both directions at once.
+     *
+     * Inside the same `auth` group as its neighbours, so an anonymous caller is redirected to sign
+     * in by `auth` — which runs first — rather than told 403 by the operator check; and 403 and
+     * never 401 for a signed-in non-operator, because repo B maps any 401 to a forced logout.
+     *
+     * THE HANDLERS CHECK AGAIN. `OperatorApprovalController::refuseAnyoneButTheOperator()` repeats
+     * the test on every method, because relying on route grouping alone has failed in this
+     * repository before, and because `GAP-307` measured a handler-level check behind an
+     * `abort()`ing middleware being invisible to its own green HTTP tests.
+     *
+     * NO ROUTE-MODEL BINDING ON `{approval}`. It is a plain segment the controller parses with
+     * `FILTER_VALIDATE_INT` and looks up itself: `SubstituteBindings` is `web`-group middleware and
+     * therefore runs BEFORE this route's `PlatformOperatorOnly`, so a bound model that did not
+     * exist would answer 404 ahead of the gate and satisfy a refusal assertion the guard never
+     * reached.
+     *
+     * THESE THREE ROUTES TAKE THE GATE'S MEASURED BLAST RADIUS FROM 37 TO 40, all three inside the
+     * existing `platform/` bucket (9 → 12). `PlatformOperatorOnlyPrincipalTest::GROUP_SIZES` and
+     * the partition table in `PlatformOperatorOnly`'s own docblock are updated in the same change —
+     * that test fails in both directions precisely so this cannot be forgotten.
+     */
+    Route::get('platform/approvals', [\App\Http\Controllers\OperatorApprovalController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.approvals.index');
+
+    Route::post('platform/approvals/{approval}/approve', [\App\Http\Controllers\OperatorApprovalController::class, 'approve'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.approvals.approve');
+
+    Route::post('platform/approvals/{approval}/reject', [\App\Http\Controllers\OperatorApprovalController::class, 'reject'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.approvals.reject');
+
+    /*
      * GAP-104 / P03-C-05 — THE OFFICIAL WEBSITE'S CONTENT EDITOR, for the platform operator only.
      *
      * The public site is `platform/...`, registered in the unauthenticated group near the top of
