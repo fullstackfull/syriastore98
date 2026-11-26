@@ -291,10 +291,118 @@ class Cart extends Model
         // One entry per cart line, filled by the loop and consumed by the coupon/tax pass after
         // it. See the note at the `$coupon_lines[]` push below (P4-F001 / P4-F062).
         $coupon_lines = [];
+        /*
+         * THE GUEST TWIN OF GAP-241 / GAP-245. A COOKIE BASKET LINE WHOSE PRODUCT OR VARIANT HAS
+         * BEEN DELETED IS DROPPED HERE AND NAMED BACK TO THE SHOPPER, instead of answering 500.
+         *
+         * RAISED FROM THE CODE WHILE CLOSING THE SIGNED-IN ARM: neither GAP-241 nor GAP-245 names
+         * this method -- both describe `ApiController::cart_list()` -- so this is a finding of its
+         * own rather than a row being worked. Four unguarded dereferences in the NON-MODULE arm,
+         * the one that runs whenever no WorkDo module is loaded: `$cart_product_data->id` and
+         * `->variant_id` (the plain branch), `$ProductVariant->variant` and
+         * `$ProductVariant->discount_price * $cart_value->qty` (the variant branch), and
+         * `$cart_product_data->product_type` on the image block, which runs for BOTH.
+         *
+         * REACHABLE BY THE SAME MECHANISM, and DRIVEN rather than inferred: `scopeForGuestCookie`
+         * keys on `carts.cookie_session_id`, so a guest's basket is real `carts` ROWS, not
+         * cookie-encoded data; `carts` has no foreign key onto `products` or `product_variants`
+         * and neither model uses `SoftDeletes`. `POST {storeSlug}/cart-list-sidebar` answered
+         * HTTP 500 for a guest whose basket held a deleted product -- measured, and the shopper
+         * sees it on the cart screen.
+         *
+         * THE DECISION IS THE SAME ONE, DELIBERATELY: drop the line, name it, recompute. A shopper
+         * must not get a different answer to the same problem depending on whether they are signed
+         * in, and a divergence between the two arms is the hazard GAP-245 names. Nothing measured
+         * argued for a third behaviour here.
+         *
+         * WHAT THE PREDICATE IS ON THIS ARM, because it is NOT `customer_id` and the global scope
+         * is NOT doing it: `Cart` IS in `config/tenancy.php`'s `scoped_models`, but a guest
+         * resolves no tenant and `null_tenant => 'open'` makes the scope add NOTHING -- so the
+         * explicit `forGuestCookie($cookie)->where('store_id', $store_id)` above is the whole of
+         * it. The loop below reads only those rows and adds no new identifier, and two cases in
+         * `StorefrontGuestStaleCartLineTest` drive that boundary (another guest's cookie, and a
+         * cookie whose basket is in another store) rather than assuming it was left alone.
+         *
+         * The `continue` goes BEFORE `$cart_product_data` is assigned. Nothing after this loop
+         * reads it today -- unlike the signed-in arm, whose tax block does -- but writing a null
+         * into it for a dropped line would make that silently false the day something does.
+         */
+        $unavailable_lines = [];
         if (!empty($Carts)) {
             foreach ($Carts as $key => $cart_value) {
                 $variant_name = '';
-                $cart_product_data = Product::find($cart_value->product_id);
+                $ssLineProduct = Product::find($cart_value->product_id);
+                $ssLineVariantId = (int) ($cart_value->variant_id ?? 0);
+                $ssLineVariant = $ssLineVariantId > 0 ? ProductVariant::find($ssLineVariantId) : null;
+
+                if (empty($ssLineProduct) || ($ssLineVariantId > 0 && empty($ssLineVariant))) {
+                    /*
+                     * THE NAME IS CARRIED ONLY WHEN IT IS THIS STORE'S TO GIVE, and the test is a
+                     * PROVABLE MISMATCH rather than equality.
+                     *
+                     * `Product::find()` here is unscoped -- `Product` carries `StoreScope` through
+                     * `BelongsToStore` but is NOT in `scoped_models`, so the scope is inert for
+                     * every principal -- and a guest `carts` row can hold a foreign `product_id`
+                     * exactly as a signed-in one can (the API writer refuses one; the vendored
+                     * module writers do not). Such a line used to answer 500, so naming it
+                     * unguarded would trade a crash for a disclosure of another merchant's product
+                     * name. That hole was opened and closed on the signed-in arm in the previous
+                     * change; it is not repeated here.
+                     *
+                     * IT COVERS THE DROPPED LINE'S NAME AND NOTHING WIDER. The SURVIVING-line arm
+                     * of this same loop still hands a foreign product's `name` (`:578`), `image`
+                     * (`:570`/`:573`/`:576`) and price over with no gate, because
+                     * `$cart_product_data` is that same unscoped `Product::find()` and
+                     * `Product::ProductPrice()` does its own (`Product.php:320`) -- the exact twin
+                     * of the signed-in arm's `:917`/`:919`. PRE-EXISTING, wider than what is fixed
+                     * here, reported for its own register row, and this comment must not be read
+                     * as claiming it.
+                     *
+                     * Mismatch and not equality because `products.store_id` is NULLABLE
+                     * (2023_12_26_092822_create_products_table.php:49) and
+                     * `Api\ApiController::productOfCartLineStore()` already accepts a NULL and
+                     * refuses only a provable mismatch (GAP-237). Equality would withhold only the
+                     * NAME -- the shopper would still get the generic "Some items are no longer
+                     * available" message, and no pricing and no flow would change -- so the choice
+                     * between them is a message-quality trade and not a safety one.
+                     *
+                     * SAME ACCEPTED RESIDUAL AS THE SIGNED-IN ARM: a `store_id IS NULL` product
+                     * still yields its name, and such products are producible
+                     * (`ProductController:912` is `$Product->store_id = getCurrentStore();`, null
+                     * for a storeless user). Deliberate, for the reason recorded there.
+                     *
+                     * BUT THIS ARM IS WEAKER THAN ITS TWIN, AND IN THE FAIL-CLOSED DIRECTION --
+                     * worth saying rather than letting it read as the same gate. `$store_id` here
+                     * is `$store->id ?? getCurrentStore()`, and `getCurrentStore()` reads the
+                     * DEFAULT (`web`) guard, so for a guest on a `Store::find('')` miss it is
+                     * null. `(int) null === 0` then matches no real product, so EVERY non-NULL
+                     * product's name is withheld. Safe; just a worse message than the signed-in
+                     * arm would give in the same state.
+                     *
+                     * `cart_id` HERE IS THE REAL `carts.id`, which is the same meaning the
+                     * signed-in arm's `unavailable_products` carries -- deliberately NOT the loop
+                     * index that `product_list.cart_id` uses on this arm (`:559` below). That
+                     * asymmetry is recorded at PaymentController.php:2101-2129, where reading the
+                     * loop index as a row id released an idempotency claim for every guest;
+                     * changing the OLD key is a storefront contract change that comment defers, so
+                     * it is left exactly as it was and only the new structure is consistent.
+                     */
+                    $ssNameIsOurs = ! empty($ssLineProduct)
+                        && ($ssLineProduct->store_id === null
+                            || (int) $ssLineProduct->store_id === (int) $store_id);
+
+                    $unavailable_lines[] = [
+                        'cart_id' => (int) $cart_value->id,
+                        'product_id' => (int) $cart_value->product_id,
+                        'variant_id' => $ssLineVariantId,
+                        'name' => $ssNameIsOurs ? (string) ($ssLineProduct->name ?? '') : '',
+                        'reason' => empty($ssLineProduct) ? 'product_unavailable' : 'variant_unavailable',
+                    ];
+
+                    continue;
+                }
+
+                $cart_product_data = $ssLineProduct;
                 if (module_is_active('WholesaleProduct')) {
                     if (!module_is_active('SizeGuideline')) {
                         if (module_is_active('WholesaleProduct')) {
@@ -650,6 +758,50 @@ class Cart extends Model
         }
 
         /*
+         * THE GUEST TWIN, SECOND HALF: THE PAYLOAD KEEPS THE SHAPE ITS CONSUMERS READ.
+         *
+         * `product_list` is keyed by the cart collection's index, so the `continue` above leaves a
+         * GAP and `json_encode` then emits a JSON OBJECT instead of an array. On this arm there is
+         * a second invariant on top of that: `:559` sets `['cart_id'] = $key`, so `cart_id` IS the
+         * position today, and four storefront views render it into `data-id` / `cart-id`. Dropping
+         * a line without renumbering would break that silently.
+         *
+         * RENUMBERING IS SAFE, AND THAT IS MEASURED RATHER THAN ASSUMED. On the GUEST branch
+         * `CartController::change_cart:188-200` ignores the posted `cart_id` entirely and keys on
+         * `product_id`/`variant_id` (which the same views also render), so the quantity and remove
+         * paths cannot be affected by it. Renumbering therefore PRESERVES what `cart_id` means on
+         * this arm -- the loop index of the list it labels -- rather than changing it; making it a
+         * real `carts.id` is the storefront contract change PaymentController.php:2126-2129
+         * explicitly defers, and it is NOT done here.
+         *
+         * `cart_total_product` moves with the list for the same reason as on the signed-in arm:
+         * it was `$Carts->count()`, the raw rows, and `CartController::cart_list_sidebar:111`
+         * hands it to the sidebar heading that sits directly above a `@foreach` over this list.
+         * Identical for a basket with nothing stale in it.
+         */
+        $cart_array['product_list'] = array_values($cart_array['product_list']);
+
+        foreach ($cart_array['product_list'] as $ssPosition => $ssLine) {
+            $cart_array['product_list'][$ssPosition]['cart_id'] = $ssPosition;
+        }
+
+        $cart_array['unavailable_products'] = $unavailable_lines;
+        $cart_array['unavailable_message'] = '';
+
+        if (! empty($unavailable_lines)) {
+            $ssGoneNames = array_values(array_filter(array_map(
+                static fn ($ssLine) => $ssLine['name'],
+                $unavailable_lines
+            ), static fn ($ssName) => $ssName !== ''));
+
+            $cart_array['unavailable_message'] = empty($ssGoneNames)
+                ? __('Some items are no longer available and have been removed from your cart.')
+                : __('Some items are no longer available and have been removed from your cart: :products', [
+                    'products' => implode(', ', $ssGoneNames),
+                ]);
+        }
+
+        /*
          * SECOND PASS: ONE COUPON ACROSS THE BASKET, THEN TAX ON WHAT IS LEFT.  P4-F001 / P4-F062.
          *
          * `$cart_final_price` is the pre-coupon subtotal -- the loop above accumulated it BEFORE the
@@ -724,7 +876,9 @@ class Cart extends Model
             $final_total = ($cart_final_price - $coupon_price) + $shipping_price + ($is_inclusive_tax ? 0 : $tax_price);
         }
 
-        $cart_array['cart_total_product'] = $Carts->count();
+        // The guest twin of GAP-241/GAP-245: the lines actually handed back, not the raw cart
+        // rows. See the note above the re-index.
+        $cart_array['cart_total_product'] = count($cart_array['product_list']);
         $cart_array['cart_total_qty'] = $cart_total_qty;
         $cart_array['original_price'] = SetNumber($original_price);
         $cart_array['final_price'] = SetNumber($cart_final_price);
