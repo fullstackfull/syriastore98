@@ -142,7 +142,18 @@ final class FeatureControl
 
         $percentage = $flag->resolvedPercentage();
 
-        if ($storeId !== null && $percentage > 0 && self::bucket($key, $storeId) < $percentage) {
+        /*
+         * `> 0` AND NOT `!== null`, SO "NO SUBJECT" MEANS THE SAME THING TO ALL FOUR LIMBS.
+         *
+         * Found by reading rather than by a mutation. `subject()` treats a non-positive store id as
+         * no subject at all, so `decide($key, 0)` matches no store, plan or pilot target. With
+         * `!== null` here, that same call could still fall INSIDE the rollout percentage --
+         * `bucket($key, 0)` is a perfectly good number -- so store 0 was refused by every named
+         * rule and admitted by the unnamed one. A caller reaches it by casting: `getCurrentStore()`
+         * answers null for a merchant with no store (CLAUDE.md records that as a supported product
+         * state) and `(int) null` is 0.
+         */
+        if ($storeId > 0 && $percentage > 0 && self::bucket($key, $storeId) < $percentage) {
             return FeatureDecision::Allowed;
         }
 
@@ -207,12 +218,25 @@ final class FeatureControl
             return [];
         }
 
+        /*
+         * COUNTED IN PHP, NOT WITH `DB::raw('count(*)')`, and that is deliberate rather than
+         * fussy. CLAUDE.md records a LIVE cross-tenant injection found among this codebase's
+         * dynamic raw-SQL sites and a census that whitelists static strings while treating
+         * everything else as dynamic BY DEFAULT -- so that an unthought-of spelling is caught
+         * rather than reasoned about. `count(*)` is a constant and was perfectly safe; adding a
+         * site a reader has to verify by hand, for a count over a table with one row per pilot
+         * membership, is the wrong trade. There is no raw SQL in this class.
+         *
+         * `countBy()` ALSO GETS THE GROUPING RIGHT WITHOUT A COLLATION QUESTION: the slug is
+         * normalised on write, so PHP's own string keys and MySQL's `GROUP BY` agree -- which is
+         * exactly the divergence CLAUDE.md records SQLite hiding, and it is one fewer place to
+         * depend on it.
+         */
         return PlatformPilotGroupMember::query()
-            ->select('pilot_group', DB::raw('count(*) as member_count'))
-            ->groupBy('pilot_group')
             ->orderBy('pilot_group')
-            ->get()
-            ->mapWithKeys(fn ($row) => [(string) $row->pilot_group => (int) $row->member_count])
+            ->pluck('pilot_group')
+            ->countBy()
+            ->map(fn ($count) => (int) $count)
             ->all();
     }
 
@@ -783,7 +807,15 @@ final class FeatureControl
                     ->get()
                     ->all();
             } catch (\Throwable $failure) {
-                Log::warning('FeatureControl could not read a feature flag\'s targets.', [
+                /*
+                 * NO APOSTROPHE IN THE MESSAGE, AND THAT IS NOT STYLE. `SecurityLogInventoryTest`
+                 * and `resync-observability-inventory.py` extract the literal with a regular
+                 * expression that stops at the first quote -- an escaped `\'` truncates the
+                 * message they read, so the inventory row and the source can never match and the
+                 * required gate stays red with a message nobody can act on. Measured here, and
+                 * fixed by wording rather than by widening somebody else's census.
+                 */
+                Log::warning('FeatureControl could not read the targets of a feature flag.', [
                     'feature_flag_id' => $flagId,
                     'exception' => $failure->getMessage(),
                 ]);

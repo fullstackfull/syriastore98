@@ -39,10 +39,23 @@ final class PlatformChangeLog
     public const SUBJECT_FEATURE_TARGET = 'feature_flag_target';
     public const SUBJECT_PILOT_GROUP = 'pilot_group';
 
+    /**
+     * `CTRL-003`'s own second limb, logged through its own third limb.
+     *
+     * A maintenance announcement is platform control in exactly the sense §06-H means: the
+     * operator publishes words to every tenant, and "who said that, and when did it go up" is the
+     * question asked afterwards. Its `subject_key` is the announcement's id as a string rather
+     * than a slug, because an announcement has no name — and `PlatformControlChange`'s own
+     * docblock explains why the log must survive the thing it records, so the id is kept even when
+     * the row is not. (Nothing deletes one: `MaintenanceAnnouncements::withdraw()` unpublishes.)
+     */
+    public const SUBJECT_ANNOUNCEMENT = 'announcement';
+
     public const SUBJECTS = [
         self::SUBJECT_FEATURE_FLAG,
         self::SUBJECT_FEATURE_TARGET,
         self::SUBJECT_PILOT_GROUP,
+        self::SUBJECT_ANNOUNCEMENT,
     ];
 
     public const ACTION_DEFINED = 'defined';
@@ -54,6 +67,18 @@ final class PlatformChangeLog
     public const ACTION_MEMBER_ADDED = 'member_added';
     public const ACTION_MEMBER_REMOVED = 'member_removed';
 
+    /**
+     * An announcement's own two, and they are NOT `enabled`/`disabled` reused.
+     *
+     * Reusing those was the first draft and is worse than it looks: the change-log screen prints
+     * one word per action, and "Released to every store" above an announcement's id is nonsense,
+     * while a shared label would have to be vague enough to fit both and would then describe
+     * neither. Two constants and two labels cost nothing; a feed an operator cannot read after an
+     * incident is the whole thing `CTRL-003`'s change log exists to avoid.
+     */
+    public const ACTION_PUBLISHED = 'published';
+    public const ACTION_WITHDRAWN = 'withdrawn';
+
     public const ACTIONS = [
         self::ACTION_DEFINED,
         self::ACTION_ENABLED,
@@ -63,6 +88,8 @@ final class PlatformChangeLog
         self::ACTION_TARGET_WITHDRAWN,
         self::ACTION_MEMBER_ADDED,
         self::ACTION_MEMBER_REMOVED,
+        self::ACTION_PUBLISHED,
+        self::ACTION_WITHDRAWN,
     ];
 
     /**
@@ -139,6 +166,30 @@ final class PlatformChangeLog
         return PlatformControlChange::query()
             ->where('subject_type', $subjectType)
             ->where('subject_key', $subjectKey)
+            ->orderByDesc('id')
+            ->limit(max(1, $limit))
+            ->get();
+    }
+
+    /**
+     * Every entry of one KIND, newest first, whatever subject it names.
+     *
+     * `forSubject()` answers "what has happened to THIS flag"; this answers "what has happened to
+     * announcements". The distinction is not academic: an announcement has no name — its
+     * `subject_key` is its row id — so a screen about announcements cannot ask by key, and asking
+     * `recent()` instead would put feature-flag rollouts on it, where every row the operator reads
+     * is one they have to decide is irrelevant.
+     *
+     * Ordered by `id` for the reason `recent()` records: several changes made in one request share
+     * a timestamp to the second, and `created_at DESC` then returns them in whatever order the
+     * database chooses.
+     *
+     * @return \Illuminate\Support\Collection<int, PlatformControlChange>
+     */
+    public static function forSubjectType(string $subjectType, int $limit = 50): \Illuminate\Support\Collection
+    {
+        return PlatformControlChange::query()
+            ->where('subject_type', $subjectType)
             ->orderByDesc('id')
             ->limit(max(1, $limit))
             ->get();

@@ -7684,3 +7684,28 @@ td.dataTables-empty:has(.ss-empty) {
     word-break: break-all;
     unicode-bidi: isolate;
 }
+
+/* ===============================================================================================
+   PHASE 06 CTRL-003 -- the maintenance announcement a merchant reads on every panel page.
+
+   ONE RULE, ONE PROPERTY, AND NO COLOUR. The announcement's chrome is `x-ss.card` and
+   `x-ss.status-badge`, both of which already re-theme by token; the only thing this component
+   needs that neither gives it is that the operator's line breaks survive.
+
+   WHY `pre-line` RATHER THAN `nl2br()` IN THE VIEW. `nl2br()` emits a `<br>` that Blade escapes,
+   so the merchant would read the tag; emitting it raw would mean printing operator-authored text
+   through `{!! !!}`, and that write route deliberately drops the `xss` sweep -- so Blade's
+   escaping is the only control standing there and must not be bypassed. `pre-line` collapses
+   runs of spaces and honours newlines, which is exactly the behaviour a plain-text notice wants,
+   and it involves no markup at all.
+
+   NOT `pre-wrap`: it would preserve the leading indentation of a pasted paragraph, and an
+   operator pasting from a terminal at 2am is the likeliest way this field is filled.
+
+   NO COLOUR, NO BORDER, NO SPACING OVERRIDE, so this adds nothing to re-measure in the two themes
+   or the two directions. `MaintenanceAnnouncementTest` asserts the view declares no colour of its
+   own, and `SuperAdminPremiumSurfaceTest`'s rule about hex literals applies here as everywhere.
+   ============================================================================================== */
+.ss-maintenance-notice__body {
+    white-space: pre-line;
+}

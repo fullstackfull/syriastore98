@@ -31,8 +31,9 @@ use Illuminate\Support\Facades\Schema;
  *
  * Because they answer different questions and belong to different decisions. `audit_logs` is
  * `IAM-004`'s — *"سجل تدقيق مركزي واستجابة للحوادث"*, a central audit log for incident response:
- * per-actor, per-subject, carrying `store_id`, `ip_address` and `user_agent`, written by 18 call
- * sites across tenant-facing controllers. `CTRL-003`'s change log is in the §06-H *platform
+ * per-actor, per-subject, carrying `store_id`, `ip_address` and `user_agent`, written from 27
+ * call sites in `app/` and 59 across `app/` plus `packages/workdo/` -- measured, because that
+ * model's own docblock still says "18 existing call sites" and the figure has moved. `CTRL-003`'s change log is in the §06-H *platform
  * control* section, beside feature flags and gradual rollout, and its subject is the platform's own
  * configuration rather than a tenant's record. Collapsing the two would mean either flooding an
  * incident-response log with routine configuration edits, or scoping a platform-wide record with a

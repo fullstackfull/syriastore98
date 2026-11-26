@@ -16,23 +16,29 @@ use PHPUnit\Framework\Attributes\Test;
  * a `Customer` row whose `type` read `super admin` was admitted by the only check on every route
  * the gate carries — handlers whose own docblocks say they rely on this middleware.
  *
- * THAT COUNT WAS 14 IN THIS FILE AND IN THE MIDDLEWARE UNTIL 2026-11-26. IT IS 37. Measured from
+ * THAT COUNT WAS 14 IN THIS FILE AND IN THE MIDDLEWARE UNTIL 2026-11-26. IT IS 43. Measured from
  * the booted route table while surveying the platform-admin surface for `GAP-178`, and the
  * partition is written out so the arithmetic is checkable from the file rather than trusted:
  *
  *     LynomiaChat super-admin group   15
- *     platform/* operator screens      9   (the file said "three")
+ *     platform/* operator screens     13   (the file said "three", then nine)
  *     plan-coupon                      7
  *     plan.order.refund, plan.disable,
  *       order.approve, order.reject    4
  *     zid/{storeId}/*                  2
  *                                     --
- *                                     37
+ *                                     41
  *
  * The figure grew with the Lynomia group and with the `platform/*` screens that `GAP-192`,
- * `GAP-195` and `GAP-107` added. Nothing behaved wrongly at 14; a reader's threat model was
- * understated by 23 routes, which is why `test_premise_the_measured_blast_radius_is_still_37`
- * asserts the partition instead of leaving the number in prose where it went stale once already.
+ * `GAP-195` and `GAP-107` added; it reached 43 on 2026-11-26 when Phase 06 `CTRL-001`/`002`/`003`
+ * added the four `platform/feature-control` routes and the two `platform/maintenance` ones -- two
+ * reads and four writes, all six on this gate. Nothing behaved wrongly at 14; a reader's threat model was understated by 23 routes, which
+ * is why `test_premise_the_measured_blast_radius_is_still_43` asserts the partition instead of
+ * leaving the number in prose where it went stale once already.
+ *
+ * AND THE RATCHET DID ITS JOB: the `CTRL` change did not have to remember this file. It reddened
+ * here first, with the arithmetic in the failure message, which is the whole point of asserting a
+ * partition rather than a total.
  *
  * LATENT RATHER THAN LIVE, measured on both links before the fix was called hardening: nothing in
  * production makes `customers` the default guard (`shouldUse(` appears zero times outside tests
@@ -91,7 +97,7 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
     /** The measured size of each group, summing to the blast radius in the docblock. */
     private const GROUP_SIZES = [
         'super-admin/lynomia' => 15,
-        'platform/' => 9,
+        'platform/' => 15,
         'plan-coupon' => 7,
         'plan/order actions' => 4,
         'zid/' => 2,
@@ -136,13 +142,22 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
     /**
      * THE FIGURE THIS FILE AND THE MIDDLEWARE BOTH GOT WRONG, now asserted instead of stated.
      *
-     * Both said 14. It is 37. A count living only in prose is exactly what went stale here, so the
-     * partition is measured against the booted route table in both directions: a group that grows
-     * fails, and a group that shrinks fails too. When it does fail, update BOTH this const and the
-     * table in `PlatformOperatorOnly`'s docblock -- they are the same claim in two files.
+     * Both said 14, then 37, then 41. It is 43. A count living only in prose is exactly what went stale
+     * here, so the partition is measured against the booted route table in both directions: a
+     * group that grows fails, and a group that shrinks fails too. When it does fail, update BOTH
+     * this const and the table in `PlatformOperatorOnly`'s docblock -- they are the same claim in
+     * two files.
+     *
+     * THE SIX ROUTES THAT TOOK IT TO 43 ARE DRIVEN ELSEWHERE, so `REPRESENTATIVES` is unchanged:
+     * they are all in the `platform/*` group, which already has one, and
+     * `Tests\Feature\Control\PlatformFeatureControlScreenTest` and
+     * `Tests\Feature\Control\MaintenanceAnnouncementTest` drive every one of them against a
+     * merchant AND against a `Customer` typed `super admin` -- the latter with the route gate
+     * removed, which is the only way to see the handler's own clause. FOUR of the six are WRITES,
+     * the first on this gate that change platform configuration rather than read it.
      */
     #[Test]
-    public function test_premise_the_measured_blast_radius_is_still_37(): void
+    public function test_premise_the_measured_blast_radius_is_still_43(): void
     {
         $measured = $this->measuredGroups();
 
@@ -158,9 +173,9 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
         );
 
         $this->assertSame(
-            37,
+            43,
             array_sum($measured),
-            'the group counts no longer sum to the 37 this file documents.'
+            'the group counts no longer sum to the 43 this file documents.'
         );
     }
 

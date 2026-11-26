@@ -83,9 +83,29 @@ class RequiredFieldMarkerTest extends TestCase
      * to 101 in silence and the figure that proves `isRequired()` was NARROWED and not WEAKENED
      * would then live only in a docblock.
      *
-     * 165 is measured on this tree: 167 before the translated-copy redaction, 165 after, the two
+     * 165 was measured on this tree: 167 before the translated-copy redaction, 165 after, the two
      * removed being `AppSetting/index.blade.php` (pre-existing, a note rather than a control) and
      * `setting/recaptcha_setting.blade.php` (GAP-060 WS5's instruction). See `isRequired()`.
+     *
+     * **167 since 2026-11-26**, and the rise is a rise rather than a drift: Phase 06 `CTRL-001`'s
+     * feature-control screen added THREE required controls -- a feature key, a pilot group and a
+     * store number -- and all three carry the marker. This ratchet is what MADE them carry it: they
+     * shipped unmarked, this test failed, and the markers were added in the same change. Which is
+     * the ratchet working, and is why the number lives here and not in prose.
+     *
+     * THREE CONTROLS, +2 ON THIS COUNT, AND THE DISCREPANCY IS THE INSTRUMENT RATHER THAN A MISSING
+     * MARKER. Measured, after 168 was tried first and read 167. `blocks()` splits on an opening
+     * `<div>` whose class names `form-group` or a `col-*`, and a block is then judged as a WHOLE:
+     * `isRequired($block)` is a boolean. The feature key sits in one `col-12` card and the pilot
+     * group and the store number sit together in another, so the second pair is one block and is
+     * counted once.
+     *
+     * So this figure is "blocks containing at least one required control", not "required controls"
+     * -- which the method's own name slightly misdescribes, and the name is a frozen identity (see
+     * the note on this method) rather than something to correct here. Recorded because the next
+     * person to add two required fields to one column will see +1 and reasonably wonder which of
+     * them the census lost. It lost neither; marking is judged per block too, and both markers are
+     * present.
      *
      * IF THIS FAILS LEGITIMATELY — somebody added or removed a required merchant field — the fix
      * is to change the number here in the same commit, so the change is visible in a diff rather
@@ -96,9 +116,9 @@ class RequiredFieldMarkerTest extends TestCase
     {
         [, $withMarker, $without] = $this->census();
 
-        $this->assertSame(165, $withMarker + count($without), sprintf(
-            'The detector now finds %d required merchant fields; it measured 165 when the '
-            . 'translated-copy redaction was added to isRequired(). A RISE means a required field '
+        $this->assertSame(167, $withMarker + count($without), sprintf(
+            'The detector now finds %d required merchant fields; it measured 167 when Phase 06 '
+            . 'CTRL-001 added three to the feature-control screen. A RISE means a required field '
             . 'was added (fine — update this number). A DROP means one lost its attribute, or the '
             . 'detector stopped matching a shape, which is the direction that turns this whole '
             . 'ratchet vacuous.',

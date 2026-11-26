@@ -471,14 +471,16 @@ class PlatformChangeLogTest extends SecurityTestCase
     public function test_the_change_log_vocabulary_is_the_declared_set(): void
     {
         $this->assertSame(
-            ['feature_flag', 'feature_flag_target', 'pilot_group'],
-            collect(PlatformChangeLog::SUBJECTS)->sort()->values()->all()
+            ['announcement', 'feature_flag', 'feature_flag_target', 'pilot_group'],
+            collect(PlatformChangeLog::SUBJECTS)->sort()->values()->all(),
+            'The change log\'s subject vocabulary changed. `announcement` is CTRL-003\'s own '
+            . 'second limb logged through its third -- see PlatformChangeLog::SUBJECT_ANNOUNCEMENT.'
         );
 
         $this->assertSame(
             [
                 'defined', 'disabled', 'enabled', 'member_added', 'member_removed',
-                'rollout_changed', 'target_added', 'target_withdrawn',
+                'published', 'rollout_changed', 'target_added', 'target_withdrawn', 'withdrawn',
             ],
             collect(PlatformChangeLog::ACTIONS)->sort()->values()->all(),
             'The change log\'s action vocabulary changed. Both columns are plain strings, so '

@@ -1466,6 +1466,136 @@ Route::get(
         ->withoutMiddleware('xss')
         ->name('platform.site_content.update');
 
+    /*
+     * PHASE 06 `CTRL-001` / `CTRL-002` / `CTRL-003` — THE FEATURE CONTROL PLANE'S OPERATOR SCREEN.
+     *
+     * Declared here, beside `platform/analytics`, `platform/resources`, `platform/revenue`,
+     * `platform/documentation` and `platform/site-content`, because it is the same kind of surface
+     * and takes the same gate for the same reason: `PlatformOperatorOnly` and NOT a permission name.
+     * A merchant creates their OWN roles through the product, so a permission is substantially
+     * self-assignable, while the subject here is WHICH TENANTS a feature reaches. CLAUDE.md records
+     * that `isAbleTo()` alone would also refuse the platform operator outright — there is no
+     * super-admin bypass in this codebase — so a permission gate would be wrong in both directions
+     * at once.
+     *
+     * Inside the same `auth` group as its neighbours, so an anonymous caller is redirected to sign
+     * in by `auth` — which runs first — rather than told 403 by the operator check; and 403 and
+     * never 401 for a signed-in non-operator, because repo B maps any 401 to a forced logout.
+     *
+     * THE HANDLER CHECKS AGAIN, in all four actions, because relying on route grouping alone has
+     * failed in this repository before: `RouteCollection::addToCollections()` keys on
+     * method+domain+uri, so a later declaration of the same verb and URI REPLACES the earlier one
+     * and silently drops its middleware (`GAP-268` found a real instance).
+     *
+     * THE THREE WRITES ARE POSTs AND CARRY NO ROUTE PARAMETER. A GET would let a crawled link, a
+     * prefetch or a stale bookmark switch a platform feature off; and a `{key}` segment would be
+     * bound before the gate ran — `SubstituteBindings` is `web`-group middleware, so a missing
+     * model answers 404 ahead of the operator check, which is how a refusal test comes to be
+     * satisfied by a route that never reached the guard. The key arrives in the body and is
+     * validated there.
+     *
+     * THE THREE WRITES DROP `xss`, AND ONLY `xss`, FOR THE SAME REASON `platform/site-content`'s
+     * WRITE DOES — AND THIS COMMENT SAID THE OPPOSITE UNTIL IT WAS MEASURED.
+     *
+     * `App\Http\Middleware\XSS` deletes four substrings from EVERY string in EVERY request it
+     * handles — `['&lt;', '&gt;', 'javascript', 'alert']`, `XSS::STRIPPED_SUBSTRINGS`, applied by a
+     * case-sensitive `str_replace` with an exemption list covering credential-shaped keys only.
+     * The first draft of this block claimed these routes "carry identifiers and a number, none of
+     * which can contain those substrings in a form the middleware would touch". That is false, and
+     * obviously so once executed:
+     *
+     *     str_replace(XSS::STRIPPED_SUBSTRINGS, '', 'stock-alerts')   ===   'stock-s'
+     *
+     * `alert` is not an exotic word in a feature key — `stock-alerts`, `price-alert`,
+     * `alert-banner` are the names somebody really types. So an operator would declare a flag, the
+     * screen would report success, a DIFFERENT key would be stored, and the code asking for the
+     * key they typed would get `NotControlled` for ever. Silently. The same applies to a pilot
+     * group named `stock-alerts` and to a target naming one.
+     *
+     * WHAT IS GIVEN UP, named rather than waved away: nothing these routes rely on. `XSS` is an
+     * INPUT sanitiser, not an output encoder. Of the fields these three accept, `key`, `value` and
+     * `group` are validated against `^[A-Za-z0-9._-]+$` — which cannot express markup at all —
+     * `axis`, `effect` and `action` against `in:` lists, and `store_id` and `percentage` as
+     * integers. The only free prose is `label` (≤120) and `description` (≤2000), and both are
+     * printed in exactly one place, `resources/views/platform/feature_control.blade.php`, through
+     * Blade `{{ }}`. That escaping is what stops markup reaching a reader, and
+     * `PlatformFeatureControlScreenTest::test_markup_in_a_label_is_escaped_rather_than_rendered`
+     * proves it rather than asserting it — the mutation that replaces that print with `{!! !!}`
+     * reddens it.
+     *
+     * CSRF IS UNAFFECTED: `ValidateCsrfToken` is in the `web` GROUP, not in `xss`, and XSS.php's
+     * own docblock records that the token has already been compared by the time it runs.
+     *
+     * The other thing `XSS` does — redirecting a `super admin` to the installer when a migration is
+     * pending — still happens on the GET route above, so an operator reaching this screen is still
+     * bounced. It is a setup check, not an authorization control.
+     *
+     * `platform/feature-control` AND NOT `platform/features`: the public group earlier in this file
+     * already owns `platform/features` (`platform.features`, the official website's features page),
+     * and Laravel matches in declaration order — so that name would be shadowed by a public page
+     * and an operator would be shown marketing copy. `PlatformFeatureControlScreenTest` resolves
+     * all four names through the real router and asserts the controller, which is the only check
+     * that can tell a shadowed route from a working one.
+     */
+    Route::get('platform/feature-control', [\App\Http\Controllers\PlatformFeatureControlController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.feature_control.index');
+
+    Route::post('platform/feature-control/state', [\App\Http\Controllers\PlatformFeatureControlController::class, 'state'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->withoutMiddleware('xss')
+        ->name('platform.feature_control.state');
+
+    Route::post('platform/feature-control/target', [\App\Http\Controllers\PlatformFeatureControlController::class, 'target'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->withoutMiddleware('xss')
+        ->name('platform.feature_control.target');
+
+    Route::post('platform/feature-control/pilot', [\App\Http\Controllers\PlatformFeatureControlController::class, 'pilot'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->withoutMiddleware('xss')
+        ->name('platform.feature_control.pilot');
+
+    /*
+     * PHASE 06 `CTRL-003` — THE MAINTENANCE ANNOUNCEMENTS THE PLATFORM SHOWS ITS MERCHANTS.
+     *
+     * The second limb of *"سياسات عامة وإعلانات صيانة وسجل تغييرات"*. Same gate and same reasoning
+     * as its five `platform/*` neighbours: `PlatformOperatorOnly` and NOT a permission name,
+     * because a merchant creates their own roles through the product while the subject here is what
+     * the platform says to every tenant at once. The handler repeats the test in both actions.
+     *
+     * TWO ROUTES AND NO `{id}` SEGMENT. A resource controller would put five more declarations on
+     * this gate for no gain, and there is deliberately no `destroy` at all — withdrawing
+     * unpublishes, because what the platform published and when is the record somebody asks for
+     * after an incident. The id arrives in the body, where `SubstituteBindings` cannot answer 404
+     * ahead of the operator check (it is `web`-group middleware and runs BEFORE route middleware,
+     * which is how a refusal test comes to be satisfied by a route that never reached the guard).
+     *
+     * THE WRITE DROPS `xss`, AND THIS IS `platform/site-content`'s CASE EXACTLY — the strongest
+     * instance of it in this change. The route's entire purpose is to carry PROSE the operator
+     * typed about tonight's maintenance, and `XSS` deletes `['&lt;', '&gt;', 'javascript',
+     * 'alert']` from every string it handles: "we are fixing the javascript error on the checkout
+     * page" would publish, to every merchant on the platform, as "we are fixing the  error on the
+     * checkout page", with nothing anywhere to say it had happened. `str_replace` is
+     * case-sensitive, so "JavaScript" would survive and "javascript" would not.
+     *
+     * WHAT IS GIVEN UP: nothing this path relies on. `XSS` is an INPUT sanitiser, not an output
+     * encoder. The titles and bodies are printed in exactly two places — `platform/maintenance`
+     * and `components/ss/maintenance-notice` — both through Blade `{{ }}`, and
+     * `MaintenanceAnnouncementTest` drives a hostile title through the real route to the real
+     * merchant banner and asserts the escaping, so the control is proved rather than asserted. The
+     * dates are `date`-validated and the severity is an `in:` list. CSRF is in the `web` GROUP, not
+     * in `xss`.
+     */
+    Route::get('platform/maintenance', [\App\Http\Controllers\PlatformMaintenanceController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.maintenance.index');
+
+    Route::post('platform/maintenance', [\App\Http\Controllers\PlatformMaintenanceController::class, 'apply'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->withoutMiddleware('xss')
+        ->name('platform.maintenance.apply');
+
     // Report
     // GAP-268. MEASURED: ReportController defines index and 36 named report handlers, none of
     // which is a resource action. create / store / show / edit / update / destroy were each an

@@ -811,6 +811,45 @@ class FeatureControlResolutionTest extends SecurityTestCase
         );
     }
 
+    /**
+     * "NO SUBJECT" MEANS THE SAME THING TO ALL FOUR LIMBS, INCLUDING A STORE ID OF ZERO.
+     *
+     * FOUND BY READING, not by a mutation, and it was a real inconsistency: `subject()` treats a
+     * non-positive store id as no subject, so `decide($key, 0)` matched no store, plan or pilot
+     * target — while the rollout percentage was guarded by `!== null` and `bucket($key, 0)` is a
+     * perfectly good number. Store 0 was therefore refused by every NAMED rule and admitted by the
+     * unnamed one, for any flag whose share happened to cover its bucket.
+     *
+     * A caller reaches it by casting. `getCurrentStore()` answers null for a merchant with no store
+     * — CLAUDE.md records that as a supported product state with its own fixture — and `(int) null`
+     * is 0. The rollout is at 100% here so the case cannot pass by luck of the bucket.
+     */
+    #[Test]
+    public function test_a_store_id_of_zero_is_no_subject_to_the_percentage_as_well(): void
+    {
+        FeatureControl::define(self::FEATURE, 'Premium insights');
+        FeatureControl::release(self::FEATURE, 100);
+
+        foreach ([0, -1] as $storeId) {
+            $this->assertSame(
+                FeatureDecision::Denied,
+                FeatureControl::decide(self::FEATURE, $storeId),
+                "A 100% rollout admitted store id {$storeId}. `subject()` treats a non-positive id "
+                . 'as no subject, so every named rule already refuses it -- the percentage must '
+                . 'agree, or "no subject" means two different things inside one decision.'
+            );
+        }
+
+        /* CONTROL: a real store at 100% IS admitted, so the assertion above is not vacuous. */
+        $store = $this->makeStore($this->makeMerchant());
+
+        $this->assertSame(
+            FeatureDecision::Allowed,
+            FeatureControl::decide(self::FEATURE, $store->id),
+            'A 100% rollout reached no real store either, so the case above proves nothing.'
+        );
+    }
+
     // ---------------------------------------------------------------------------------------------
     // the premise that the plane changes nothing that existed before it
     // ---------------------------------------------------------------------------------------------

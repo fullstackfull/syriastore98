@@ -4311,6 +4311,13 @@ if (!function_exists('platform_feature_decision')) {
      * pattern in the codebase". A storefront caller passes `getStore($slug)->id`; a panel caller
      * passes `getCurrentStore()`; neither is guessed here.
      *
+     * AND NEVER `$request->store_id`. CLAUDE.md: a tenant predicate built from caller-supplied
+     * input "is not a tenant check -- it only compares the caller's own two values", recorded
+     * against four separate defects. The subject passed here decides which FEATURES a request
+     * sees, so a caller-supplied one would let the caller choose its own answer. It is a smaller
+     * prize than a cross-tenant read -- nothing is LOADED by this id, the resolver only compares
+     * it against a stored `target_key` -- but it is the same mistake and belongs on the same list.
+     *
      * @param  string    $key      the feature key, case-insensitive
      * @param  int|null  $storeId  the subject store, or null for a caller with no store in hand
      */

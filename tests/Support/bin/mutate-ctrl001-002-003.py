@@ -183,7 +183,7 @@ MUTATIONS = [
     Mutation(
         name='the rollout boundary becomes inclusive, so 0% reaches bucket 0',
         path=CONTROL,
-        old="""        if ($storeId !== null && $percentage > 0 && self::bucket($key, $storeId) < $percentage) {""",
+        old="""        if ($storeId > 0 && $percentage > 0 && self::bucket($key, $storeId) < $percentage) {""",
         new="""        if ($storeId !== null && self::bucket($key, $storeId) <= $percentage) {""",
         test_file=RESOLUTION,
         filter='test_the_rollout_boundary_is_exclusive_through_the_resolver',
@@ -191,10 +191,18 @@ MUTATIONS = [
     Mutation(
         name='a percentage-only rollout answers for a caller with no store',
         path=CONTROL,
-        old="""        if ($storeId !== null && $percentage > 0 && self::bucket($key, $storeId) < $percentage) {""",
+        old="""        if ($storeId > 0 && $percentage > 0 && self::bucket($key, $storeId) < $percentage) {""",
         new="""        if ($percentage > 0 && self::bucket($key, (int) $storeId) < $percentage) {""",
         test_file=RESOLUTION,
         filter='test_a_percentage_rollout_denies_a_caller_that_names_no_store',
+    ),
+    Mutation(
+        name='a store id of 0 is no subject to the targets but IS to the percentage',
+        path=CONTROL,
+        old="""        if ($storeId > 0 && $percentage > 0 && self::bucket($key, $storeId) < $percentage) {""",
+        new="""        if ($storeId !== null && $percentage > 0 && self::bucket($key, $storeId) < $percentage) {""",
+        test_file=RESOLUTION,
+        filter='test_a_store_id_of_zero_is_no_subject_to_the_percentage_as_well',
     ),
     Mutation(
         name='the percentage is stored unclamped',

@@ -32,10 +32,25 @@ use Illuminate\Support\Facades\Schema;
  *
  * The store row is not an oversight in this reading of it: *measured* — no migration in this
  * repository creates a table carrying both a `store_id` and a module or feature column. A merchant
- * may own several stores, so the existing entitlement is strictly coarser than `CTRL-001` asks for;
- * and "pilot group" has no spelling anywhere in `app/`, `routes/`, `database/migrations/` or
- * `config/` (`pilot`, `rollout`, `canary`, `feature_flag` return the five hits named in
- * `docs/development/phase-6/PHASE-06-FEATURE-CONTROL.md` §1, none of them this).
+ * may own several stores, so the existing entitlement is strictly coarser than `CTRL-001` asks for.
+ *
+ * AND "PILOT GROUP" HAS NO SPELLING AT ALL. Measured over `app/`, `config/`,
+ * `database/migrations/`, `routes/` and `resources/views/` at this branch's own base commit, so the
+ * figures cannot be inflated by this change's files:
+ *
+ *   `pilot_group`, `pilot group`   **0** hits
+ *   `canary`                       **1** hit — `Atlantic/Canary` in `config/timezones.php`
+ *   `rollout`                      **4** hits — two in `TokenInventoryReport` about a token-expiry
+ *                                  rollout, two in `StoreScope` about a "blanket rollout" of a
+ *                                  trait. None is a feature rollout.
+ *   `feature_flag` / `featureFlag` **9** hits, ALL in `AppSettingController`, and all of them the
+ *                                  same five merchant-owned store-setting checkboxes
+ *                                  (`PANEL_OWNED_FEATURE_FLAGS`). Those are per-store and real —
+ *                                  but they are the MERCHANT's switches, written into `settings`,
+ *                                  with no plan, pilot or rollout dimension and no operator
+ *                                  control. They are not what `CTRL-001` asks the operator for.
+ *
+ * The full per-axis measurement is `docs/development/phase-6/PHASE-06-FEATURE-CONTROL.md` §1.
  *
  * SO THESE TABLES ADD THE TWO MISSING AXES AND LEAVE THE EXISTING THREE ALONE. Nothing here writes,
  * reads or supersedes `add_on_managers`, `plans.modules` or `user_active_modules`; a flag with no
