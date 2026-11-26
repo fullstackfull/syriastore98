@@ -176,16 +176,16 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/CategoryController.php:570` | category delete refused: products would be cascade-deleted with it |
 | `app/Http/Controllers/PaymentController.php:4625` | WhatsApp URL built for a cart line that is short on stock |
 | `app/Http/Controllers/PaymentController.php:4660` | WhatsApp URL built for a cart line that is short on stock |
-| `app/Http/Controllers/ProductController.php:3341` | variant panel refused: the product is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3570` | product image delete refused: the image belongs to another store |
-| `app/Http/Controllers/ProductController.php:3624` | product image row deleted but the file was not unlinked: StoredUpload refused |
-| `app/Http/Controllers/ProductController.php:3714` | variant image upload refused: the variant is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3827` | variant image row replaced but the old file was not unlinked: StoredUpload |
-| `app/Http/Controllers/ProductController.php:3890` | variant image delete refused: the variant is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3919` | variant image row deleted but the file was not unlinked: StoredUpload refused |
-| `app/Http/Controllers/ProductController.php:3961` | attribute combination edit refused: the product belongs to another store |
-| `app/Http/Controllers/ProductController.php:4127` | product variant delete refused: the variant belongs to another store |
-| `app/Http/Controllers/ProductController.php:4221` | product variant delete refused: the variant is still referenced |
+| `app/Http/Controllers/ProductController.php:3359` | variant panel refused: the product is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3588` | product image delete refused: the image belongs to another store |
+| `app/Http/Controllers/ProductController.php:3642` | product image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3732` | variant image upload refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3845` | variant image row replaced but the old file was not unlinked: StoredUpload |
+| `app/Http/Controllers/ProductController.php:3908` | variant image delete refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3937` | variant image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3979` | attribute combination edit refused: the product belongs to another store |
+| `app/Http/Controllers/ProductController.php:4145` | product variant delete refused: the variant belongs to another store |
+| `app/Http/Controllers/ProductController.php:4239` | product variant delete refused: the variant is still referenced |
 | `app/Http/Controllers/WoocomProductController.php:418` | woocommerce product edit refused: the mapped product is not in this store |
 | `app/Http/Middleware/BulkDeleteTenantGuard.php:677` | bulk category delete refused: products would be cascade-deleted with the categories |
 | `app/Models/Order.php:1362` | order return refused: the order carries no store_id |
