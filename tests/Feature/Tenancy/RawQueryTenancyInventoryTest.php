@@ -759,7 +759,37 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            written that way, the other half being that a table identifier is interpolated into the
            SQL rather than bound and so must not come from configuration. The argument for why
            thirteen of them carry no `store_id` is beside the unscoped total further down. */
-        $this->assertSame(['app' => 247, 'packages' => 45], $perDir,
+        /* 247 -> 253 on 2026-11-26 [THE INTEGRATION RECONCILIATION]. SIX statements from THREE
+           branches, and they are listed per file because a single number here would hide that two
+           of the three were never declared on their own branch at all. MEASURED at each branch
+           tip, with this test's own scanner: `ws/p4-price` measures 233 and asserts 232;
+           `ws/p6-market` measures 234 and asserts 232. Both were already red on this census before
+           any merge touched them -- so "the merge discarded a declaration" is only the story for
+           `ws/p4-ret` (which measures and asserts 235) and `ws/p6-ops` (247). For the other two the
+           declaration was never written, and a reconciliation that had only composed the two sides
+           of the conflict would still have been short by three.
+
+             +3  `app/Services/ReturnInspection.php` [RET-002, `ws/p4-ret`]. All three name
+                 `store_id` as a PREDICATE (or, for the `upsert()`, as a key column and a conflict
+                 target), every caller derives it from the authenticated principal or from an order
+                 a policy has already authorised, and the whole of the +3 therefore lands in
+                 `$scoped` in `ServiceLayerRawQueryInventoryTest` with the store-less count
+                 unchanged. The table is `order_return_inspections`, named through a class constant,
+                 so this per-table map cannot key on it; the service census classifies it instead.
+
+             +2  `app/Support/Modules/ModuleTrust.php` [MARKET-004, `ws/p6-market`].
+                 `ModuleTrust::mayExecute()` reads and `ModuleTrust::recordUpload()` writes
+                 `module_review_records` on the pair `(subject_type, subject)`. THE TABLE HAS NO
+                 `store_id` COLUMN and could not: the subject is a package extracted into
+                 `packages/workdo/<name>`, one directory shared by every tenant, so "may this
+                 package's code run" has no per-store answer. Named through `self::TABLE`, so it
+                 joins the unattributable remainder rather than the per-table map below.
+
+             +1  `app/Services/Commerce/PriceExplanation.php` [PRICE-006, `ws/p4-price`]. The
+                 `wholesale_products` tier read, UNSCOPED ON PURPOSE -- the new row in the per-table
+                 map below carries the argument, and it is the only one of the six that reaches that
+                 map's unscoped total at all. */
+        $this->assertSame(['app' => 253, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -901,7 +931,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            275 -> 277 [2026-11-26, ORD-008 / GAP-185]: `PackingSlip`'s two reads (232 + 45); the
            note above the per-directory assertion carries the reasoning and the predicates. */
         /* 277 -> 292 [2026-11-26, OPS-001]: the same fifteen counted above (247 + 45). */
-        $this->assertSame(292, array_sum($perDir));
+        /* 292 -> 298 [2026-11-26, the integration reconciliation]: the same six counted above
+           (253 + 45), from `ws/p4-ret`, `ws/p6-market` and `ws/p4-price`. Nothing in `packages/`
+           moved, which is itself worth recording -- all six are first-party. */
+        $this->assertSame(298, array_sum($perDir));
     }
 
     /**
@@ -1236,6 +1269,43 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // exists to predicate on (`users` carries none and is not scoped), and the value is one column of one row the principal already resolves
             // through `creatorId()` -- it carries no tenant data out of the scope.
             'users' => [6, 6],
+            /* ---------------------------------------------------------------------------------
+               NEW ON 2026-11-26 [PRICE-006, the integration reconciliation], AND UNSCOPED BY
+               DESIGN -- the same shape as `auction_product_bids` at the top of this map, and for
+               the same reason: a guard or an explanation that reads NARROWER than the engine it
+               describes disagrees with the engine.
+
+               `PriceExplanation::matchedTier()` reads `where('product_id', $product->id)` with no
+               store predicate. The engine whose number it must reconcile against,
+               `WholesaleProduct::Wholesale_Product_price()`, reads
+               `WholesaleProduct::where('product_id', $product->id)->get()` -- also with none, and
+               nothing adds one for it either: the model is a PACKAGE model, so it is absent from
+               `config/tenancy.php`'s `scoped_models` and `StoreScope` short-circuits for it. The
+               one property `PriceExplanation` exists to guarantee is that its components sum to the
+               price the engine CHARGES, and a tier the engine uses but the explanation filtered out
+               would break exactly that -- it would show a merchant a breakdown that is a lie, which
+               the class's own docblock names as worse than showing none.
+
+               `wholesale_products` DOES carry a `store_id` column
+               (WholesaleProduct/..._create_wholesale_products_table.php, nullable), so this row
+               belongs in the unscoped population and listing it is the accurate answer rather than
+               an exemption.
+
+               WHAT MAKES IT SAFE IS THE DOOR, NOT THE PREDICATE, and the class says so in terms:
+               "IT AUTHORISES NOTHING ... every caller must authorise the target itself". The one
+               caller is `ProductController::price_explanation()`, which is operator-first gated on
+               `Manage Products`, refuses any product whose `store_id` is not the caller's own
+               `getCurrentStore()`, and refuses a variant that is not the product's. A tier row is
+               keyed on `product_id` and a product belongs to exactly one store, so the rows this
+               read returns are the rows of a product the caller has already been found to own.
+
+               THE RESIDUAL IS THE ENGINE'S, AND IT IS RECORDED RATHER THAN ABSORBED: a tier row
+               written against another store's `product_id` would be read here -- and would be
+               CHARGED by the engine, not merely explained. Mirroring the engine is what keeps the
+               explanation true about the charge; narrowing this read would hide the discrepancy
+               instead of fixing it. Whether that write is reachable is the vendored module's
+               question, not this census's. */
+            'wholesale_products' => [1, 1],
             'zid_events' => [2, 2],
             'zid_orders' => [11, 9],   // 11 -> 9 with P1-SEC-10: the lookup and the local status write now carry the authenticated stores
             'zid_stores' => [7, 2],
@@ -1402,7 +1472,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `failed_jobs`, `cache`, `sessions`) and have no `store_id` column to scope by; `settings`
         // and `otp_integrations` already had rows and gained three and two. Their notes above carry
         // the argument.
-        $this->assertSame(216, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 216 -> 217 [2026-11-26, PRICE-006, the integration reconciliation]: the one
+        // `wholesale_products` site, attributable because its table is a quoted LITERAL. The other
+        // FIVE statements that arrived with it are NOT here -- `ReturnInspection`'s three name
+        // `order_return_inspections` through a class constant and `ModuleTrust`'s two name
+        // `module_review_records` through `self::TABLE`, so all five join the unattributable
+        // remainder for the reason LIMIT 2 in this class's docblock gives. The per-directory total
+        // above moved by six; this one moves by one, and the difference is that remainder.
+        $this->assertSame(217, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
@@ -1512,7 +1589,21 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            handler reads nothing at all from the request, which its own test asserts rather than
            leaves to be read off the code. Each statement is declared with its reason in
            `ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN`. */
-        $this->assertSame(99, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        /* 99 -> 100 [2026-11-26, PRICE-006, the integration reconciliation], AND THIS IS THE
+           UNSCOPED TOTAL, so the argument is written rather than assumed. The single addition is
+           `PriceExplanation::matchedTier()`'s `wholesale_products` tier read. It is in the
+           numerator of "statements with no `store_id`" and it is NOT a new cross-tenant reach: the
+           table's rows are keyed on `product_id`, the engine this class must agree with reads them
+           with no predicate either (and nothing scopes that model), and the only caller has already
+           refused any product that is not the authenticated principal's own. The full argument,
+           including the residual that belongs to the vendored engine rather than to this read, is
+           beside the table's own row above.
+
+           Of the six statements this reconciliation added, this is the ONLY one that moves this
+           number: `ReturnInspection`'s three carry explicit `store_id` predicates, and
+           `ModuleTrust`'s two are on a table with no such column and are unattributable to a
+           literal, so neither pair reaches this map at all. */
+        $this->assertSame(100, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -2109,6 +2200,21 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
                Laravel schema, the one statement is a `count()`, and its only reader is the
                operator-only operations screen. */
             'sessions',
+            /* NEW ON 2026-11-26 [PRICE-006, the integration reconciliation], and here for exactly
+               the reason `coupon_requests`, `campaigns` and `cost_setting` are: `wholesale_products`
+               is declared only by a PACKAGE module
+               (packages/workdo/WholesaleProduct/src/database/migrations/..._create_wholesale_products_table.php),
+               and PackageServiceProvider runs a module's migrations only when it is listed in
+               `add_on_managers`, which is empty in a fresh database (NEW-ADDON-SCHEMA-03). So the
+               table is absent HERE while existing in production, and its one unscoped statement is
+               unclassified by THIS test rather than cleared by it.
+
+               IT IS NOT UNEXAMINED, which is the distinction this list exists to keep. The table
+               does carry a `store_id` column, the statement carries no predicate on it, and the
+               argument for why that is the engine-matching design rather than an omission is
+               written in full beside the `wholesale_products` row in the per-table assertion above
+               -- where the per-table ratchet will see a second statement the day one appears. */
+            'wholesale_products',
             // `owner_menu_items`, `owner_menu_settings` and `owner_menus` USED TO BE LISTED
             // HERE. They are not absent any more: PackageServiceProvider registers each addon's
             // real on-disk migration directory, which fixes NEW-ADDON-SCHEMA-02, so the six

@@ -250,9 +250,18 @@ class EloquentScopeBypassInventoryTest extends SecurityTestCase
             // them, which is why a nearest-match search gave a non-uniform answer and had to be
             // redone), and all three moved by exactly +24 with their statements byte-identical.
             // Nothing was added to or removed from this inventory.
-            'app/Models/Utility.php:3457',   // City::truncate()
-            'app/Models/Utility.php:3482',   // State::truncate()
-            'app/Models/Utility.php:3498',   // Country::truncate()
+            // [2026-11-26] +56, the SIXTH such note, and the cause was a change about neither
+            // tenancy nor truncation: MARKET-001 hardened `Utility::BuyMoreTheme()` (the vendor
+            // add-on catalogue fetch, which used to answer null and render HTTP 500): 62 lines
+            // added and 6 removed, net +56, some 2,200 lines ABOVE these sites. VERIFIED A MOVE,
+            // NOT A CHANGE, and measured against THE PRE-MERGE REVISION rather than HEAD~1: each of
+            // the nine lines this file and ResidualTenancyExposureTest cite between them was read
+            // out of `git show ws/p6-ops:app/Models/Utility.php` at its old number and compared, as
+            // a string, with the line at old+56. All nine are byte-identical and the shift is
+            // uniform, so nothing was added to or removed from either inventory.
+            'app/Models/Utility.php:3513',   // City::truncate()
+            'app/Models/Utility.php:3538',   // State::truncate()
+            'app/Models/Utility.php:3554',   // Country::truncate()
         ], $hits, 'The truncate inventory changed. `truncate()` is forwarded straight to the base '
             . 'query builder (Builder.php:2123) and so empties the WHOLE TABLE for EVERY tenant. '
             . 'A new site is only acceptable on a model with no tenant discriminator -- verify '

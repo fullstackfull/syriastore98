@@ -111,11 +111,47 @@ class Ord004Ord005OrderEditContractTest extends TestCase
      * `mutates_stored_line` is the load-bearing field: TRUE means this site changes a line on an
      * order that already exists, which is what `ORD-004` is about.
      *
-     * @var array<string, array{keys: list<string>, what: string, mutates_stored_line: bool}>
+     * `keys` IS A FILE-LEVEL MEASUREMENT AND `stored_line_keys` IS THE ORD-004 QUESTION, AND THE
+     * TWO WERE CONFLATED UNTIL 2026-11-26 [the integration reconciliation]. `keys` is whatever
+     * {@see self::LINE_KEY_ASSIGNMENT} finds anywhere in the file; the two `ORD-004` tests are about
+     * the keys that reach a line ON A STORED ORDER. Those sets coincided for every entry here until
+     * RET-002 landed, and while they coincided the two tests read `keys` and were right by
+     * accident.
+     *
+     * WHAT BROKE THE COINCIDENCE, and it is not a violated decision: RET-002 added
+     * `$productRefundData[$pid]['variant_id'] = $variantId;` to `OrderRefundController::show()`, in
+     * the DISPLAY array the refund screen is rendered from -- built locally in that method,
+     * `compact()`ed into `view('order.refund_details', ...)`, and never encoded back into
+     * `orders.product_json`. MEASURED, not read off the shape: this file holds exactly TWO line-key
+     * assignments (`$productRefundData[$pid]['variant_id']` and `$product['qty']`) and exactly two
+     * writes to the column (`CancelRefundStatus()`'s `json_encode($productJson)` and the
+     * stock-restored stamp's `json_encode($stamped)`), and neither write assigns an identity key.
+     *
+     * HAD THE TESTS KEPT READING `keys`, BOTH WOULD HAVE FAILED WITH A FALSE SENTENCE -- one saying
+     * this file "assigns 'variant_id' on a stored order line" and the other that it changes more
+     * than a quantity. Neither is true, and a census that cries wolf about a view array trains a
+     * reader to resync its allowlist without looking, which is how a real identity rewrite would
+     * later get through. So the two tests now read `stored_line_keys`, which is DECLARED like
+     * `mutates_stored_line` is -- and `assignments`, which is MEASURED, is what stops that
+     * declaration being an unfalsifiable claim: it pins every line-key assignment in the file by
+     * its target expression, so a future `$productJson[$i]['variant_id'] = ...` fails because it is
+     * a new assignment nobody has read, with no judgement about reachability needed.
+     *
+     * @var array<string, array{keys: list<string>, stored_line_keys: list<string>,
+     *     assignments: list<string>, what: string, mutates_stored_line: bool}>
      */
     private const LINE_KEY_WRITERS = [
         'Http/Controllers/Api/ApiController.php' => [
             'keys' => ['product_id', 'qty', 'variant_id'],
+            'stored_line_keys' => [],
+            'assignments' => [
+                "\$cart_array['product_list'][\$key]['product_id']",
+                "\$cart_array['product_list'][\$key]['qty']",
+                "\$cart_array['product_list'][\$key]['variant_id']",
+                "\$data['product_id']",
+                "\$data['variant_id']",
+                "\$return['variant_id']",
+            ],
             'what' => 'the cart response array; the product_return() request payload, which NAMES '
                 . 'a line rather than editing one; and one API response field',
             'mutates_stored_line' => false,
@@ -123,6 +159,8 @@ class Ord004Ord005OrderEditContractTest extends TestCase
 
         'Http/Controllers/OrderController.php' => [
             'keys' => ['product_id', 'variant_id'],
+            'stored_line_keys' => [],
+            'assignments' => ["\$data['product_id']", "\$data['variant_id']"],
             'what' => 'the product_return() request payload, web side, behind '
                 . "authorize('updateStatus')",
             'mutates_stored_line' => false,
@@ -130,6 +168,8 @@ class Ord004Ord005OrderEditContractTest extends TestCase
 
         'Http/Controllers/PosController.php' => [
             'keys' => ['quantity'],
+            'stored_line_keys' => [],
+            'assignments' => ["\$sales['data'][\$key]['quantity']"],
             'what' => 'the POS sales REPORT display array; in-memory, never written back',
             'mutates_stored_line' => false,
         ],
@@ -138,15 +178,22 @@ class Ord004Ord005OrderEditContractTest extends TestCase
 
         'Http/Controllers/AccountProfileController.php' => [
             'keys' => ['qty'],
+            'stored_line_keys' => ['qty'],
+            'assignments' => ["\$product['qty']"],
             'what' => 'the storefront refund REQUEST subtracts refunded units from the line and '
                 . 'writes product_json back',
             'mutates_stored_line' => true,
         ],
 
         'Http/Controllers/OrderRefundController.php' => [
-            'keys' => ['qty'],
+            'keys' => ['qty', 'variant_id'],
+            'stored_line_keys' => ['qty'],
+            'assignments' => ["\$product['qty']", "\$productRefundData[\$pid]['variant_id']"],
             'what' => 'cancelling a refund request adds the units back, bounded by the line\'s own '
-                . 'refunded_qty counter',
+                . 'refunded_qty counter -- and, since RET-002, the refund SCREEN\'s display array '
+                . 'carries each line\'s variant id and inspection verdict. The second is built in '
+                . 'show(), compact()ed into the view and never encoded back into product_json, '
+                . 'which is why stored_line_keys stays at qty alone while keys gains variant_id',
             'mutates_stored_line' => true,
         ],
     ];
@@ -307,8 +354,15 @@ class Ord004Ord005OrderEditContractTest extends TestCase
                 continue;
             }
 
+            /* `stored_line_keys`, NOT `keys`. `keys` is what the detector finds anywhere in the
+               file, and since RET-002 one mutator file also assigns an identity key on a DISPLAY
+               array -- see the note above LINE_KEY_WRITERS. Reading `keys` here would report that
+               as "assigns 'variant_id' on a stored order line", which is false, and the
+               `assignments` ratchet below is what keeps this narrowing honest: every line-key
+               assignment in the file is pinned by its target expression, so a new one cannot
+               arrive under cover of this distinction. */
             foreach (['product_id', 'variant_id'] as $identityKey) {
-                if (in_array($identityKey, $declaration['keys'], true)) {
+                if (in_array($identityKey, $declaration['stored_line_keys'], true)) {
                     $offenders[] = "$file assigns '$identityKey' on a stored order line";
                 }
             }
@@ -351,13 +405,95 @@ class Ord004Ord005OrderEditContractTest extends TestCase
             . 'needs reading against ORD-004 before it is declared.'
         );
 
-        // Both of them touch quantity and NOTHING else about the line.
+        // Both of them touch quantity and NOTHING else about the line. `stored_line_keys` for the
+        // reason given at the identity test above and in full above LINE_KEY_WRITERS: `keys` counts
+        // a view array's assignment too, and this sentence would then be false rather than strict.
         foreach ($mutators as $file) {
             $this->assertSame(
                 ['qty'],
-                self::LINE_KEY_WRITERS[$file]['keys'],
+                self::LINE_KEY_WRITERS[$file]['stored_line_keys'],
                 "$file must change a line's quantity and nothing else about it."
             );
+        }
+    }
+
+    /**
+     * WHAT MAKES `stored_line_keys` FALSIFIABLE: every line-key assignment in a declared file is
+     * pinned by its TARGET EXPRESSION, measured from source.
+     *
+     * The two `ORD-004` tests read a DECLARED field, so on its own that field is a claim nobody
+     * checks -- and the claim it makes ("this assignment is on a view array, not on a stored line")
+     * is exactly the kind no regex can decide. So this test does not try to. It enumerates the SAFE
+     * SET instead, per CLAUDE.md's rule that a census hunting for something dangerous is always
+     * short by the spelling nobody thought of: the assignments that exist today are written down by
+     * name, and ANY new one fails here, whatever it targets and whether or not it reaches
+     * `product_json`. The reader then has to decide which field it belongs in.
+     *
+     * Asserted in both directions, so a declaration cannot outlive its assignment either.
+     */
+    public function test_every_line_key_assignment_in_a_declared_file_is_pinned_by_name(): void
+    {
+        /* The target expression as well as the key, which LINE_KEY_ASSIGNMENT does not capture:
+           `$productRefundData[$pid]['variant_id']` and `$product['qty']` are the same key shape and
+           opposite facts, and the difference is entirely in what precedes the key. */
+        $withTarget = "/(\\$[A-Za-z_][A-Za-z0-9_]*(?:\s*\[[^\]]*\])*)\s*"
+            . "\[\s*'(qty|quantity|product_id|variant_id)'\s*\]\s*=(?!=|>)/";
+
+        foreach (self::LINE_KEY_WRITERS as $file => $declaration) {
+            preg_match_all($withTarget, $this->codeOf($file), $hits, PREG_SET_ORDER);
+
+            $measured = [];
+
+            foreach ($hits as $hit) {
+                // Whitespace squeezed out of the target, so a reformat cannot invalidate a
+                // declaration -- the same reason the sibling censuses normalise before matching.
+                $measured[preg_replace('/\s+/', '', $hit[1]) . "['" . $hit[2] . "']"] = true;
+            }
+
+            $measured = array_keys($measured);
+            sort($measured);
+
+            $declared = $declaration['assignments'];
+            sort($declared);
+
+            $this->assertSame(
+                $declared,
+                $measured,
+                "$file gained or lost a line-key assignment. Read it before declaring it: if it "
+                . 'writes a key onto a line of an order that already EXISTS, it belongs in '
+                . "`stored_line_keys` as well, and both ORD-004 tests then have something to say "
+                . 'about it. If it only shapes a request payload, an API response or a screen, it '
+                . 'belongs in `assignments` alone -- and say which, because that distinction is '
+                . 'the whole load this declaration carries.'
+            );
+        }
+    }
+
+    /**
+     * AND THE NEW FIELD CANNOT BE WIDER THAN THE MEASUREMENT IT NARROWS.
+     *
+     * `stored_line_keys` is a subset of `keys`, and a file that mutates no stored line declares
+     * none. Without this, a declaration could assert a key the detector never saw -- or, worse,
+     * quietly drop `mutates_stored_line` while keeping a non-empty set.
+     */
+    public function test_the_stored_line_keys_are_a_subset_of_the_measured_keys(): void
+    {
+        foreach (self::LINE_KEY_WRITERS as $file => $declaration) {
+            $this->assertSame(
+                [],
+                array_values(array_diff($declaration['stored_line_keys'], $declaration['keys'])),
+                "$file declares a stored-line key that is not among the keys measured in the file. "
+                . 'A key no detector found cannot be one this file writes.'
+            );
+
+            if (! $declaration['mutates_stored_line']) {
+                $this->assertSame(
+                    [],
+                    $declaration['stored_line_keys'],
+                    "$file is declared not to mutate a stored line, so it can have no stored-line "
+                    . 'keys. One of the two declarations is wrong.'
+                );
+            }
         }
     }
 
