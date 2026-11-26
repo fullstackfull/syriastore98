@@ -196,6 +196,55 @@ final class AnalyticsTilesCarryTheirCaveatsTest extends SecurityTestCase
     }
 
     /**
+     * AND IT READS AS ARABIC ON AN ARABIC SCREEN. CLAUDE.md's standing rule is that any UI change
+     * is checked in both directions; this change moved twelve tiles from `<x-ss.stat>` to
+     * `<x-ss.figure>`, which renders THROUGH `<x-ss.stat>` rather than beside it, so the markup is
+     * the audited one -- but the SENTENCES are now derived in the producer, and a figure built
+     * outside the request's locale would carry English words onto an Arabic page.
+     */
+    public function test_the_coupon_tiles_precision_sentence_is_arabic_on_an_arabic_screen(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        Permission::firstOrCreate(['name' => 'Manage Reports'], ['display_name' => 'Manage Reports']);
+        $this->grantPermission(User::find($merchant->id), 'Manage Reports');
+
+        DB::table('settings')->insert([
+            'name' => 'defult_currancy', 'value' => 'USD',
+            'store_id' => $store->id, 'created_by' => $merchant->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->discountedOrder($store, $now->subDays(2));
+
+        $merchant = User::find($merchant->id);
+        $merchant->language = 'ar';
+        $merchant->save();
+
+        Cache::forget('admin_details');
+
+        $english = MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+
+        $html = (string) $this->actingAs(User::find($merchant->id))->get('/analytics')->getContent();
+        $html = (string) preg_replace('#<(script|style)\b[^>]*>.*?</\1>#is', ' ', $html);
+        $page = $this->plain(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+        /* THE ORDER MATTERS, as the sibling gate records: the controller built its figures in the
+           REQUEST's locale, so the expectation has to be rebuilt in that locale too. */
+        $this->app->setLocale('ar');
+
+        $arabic = MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+
+        $this->assertNotSame($english, $arabic,
+            'FLOAT_PRECISION has no Arabic, so this test proves nothing');
+        $this->assertStringContainsString($this->plain($arabic), $page,
+            'the Arabic /analytics shows no precision sentence on the coupon-discount tile');
+        $this->assertStringNotContainsString($this->plain($english), $page,
+            'an Arabic merchant was shown the English sentence');
+    }
+
+    /**
      * AND THE EXPORT, which is half the reason GAP-152 names these two producers first: "they feed
      * both a screen and an export". The Phase 05 rule is that the disclosure is a COLUMN, because a
      * caveat in a header preamble survives neither sorting nor copying a range.

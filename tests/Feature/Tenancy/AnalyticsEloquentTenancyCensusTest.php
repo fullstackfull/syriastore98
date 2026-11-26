@@ -83,8 +83,17 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
         // tenant's categories on its own -- GAP-234 is the same shape, at `sub_category`. The gate
         // is the tenant check and it is principal-derived; LIMIT 1 applies, in that the gate being
         // in the function does not prove each of the eleven reads goes through it.
+        // AND THE GATE HAS AN OPERATOR LIMB THAT IS NOT A NARROWING, which this reason has to say
+        // or it overstates the control. `ReportController.php:4477` returns the requested set
+        // UNNARROWED for `UserPolicy::PLATFORM_ADMIN`, so for the platform operator a
+        // caller-supplied `selectedCategory` reaches any tenant's category name. That is the
+        // operator's own privilege rather than a hole -- they may select any store, and
+        // `OperatorStoreSelection::reportStoreId()` is whichever one they chose -- but it means the
+        // disposition holds for a MERCHANT by narrowing and for the operator by privilege, which
+        // are two different statements. Hardening at most, and named so the next reader does not
+        // have to re-derive it.
         'app/Http/Controllers/ReportController.php|Category::find|ownership_checked' => [11,
-            'id set narrowed to the current store by reportSelectionWithinCurrentStore() before the find'],
+            'merchant: id set narrowed to the current store by reportSelectionWithinCurrentStore(); operator: admitted unnarrowed by its own limb, same privilege level'],
 
         // A DEAD STATEMENT, AND THE EXECUTED READ IS PRINCIPAL-DERIVED. All three are the same
         // copy-paste:
@@ -393,6 +402,57 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
             'the stripped source has a different number of lines, so every line number this census '
             . 'reports points at the wrong statement'
         );
+    }
+
+    /**
+     * THE MODEL LIST IS A CLAIM ABOUT `config/tenancy.php`, SO IT IS MEASURED AGAINST IT.
+     *
+     * `AnalyticsTenancyCensus::UNSCOPED_MODELS` is a hardcoded list, and CLAUDE.md's standing
+     * warning is that this project's scoped/unscoped table "has been wrong in BOTH directions" --
+     * it said `DeliveryBoy` was unscoped until an adversarial verifier refused it, and was silent
+     * about eight more. A census whose subject list is stale measures the wrong set and says so
+     * nowhere, so both directions are asserted here against the booted container's own config.
+     */
+    public function test_every_model_this_census_watches_really_adds_no_predicate(): void
+    {
+        $scoped = array_map('strval', (array) config('tenancy.scoped_models', []));
+
+        $this->assertNotSame([], $scoped,
+            'config/tenancy.php declares no scoped models at all, so the comparison below is '
+            . 'vacuous and every model would read as unscoped');
+
+        foreach (AnalyticsTenancyCensus::UNSCOPED_MODELS as $short) {
+            /* `Visit` is Shetabit's and in no allowlist; everything else is a first-party model. */
+            $class = $short === 'Visit'
+                ? \Shetabit\Visitor\Models\Visit::class
+                : 'App\\Models\\' . $short;
+
+            $this->assertTrue(class_exists($class),
+                $class . ' does not exist, so the census is watching a model name that is gone');
+
+            $this->assertNotContains($class, $scoped, sprintf(
+                '%s is in config/tenancy.php\'s scoped_models, so StoreScope DOES attach a '
+                . 'predicate for it and this census should not be counting its reads as the open '
+                . 'door it exists to measure. Remove it from UNSCOPED_MODELS and re-point the '
+                . 'totals, naming the slice that scoped it.',
+                $class
+            ));
+        }
+
+        /* THE CONVERSE, so the list cannot silently gain a model the scope really filters. Three
+           of the eleven, chosen because each one's absence from this list is load-bearing. */
+        foreach ([\App\Models\Customer::class, \App\Models\Cart::class, \App\Models\SupportTicket::class] as $class) {
+            $this->assertContains($class, $scoped,
+                $class . ' left scoped_models. If a model this census does NOT watch stopped being '
+                . 'scoped, its analytics reads became the open door and belong in UNSCOPED_MODELS.');
+
+            $this->assertNotContains(
+                class_basename($class),
+                AnalyticsTenancyCensus::UNSCOPED_MODELS,
+                class_basename($class) . ' is really scoped and is in the census list, which would '
+                . 'count a filtered read as an unfiltered one'
+            );
+        }
     }
 
     public function test_the_verdict_totals_are_exactly_these(): void
