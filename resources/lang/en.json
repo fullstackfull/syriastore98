@@ -4711,5 +4711,11 @@
     "Tick only what this role needs. Anyone you give this role can do everything ticked here.": "Tick only what this role needs. Anyone you give this role can do everything ticked here.",
     "Set this to Including Tax only if the Prices entered with tax choice above is Yes, I will enter prices inclusive of tax. Ten places test the two settings together, so either one on its own leaves tax added on top of a price that already contains it.": "Set this to Including Tax only if the Prices entered with tax choice above is Yes, I will enter prices inclusive of tax. Ten places test the two settings together, so either one on its own leaves tax added on top of a price that already contains it.",
     "Only roles you created in the store you are working in are listed, so a role added in another store will not appear here. The role becomes this member's account type and decides which screens they can open, and the member is assigned to the store you are working in.": "Only roles you created in the store you are working in are listed, so a role added in another store will not appear here. The role becomes this member's account type and decides which screens they can open, and the member is assigned to the store you are working in.",
-    "The payment status and delivery assignment below save immediately when you change them. There is no Save button for these two and no confirmation step.": "The payment status and delivery assignment below save immediately when you change them. There is no Save button for these two and no confirmation step."
+    "The payment status and delivery assignment below save immediately when you change them. There is no Save button for these two and no confirmation step.": "The payment status and delivery assignment below save immediately when you change them. There is no Save button for these two and no confirmation step.",
+    "Picking and packing list": "Picking and packing list",
+    "Print packing list": "Print packing list",
+    "This order has no line items to pick.": "This order has no line items to pick.",
+    "Items to pick and pack for this order, with quantities. No prices.": "Items to pick and pack for this order, with quantities. No prices.",
+    "Picked": "Picked",
+    "Total units to pack": "Total units to pack"
 }
