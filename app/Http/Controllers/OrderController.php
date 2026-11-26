@@ -1418,6 +1418,70 @@ public function store(Request $request)
         }
     }
 
+    /**
+     * ORD-008 (GAP-185) — THE PICKING AND PACKING DOCUMENT, as a document.
+     *
+     * Plan text: `docs/development/master-plan/MASTER-PRODUCT-PLAN-v1.0-WITH-AMENDMENTS.md:287`,
+     * section 04-C — «Picking وPacking والباركود والملصقات والفواتير». The label and the invoice
+     * halves of that clause are `shippinglabel()` and `order_receipt()` above; this is the third.
+     *
+     * DERIVED EXACTLY AS `order_receipt()` DERIVES, LINE FOR LINE, and that is the point rather
+     * than a convenience. This route reaches the same document WITHOUT the order screen around it,
+     * so it must not become the one surface that resolves an order differently:
+     *
+     *   - the segment is `Crypt::decrypt()`ed, as the receipt's and the label's are;
+     *   - `Order::order_detail($id)` is the only row read, and its own `message` key is the
+     *     not-found branch;
+     *   - the locale, direction and logo come from the ORDER's store through
+     *     `App\Services\DocumentDirection`, never from `getCurrentStore()` — P1-SEC-11 criterion
+     *     1 and 4, because the platform operator legitimately prints another store's document and
+     *     `Utility::Setting()` would hand them their OWN logo and an `lang="en"` with no `dir`.
+     *
+     * NO OWNERSHIP QUESTION IS ASKED HERE, deliberately: `App\Http\Middleware\OrderDocumentAccessGuard`
+     * owns that for every order document, keyed on the uri, so one rule covers them all and cannot
+     * drift between them. This route is in its `TARGETS` map as of the same change that added the
+     * route — the map is keyed on the URI, so resemblance to a guarded sibling guards nothing.
+     * `OrderPackingListScreenTest` drives all three answers: the owning merchant (200 with the
+     * lines), another store's order (403, which only the guard's `abort(403)` produces) and an id
+     * naming no order (302, which only this handler produces). Those two statuses being different
+     * is what makes "it was refused" mean the guard rather than a missing row.
+     *
+     * THE SLIP CARRIES NO MONEY. `App\Support\Orders\PackingSlip` builds its lines and the view
+     * prints them; the priced document for an order is the receipt. That is the document's
+     * definition, not a simplification, and it is why this needed no pricing decision.
+     */
+    public function order_packing_list($id)
+    {
+        try {
+            $id = Crypt::decrypt($id);
+            $order = Order::order_detail($id);
+
+            if (!empty($order['message'])) {
+                return redirect()->back()->with('error', __('Order Not Found.'));
+            }
+
+            $orderStore = (int) Order::where('id', $id)->value('store_id');
+            $documentLocale = \App\Services\DocumentDirection::localeFor($orderStore);
+            $documentRtl = \App\Services\DocumentDirection::isRtl($orderStore);
+            $invoice_logo = \App\Services\DocumentDirection::invoiceLogoFor($orderStore);
+
+            return view('order.packing-list', compact('order', 'documentLocale', 'documentRtl', 'invoice_logo'));
+        } catch (DecryptException $e) {
+            return redirect()->back()->with('error', __('Something was wrong.'));
+        } catch (\Exception $e) {
+            /* The same argument `order_receipt()`'s catch-all records: a caught exception that
+               leaves no trace is a defect in its own right, and the bindings on this path are an
+               order id and a store id, both already known to a caller the guard has authorised. */
+            \Illuminate\Support\Facades\Log::warning('order packing list could not be rendered', [
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+                'at' => $e->getFile() . ':' . $e->getLine(),
+            ]);
+
+            return redirect()->back()->with('error', __('Something was wrong.'));
+        }
+    }
+
     public function order_return(Request $request)
     {
         /*

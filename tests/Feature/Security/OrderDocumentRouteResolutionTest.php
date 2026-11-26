@@ -344,6 +344,10 @@ class OrderDocumentRouteResolutionTest extends TestCase
             // belongs here in the same commit that introduces it, or the census passes
             // vacuously over it.
             'order_preview',
+            // ORD-008 (GAP-185), added WITH the handler and the route, for the same reason the
+            // line above gives. `order_packing_list` renders the picking and packing document,
+            // the third sibling of `shippinglabel` and `order_receipt`.
+            'order_packing_list',
         ];
 
         // Reasoned exemptions. Each says WHY, and each reason was VERIFIED by reading the handler

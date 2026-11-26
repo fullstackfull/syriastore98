@@ -577,6 +577,11 @@ class OrderDocumentAccessTest extends SecurityTestCase
             'order detail (order.view)' => ['/order-view/'],
             'order modal (order.order_view)' => ['/orders/order_view/'],
             'order receipt (order.receipt)' => ['/order-receipt/'],
+            // ORD-008 (GAP-185). The third sibling document, added to this provider rather than
+            // given cases of its own so the cross-tenant refusal AND the owner's admission are
+            // measured by the same two tests as the other three -- a new order document that is
+            // only driven by its own file is a new document whose rule can drift from theirs.
+            'order packing list (order.packing_list)' => ['/order-packing-list/'],
         ];
     }
 

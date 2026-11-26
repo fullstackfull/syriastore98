@@ -2018,6 +2018,23 @@ Route::get(
   Route::post('order-return', [OrderController::class, 'order_return'])->name('order.return')->middleware('themelanguage');
   Route::get('orders/order_view/{id}', [OrderController::class, 'show'])->name('order.order_view')->middleware('themelanguage');
   Route::get('order-receipt/{id}', [OrderController::class, 'order_receipt'])->name('order.receipt')->middleware('themelanguage');
+  /*
+   * ORD-008 (GAP-185) — THE THIRD SIBLING ORDER DOCUMENT, declared beside the second on purpose.
+   *
+   * The master plan's 04-C clause is "Picking وPacking والباركود والملصقات والفواتير": the label
+   * (`shippinglabel/pdf/{id}`, in this same group above) and the invoice (`order-receipt/{id}`,
+   * the line above) were already here; this is the picking and packing one. Same group, same
+   * `themelanguage` middleware, same `Crypt::encrypt($order->id)` segment, same handler shape —
+   * so a reader sees three siblings rather than two and an oddity.
+   *
+   * ITS OWNERSHIP RULE IS NOT IMPLIED BY THE RESEMBLANCE. `OrderDocumentAccessGuard::TARGETS` is
+   * keyed on the URI, so this route is guarded only because it was added to that map in the same
+   * change — the property that map's own P2-04-5 note exists to preserve. The handler decrypts the
+   * segment and derives the order exactly as `order_receipt()` does and asks no ownership question
+   * of its own; `OrderPackingListScreenTest` drives the owning merchant, another store's order
+   * (403, which only the guard produces) and a missing row (302, which only the handler does).
+   */
+  Route::get('order-packing-list/{id}', [OrderController::class, 'order_packing_list'])->name('order.packing_list')->middleware('themelanguage');
   Route::post('order-return-request', [OrderController::class, 'order_return_request'])->name('order.return.request')->middleware('themelanguage');
 
   Route::post('update-refund-status', [OrderRefundController::class, 'updateRefundStatus'])->name('update-refund-status')->middleware('themelanguage');

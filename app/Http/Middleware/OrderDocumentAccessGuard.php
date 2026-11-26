@@ -246,6 +246,26 @@ class OrderDocumentAccessGuard
         'order-receipt/{id}' => ['table' => 'orders', 'param' => 'id'],
 
         // ---------------------------------------------------------------------------------
+        // ORD-008 (GAP-185). THE PICKING AND PACKING DOCUMENT, added here in the same change
+        // that adds the route -- for the reason the `order-preview/{id}` note below states and
+        // this entry is the second proof of: THIS MAP IS KEYED ON THE URI, so a new
+        // order-document surface is NOT guarded by implication however closely it resembles one
+        // that is. `order-packing-list/{id}` is declared one line below `order-receipt/{id}` in
+        // routes/web.php, in the same group, with the same middleware and the same encrypted
+        // segment, and none of that would have guarded it.
+        //
+        // `OrderController::order_packing_list()` is `order_receipt()`'s shape line for line: it
+        // decrypts the segment, reads the order through `Order::order_detail()` and asks NO
+        // ownership question of its own, which is correct and is why this entry is load-bearing
+        // rather than belt-and-braces. The route IS inside the host's authenticated group, so the
+        // anonymous limb above is not what carries it; what this entry adds is the tenant test.
+        // Driven in tests/Feature/Commerce/OrderPackingListScreenTest: the owning merchant gets
+        // 200 with the lines, another store's order gets 403 (which only `deny()` produces) and an
+        // id naming no order gets 302 (which only the handler produces). Those two statuses being
+        // different is what makes "it was refused" mean the guard and not a missing row.
+        'order-packing-list/{id}' => ['table' => 'orders', 'param' => 'id'],
+
+        // ---------------------------------------------------------------------------------
         // P2-04-5. THE QUICK-PREVIEW FRAGMENT, added here in the same change that adds the
         // route. This map is keyed on the URI, so a new order-document surface is NOT guarded
         // by implication however closely it resembles one that is -- which is the reason the
