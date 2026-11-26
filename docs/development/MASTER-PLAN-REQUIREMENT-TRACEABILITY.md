@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 181 VERIFIED COMPLETE. 169 are not.**
+**350 requirements recovered. 182 VERIFIED COMPLETE. 168 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 181 verified complete, 189 not.** It read 368/198
+project-wide figure is **370 known requirements, 182 verified complete, 188 not.** *(181/189 until 2026-11-26, when `P05-24` was promoted.)* It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -143,9 +143,9 @@ against a pre-reorganization original.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **181** |
+| VERIFIED COMPLETE | **182** |
 | PARTIALLY IMPLEMENTED | **101** |
-| NOT IMPLEMENTED | **10** |
+| NOT IMPLEMENTED | **9** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -159,7 +159,7 @@ against a pre-reorganization original.
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
 | 03 Storefront, Themes, Official Website and Documentation (M | 36 | 14 | **22** |
 | 04 Commerce (P4-0 .. P4-9) | 43 | 18 | **25** |
-| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 2 | **33** |
+| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 3 | **32** |
 
 ---
 
@@ -5146,16 +5146,16 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P05-24` — Phase 05 reporting honesty
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
 
 - **Requirement (original wording / faithful reference):** "Work completed will be reported as completed and work not started will be reported as not started — the final report states, per slice, which of the two it is, with evidence." Plus the vocabulary rule: an approved design is never described as implemented until measured, and engineering completion is never described as production readiness.
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §0 and §5`
 - **Owner decisions:** None found.
 - **Expected behaviour:** The Phase 05 final report states per slice whether it was completed or not started, with evidence, and never conflates engineering completion with release readiness.
-- **Actual behaviour (figure re-measured 2026-11-24):** No Phase 05 final report exists — that part is unchanged and is the whole of this row. The count beside it was stale: `docs/development/phase-5/` holds **17 files and an `evidence/` directory**, not "three files only" — among them the metric layer, the D6 wiring measurement, the MKT/ANA measurement and dispositions, the owner decision package and register, the P5-3 prerequisites, the R7 demand-vs-collected map and the four-figure labelling proposal. None of them is the per-slice completed/not-started report this row asks for. The project task ledger carries P5-Z as pending.
-- **Gap:** The report, and with it the per-slice completed/not-started statement this matrix is currently standing in for.
+- **Actual behaviour — PROMOTED 2026-11-26, AND THE SENTENCE BELOW IS STALE.** `docs/development/phase-5/PHASE-05-FINAL-REPORT.md` **exists** (on `ws/p06-ws6-analytics`, which is why it is absent from this branch and why the stale reading survived) and satisfies **both** clauses of the requirement, **with a gate asserting each in both directions** so neither can decay. `Phase05FinalReportTest` carries eight cases: `test_every_plan_slice_has_an_explicit_verdict_and_no_verdict_is_orphaned` is clause 1, `test_no_verdict_claims_what_only_a_person_or_a_ci_run_can_grant` is the vocabulary rule, `test_every_cited_evidence_path_exists` covers "with evidence", and `test_every_phase_05_requirement_is_carried_whether_or_not_a_slice_owns_it` covers this row's own next-action. **Measured: all nine of P5-1…P5-9 carry a verdict** — `P5-2` and `P5-4`…`P5-8` VERIFIED BY LOCAL TESTS, `P5-1` split (reading half verified, writing half awaiting human approval), `P5-3` and `P5-9` IMPLEMENTED IN DEVELOPMENT — PARTIAL. **THE VERDICTS ARE RICHER THAN THE REQUIREMENT'S BINARY, AND THAT IS A JUDGEMENT RATHER THAN A TECHNICALITY, SO IT IS STATED HERE:** the requirement asks per slice for "completed or not started" and the report answers in four states. That satisfies the requirement's INTENT more exactly than its letter, because its own vocabulary rule — *an approved design is never described as implemented until measured, and engineering completion is never described as production readiness* — is precisely what the binary would force a reader to conflate. A slice that is implemented, measured by local tests and not yet accepted by a person is neither "completed" nor "not started", and saying so is the honesty this requirement is named for. **If the owner reads the binary as literal, this promotion is the thing to challenge.** *(Superseded reading, kept per this document's convention: No Phase 05 final report exists — that part is unchanged and is the whole of this row.)* The count beside it was stale: `docs/development/phase-5/` holds **17 files and an `evidence/` directory**, not "three files only" — among them the metric layer, the D6 wiring measurement, the MKT/ANA measurement and dispositions, the owner decision package and register, the P5-3 prerequisites, the R7 demand-vs-collected map and the four-figure labelling proposal. None of them is the per-slice completed/not-started report this row asks for. The project task ledger carries P5-Z as pending.
+- **Gap:** **NONE.** The report exists, both clauses are satisfied, and both are gate-asserted in each direction. *(Superseded: The report, and with it the per-slice completed/not-started statement this matrix is currently standing in for.)*
 - **Responsible:** Phase 05 (P5-Z)
-- **Next action:** When the report is written, give each of P5-1…P5-9 (P5-9 — Loyalty was added 2026-11-17) an explicit verdict, and carry the loyalty, conversion and marketing-performance requirements that have no slice.
+- **Next action:** **DISCHARGED.** Each of P5-1…P5-9 carries an explicit verdict and the requirements with no owning slice are carried in the report's §6 — **twelve**, which the gate asserts against this matrix in both directions. It read 13 until `P05-11`'s heading was corrected to name its slice; that coordination edit lives on `ws/p06-ws6-analytics` with the report. *(Superseded: When the report is written, give each of P5-1…P5-9 an explicit verdict, and carry the loyalty, conversion and marketing-performance requirements that have no slice.)*
 
 ### `P05-MKT-ANA` — the eighteen recovered MKT and ANA decision IDs
 
