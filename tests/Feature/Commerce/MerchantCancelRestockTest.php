@@ -950,10 +950,12 @@ class MerchantCancelRestockTest extends SecurityTestCase
 
     private function variantIn(Product $product, int $stock): ProductVariant
     {
-        /* `product_variants` declares `variant` and `sku`, NOT `name` -- the hand-built schema in
-           OrderCancelRestockTest uses `name`, which does not exist in the real migration
+        /* `product_variants` declares `variant` and `sku`, NOT `name`
            (2024_01_01_104858_create_product_variants_table.php). Measured: a `name` key here is a
-           QueryException, which would have made the variant case red for the wrong reason. */
+           QueryException, which would have made the variant case red for the wrong reason.
+           This comment used to cite OrderCancelRestockTest's hand-built schema as the live
+           counter-example; that suite was converted to the migrated schema on 2026-11-26 and the
+           invented `name` went with it, in all four suites that had copied it. */
         return ProductVariant::forceCreate([
             'product_id' => $product->id,
             'variant' => 'v-' . uniqid('', false),
