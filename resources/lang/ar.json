@@ -4788,5 +4788,6 @@
     "Every store on the platform, with its owner and whether its storefront is live.": "كل متجر على المنصة، مع مالكه وما إذا كانت واجهته نشطة.",
     "The screens that read every tenant at once. Each is for the platform operator only.": "الشاشات التي تقرأ كل المتاجر مرة واحدة. كل منها لمشغّل المنصة وحده.",
     "One store at a time: its subscription, catalogue, orders, shoppers and support, and the way into its own systems.": "متجر واحد في كل مرة: اشتراكه وكتالوجه وطلباته ومشتروه ودعمه، والمدخل إلى أنظمته الأصلية.",
-    "The bilingual help articles merchants and shoppers read, and which of them are stale.": "مقالات المساعدة بالعربية والإنجليزية التي يقرأها التجار والمشترون، وأيّها بحاجة إلى تحديث."
+    "The bilingual help articles merchants and shoppers read, and which of them are stale.": "مقالات المساعدة بالعربية والإنجليزية التي يقرأها التجار والمشترون، وأيّها بحاجة إلى تحديث.",
+    "Total Plan Orders counts every purchase attempt, whether or not it was ever paid. Popular Plan and Popular Coupon count only purchases the platform was actually paid for, and Popular Coupon counts only redemptions whose order can be found.": "يَعُدّ إجمالي طلبات الباقات كل محاولة شراء، سواء دُفعت أم لا. أما الباقة الأكثر طلباً والقسيمة الأكثر استخداماً فتَعُدّان المشتريات التي قُبض ثمنها فعلاً فقط، والقسيمة الأكثر استخداماً تَعُدّ الاستخدامات التي يمكن العثور على طلبها فقط."
 }

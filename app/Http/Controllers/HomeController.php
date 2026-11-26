@@ -358,7 +358,29 @@ class HomeController extends Controller
          *     primary-key order, so the FIRST of a tie won; hence `orderBy('coupon_id')`.
          * `PlanCouponRankingFreshnessTest` pins the staleness this replaced.
          */
+        /*
+         * GAP-231 -- SETTLED REDEMPTIONS ONLY, the sibling of the `Popular Plan` fix above and the
+         * same kind of defect: this counted EVERY `plan_user_coupons` row, so a coupon redeemed
+         * three times against orders that never paid outranked one redeemed against an order that
+         * did. A ranking led by rows representing no money is wrong rather than a definitional
+         * choice, which is why it was fixed and not put to the owner -- the question was decidable
+         * from the repository, because `SaasRevenueFigures::SETTLED_PLAN_STATUSES` declares the
+         * settled set and `PlanOrderSettledStatusCensusTest` classifies every spelling the
+         * application writes.
+         *
+         * `whereExists` AND NOT A JOIN. `plan_user_coupons.order` is a STRING matched against
+         * `plan_orders.order_id` and carries no foreign key, so a join would multiply a redemption
+         * by however many orders share that id and its correctness would rest on a unique index.
+         * `EXISTS` is a per-row boolean and cannot multiply or drop rows whatever the index
+         * situation is. `SettledPlanOrders::redeemedAgainstSettledOrder()` owns the predicate and
+         * its docblock carries the uniqueness measurement.
+         *
+         * A REDEMPTION NAMING NO EXISTING ORDER IS NOT COUNTED. `EXISTS` is false for it, which is
+         * the right answer -- a row must not be counted as paid because it cannot be matched -- and
+         * the card's disclosure beside it says the ranking counts matched, settled redemptions.
+         */
         $mostRedeemed = \App\Models\PlanUserCoupon::query()
+            ->whereExists(fn ($query) => \App\Support\Operator\SettledPlanOrders::redeemedAgainstSettledOrder($query))
             ->selectRaw('coupon_id, COUNT(*) as redemptions')
             ->groupBy('coupon_id')
             ->orderByDesc('redemptions')

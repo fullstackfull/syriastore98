@@ -64,6 +64,33 @@
             </div>
 
             {{--
+                GAP-231 — WHAT THESE THREE CARDS COUNT, SAID OUT LOUD.
+
+                THE TWO RANKINGS WERE FIXED AND THE COUNT WAS NOT, and the difference is the whole
+                reason this paragraph exists rather than a third predicate. `Popular Plan` and
+                `Popular Coupon` could be led by rows representing NO MONEY — a plan whose every
+                purchase failed could win — which is a defect, so they now count settled purchases
+                only. `Total Plan Orders` counting every attempt is a DEFENSIBLE operational
+                number: "how many purchase attempts exist" is a real question an operator asks.
+                Changing it would have silently redefined a figure the owner reads, to answer a
+                question they did not ask.
+
+                That is this view's own precedent. `Total Orders` was relabelled to
+                `Total Plan Orders` rather than having its figure changed, because the figure was
+                right and the WORD was wrong. Here the figure is right and the SILENCE was wrong.
+
+                NOT A `:hint` ON A CARD. `<x-dashboard-card>`'s shape is a label and a count and it
+                has no hint slot, and `DashboardCardIconLinkHasANameTest` asserts this dashboard
+                renders EXACTLY SIX of them — so a disclosure cannot be a seventh card, and
+                `<x-ss.stat>` is not what these are. A standalone `ss-stat__hint` beside the row is
+                the shape the analytics screens already use for a disclosure that belongs to a
+                table rather than to one tile.
+            --}}
+            <p class="ss-stat__hint mb-4">
+                {{ __('Total Plan Orders counts every purchase attempt, whether or not it was ever paid. Popular Plan and Popular Coupon count only purchases the platform was actually paid for, and Popular Coupon counts only redemptions whose order can be found.') }}
+            </p>
+
+            {{--
                 THE THREE CROSS-TENANT SCREENS, REACHABLE. Until this panel existed, none of them
                 was linked from anywhere: `grep -rn 'platform.analytics' resources/views/` found
                 exactly one hit, the export button INSIDE the analytics screen, so P5-7's screen

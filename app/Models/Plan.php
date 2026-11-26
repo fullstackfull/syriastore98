@@ -127,7 +127,30 @@ class Plan extends Model
      */
     public static function most_purchese_plan()
     {
+        /*
+         * GAP-231 -- SETTLED PURCHASES ONLY, AND THAT IS A DEFECT FIX RATHER THAN A DEFINITION
+         * CHANGE. This counted EVERY `plan_orders` row, so a plan whose every purchase `failed`
+         * could be presented to the operator as the platform's most popular plan. A ranking that
+         * can be led by rows representing no money is wrong; it is not a choice about what
+         * "popular" means.
+         *
+         * THE SPELLINGS COME FROM THE DATA, NOT FROM THE CONSTANT, and that is load-bearing:
+         * `SaasRevenueFigures::SETTLED_PLAN_STATUSES` is lower-cased while the application also
+         * stores `'Succeeded'` and `'Approved'` (the latter written by
+         * `BankTransferController::orderapprove()`), and a lower-cased `whereIn` matches those on
+         * MySQL's case-insensitive collation and NOT on SQLite's. `SettledPlanOrders` resolves
+         * that in PHP and hands back the stored spellings, so this predicate means the same thing
+         * in the suite and in production. Its docblock has the measurement.
+         *
+         * THE AGGREGATION STAYS IN THE DATABASE. This method has been repaired twice for pulling
+         * every row into PHP; the predicate narrows the `GROUP BY`, it does not move it.
+         *
+         * `MIN(id)` IS THE TIE-BREAK AND SURVIVES THE PREDICATE -- a ranking with no stable
+         * tie-break flaps between two values on identical data, which is worse than either answer.
+         * Pinned by `test_a_tie_is_broken_stably_by_the_earliest_order`.
+         */
         $ranked = PlanOrder::query()
+            ->whereIn('payment_status', \App\Support\Operator\SettledPlanOrders::spellingsInUse())
             ->selectRaw('plan_id, COUNT(*) as purchases, MIN(id) as first_order_id')
             ->groupBy('plan_id')
             ->orderByDesc('purchases')
