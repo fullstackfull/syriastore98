@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 172 VERIFIED COMPLETE. 178 are not.**
+**350 requirements recovered. 177 VERIFIED COMPLETE. 173 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 172 verified complete, 198 not.** It read 368/198
+project-wide figure is **370 known requirements, 177 verified complete, 193 not.** It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -143,9 +143,9 @@ against a pre-reorganization original.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **172** |
-| PARTIALLY IMPLEMENTED | **87** |
-| NOT IMPLEMENTED | **33** |
+| VERIFIED COMPLETE | **177** |
+| PARTIALLY IMPLEMENTED | **94** |
+| NOT IMPLEMENTED | **21** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -154,11 +154,11 @@ against a pre-reorganization original.
 
 | phase | recovered | verified complete | not complete |
 |---|---|---|---|
-| 01 Foundation — architecture, security, tenant isolation, pe | 70 | 15 | **55** |
+| 01 Foundation — architecture, security, tenant isolation, pe | 70 | 17 | **53** |
 | 02 Merchant Experience | 114 | 100 | **14** |
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
-| 03 Storefront, Themes, Official Website and Documentation (M | 36 | 11 | **25** |
-| 04 Commerce (P4-0 .. P4-9) | 43 | 16 | **27** |
+| 03 Storefront, Themes, Official Website and Documentation (M | 36 | 13 | **23** |
+| 04 Commerce (P4-0 .. P4-9) | 43 | 17 | **26** |
 | 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 1 | **34** |
 
 ---
@@ -442,7 +442,20 @@ against a pre-reorganization original.
 
 ### `P01-DEFECT-PROFILE` — Declared known-bad outcomes
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> Both lines this row names were already guarded and its known-outcome manifest entry already deleted: `getThemeUrl()` returns null for a null store and again for a slug-less one, covering `:610` and `:612` by returning before either is reached, and `ProfileTest::test_profile_page_is_displayed` passes. The same change added the null-store guard at `HomeController::index()` that replaced an HTTP 500 -- whose side effect is carried separately as GAP-264 / owner decision I16.
+>
+> Evidence: `GAP-013` in `MASTER-PLAN-GAP-REGISTER.md`, commit `8e472c81`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Same as above. Classification "A REAL APPLICATION DEFECT": GET /profile answers 500 with ErrorException: Attempt to read property "slug" on null
 - **Source:** `.github/known-test-outcomes.json → expected_failures → Tests\Feature\ProfileTest::test_profile_page_is_displayed`
@@ -457,7 +470,20 @@ against a pre-reorganization original.
 
 ### `P01-DEFECT-REG` — Declared known-bad outcomes
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> Registration no longer commits a half-provisioned merchant. The `admin` role lookup moved ABOVE the first write, so with the role absent nothing is created, nobody is signed in and no verification mail goes out, instead of the measured prior behaviour: 302, authenticated visitor, users +1, stores +1, store_wallets +1 and role_user **0**. Closing it emptied the Feature suite's declared-failure set.
+>
+> Evidence: `GAP-014` in `MASTER-PLAN-GAP-REGISTER.md`, commit `8e472c81`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Implied by acceptance criterion F2's manifest discipline: a declared failure must carry a cause, an owner and a classification. This entry's own classification is "OPEN -- ACTIONABLE DEFECT": POST /register silently skips the admin-role assignment, so "the user, the store and the login are committed and the merchant ends up with no role and no error"
 - **Source:** `.github/known-test-outcomes.json → expected_failures → Tests\Feature\Auth\RegistrationTest::test_new_users_can_register`
@@ -3551,7 +3577,20 @@ against a pre-reorganization original.
 
 ### `P03-ACC-02` — Acceptance criteria — bilingual (OWNER-SUSPECTED GAP E)
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> The Arabic acceptance numbers are closed and ratcheted in BOTH directions. Re-measured against this tree: en.json 4,676 keys, ar.json 4,670; missing Arabic rows 35, each triaged with a reason per group, and 35 rows are UNtranslated ON PURPOSE rather than by omission.
+>
+> Evidence: `GAP-096` in `MASTER-PLAN-GAP-REGISTER.md`, commit `a7b502dd`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** "Arabic and English both correct in logical and visual order; the inventory's measured gaps — 35 English keys with no Arabic row, 28 Arabic values identical to their key, 31 with no Arabic script — are closed or explicitly accepted with a reason."
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Acceptance criteria / Bilingual (lines 266-270); the counts are from §Measured inventory line 95`
@@ -3967,7 +4006,19 @@ against a pre-reorganization original.
 
 ### `P03-MP-02` — Master Plan scope (OWNER-SUSPECTED GAP E)
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> Per-store SEO meta is wired: the merchant-configurable feature that was connected to nothing now reaches the rendered page, and the order of the two jobs turned out to be load-bearing. The `metaKeywordSetting` escaping hazard flagged in the same row was handled with it.
+>
+> Evidence: `GAP-118` in `MASTER-PLAN-GAP-REGISTER.md`, commit `9b8b3606`. The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Consequence of the same scope item: a merchant's storefront should present that store's own SEO metadata. The product already collects it — the merchant SEO settings form writes metatitle, metakeyword and metadesc.
 - **Source:** `CLAUDE.md §4 Phase 03 scope ('SEO'); resources/views/setting/seo_setting.blade.php (the merchant-facing form)`
@@ -4190,7 +4241,19 @@ against a pre-reorganization original.
 
 ### `P04-P1-02` — P4-1 Storefront commerce correctness
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> The bilingual cart/checkout harness -- half of P4-1's stated acceptance -- SHIPS: `tests/Feature/Commerce/BilingualCartCheckoutHarnessTest`, 47 cases and 481 assertions, driving all three parts in both languages. It also surfaced three attributes that needed no decision.
+>
+> Evidence: `GAP-128` in `MASTER-PLAN-GAP-REGISTER.md`, commit `13d30927`. The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** P4-1 acceptance, verbatim: 'a storefront harness driving cart and checkout in BOTH languages, asserting the message language matches the page'.
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6, P4-1 acceptance clause 2`
@@ -4202,7 +4265,20 @@ against a pre-reorganization original.
 
 ### `P04-P1-03` — P4-1 Storefront commerce correctness
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> All three named defects now have a verdict, and one of them -- P4-F004, guest basket identity -- DID NOT REPRODUCE: it was already fixed on 2026-11-22 by `App\Support\Commerce\GuestBasketIdentity::forRequest()`, so the word 'untouched' in the original row was stale when it was written. The guest remove and the login merge are fixed.
+>
+> Evidence: `GAP-129` in `MASTER-PLAN-GAP-REGISTER.md`, commit `7645b564`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** 'cart edge behaviour (quantity bounds, removal, guest→customer persistence); P4-F002 P4-F004'.
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6, P4-1 scope line`
@@ -4272,7 +4348,20 @@ against a pre-reorganization original.
 
 ### `P04-P2-02` — Coupon-redemption integrity
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> The deactivated coupon is gated at `Coupon::findByExactCode()` and at `Cart::getCouponTotalAmount()`, with one explicit `activeOnly: false` opt-out for the redemption recorder. 7 new cases on the web writer and 12 added to the authorization test.
+>
+> Evidence: `GAP-132` in `MASTER-PLAN-GAP-REGISTER.md`, commit `86332084`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Coupon redemption must be recorded truthfully: P4-F134 'ordersave may record no coupon redemption at all, so coupon caps never see those orders'; P4-F135 'a refused coupon still writes order_coupon_details and user_coupons, burning the shopper's allowance'; P4-F061 'coupons.status is written by every coupon editor and read by no gate — deactivating a store coupon does not stop it discounting'.
 - **Source:** `docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md (medium table P4-F061; §P4-F134, §P4-F135); PHASE-04-FINAL-REPORT.md §6 'Recorded, not fixed'`
@@ -4365,7 +4454,20 @@ against a pre-reorganization original.
 
 ### `P04-P5-01` — P4-5 Payment and callback integrity census
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> THE TABLE THIS SECTION SAYS WAS NEVER PRODUCED NOW EXISTS: `docs/development/phase-4/PHASE-04-P5-01-GATEWAY-CLASSIFICATION.md`, built from the code rather than from the register's estimate -- and the estimate was wrong in BOTH directions. Not '~45 payment types' but **57 payment-type identifiers, 50 gateway ids naming 48 distinct providers, and 7 that are not gateways at all**. The externally-blocked column the requirement asks for is present, and a sixth term NO GATEWAY (7) was added so that cash in a courier's hand is not counted as an unverified gateway capture. The census also found a live defect, carried as GAP-263 / owner decision I15.
+>
+> Evidence: `GAP-136` in `MASTER-PLAN-GAP-REGISTER.md`, commit `ea7e842c`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** P4-5 acceptance, verbatim: 'the ~30 gateway controllers as a table: which verify server-side, which check amount, which have replay guards, which are covered by existing Gateway* tests ... every gateway classified; none marked verified without evidence; gateways needing external credentials marked EXTERNALLY BLOCKED'.
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6 P4-5`
@@ -4464,7 +4566,19 @@ against a pre-reorganization original.
 
 ### `P04-P6-04` — Refund correctness and idempotency
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> The double stock credit across the refund/return/cancel doors is CLOSED, and it reproduced before it was fixed. The refund door is now inside the stock-restore protocol. The row's other three items -- unenforced refund policy, actor attribution, the operator locked out of the refund list -- remain open, which is why this is PARTIALLY and not VERIFIED.
+>
+> Evidence: `GAP-140` in `MASTER-PLAN-GAP-REGISTER.md`, commit `ef805b8a`. The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** P4-6 acceptance: 'negative tests for authorization, ownership, transitions, amount limits and duplicates'. Register rows P4-F083 (refund restock ignores Order::LINE_STOCK_RESTORED so a line is credited twice), P4-F084 (Accept → RefundStock → Cancel double-counts), P4-F086 (the three OrderRefundSetting toggles are never read server-side), P4-F087 (four state-changing mutators record no actor), P4-F089 (operator locked out of GET /refund-request).
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6 P4-6; PHASE-04-FINDINGS-REGISTER.md medium/low tables`
@@ -4538,7 +4652,19 @@ against a pre-reorganization original.
 
 ### `P04-P8-03` — Fulfilment and shipping workflows
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> The two cross-customer address reads this row put first were ALREADY CLOSED when it was written, measured rather than re-fixed, and the inert leftovers were removed and the pattern ratcheted. Four of the six shipping/tax rows remain, so this stays PARTIALLY.
+>
+> Evidence: `GAP-144` in `MASTER-PLAN-GAP-REGISTER.md`, commit `4141d58a`. The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Phase 04 scope element 'fulfilment' and the shipping register rows: P4-F074 (tax banding diverges between engines and priority sorts lexicographically), P4-F076 (saving a shipping zone with every method deselected is a 500), P4-F077 (Delivery Syria branch weighs a line with an unscoped Product::find()), P4-F078 (delivery_list resolves the zone with no country/state predicate), P4-F021/P4-F073 (shipping quote reads any customer's DeliveryAddress by id).
 - **Source:** `CLAUDE.md §4 scope summary; docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md medium/low tables`
@@ -5031,7 +5157,19 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P06-01` — Phase 06 — source
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> The central claim of the original row -- "no Phase 06 requirement can be certified against an original" -- is now FALSE, and while it stood it was blocking five rows. Measured against `docs/development/master-plan/DECISION-ID-REGISTER.md`, which was recovered on 2026-11-16 and does carry the originals this row said did not exist.
+>
+> Evidence: `GAP-174` in `MASTER-PLAN-GAP-REGISTER.md`, (re-traced 2026-11-25). The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** "Phase 06 — SaaS & Super Admin" — the phase name, quoted from the owner-authored master execution prompt, which quotes the approved Master Product Plan / Decision Register v1.0 of 2026-10-14 directly.
 - **Source:** `docs/development/phase-2/PHASE-02-MASTER-EXECUTION-PROMPT.md:92 (owner-authored, preserved verbatim, marked not to be edited)`
@@ -5057,7 +5195,20 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P06-03` — Phase 06 — scope (derived)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> Per-requirement verdicts are measured against the five recovered texts, and the support desk is confined to its tenant -- including a live HTTP 500 on the fix's own refusal path, which the independent review found: the cross-tenant refusal returned a `403` view that does not exist anywhere in this repository.
+>
+> Evidence: `GAP-176` in `MASTER-PLAN-GAP-REGISTER.md`, commit `4468e00e`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** "support" (CLAUDE.md §4 Phase 06 scope: "SaaS subscriptions, support, controls, operations, platform admin, plus premium Super Admin UX").
 - **Source:** `CLAUDE.md §4 — DERIVED summary`
