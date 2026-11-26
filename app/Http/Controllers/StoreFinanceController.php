@@ -1092,6 +1092,42 @@ class StoreFinanceController extends Controller
         $inventoryUncostedRetail = $inventory->uncostedRetail();
 
         /*
+         | GAP-152 / P05-04. THE INVENTORY CAVEATS TRAVEL WITH THE FIGURES INSTEAD OF BEING
+         | RE-DECIDED IN THE VIEW.
+         |
+         | `StoreInventoryValuation` attaches `MONEY_FLOAT_PRECISION` unconditionally -- the retail
+         | columns are `double`, measured on MariaDB (§16) -- and `COST_UNKNOWN` when a valued
+         | product records no cost. Measured 2026-11-25: this controller passed the seven NUMBERS to
+         | the view and dropped the caveat list, so the view disclosed the cost gap in its own prose
+         | and the precision caveat reached NO surface in the product at all.
+         |
+         | `CaveatedFigure::forFigures()` is the set form of the carrier -- seven figures, one caveat
+         | list, no single value -- and its `hint()` is composed FROM that list, so a caveat added to
+         | the valuation arrives on this screen without this file or the view changing.
+         |
+         | THE COST CAVEAT IS ANSWERED IN THIS SURFACE'S OWN WORDS, and `PHASE-05-METRIC-DEFINITIONS.md`
+         | §16 requires exactly that: `COST_UNKNOWN`'s sentence is written for §8's per-ORDER margin
+         | ("for some orders ... those rows") and this screen counts PRODUCTS. The sentence below is
+         | the one the view has shown since ANA-006, unchanged and under the same translation key --
+         | it moves here only so that the carrier knows which caveat it discharges. The declaration
+         | cannot be silent: `CaveatedFigure` refuses an empty answer.
+         */
+        $inventoryDisclosure = \App\Support\Metrics\CaveatedFigure::forFigures(
+            __('right now'),
+            $inventory->caveats(),
+            [],
+            $inventory->hasCaveat(\App\Support\Metrics\MetricCaveat::COST_UNKNOWN)
+                ? [
+                    \App\Support\Metrics\MetricCaveat::COST_UNKNOWN => __('Cost is not recorded for :uncosted of :valued in-stock products. Those products contribute :amount of retail value with no cost subtracted, so Potential Profit is overstated by up to that amount.', [
+                        'uncosted' => number_format($inventoryUncostedProducts),
+                        'valued' => number_format($inventoryValuedProducts),
+                        'amount' => number_format($inventoryUncostedRetail, 2),
+                    ]),
+                ]
+                : [],
+        );
+
+        /*
          | P5-16 / owner decisions D1 and D2. `Payments received` and `Estimated gross profit`, read
          | through the metric layer over the period the ledger can vouch for (LedgerCoverage), with the
          | start stated. See App\Support\Metrics\FinanceLedgerFigures. Read-only.
@@ -1122,6 +1158,7 @@ class StoreFinanceController extends Controller
                 'inventoryValuedProducts',
                 'inventoryUncostedProducts',
                 'inventoryUncostedRetail',
+                'inventoryDisclosure',
                 'orderFinancialsTotal',
                 'orderFinancialsWithoutCost'
             )

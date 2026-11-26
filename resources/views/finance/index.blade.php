@@ -125,15 +125,12 @@
 <div class="row mb-4">
     <div class="col-12">
         <x-ss.stats :label="__('Financial ledger')">
-            <x-ss.stat :label="__('Payments received')"
-                   :value="$ledgerFigures['payments']['value']"
-                   :period="$ledgerFigures['payments']['period']"
-                   :hint="$ledgerFigures['payments']['hint']" />
+            {{-- GAP-152: `<x-ss.figure>` TAKES THE CARRIER, SO THERE IS NO `hint` TO FORGET. Spelled
+                 as three strings, this tile rendered `EXCLUDES_PAYMENT_FEES` -- which
+                 `StoreRevenueMargin` attaches to every margin figure -- nowhere at all. --}}
+            <x-ss.figure :label="__('Payments received')" :figure="$ledgerFigures['payments']" />
 
-            <x-ss.stat :label="__('Estimated gross profit')"
-                   :value="$ledgerFigures['profit']['value']"
-                   :period="$ledgerFigures['profit']['period']"
-                   :hint="$ledgerFigures['profit']['hint']" />
+            <x-ss.figure :label="__('Estimated gross profit')" :figure="$ledgerFigures['profit']" />
         </x-ss.stats>
 
         {{-- ANA-007(d). THE ONE DEDICATED DATA-QUALITY SCREEN IN THE PRODUCT, WHICH NOTHING
@@ -228,20 +225,34 @@
      `.ss-help` is used rather than a hand-rolled box because it is built from DS tokens
      (`--ss-info-bg` / `--ss-info-fg`, ratcheted by CI's token-contrast gate) and its accent uses
      `border-inline-start`, so it flips correctly in Arabic RTL without a second rule. --}}
-@if (($inventoryUncostedProducts ?? 0) > 0)
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="ss-help">
+{{-- GAP-152 / P05-04. THE SENTENCES ARE NO LONGER CHOSEN HERE.
+
+     `$inventoryDisclosure` is a `CaveatedFigure::forFigures()` built in the controller from
+     `StoreInventoryValuation`'s own caveat list, and its `hint()` is composed FROM that list -- so
+     every caveat the valuation attaches is stated, and a new one arrives here without this file
+     changing. Measured before this: the view printed the cost sentence from three numbers and the
+     valuation's OTHER caveat, `MONEY_FLOAT_PRECISION` (the retail columns are `double`, measured on
+     MariaDB), reached no surface in the product at all.
+
+     The cost sentence is unchanged and under the same translation key; it moved into the controller
+     so the carrier knows it is the answer to `COST_UNKNOWN` -- §16 requires this surface to answer
+     that caveat itself, because the vocabulary's wording is written for §8's per-ORDER margin and
+     this screen counts PRODUCTS.
+
+     THE TITLE STAYS CONDITIONAL and the box does not. The title is an attention cue for the cost
+     gap -- `ss-attention`'s rule is that a caveat must not be permanent furniture -- while the
+     precision statement is permanently true and §11 rule 5 says a known gap is displayed.
+     `FinanceInventoryValuationTest` pins the title's absence when there is nothing to disclose. --}}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="ss-help">
+            @if ($inventoryDisclosure->hasCaveat(\App\Support\Metrics\MetricCaveat::COST_UNKNOWN))
                 <p class="ss-help__title">{{ __('Potential Profit is not precise') }}</p>
-                {{ __('Cost is not recorded for :uncosted of :valued in-stock products. Those products contribute :amount of retail value with no cost subtracted, so Potential Profit is overstated by up to that amount.', [
-                    'uncosted' => number_format($inventoryUncostedProducts),
-                    'valued'   => number_format($inventoryValuedProducts),
-                    'amount'   => number_format($inventoryUncostedRetail, 2),
-                ]) }}
-            </div>
+            @endif
+            {{ $inventoryDisclosure->hint() }}
         </div>
     </div>
-@endif
+</div>
 
 {{-- نظام Tabs المحسن --}}
 <div class="card">

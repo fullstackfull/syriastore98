@@ -459,10 +459,29 @@ class StatHintIsVisibleTest extends TestCase
         // `<p class="ss-stat__hint">` rather than a `:hint` on the component, so it is invisible
         // to this census by construction. That screen carries eight bucket sentences and four
         // table-level ones in that shape.
-        $this->assertCount(38, $hits,
+        // 38 -> 33 and 12 -> 13 files [GAP-152 / P05-04]. THE COUNT WENT DOWN AND THE DISCLOSURE
+        // WENT UP, which is the one direction this census cannot read on its own, so it is stated
+        // here. Six `:hint=` attributes were REMOVED -- the `Payments received` and
+        // `Estimated gross profit` tiles on `finance/index`, `reports/finance_report` and
+        // `analytics/index` -- and one was added, in `components/ss/figure.blade.php`, which is
+        // where all six now get theirs.
+        //
+        // WHY THAT IS NOT A LOST CAVEAT. `<x-ss.figure>` takes a `App\Support\Metrics\CaveatedFigure`
+        // and has NO `hint` prop: the sentences are computed from the figure's caveat list, so a
+        // screen cannot render the value and omit them. Spelled as three independent strings, those
+        // six tiles rendered `MetricCaveat::EXCLUDES_PAYMENT_FEES` -- which `StoreRevenueMargin`
+        // attaches to every margin figure, translated and ratcheted -- on NONE of them. The three
+        // screens are pinned by `CaveatCarrierReachesEverySurfaceTest` (which enumerates each
+        // figure's caveats at run time rather than listing sentences) and the component by
+        // `CaveatedFigureRendersItsCaveatsTest`.
+        //
+        // The thirteenth file is the component itself, and it is the one entry here that is not a
+        // screen: every future carrier-rendered figure adds disclosure WITHOUT moving this count,
+        // so a reader comparing figures shipped against hints added should start from that file.
+        $this->assertCount(33, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
-        $this->assertCount(12, array_unique($hits),
-            'x-ss.stat hints should span twelve files: ' . implode(', ', array_unique($hits)));
+        $this->assertCount(13, array_unique($hits),
+            'x-ss.stat hints should span thirteen files: ' . implode(', ', array_unique($hits)));
     }
 }

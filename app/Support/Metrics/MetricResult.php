@@ -320,6 +320,65 @@ final class MetricResult
     }
 
     /**
+     * THE SAME FIGURE WITHOUT THE CURRENCIES NOTHING WAS ACTUALLY MEASURED IN.
+     *
+     * GAP-222's zero trap, decided in the metric layer instead of in a view. A bucket whose total
+     * rounds to zero -- one free order placed after a store changed currency -- is not a currency
+     * the merchant was paid in; it is a rounding artefact. Keeping it makes `make()` attach
+     * `MIXED_CURRENCY`, which then disqualifies a correct single-currency total.
+     *
+     * `MoneyText::buckets($byCurrency, true)` has made exactly this call for the ledger tiles since
+     * GAP-222, and `FinanceLedgerFiguresTest::test_a_currency_with_nothing_in_it_does_not_make_the_figure_mixed`
+     * pins it. WHAT WAS WRONG IS WHERE IT HAPPENED: the view dropped the bucket while the result
+     * went on carrying `MIXED_CURRENCY`, so the figure and its caveats disagreed, and the screen
+     * resolved the disagreement silently. GAP-152's carrier will not let a surface do that, so the
+     * narrowing moves here, where it is one documented rule with the dropped codes in `notes()`.
+     *
+     * NOTHING IS CONVERTED AND NO AMOUNT CHANGES. Only buckets that round to 0.00 are removed, and
+     * `notes()['empty_currencies_dropped']` names them. A caller that wants them -- a WALLET, whose
+     * currency is a property of the account and not of the amount in it -- simply does not call
+     * this.
+     *
+     * NOT CALLED IMPLICITLY BY `make()`, for that reason: an empty wallet is the commonest wallet
+     * there is, and dropping its bucket would print the store's currency code against a balance
+     * denominated in another one.
+     */
+    public function withoutEmptyCurrencies(): self
+    {
+        $kept = array_filter($this->byCurrency, static fn (float $amount): bool => abs($amount) >= 0.005);
+
+        $dropped = array_keys(array_diff_key($this->byCurrency, $kept));
+
+        if ($dropped === []) {
+            return $this;
+        }
+
+        $caveats = $this->caveats;
+
+        // MIXED_CURRENCY was attached by make() because there were two buckets. If one is a
+        // rounding artefact the figure is not mixed and must stop saying so -- the same reasoning,
+        // and the same repair, as `assumingUnknownCurrencyIs()` makes after folding.
+        if (count($kept) <= 1) {
+            $caveats = array_values(array_filter(
+                $caveats,
+                static fn (string $c): bool => $c !== MetricCaveat::MIXED_CURRENCY
+            ));
+        }
+
+        return self::make(
+            $this->metric,
+            $this->record,
+            $this->datedBy,
+            $kept,
+            $this->rowCount,
+            $this->scope,
+            $this->window,
+            $caveats,
+            array_merge($this->notes, ['empty_currencies_dropped' => $dropped]),
+        );
+    }
+
+    /**
      * How much of this figure is in no known currency. Zero when every row carries one.
      *
      * Exposed separately so a surface can decide whether the assumption is worth mentioning

@@ -612,7 +612,7 @@ class ReportController extends Controller
      * it rtrims SPACE only, matching MySQL's PAD SPACE collation, which a hand-rolled
      * `strtolower(trim(...))` gets wrong for a tab or a leading space.
      *
-     * @return array{value: ?string, period: string, hint: string}|null
+     * @return array{value: ?string, period: string, hint: string, caveats: list<string>, authoritative: bool}|null
      */
     private function salesCollectionTile(Request $request, string $periodLabel): ?array
     {
@@ -642,7 +642,13 @@ class ReportController extends Controller
             ->where('name', 'defult_currancy')
             ->value('value') ?? 'USD');
 
-        return FinanceLedgerFigures::forStore($storeId, $currencyCode, $window, $periodLabel)['payments'];
+        /*
+         * `->toArray()` BECAUSE THIS METHOD'S DECLARED RETURN IS AN ARRAY, and GAP-152 made the
+         * tile a `CaveatedFigure`. Flattening here loses nothing: the carrier's `hint` is DERIVED
+         * from its caveats before this line runs, so the sentence `ReportFigureNote::salesRowHint()`
+         * carries into the two sales exports is the same one the screen shows.
+         */
+        return FinanceLedgerFigures::forStore($storeId, $currencyCode, $window, $periodLabel)['payments']->toArray();
     }
 
     public function getCurrentMonthDates()

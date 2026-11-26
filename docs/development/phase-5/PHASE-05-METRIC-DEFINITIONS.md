@@ -850,6 +850,15 @@ that omits its own limits is what this document exists to prevent.**
   from here. `/finance` renders its own already translated sentence from `uncostedProducts()` and
   `uncostedRetail()`, so no merchant is shown the order-flavoured wording; a future consumer that
   prints `caveatMessages()` raw would be.
+
+  **That substitution is now DECLARED rather than left to the view** (GAP-152).
+  `StoreFinanceController` builds a `CaveatedFigure::forFigures()` from this class's own `caveats()`
+  and names that sentence as the answer to `COST_UNKNOWN`; the carrier refuses an empty answer, so a
+  surface can replace the wording and cannot drop the caveat. The SET form is used because one
+  caveat list qualifies seven figures — a per-tile subset would be the view choosing what to
+  disclose — and it is also what carried this section's OTHER caveat onto a screen for the first
+  time: `MONEY_FLOAT_PRECISION` was attached here, translated, and rendered nowhere, because the
+  controller passed the seven numbers to the view and left the list behind.
 - **A deliberate zero is disclosed as unknown.** A genuinely free item, entered as `cost_price = 0`
   on purpose, is counted in `uncosted_products` and its retail value in `uncosted_retail`, because
   the column cannot tell a deliberate zero from an unentered one. The disclosure therefore errs

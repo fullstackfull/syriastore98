@@ -87,7 +87,7 @@ final class FinanceLedgerFigures
     /**
      * @param  ?MetricWindow  $requested  the window the merchant chose, or null to read the whole verified period
      * @param  ?string  $requestedLabel  how that window is named on the surface, kept when nothing was clamped
-     * @return array{coverage: LedgerCoverage, payments: array<string, mixed>, profit: array<string, mixed>}
+     * @return array{coverage: LedgerCoverage, payments: CaveatedFigure, profit: CaveatedFigure}
      */
     public static function forStore(
         int $storeId,
@@ -234,9 +234,23 @@ final class FinanceLedgerFigures
     }
 
     /**
+     * GAP-152 / P05-04 — THE TILE IS A `CaveatedFigure`, SO ITS WORDS CANNOT OMIT A CAVEAT.
+     *
+     * This method used to `implode(' ', $notes)` into a `hint` key, and the caveats the metric had
+     * attached were consulted for exactly one key (`CURRENCY_UNRECORDED`). Measured consequence:
+     * `StoreRevenueMargin` attaches `EXCLUDES_PAYMENT_FEES` unconditionally -- ANA-006, nothing in
+     * this product records a gateway fee, so every card-taking store's margin is overstated by the
+     * gateway's cut -- and that sentence reached NONE of the five surfaces this figure appears on.
+     * It was translated, ratcheted, and rendered nowhere.
+     *
+     * Now the caveats travel WITH the value: `CaveatedFigure::from()` reads them off the result and
+     * composes the hint from them, so a caveat added to either metric arrives on every surface
+     * without a single view changing. The declarations below are the caveats this tile answers in
+     * BETTER WORDS than the vocabulary's generic sentence; everything else gets the generic one,
+     * which is a visible failure mode rather than a silent one.
+     *
      * @param  null|callable(MetricResult): ?string  $extra  a figure-specific limitation, or null for none
      * @param  ?string  $refusal  why the requested period cannot be answered at all, when that is the reason
-     * @return array{value: ?string, period: string, hint: string}
      */
     private static function tile(
         ?MetricResult $result,
@@ -246,14 +260,14 @@ final class FinanceLedgerFigures
         string $meaning,
         ?callable $extra,
         ?string $refusal = null,
-    ): array {
+    ): CaveatedFigure {
         if ($result === null) {
-            return [
-                'value' => null,
-                'period' => $period,
+            /* No metric ran, so there are no caveats to carry -- only the reason there is no
+               figure, which is itself the whole disclosure. */
+            return CaveatedFigure::of(null, $period, [], [
                 // A refusal about the REQUESTED period outranks one about the record: the record may be
                 // perfectly healthy and simply not cover the window the merchant picked.
-                'hint' => $refusal ?? (
+                $refusal ?? (
                 // "Nothing verified" outranks "starts in the future": with no row at all there is no record
                 // that could ever be verified from any date.
                     (! $coverage->hasNothingVerified() && $coverage->startsInTheFuture())
@@ -263,11 +277,35 @@ final class FinanceLedgerFigures
                         ])
                         : __('No order has a financial record yet, so this figure cannot be shown.')
                 ),
-            ];
+            ]);
         }
 
-        $result = $result->assumingUnknownCurrencyIs($storeCurrency);
+        /*
+         * `withoutEmptyCurrencies()` IS THE ZERO TRAP, MOVED INTO THE METRIC LAYER (GAP-152).
+         *
+         * `realBuckets()` has dropped a currency that rounds to 0.00 since GAP-222 -- one free
+         * order after a change of currency must not send a correct total to the mixed-currency
+         * refusal -- but it dropped it only from the DISPLAY, while the result went on carrying
+         * `MIXED_CURRENCY`. The figure and its caveats disagreed, and the hand-composed hint
+         * resolved that by saying nothing. A carrier states every caveat, so the disagreement had
+         * to be settled where the rule lives rather than papered over with a sentence.
+         */
+        $result = $result->assumingUnknownCurrencyIs($storeCurrency)->withoutEmptyCurrencies();
         $notes = [$meaning];
+        $statedAs = [];
+
+        /*
+         * `EXCLUDES_SHIPPING_AND_TAX` IS ANSWERED BY THE TILE'S OWN DEFINITION, and that is not a
+         * convenience. The vocabulary's sentence is "Margin excludes shipping and tax", which is
+         * FALSE for a store whose prices include tax -- recorded as GAP-213(d) in
+         * `StoreRevenueMargin`'s docblock, and `FinanceLedgerFiguresTest` asserts it stays off this
+         * tile. `$meaning` says the true thing in one existing translation key ("Shipping is not
+         * included. If your prices include tax, the tax is part of the sales value."), so the
+         * caveat is discharged by it and the hint reads it once.
+         */
+        if ($result->hasCaveat(MetricCaveat::EXCLUDES_SHIPPING_AND_TAX)) {
+            $statedAs[MetricCaveat::EXCLUDES_SHIPPING_AND_TAX] = $meaning;
+        }
 
         if ($coverage->datedOrdersWithoutRow() > 0) {
             $notes[] = __('Orders placed before :date with no financial record: :count. If any of them was paid inside this period, that payment is not included.', [
@@ -282,12 +320,27 @@ final class FinanceLedgerFigures
             ]);
         }
 
+        /*
+         * `COST_UNKNOWN` IS ANSWERED BY THE QUANTIFIED LINE, for the reason
+         * `PHASE-05-METRIC-DEFINITIONS.md` §16 gives in terms: the vocabulary's sentence names
+         * "some ORDERS" and "those ROWS", and this tile can say HOW MANY paid orders have no cost
+         * and what that does to the figure. `StoreRevenueMargin` attaches the caveat exactly when
+         * `notes()['rows_without_cost'] > 0`, which is exactly when `$extra` returns a line, so the
+         * two cannot come apart -- and if they ever did, the generic sentence appears instead of
+         * nothing.
+         */
         if ($extra !== null && ($line = $extra($result)) !== null) {
             $notes[] = $line;
+
+            if ($result->hasCaveat(MetricCaveat::COST_UNKNOWN)) {
+                $statedAs[MetricCaveat::COST_UNKNOWN] = $line;
+            }
         }
 
         if ($result->hasCaveat(MetricCaveat::CURRENCY_UNRECORDED)) {
-            $notes[] = __('Includes :amount from records that carry no currency, counted in your store currency.', [
+            /* The vocabulary says "some of these orders predate currency recording"; this says how
+               much money that is, which is what lets a merchant judge whether it matters. */
+            $statedAs[MetricCaveat::CURRENCY_UNRECORDED] = __('Includes :amount from records that carry no currency, counted in your store currency.', [
                 'amount' => MoneyText::amount((float) ($result->notes()['currency_assumed_amount'] ?? 0.0), $storeCurrency),
             ]);
         }
@@ -302,20 +355,30 @@ final class FinanceLedgerFigures
                 $listed[] = MoneyText::amount($amount, $currency);
             }
 
-            $notes[] = __('These amounts are in more than one currency and are not combined: :amounts.', [
+            $listedNote = __('These amounts are in more than one currency and are not combined: :amounts.', [
                 'amounts' => implode(', ', $listed),
             ]);
 
-            return ['value' => null, 'period' => $period, 'hint' => implode(' ', $notes)];
+            $notes[] = $listedNote;
+
+            /*
+             * DECLARED AS THE ANSWER TO `MIXED_CURRENCY` ONLY WHEN THE RESULT CARRIES IT -- which,
+             * with two real buckets, `MetricResult::make()` always does, since it attaches that
+             * caveat from the same data this branch counted. The guard is here because the carrier
+             * REFUSES a statement for a caveat a figure does not carry (dead text that drifts), and
+             * on a merchant money screen that refusal would be an HTTP 500. The sentence is in
+             * `$notes` either way, so the tile reads the same; `hint()` collapses the duplicate.
+             */
+            if ($result->hasCaveat(MetricCaveat::MIXED_CURRENCY)) {
+                $statedAs[MetricCaveat::MIXED_CURRENCY] = $listedNote;
+            }
+
+            return CaveatedFigure::from($result, null, $period, $notes, $statedAs);
         }
 
         $currency = array_key_first($buckets) ?? $storeCurrency;
         $amount = $buckets[$currency] ?? 0.0;
 
-        return [
-            'value' => MoneyText::amount($amount, $currency),
-            'period' => $period,
-            'hint' => implode(' ', $notes),
-        ];
+        return CaveatedFigure::from($result, MoneyText::amount($amount, $currency), $period, $notes, $statedAs);
     }
 }

@@ -53,15 +53,10 @@
     <div class="row mb-4">
         <div class="col-12">
             <x-ss.stats :label="__('Financial ledger')">
-                <x-ss.stat :label="__('Payments received')"
-                       :value="$ledgerFigures['payments']['value']"
-                       :period="$ledgerFigures['payments']['period']"
-                       :hint="$ledgerFigures['payments']['hint']" />
+                {{-- GAP-152: the carrier, not three strings -- see components/ss/figure.blade.php. --}}
+                <x-ss.figure :label="__('Payments received')" :figure="$ledgerFigures['payments']" />
 
-                <x-ss.stat :label="__('Estimated gross profit')"
-                       :value="$ledgerFigures['profit']['value']"
-                       :period="$ledgerFigures['profit']['period']"
-                       :hint="$ledgerFigures['profit']['hint']" />
+                <x-ss.figure :label="__('Estimated gross profit')" :figure="$ledgerFigures['profit']" />
 
                 <x-ss.stat :label="__('Available to withdraw')"
                        :value="$walletFigure['value']"
