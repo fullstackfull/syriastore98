@@ -729,8 +729,9 @@ commercial choice. **No allowance was invented.**
 
 ### J30 — `SUPPORT-004`/`005`: four values for support access, and whether to enforce it at all
 
-**The mechanism is built** (`App\Support\SupportAccess\*`, `support_access_grants` /
-`_approvals`): *temporary* (`expires_at` NOT NULL; a null expiry reads as **expired**), *scoped*,
+**The mechanism is built** (`SupportAccessGate`, `SupportAccessGrants`, `SupportAccessAudit`,
+`SupportAccessScope`, `AccessKind`; models `SupportAccessGrant`/`SupportAccessApproval`; tables
+`support_access_grants` / `_approvals`): *temporary* (`expires_at` NOT NULL; a null expiry reads as **expired**), *scoped*,
 *consented* (only the tenant root may consent; `consented_at` is outside `$fillable`), *audited*
 (the existing `audit_logs`). The emergency path is separate by **disjoint predicate**, enforced
 structurally rather than by policy: `UNIQUE (grant_id, approver_id)`, the grantee's own approval
@@ -860,3 +861,77 @@ diacritics), applied only to the documentation centre. Product search is one `LI
 `products.name`. **Normalising the query alone is insufficient — `LIKE` cannot normalise the
 haystack** — so the slice is a stored `name_normalised` column, a hook on every product writer, and
 a backfill. Stated at that size rather than half-built.
+
+---
+
+## L. Decisions raised by the 2026-11-26 returns family (`RET-001`…`RET-007`)
+
+All seven RET decisions were untracked by every `MASTER-PLAN-*` file before this date; they appear
+only in `docs/development/master-plan/`, confirmed at §04-F whose seven bullets match the register's
+seven texts verbatim. Four are now built or verified. Three need you.
+
+### J39 — `RET-005`: what is a refund capped AGAINST?
+
+**What ships today, measured.** `cappedRefundAmount($request->refund_amount, $order->final_price)`
+caps a refund at the **order's own total**, not at the value of the goods that came back. So a
+**one-unit return worth 100.00 on a 540.00 order admits a 540.00 refund — and it is not even
+reported as capped.**
+
+**One thing checked rather than claimed.** It would be natural to conclude "each refund caps at the
+order total, so N refunds take N× the order." **That is false:** `order_refund_request()` refuses
+when a refund row already exists, so cumulative over-refund across rows is unreachable through the
+product. The exposure is **one oversized refund, not many** — which is why this is a cap-basis
+question and not an incident.
+
+**The question.** Goods only, goods plus shipping, or the whole order at the merchant's discretion?
+
+**Why engineering stopped.** It moves a refund amount, which the standing rules put furthest out of
+engineering's reach — the same boundary as `J1` and `J5`. The behaviour is pinned with figures to
+the cent, and the pin is mutation-proved to measure the cap's **basis** (re-keying it to the line
+price turns both cases red), so answering this **inverts** the test rather than deleting it.
+
+The quantity half of `RET-005` needs nothing: a per-line request above `$line['qty']` is refused
+outright and the restock clamp caps units. Both were already asserted.
+
+### J40 — `RET-002`: must a returned item be inspected before it can be restocked?
+
+**What ships today.** A recorded "not resellable" verdict now blocks restock at all three
+post-delivery return doors (`GAP-363`). What is **not** built is *requiring* an inspection before
+any restock.
+
+**Why engineering stopped.** Every store on the platform has zero verdicts, so mandating inspection
+would **stop every restock everywhere on day one** — a stock-policy change, not a defect fix. It is
+one per-store boolean away, in the shape `order_refund_settings` already uses.
+
+Worth knowing how the built half fails, because it is the reverse of the project's usual posture:
+`blocksRestock()` fails **OPEN** on an unreadable table, where `RefundPolicy::allows()` fails
+closed. Deliberate — that gate refuses an action, this one blocks one, and failing closed would
+withhold a merchant's goods on no evidence and break every unmigrated environment.
+
+### J41 — `RET-003`/`RET-004`: the exchange, and whether a delivered order may be reopened
+
+**The link machinery that looks like an exchange cannot serve one, and the reason is one exact
+fact.** `orders.replaced_order_id`, its UNIQUE index and `OrderReplacement::cancelAndReplace()` all
+exist — but `Order::performProductReturn()` refuses unless `delivered_status == 1`, and
+`cancelAndReplace()` refuses when `delivered_status != 0`. **No order can be both.**
+`cancelAndReplace()` serves `ORD-006` (correct an order before it ships) and merely shares a column.
+Driven on one order from both ends and pinned.
+
+`RET-004` has nothing to block: replacement copies `product_price`, `coupon_price`,
+`delivery_price`, `tax_price` and `final_price` across **verbatim**, and **no arithmetic anywhere
+computes a difference** — asserted as an identity over all five columns, so the gap fails rather
+than staying silent.
+
+**Three values, none inferable:** which price the replacement goods carry (today's catalogue or the
+original order's); what happens to the difference (charge, refund, wallet credit); and whether a
+delivered order may be reopened at all, since `FulfilmentStateMachine::PERMITTED[STATE_DELIVERED]`
+currently forbids it. **No exchange engine was built, deliberately** — it decides what a customer is
+charged or refunded on an uneven swap.
+
+### Not a decision, but adjacent to one — `GAP-366`
+
+`RefundPolicy::MANAGE_STOCK` gates **one of the three** restock doors, so a merchant who switches
+"Manage Stock" off still has stock restored by the other two. Honouring it at all three changes
+stock behaviour for any store that has it off, which makes it the same shape as `J1`'s
+`shiping_deduct` — a merchant setting that moves a quantity — rather than a defect to fix on a
+slice's authority.

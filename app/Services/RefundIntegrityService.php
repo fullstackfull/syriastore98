@@ -190,13 +190,26 @@ class RefundIntegrityService
      * changing.
      *
      * ══════════════════════════════════════════════════════════════════════════════════════════
-     * STORE-SCOPED BY ARGUMENT, because `OrderRefund` is not scoped by anything
+     * STORE-SCOPED BY ARGUMENT, and NOT for the reason this docblock used to give
      * ══════════════════════════════════════════════════════════════════════════════════════════
      *
-     * `OrderRefund` carries no `StoreScope` and is not in `config/tenancy.php`'s `scoped_models`,
-     * so a bare query reaches every tenant's refunds (CLAUDE.md). The store is therefore a
-     * required argument and the predicate is written here, not inherited: a review surface that
-     * showed one merchant another's refunds would be a cross-tenant disclosure of money.
+     * This said: *"`OrderRefund` carries no `StoreScope` and is not in `config/tenancy.php`'s
+     * `scoped_models`, so a bare query reaches every tenant's refunds (CLAUDE.md)."* **That is
+     * FALSE, measured in the booted container 2026-11-26:** `getGlobalScopes()` answers
+     * `[StoreScope]`, `scoped_models` membership is `true`, and `StoreScope::isActiveFor()` is
+     * `true`. `OrderRefund` is one of the ELEVEN models CLAUDE.md lists as really filtering, and
+     * CLAUDE.md's table has said so throughout -- the citation was to a claim the cited file
+     * does not make.
+     *
+     * The CODE is right and unchanged; only the stated reason was wrong, which is the dangerous
+     * kind: a reader trusts a security docblock and builds on it. Two things actually justify
+     * the explicit predicate, and both survive the correction. (1) `withoutGlobalScopes()` is
+     * called here deliberately, so whatever the scope would have contributed is dropped and the
+     * predicate below is the ONLY tenant control on this query. (2) `config/tenancy.php` sets
+     * `null_tenant => 'open'`, so even with the scope active it adds no predicate for a
+     * principal that resolves no tenant -- CLAUDE.md's standing rule is never to let the scope
+     * be the only tenant check. A review surface that showed one merchant another's refunds
+     * would be a cross-tenant disclosure of money.
      *
      * READ-ONLY, and it introduces no refund or settlement behaviour — D-31 requirement 9 and
      * D-15 condition 3. It reports; it does not pay anybody.
