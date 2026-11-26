@@ -245,7 +245,7 @@ class Cart extends Model
     {
         $store = Store::find($storeid);
 
-        $store_id = $store->id ?? getCurrentStore();
+        $store_id = $store->id ?? getCurrentStore(); $store = $store ?? Store::find($store_id); // GAP-292: recover the store the rest of this method is about; see GuestCartUnresolvableStoreTest
         $Carts = $cart_Cookie = Cookie::get('cart');
         $shipping_price_1 = $data['shipping_final_price'] ?? 0;
 
@@ -328,7 +328,8 @@ class Cart extends Model
          * into it for a dropped line would make that silently false the day something does.
          */
         $unavailable_lines = [];
-        if (!empty($Carts)) {
+        // GAP-292: `$store` can be null here, and 12 `$store->slug` sites below dereference it.
+        if (!empty($Carts) && $store !== null) {
             foreach ($Carts as $key => $cart_value) {
                 $variant_name = '';
                 $ssLineProduct = Product::find($cart_value->product_id);

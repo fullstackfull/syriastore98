@@ -1765,6 +1765,13 @@ $u->save();
 
     unset($post['_token']);
     unset($post['_method']);
+    // GAP-290: this handler writes EVERY posted key by name with no validation, so the web door
+    // stored '' or a 400-character string into the value three formatters hand to number_format().
+    // Dropping an unusable one leaves the stored setting untouched rather than inventing a format.
+    if (array_key_exists('currency_format', $post)
+        && ! \App\Support\Money\CurrencyDecimals::isAllowed($post['currency_format'])) {
+        unset($post['currency_format']);
+    }
 
     /*
      * العملة الجديدة المختارة
@@ -1778,16 +1785,32 @@ $u->save();
 
         $post['defult_currancy'] = $data[1];
         $post['CURRENCY_NAME'] = $data[1];
+        $ssCurrencyNamed = true; // GAP-291
 
     } else {
 
-        $post['defult_currancy'] = 'USD';
-        $post['defult_currancy_symbol'] = '$';
-        $post['CURRENCY_NAME'] = 'USD';
-        $post['CURRENCY'] = '$';
+        /*
+         * GAP-291 -- A REQUEST THAT NAMES NO CURRENCY MUST NOT CHANGE THE CURRENCY.
+         *
+         * This limb used to set `'USD'` and fall through into `StoreCurrencyChange::apply()`, so a
+         * POST carrying only the separator fields CONVERTED THE WHOLE CATALOGUE to USD. MEASURED
+         * on a store on SYP with one product at 100.00: a save naming no currency rewrote
+         * `products.price` to 10.00. This panel is ONE form holding the currency select beside the
+         * decimal format and both separators, so "a save intended for the separator" is the
+         * ordinary way to arrive here.
+         *
+         * Skipping the currency machinery entirely -- rather than substituting the STORED currency
+         * -- is deliberate: `prepare()` requires an ACTIVE rate row for its target, so feeding it
+         * the stored code would REFUSE the save for any store whose rate row has been deactivated,
+         * and the merchant came to change a separator. Nothing is converted, nothing is refused,
+         * and the keys they did send are saved.
+         */
+        $ssCurrencyNamed = false;
     }
 
-    $newCurrency = $post['defult_currancy'];
+    $newCurrency = $post['defult_currancy'] ?? null;
+
+    if ($ssCurrencyNamed ?? true) {
 /*
  * FIN-CUR: the rate lookup, the "is it available" refusal, the P1-SEC-80 round 4 rate check and
  * the P1-SEC-80 round 4 symbol now live in `StoreCurrencyChange::prepare()`, so that the admin
@@ -1819,6 +1842,7 @@ $post['defult_currancy_symbol'] = $post['CURRENCY'] = $decision['symbol'];
     // FIN-CUR: the same one-line call the admin API makes; `apply()` holds the
     // "only when it really changes" test both writers need.
     \App\Services\StoreCurrencyChange::apply((int) $storeId, $oldCurrency, $newCurrency);
+    } // GAP-291: end of "only when the request actually named a currency"
 
     if (isset($post['site_currency_symbol_position'])) {
 
@@ -1885,9 +1909,9 @@ $post['defult_currancy_symbol'] = $post['CURRENCY'] = $decision['symbol'];
             $symbol = $request->defult_currancy;
         }
 
-        if (isset($request->currency_format)) {
-            $format = $request->currency_format;
-        }
+        // GAP-290: the preview defaulted to '1' while the three formatters default to 2, so a
+        // store with no row was shown 1.0 and printed 1.00. One basis now, as for the separators.
+        $format = \App\Support\Money\CurrencyDecimals::of($request->currency_format);
         if (isset($request->currency_space)) {
             $currency_space = isset($request->currency_space) ? $request->currency_space : '';
         }

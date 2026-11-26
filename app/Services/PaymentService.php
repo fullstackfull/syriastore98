@@ -378,7 +378,7 @@ class PaymentService
 
     public function process($request, $paymentMethod, $slug, $cartList)
     {
-        $request = $this->stampCheckoutNonce($request);
+        $request = $this->stampCheckoutGateway($this->stampCheckoutNonce($request), $paymentMethod);
 
         switch ($paymentMethod) {
             case 'stripe':
@@ -5482,5 +5482,34 @@ private function webhook(
                 ]);
             }
         }
+    }
+
+    /**
+     * Record WHICH RAIL this checkout was initiated for, so no other rail's return can claim it.
+     *
+     * GAP-284. Same mechanism as the nonce: one `merge()` before the switch, so all 46
+     * `Session::put('request_data', ...)` sites inherit it and there is no census to keep in step.
+     *
+     * `$paymentMethod` AND NOT `$request->payment_type`, even though that is where it comes from:
+     * it is the value this switch is about to dispatch on, so the stamp cannot disagree with the
+     * arm that actually ran -- the one property the gate on the return side depends on.
+     *
+     * NOT a verification and NOT an authorization: the shopper chose the rail and this records the
+     * choice. What it removes is the CROSS-RAIL path. See
+     * GuardsGatewayReturn::stateBelongsToAnotherRail() and CrossRailCheckoutAdoptionTest.
+     *
+     * DEFINED AT THE END OF THE CLASS DELIBERATELY -- see that method's docblock: an insertion
+     * higher up made 454 file:line citations stale across 86 files.
+     *
+     * @param  \Illuminate\Http\Request|mixed  $request
+     * @return \Illuminate\Http\Request|mixed  the same value, stamped when it can be
+     */
+    private function stampCheckoutGateway($request, $paymentMethod)
+    {
+        if ($request instanceof Request && is_scalar($paymentMethod) && trim((string) $paymentMethod) !== '') {
+            $request->merge([self::CHECKOUT_GATEWAY_KEY => (string) $paymentMethod]);
+        }
+
+        return $request;
     }
 }

@@ -288,7 +288,7 @@ class DeliveryCommissionIdempotencyTest extends SecurityTestCase
     /**
      * THE ORDER OF THE OWNERSHIP GUARD AND THE DESTRUCTIVE DELETE, which nothing else proves.
      *
-     * `order_assign` refuses a foreign driver at OrderController.php:2360-2367 and only THEN runs
+     * `order_assign` refuses a foreign driver at OrderController.php:2412-2419 and only THEN runs
      * `DeliveryEarning::where('order_id', $order->id)->delete()` at :2371. Those two could be
      * written the other way round without any existing test noticing, because every other test in
      * this family drives a virgin order with no commission row to lose -- pointed out by

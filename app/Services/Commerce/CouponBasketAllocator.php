@@ -202,7 +202,7 @@ final class CouponBasketAllocator
              * records at `ApiController.php:3555-3565` -- one 1000.00 product plus a 50.00 product
              * at `qty = -5`, subtotal 750.00 -- with a flat 700.00 coupon: the discount came out at
              * **933.33** and `total_sub_price` at **-183.33**. Negative `carts.qty` is reachable
-             * today through two vendored module writers (`GuardsGatewayReturn.php:621-627`, S29).
+             * today through two vendored module writers (`GuardsGatewayReturn.php:622-628`, S29).
              *
              * For a well-formed basket the shares already sum to exactly `$flatDiscount`, so this
              * budget never binds and the allocation stays order-free -- which is what keeps

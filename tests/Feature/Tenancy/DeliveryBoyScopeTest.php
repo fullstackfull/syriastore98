@@ -217,7 +217,7 @@ class DeliveryBoyScopeTest extends SecurityTestCase
      * WHY IT WAS SHAPED THAT WAY, kept because it is the reason the test exists at all.
      * `delivery_earnings` was one of GATE F's six money-bearing tables that live code reads and
      * writes and no migration created. `order_assign` runs
-     * `DeliveryEarning::where('order_id', ...)->delete()` (OrderController.php:2371) on every
+     * `DeliveryEarning::where('order_id', ...)->delete()` (OrderController.php:2423) on every
      * change of driver, so on any environment without that table -- the suite included -- the
      * route answered 500 to EVERY caller. A row assertion alone would therefore have passed
      * whether or not the guard existed, which is this project's first recorded way for a test to
@@ -286,7 +286,7 @@ class DeliveryBoyScopeTest extends SecurityTestCase
             "the merchant's OWN driver was refused by the tenancy guard -- the refusal is too broad");
         $this->assertSame(200, $response->getStatusCode(),
             'a FIRST assignment did not complete. Until GATE F closed this answered 500, because '
-            . 'the DeliveryEarning delete at OrderController.php:2371 reached a table no migration '
+            . 'the DeliveryEarning delete at OrderController.php:2423 reached a table no migration '
             . 'created. If it is 500 again, read the response: ' . $response->getContent());
         $this->assertSame('success', $response->json('status'));
         $this->assertSame(

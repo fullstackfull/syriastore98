@@ -313,7 +313,7 @@ first version of the fix:
    750.00 — with a flat 700.00 coupon: **discount 933.33, `total_sub_price` −183.33**. The
    first-come version it replaced could not do that; its running allowance was a hard cap, and
    removing it was the regression. Negative `carts.qty` is reachable today through two vendored
-   module writers (`GuardsGatewayReturn.php:621-627`, S29), so the **cart read was live**; it does
+   module writers (`GuardsGatewayReturn.php:622-628`, S29), so the **cart read was live**; it does
    not reach `orders.final_price` only because three order writers refuse a non-positive line
    quantity first. Fixed by keeping a residual budget beside the ratio — it never binds for a
    well-formed basket, so order-independence is preserved — and pinned by

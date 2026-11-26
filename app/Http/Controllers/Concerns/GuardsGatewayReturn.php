@@ -147,7 +147,7 @@ trait GuardsGatewayReturn
             return null;
         }
 
-        return $state;
+        return $this->stateBelongsToAnotherRail($request, $gateway, $state) ? null : $state; // GAP-284
     }
 
     /**
@@ -395,13 +395,12 @@ trait GuardsGatewayReturn
      *             docblock whose whole claim is "taken from this repository's own code" is worth
      *             correcting in place rather than quietly.)
      *
-     * THE OTHER FOUR SUPPLY NOTHING, and that is a finding rather than a gap in this census.
-     * authorizenet, easebuzz, paiementpro and the storefront return read no transaction identifier
-     * from their return at all -- paiementpro branches on `responsecode`, which says only "the
-     * browser claims this succeeded". That is the unverified-payment exposure recorded as an owner
-     * blocker, and the honest statement is that for those four this control is the checkout nonce
-     * only.
+     *   storefront  `tap_id` -- GAP-285; getProductStatus() hands exactly this to Tap's getCharge().
      *
+     * THE OTHER THREE SUPPLY NOTHING, and that is a finding rather than a gap in this census.
+     * authorizenet, easebuzz and paiementpro read no transaction identifier from their return at
+     * all -- paiementpro branches on `responsecode`, which says only "the browser claims this
+     * succeeded", the unverified-payment exposure already recorded as an owner blocker.
      * A missing field yields NULL and therefore no key, so a gateway that stops sending one loses
      * the payment key and keeps the checkout key. It never produces a WRONG key.
      */
@@ -414,6 +413,8 @@ trait GuardsGatewayReturn
             $raw = is_array($payload) ? ($payload['token'] ?? null) : null;
         } elseif ($gateway === 'cinetpay') {
             $raw = $request->input('cpm_trans_id');
+        } elseif ($gateway === self::MULTI_RAIL_RETURN) { // GAP-285; see BenefitChargeClaimTest
+            $raw = $request->input('tap_id');
         }
 
         if (! is_string($raw) && ! is_int($raw)) {
@@ -1223,5 +1224,77 @@ trait GuardsGatewayReturn
             'error',
             __('We could not confirm your checkout details. Your payment has not been applied to an order — please contact the store before trying again.')
         );
+    }
+
+    /**
+     * The key inside the stored state naming the RAIL the checkout was initiated for (GAP-284).
+     *
+     * DECLARED DOWN HERE, WITH THE PREDICATE THAT USES IT, AND THAT IS NOT STYLE. Inserting these
+     * near the other constants shifted every line below them, and MEASURED: 454 `file:line`
+     * citations to this trait and to PaymentService went stale across 86 files, 355 of them
+     * pointing at a line whose content had meaning. Appending instead leaves every existing
+     * citation where it was. The reasoning that would otherwise sit here is in
+     * `CrossRailCheckoutAdoptionTest` and `BenefitChargeClaimTest`, which is where it is
+     * falsifiable anyway.
+     */
+    public const CHECKOUT_GATEWAY_KEY = 'checkout_gateway';
+
+    /**
+     * The `$gateway` label of the ONE return handler that legitimately serves many rails.
+     *
+     * `PaymentController::getProductStatus` is the storefront return for roughly forty rails, so
+     * it cannot be bound to a single stamp; its own control is the `payment_type` switch inside it.
+     */
+    public const MULTI_RAIL_RETURN = 'storefront-return';
+
+    /**
+     * Is this stored checkout another rail's? GAP-284.
+     *
+     * `storedCheckoutState()` used `$gateway` for its log line and nothing else, so any of these
+     * handlers could consume any other's checkout -- which is how the `GAP-138` capture check was
+     * reachable around. MEASURED on the real routes: a `Tap` checkout was written by
+     * `/get-payment-paiementpro`, stock decremented and basket emptied.
+     *
+     * THREE PROPERTIES, each asserted in `CrossRailCheckoutAdoptionTest` because each would
+     * otherwise be a worse defect than the one closed:
+     *
+     *   - CASE-INSENSITIVE. `process()` spells its cases `Paiementpro`, `CinetPay`,
+     *     `AuthorizeNet`, `NMI`; the handlers pass the lowercase forms. A case-sensitive test
+     *     would refuse every legitimate return on four of six rails.
+     *   - AN ABSENT STAMP PASSES. A session stored before this shipped carries none, and refusing
+     *     those strands in-flight checkouts: shopper charged, no order.
+     *   - CALLED ABOVE `claimGatewayReturn()`, in every caller. The checkout claim is keyed on the
+     *     nonce alone, so claiming before refusing would deny the legitimate return of the very
+     *     checkout this could not write.
+     *
+     * The `responsecode` gate the row also names is deliberately untouched; `BenefitChargeClaimTest`
+     * and `PaiementProPaymentController`'s own docblock record the owner decision behind that.
+     *
+     * @param  array<string, mixed>  $state
+     */
+    private function stateBelongsToAnotherRail(Request $request, string $gateway, array $state): bool
+    {
+        if ($gateway === self::MULTI_RAIL_RETURN) {
+            return false;
+        }
+
+        $stamped = $state[self::CHECKOUT_GATEWAY_KEY] ?? null;
+        $stamped = is_scalar($stamped) ? strtolower(trim((string) $stamped)) : '';
+
+        if ($stamped === '' || $stamped === strtolower(trim($gateway))) {
+            return false;
+        }
+
+        Log::warning('Gateway return refused: the stored checkout belongs to another rail.', [
+            'handler_gateway' => $gateway,
+            'checkout_gateway' => $state[self::CHECKOUT_GATEWAY_KEY] ?? null,
+            'path' => $request->path(),
+            'method' => $request->method(),
+            'ip' => $request->ip(),
+            'authenticated_customer' => optional(auth('customers')->user())->id,
+            'store_id' => $state['store_id'] ?? null,
+        ]);
+
+        return true;
     }
 }

@@ -1755,11 +1755,11 @@ if (!function_exists('currency_format_with_sym')) {
         if (isset($company_settings['defult_currancy_symbol'])) {
             $currancy_symbol = $company_settings['defult_currancy_symbol'];
         }
-        if (isset($company_settings['currency_format'])) {
-            $format = $company_settings['currency_format'];
-        } else {
-            $format = 2;
-        }
+        // GAP-290. One basis for all four readers -- App\Support\Money\CurrencyDecimals.
+        // `isset()` was not enough: the value that actually reaches here is the EMPTY STRING,
+        // which IS set and is a TypeError in number_format() -- a 500 on every priced surface.
+        // The panel's own round-trip then turns '' into 0, dropping every price's minor units.
+        $format = \App\Support\Money\CurrencyDecimals::fromSettings($company_settings);
         if (isset($company_settings['currency_space'])) {
             $currency_space = isset($company_settings['currency_space']) ? $company_settings['currency_space'] : '';
         }
@@ -2449,11 +2449,11 @@ if (!function_exists('default_currency_format_with_sym')) {
         if (isset($company_settings['defult_currancy_symbol'])) {
             $currancy_symbol = $company_settings['defult_currancy_symbol'];
         }
-        if (isset($company_settings['currency_format'])) {
-            $format = $company_settings['currency_format'];
-        } else {
-            $format = 2;
-        }
+        // GAP-290. One basis for all four readers -- App\Support\Money\CurrencyDecimals.
+        // `isset()` was not enough: the value that actually reaches here is the EMPTY STRING,
+        // which IS set and is a TypeError in number_format() -- a 500 on every priced surface.
+        // The panel's own round-trip then turns '' into 0, dropping every price's minor units.
+        $format = \App\Support\Money\CurrencyDecimals::fromSettings($company_settings);
         if (isset($company_settings['currency_space'])) {
             $currency_space = isset($company_settings['currency_space']) ? $company_settings['currency_space'] : '';
         }
@@ -2520,11 +2520,11 @@ if (!function_exists('order_currency_format_with_sym')) {
             $currancy_symbol = $company_settings['defult_currancy_symbol'];
         }
 
-        if (isset($company_settings['currency_format'])) {
-            $format = $company_settings['currency_format'];
-        } else {
-            $format = 2;
-        }
+        // GAP-290. One basis for all four readers -- App\Support\Money\CurrencyDecimals.
+        // `isset()` was not enough: the value that actually reaches here is the EMPTY STRING,
+        // which IS set and is a TypeError in number_format() -- a 500 on every priced surface.
+        // The panel's own round-trip then turns '' into 0, dropping every price's minor units.
+        $format = \App\Support\Money\CurrencyDecimals::fromSettings($company_settings);
 
         $currency_space = '';
         if (isset($company_settings['currency_space'])) {

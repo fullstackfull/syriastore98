@@ -76,7 +76,7 @@ A census of `api_secret` across `app/` and `packages/` finds **exactly four outb
 `OtpIntegrationController` (now guarded) and two in `CustomerLoginController` (**unguarded** — the
 file contains no `SafeWebhook` or `SafeRemoteFetch` reference at all). The API reset path
 `Api\AuthController::forgot_password_send_otp` sends e-mail and never touches `OtpIntegration`;
-`SettingController:2147` only renders. **There is no fifth sender.**
+`SettingController:2171` only renders. **There is no fifth sender.**
 
 `CustomerLoginController` reads `$integration->base_url` from the stored row and posts
 `$integration->api_secret` to it. Measured:
@@ -226,7 +226,7 @@ correction matters.
 
 That a duplicate commission *"is never replaced, updated or reconciled … the driver's
 `total_earning` stays overstated indefinitely."* **False, by measurement.** The cleanup at
-`OrderController.php:2371` and `Api/DashboardController.php:9432` is
+`OrderController.php:2423` and `Api/DashboardController.php:9432` is
 `DeliveryEarning::where('order_id', $order->id)->delete()` — keyed on the **order**, not the driver
 — so a genuine reassignment collapses N rows to one. Driven through the real web route with the
 legacy state seeded (2 rows, 4.00 owed where 2.00 is correct): three same-driver POSTs left

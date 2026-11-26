@@ -35,7 +35,7 @@ use Tests\Feature\Security\SecurityTestCase;
  *
  * WHY THE SERVICE IS CALLED DIRECTLY. `resolveOrderPaymentStatus()` is the single seam every order
  * writer goes through -- `PaymentService:2753`, `Api\ApiController:8745`, `PaymentController:2815`
- * and `:4136`, plus `GuardsGatewayReturn:483` -- so the decision is enforced in one place and is
+ * and `:4136`, plus `GuardsGatewayReturn:484` -- so the decision is enforced in one place and is
  * testable in one place. The end-to-end half is the PaiementPro test below, which drives a real
  * route.
  */

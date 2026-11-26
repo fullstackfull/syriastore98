@@ -91,7 +91,7 @@ use Tests\Feature\Security\SecurityTestCase;
  *   4. credits through `ProductStockService::restoreProductStock()` / `restoreVariantStock()`,
  *      which `increment()` rather than read-modify-write and flush the `Cachable` model cache;
  *   5. stamps `Order::LINE_STOCK_RESTORED` on each credited line via
- *      `markCancelledLinesRestored()` (OrderController:2381), so a return approved later on the
+ *      `markCancelledLinesRestored()` (OrderController:2433), so a return approved later on the
  *      same order cannot credit the same goods a second time.
  *
  * WHY THESE TESTS ARE SHAPED AS THEY ARE
@@ -417,7 +417,7 @@ class MerchantCancelRestockTest extends SecurityTestCase
      * THE FIGURE IS ASSERTED BESIDE THE MARKER, and the two together are the contract rather than
      * either alone. Added after review: with the marker assertion by itself, a fix that stamps
      * `LINE_STOCK_RESTORED` and credits nothing passed this case — and that is the exact shape
-     * `markCancelledLinesRestored()`'s own docblock forbids (OrderController.php:2370-2379: it
+     * `markCancelledLinesRestored()`'s own docblock forbids (OrderController.php:2422-2431: it
      * stamps only the lines a cancellation *really did credit*, because a skipped line must NOT be
      * stamped). An unconditional stamp is worse than no stamp: it is a false claim that the goods
      * came back, and it is read as such by every return and refund surface.
@@ -437,7 +437,7 @@ class MerchantCancelRestockTest extends SecurityTestCase
             'the stamp is only honest about a credit that happened. The goods did not come back, so '
             . 'a LINE_STOCK_RESTORED marker here would be a false claim that blocks the return and '
             . 'refund doors from ever crediting them (markCancelledLinesRestored(), '
-            . 'OrderController.php:2370-2379, stamps ONLY the lines it really credited)');
+            . 'OrderController.php:2422-2431, stamps ONLY the lines it really credited)');
 
         $lines = json_decode((string) $this->orderRow($order->id)->product_json, true);
         $this->assertIsArray($lines);

@@ -73,7 +73,7 @@ class CurrencyNameTranslationTest extends TestCase
     {
         app()->setLocale('ar');
 
-        // SettingController.php:2277 appends this to a disabled gateway's own name, so it has to
+        // SettingController.php:2301 appends this to a disabled gateway's own name, so it has to
         // read as a status note sitting after a proper noun, not as a sentence.
         $resolved = __('retired - no longer available');
 

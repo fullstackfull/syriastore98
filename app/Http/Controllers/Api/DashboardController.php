@@ -11603,7 +11603,7 @@ public function updateStoreOwnerInfo(Request $request)
             'store_country' => 'nullable|string|max:100',
             
             'currency_name' => 'nullable|string|max:50',
-            'currency_format' => 'nullable|string|max:50',
+            'currency_format' => ['nullable', 'string', \Illuminate\Validation\Rule::in(\App\Support\Money\CurrencyDecimals::ALLOWED)], // GAP-290: max:50 admitted '' and '99'
             'site_rtl' => 'nullable|in:on,off',
             'date_format' => 'nullable|string|max:50',
             'timezone' => 'nullable|string|max:50',

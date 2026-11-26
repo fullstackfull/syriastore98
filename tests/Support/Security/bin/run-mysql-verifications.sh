@@ -532,6 +532,24 @@ run_one verify-consent-ledger-concurrency-on-mysql \
 run_one verify-gap222-wallet-currency-on-mysql \
   "GAP222_MYSQL_SOCKET=${SOCK}" "GAP222_MYSQL_USERNAME=${USER_NAME}" "GAP222_MYSQL_PASSWORD=${PASS}"
 
+# GAP-257 -- the P4-F124 settled-order guard's TERMINAL STATE, on the engine that ships. The guard
+# that stops a late `Paid` crediting a reversed order is a STRICT string comparison against
+# `store_order_financials.payment_status`, which is an ENUM in the migration and has no type at all
+# on SQLite -- so `CancellationLedgerSemanticsTest`'s own premise case for it is close to vacuous:
+# TEXT affinity accepts any string. Three MySQL-only questions, all MEASURED here and all in the
+# safe direction on this server: both terminal members round-trip byte-for-byte; an out-of-enum
+# write ERRORS under STRICT_TRANS_TABLES rather than storing '' (which the guard would read as
+# NON-TERMINAL, disarming it); and 'CANCELLED' is normalised to the declared member while a padded
+# ' refunded ' is REFUSED outright -- I assumed it would normalise and MariaDB 1265 corrected that.
+# The non-strict arms are written to FAIL rather than pass, so running this on a non-strict server
+# produces the finding. It also pins DECIMAL(15,2) on `customer_total`, the column whose value the
+# wallet is credited, so the 100.00 figures in the register are not a SQLite artefact.
+# WHAT IT DOES NOT SAY: anything about production's own column -- the migrations are not the schema,
+# and only `SHOW CREATE TABLE store_order_financials` there closes that. The script prints that
+# query for whoever can run it.
+run_one verify-settled-order-guard-enum-on-mysql \
+  "GAP257_MYSQL_SOCKET=${SOCK}" "GAP257_MYSQL_USERNAME=${USER_NAME}" "GAP257_MYSQL_PASSWORD=${PASS}"
+
 # GAP-223(a) -- the last-month window, selecting real rows on an overflow day. Two reasons it cannot
 # be a test: the bug needs a particular day (33 in every five years, and Carbon::setTestNow() does
 # not move date()/strtotime()), and ReportController's chart handlers use MONTH(/YEAR( in selectRaw,

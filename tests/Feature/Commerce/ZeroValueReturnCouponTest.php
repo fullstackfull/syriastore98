@@ -262,6 +262,75 @@ class ZeroValueReturnCouponTest extends TestCase
         );
     }
 
+    /**
+     * THE RESIDUAL THIS ROW RECORDS, NOW PINNED INSTEAD OF ONLY WRITTEN DOWN (2026-11-26).
+     * =============================================================================================
+     *
+     * `GAP-261`'s disposition records that `orders.final_price` CAN STILL END NEGATIVE, by a
+     * different cause, and that it was "reported, not repaired" -- deliberately, because flooring
+     * `final_price` here would hide the recorded-versus-configured coupon disagreement rather than
+     * fix it (`orders.coupon_price` holds the coupon's CONFIGURED number while the child row holds
+     * what was charged -- the P4-F134/F135 question).
+     *
+     * IT WAS RECORDED IN PROSE AND IN NO TEST. So the clamp's own boundary -- "it floors a NEGATIVE
+     * returned total, and this total is positive" -- was not falsifiable: a later change that
+     * floored `final_price` would close this silently, and a regression that widened it would be
+     * equally silent. This case asserts the figure as it is. It is NOT a licence to leave it:
+     * repairing it needs the coupon question settled first, and when it is, INVERT this case.
+     *
+     * THE ARITHMETIC, so a reviewer can check it without running anything. Goods 90.00 + 40.00,
+     * `orders.coupon_price` 100.00 already taken off, so `final_price` is 30.00 at rest. The detail
+     * row's `coupon_discount_number` is 0.00, so the clamp subtracts nothing.
+     *
+     *     first return  (90.00):  original 30.00,  returned max(0, 90-0)  =  90.00  ->  -60.00
+     *     second return (40.00):  original -60.00 + 90.00 = 30.00,
+     *                             returned max(0, 130-0) = 130.00         ->  -100.00
+     *
+     * On this `cod` order -100.00 is an instruction to hand 100.00 over at the door.
+     */
+    public function test_the_recorded_residual_still_drives_final_price_negative(): void
+    {
+        $this->productsFor([self::EMPTIED_PRODUCT => 90.00, self::LIVE_PRODUCT => self::LIVE_PRICE]);
+
+        $order = $this->orderWithLines([
+            [
+                'product_id' => self::EMPTIED_PRODUCT, 'variant_id' => 0,
+                'qty' => 1, 'final_price' => 90.00, 'return' => 0, 'store_id' => self::STORE,
+            ],
+            [
+                'product_id' => self::LIVE_PRODUCT, 'variant_id' => 0,
+                'qty' => 1, 'final_price' => self::LIVE_PRICE, 'return' => 0, 'store_id' => self::STORE,
+            ],
+        ], 130.00, [
+            'coupon_price' => 100.00,
+            'tax_price' => 0,
+            /* The coupon is already off the payable, which is the state a real discounted order is in. */
+            'final_price' => 30.00,
+        ]);
+
+        /* The detail row says the coupon took NOTHING off, which is the disagreement itself. */
+        $this->attachCoupon($order, ['type' => 'flat', 'number' => 0.00]);
+
+        foreach ([self::EMPTIED_PRODUCT, self::LIVE_PRODUCT] as $productId) {
+            $result = Order::product_return([
+                'order_id' => $order->id, 'product_id' => $productId, 'variant_id' => 0,
+            ]);
+
+            $this->assertSame('success', $result['status'] ?? null,
+                'premise: the return was accepted: ' . ($result['message'] ?? ''));
+        }
+
+        $this->assertSame(130.00, $this->returnedOf($order->id),
+            'premise: both lines were counted as returned, without which the total below is not '
+            . 'the figure GAP-261 recorded');
+
+        $this->assertSame(-100.00, $this->totalOf($order->id),
+            'GAP-261\'s recorded residual has moved. It is NOT closed by the clamp -- the clamp '
+            . 'floors a negative RETURNED total and this one is positive (130.00). If the '
+            . 'recorded-versus-configured coupon question has been settled and this is now '
+            . 'floored, INVERT this case and say which decision did it; do not delete it.');
+    }
+
     /** AND THE RECORDED RETURNED VALUE IS NOT NEGATIVE EITHER. */
     public function test_the_returned_value_recorded_for_a_zero_line_is_never_negative(): void
     {
@@ -638,10 +707,10 @@ class ZeroValueReturnCouponTest extends TestCase
     }
 
     /** @param array<int, array<string, mixed>> $lines */
-    private function orderWithLines(array $lines, float $goods): Order
+    private function orderWithLines(array $lines, float $goods, array $overrides = []): Order
     {
         $order = new Order();
-        $order->forceFill([
+        $order->forceFill(array_merge([
             'product_order_id' => 'SS-GAP261-' . uniqid(),
             'customer_id' => 1,
             'store_id' => self::STORE,
@@ -656,7 +725,7 @@ class ZeroValueReturnCouponTest extends TestCase
             'payment_status' => 'Unpaid',
             'delivered_status' => 1,
             'return_status' => 0,
-        ])->save();
+        ], $overrides))->save();
 
         return $order;
     }

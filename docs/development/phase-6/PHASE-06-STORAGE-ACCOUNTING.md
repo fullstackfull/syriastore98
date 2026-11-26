@@ -278,7 +278,7 @@ measurements rather than the conclusions:
 
 **F9.2: upload doors that never charge at all.** The review enumerated them, all merchant-reachable
 and all pre-existing: `ThemeCustomizeController:292/:312/:334`, `UserController:545`,
-`AppSettingController:307`, `SettingController:2214`, and in the admin API
+`AppSettingController:307`, `SettingController:2238`, and in the admin API
 `Api/DashboardController:1861/:1872/:1920/:1933/:3152/:3204/:3365/:3379/:4154/:5997` — **including
 the product-create cover image and the whole gallery**, which is the door the shipped Flutter app
 uses. Plus `BankTransferController:52` and `PaymentService:2463`, which are shopper-reachable.

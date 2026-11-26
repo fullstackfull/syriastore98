@@ -87,15 +87,33 @@
                         /* The five the select offers, as STRINGS, so nothing here depends on PHP
                            casting integer-like array keys. */
                         $ssDecimalFormats = ['0' => '1', '1' => '1.0', '2' => '1.00', '3' => '1.000', '4' => '1.0000'];
-                        $ssCurrencyFormat = (string) ($setting['currency_format'] ?? '');
 
-                        if (! in_array($ssCurrencyFormat, ['0', '1', '2', '3', '4'], true)) {
-                            $ssCurrencyFormat = '2';
-                        }
+                        /* The MARKED value is resolved below through CurrencyDecimals, not here.
+                           Both branches fixed the same string-key defect and both chose 2 as the
+                           fallback (CurrencyDecimals::DEFAULT is 2, checked), so the two agreed --
+                           but a second copy of the rule is a second thing to keep in step with the
+                           formatters, and the whole point of routing through that class is that the
+                           option this panel MARKS cannot disagree with what the store PRINTS. */
                     @endphp
                     <label class="ss-label" for="currency_format">{{ __('Decimal Format') }}</label>
                     <select class="ss-input currency_note" name="currency_format" id="currency_format"
                             aria-describedby="currency_format-help">
+                        {{-- GAP-290. `($setting['currency_format'] ?? '') === $ssValue` marked NO
+                             option for a stored '' or a missing row, so the browser pre-selected
+                             the FIRST one -- which is 0 -- and the next Save of this panel stored
+                             it, dropping every price's minor units. Resolved through the same
+                             class the formatters now use, so the marked option cannot disagree
+                             with what the store actually prints. Same remedy as the separators
+                             two fields down.
+
+                             AND THE COMPARISON ITSELF NEVER MATCHED, which is wider than the row
+                             said and was measured on the rendered tab: these option values are
+                             NUMERIC ARRAY KEYS, so PHP casts them to INT, and `=== $ssValue`
+                             against a string setting is false for every value. No option was
+                             marked for ANY stored format -- not just an empty one -- so every
+                             store's panel showed `1` whatever it had saved, and any Save of this
+                             panel stored 0. Both sides are cast to string now. --}}
+                        @php $ssCurrencyFormat = \App\Support\Money\CurrencyDecimals::markedOption($setting ?? []); @endphp
                         @foreach ($ssDecimalFormats as $ssValue => $ssText)
                             <option value="{{ $ssValue }}" @selected((string) $ssValue === $ssCurrencyFormat)>{{ $ssText }}</option>
                         @endforeach
@@ -126,10 +144,39 @@
                     <label class="ss-label" for="defult_currancy">{{ __('Default Currancy') }}</label>
                     <select class="ss-input currency_note" name="defult_currancy" id="defult_currancy"
                             aria-describedby="defult_currancy-help">
-                        @foreach ($currencyRates->where('is_active', 1) as $c)
+                    {{-- GAP-291. THE STORE'S OWN CURRENCY MUST BE IN THIS LIST AND MARKED.
+                         The list was `->where('is_active', 1)` and the mark was
+                         `=== $c->currency_code`, so a stored value that is not in the active set
+                         EXACTLY -- a legacy lower-case or space-padded one, or a currency whose
+                         rate row was later deactivated -- marked nothing. The browser then
+                         pre-selects the FIRST active option, and because this is one form with the
+                         decimal format and both separators, a Save of any of them submits that
+                         option and `StoreCurrencyChange::apply()` CONVERTS THE WHOLE CATALOGUE to
+                         a currency the merchant never chose. Measured: 100.00 -> 10.00.
+                         The stored currency is appended when the active set does not already carry
+                         it, so an untouched select submits what is already stored and `apply()`
+                         sees no change. Comparison is trimmed and upper-cased, which is the same
+                         normalisation `apply()` and `prepare()` use. --}}
+                    @php
+                        $ssStored = strtoupper(trim((string) ($setting['defult_currancy'] ?? '')));
+                        $ssOptions = $currencyRates->where('is_active', 1);
+                        $ssHasStored = $ssStored !== '' && $ssOptions->contains(
+                            fn ($r) => strtoupper(trim((string) $r->currency_code)) === $ssStored
+                        );
+                        if (! $ssHasStored && $ssStored !== '') {
+                            $ssOwn = $currencyRates->first(
+                                fn ($r) => strtoupper(trim((string) $r->currency_code)) === $ssStored
+                            );
+                            $ssOptions = $ssOptions->concat([$ssOwn ?? (object) [
+                                'symbol' => (string) ($setting['defult_currancy_symbol'] ?? $ssStored),
+                                'currency_code' => $ssStored,
+                            ]]);
+                        }
+                    @endphp
+                        @foreach ($ssOptions as $c)
                             <option value="{{ $c->symbol }}-{{ $c->currency_code }}"
                                     data-symbol="{{ $c->symbol }}"
-                                    @selected(($setting['defult_currancy'] ?? '') === $c->currency_code)>
+                                    @selected(strtoupper(trim((string) $c->currency_code)) === $ssStored)>
                                 {{ $c->symbol }} - {{ $c->currency_code }}
                             </option>
                         @endforeach

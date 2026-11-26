@@ -131,6 +131,54 @@ class SecurityLogInventoryTest extends SecurityTestCase
     }
 
     /** What the document's tables claim, keyed the same way. */
+    /**
+     * THE SECTION HEADINGS COUNT WHAT IS UNDER THEM.
+     *
+     * Each level's heading states a figure -- "`warning` — 270 lines" -- and until this test
+     * existed NOTHING asserted it. Measured at the 2026-11-26 integration, all four numbers for
+     * the same two quantities disagreed: the headings said 37 and 263, the tables held 36 and
+     * 270. One of those drifts was already two out before any of that day's work, which is how
+     * it survived -- a figure no test reads is a figure that is right only on the day it is
+     * written. CLAUDE.md records the same failure for line citations (`GAP-304`, `GAP-332`),
+     * where four of five were stale, each by a different amount.
+     *
+     * The figure is the number of inventory ROWS under the heading, and the test above has
+     * already established that those rows' keys are exactly the source census -- so asserting
+     * the heading against the row count ties the prose to the measurement rather than to
+     * somebody's memory of it.
+     */
+    public function test_each_level_heading_states_the_number_of_rows_beneath_it(): void
+    {
+        $text = file_get_contents(base_path(self::DOC));
+        $sections = preg_split('/^### /m', $text);
+
+        $claimed = [];
+        foreach ($sections as $section) {
+            if (preg_match('/^`(' . implode('|', self::LEVELS) . ')` — (\d+) lines/', $section, $m) !== 1) {
+                continue;
+            }
+            $claimed[$m[1]] = [(int) $m[2], preg_match_all('/^\| `app\//m', $section)];
+        }
+
+        $this->assertSame(
+            self::LEVELS,
+            array_keys($claimed),
+            'every level must have exactly one heading carrying a figure, or this test is '
+            . 'silently measuring nothing'
+        );
+
+        foreach ($claimed as $level => [$says, $holds]) {
+            $this->assertSame(
+                $holds,
+                $says,
+                "The `{$level}` heading says {$says} lines and {$holds} rows sit under it. The rows "
+                . 'are the measurement -- the test above proves their keys are exactly the source '
+                . 'census -- so the heading is what is wrong. Re-derive it rather than adjusting '
+                . 'it by the difference: that is how it drifted.'
+            );
+        }
+    }
+
     private function censusFromDocument(): array
     {
         $path = base_path(self::DOC);

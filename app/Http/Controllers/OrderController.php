@@ -2162,7 +2162,59 @@ public function store(Request $request)
 
         $this->authorize('updatePaymentStatus', $order);
 
-        $order->payment_status = $request->input('payment_status');
+        $newPaymentStatus = $request->input('payment_status');
+        $oldPaymentStatus = (string) $order->payment_status;
+
+        /*
+         * GAP-257 -- A SETTLED ORDER'S PAYMENT EDIT LEAVES A TRACE ON THIS DOOR TOO.
+         * =========================================================================================
+         *
+         * `$order->save()` below reaches `OrderObserver::updated()` ->
+         * `OrderFinancialService::syncFromOrder()`, and a `Paid` there runs
+         * `markFinancialAsPaid()`, which CREDITS the store wallet. P4-F124's guard refuses that
+         * only when the financial row is already `cancelled` or `refunded`, and two states reach
+         * here without being either -- both MEASURED through this route in
+         * `SettledOrderPaymentCreditTest`, not inferred:
+         *
+         *   - A RETURNED order (`delivered_status` 3). Nothing calls `OrderEntitlementReversal`
+         *     for a return; the row is moved to `refunded` only by `OrderRefundController`. So a
+         *     returned-but-not-refunded order's row sits at `unpaid` and a `Paid` here credits the
+         *     full `customer_total`: wallet 0.00 -> 100.00 on a fixture whose goods came back.
+         *   - A CANCELLED order whose row is non-terminal (a reversal that threw, or a
+         *     cancellation predating P4-F124, whose unconditional update wrote the row back after
+         *     the debit). Measured: the ledger ends with TWO `order_paid` credits and one
+         *     `order_cancelled` debit for one order, and the wallet keeps 100.00.
+         *
+         * THIS IS AN AUDIT LINE AND NOT A REFUSAL, and the distinction is the whole point. Both
+         * candidate fixes for the money half -- treating `delivered_status` 2/3 as terminal for the
+         * `paid` direction, or routing a settled-order correction through the finance surface --
+         * change WHEN A MERCHANT IS CREDITED, which CLAUDE.md §2 reserves to the owner. Refusing
+         * here would also re-break recording a genuine late payment on a settled order, which is
+         * the regression the echo fix exists to close.
+         *
+         * WHAT IS FIXED IS THAT ON THIS DOOR NOBODY COULD TELL. The same line has shipped on the
+         * admin API twin (`Api\DashboardController`) since the echo fix, and that site's own
+         * comment names THIS handler as the older and wider one -- behind the same `Manage Order`
+         * ability, with no `delivered_status` predicate of any kind. GAP-257's recorded mitigation
+         * is "an audit line already ships, so a double credit is reconstructible in the meantime";
+         * it shipped on one of the two doors. The predicate is identical to the twin's so the two
+         * traces are comparable: a settled `delivered_status`, and a value that actually moves.
+         */
+        if (in_array((int) $order->delivered_status, [2, 3], true)
+            && strcasecmp((string) $newPaymentStatus, $oldPaymentStatus) !== 0
+        ) {
+            \Illuminate\Support\Facades\Log::warning('Payment status changed on a settled order', [
+                'order_id' => $order->id,
+                'product_order_id' => $order->product_order_id,
+                'store_id' => $order->store_id,
+                'actor_id' => auth()->id(),
+                'delivered_status' => (int) $order->delivered_status,
+                'old_payment_status' => $oldPaymentStatus,
+                'new_payment_status' => $newPaymentStatus,
+            ]);
+        }
+
+        $order->payment_status = $newPaymentStatus;
         $order->save();
 
         $return['status'] = 'success';
