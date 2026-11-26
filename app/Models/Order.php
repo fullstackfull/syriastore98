@@ -1140,6 +1140,13 @@ if ($order_status == 'cancel') {
      * the stored `return_price` equals this method's answer for that one line, under no coupon, a
      * flat coupon and a percentage coupon. If the two ever disagree that test fails.
      *
+     * GAP-261: THE FLOOR IS HERE TOO, AND IT HAS TO BE. This method reconstructs what EARLIER
+     * returns took off, and `product_return()` ADDS that figure to the current total to rebuild the
+     * original. A negative answer here therefore understates the original order by the coupon, so
+     * clamping the live summation and not this copy would make the base disagree with the figure
+     * that was actually written. `ZeroValueReturnCouponTest::test_the_clamp_is_in_both_copies_of_the_formula`
+     * drives this method directly for exactly that reason.
+     *
      * @param  array<int,array<string,mixed>>  $lines  lines whose `return` flag is set
      */
     private static function returnedAmountOf(array $lines, $order_id): float
@@ -1158,7 +1165,7 @@ if ($order_status == 'cancel') {
             }
         }
 
-        return $returned - $coupon_price;
+        return max(0.0, $returned - $coupon_price);
     }
 
     /**
@@ -1586,7 +1593,70 @@ if ($order_status == 'cancel') {
                 $coupon_price = $return_price * $order_coupon_detail->coupon_discount_number / 100;
             }
         }
-        $return_price -= $coupon_price;
+        /*
+         * GAP-261 / P04-P6-04 (FIN) -- THE RETURNED TOTAL IS FLOORED AT ZERO, SO A RETURN CAN NEVER
+         * RAISE WHAT IS OWED.
+         * =========================================================================================
+         *
+         * The subtraction above was unfloored. When the flagged lines are worth LESS than a FLAT
+         * coupon the returned total is negative, and the write below is
+         * `$original_total - (-c)` -- so `orders.final_price` goes UP by the coupon amount because
+         * goods came back. On a `cod` order that column is the cash a driver collects at the door,
+         * so this one harms the CUSTOMER, which is the opposite direction from the rest of this
+         * family (P4-F082, the no-match call) and the reason it is recorded on its own.
+         *
+         * REACHABLE, NOT THEORETICAL, and the "names no line" guard above does not cover it because
+         * a line DOES match. `AccountProfileController::order_refund_request` rescales the line it
+         * refunds -- `$product['final_price'] = ($product['final_price'] * $product['qty']) /
+         * $old_qty` -- so a line whose every unit has been refunded is stored as
+         * `{qty: 0, final_price: 0, refunded_qty: N}`. GAP-140 stops that line being restocked or
+         * stamped (`creditableReturnQty()` is 0) and deliberately left this half alone.
+         * MEASURED on a two-line cod order (an emptied line, a 40.00 line, 17.50 of tax) with a
+         * 10.00 flat coupon: 57.50 -> 67.50, with `return_price` written as -10.00. Reachable by the
+         * owning customer, an assigned driver, a merchant holding `Manage Order`, or the operator.
+         *
+         * WHY A FLOOR AND NOT "SKIP THE COUPON WHEN NO LINE CONTRIBUTED VALUE". The register offered
+         * both and asked for them to be measured against a real multi-line order with a flat coupon
+         * first, because they differ on a PARTIAL return. Both were applied and driven:
+         *
+         *   skip-when-zero   the emptied-line case passes; a 5.00 line returned under the same
+         *                    10.00 coupon still writes `5.00 - 10.00` and still raises the amount
+         *                    owed, 62.50 -> 67.50. A line DID contribute, just less than the
+         *                    coupon, so the condition never fires. 1 of 12 cases still red.
+         *   floor at zero    both pass, and so do the 16 of `SecondReturnTotalTest`. 28 of 28.
+         *
+         * Zero is only the reachable extreme of the defect; the property that fails is "the returned
+         * total is never negative", and the floor is the form that holds it everywhere.
+         *
+         * WHAT THE FLOOR DECIDES, SAID PLAINLY RATHER THAN LEFT TO BE REDISCOVERED. A return worth
+         * less than the flat coupon now credits the customer NOTHING instead of charging them more.
+         * It does not PRORATE the coupon across the returned lines, and that is the same narrow
+         * choice `OrderRefundController`'s settlement already made for the same question one door
+         * along -- it writes `$order->final_price = max(0.0, $grandTotal)` and records that
+         * prorating is a revenue-reporting decision rather than something to guess at. An
+         * un-prorated flat coupon belongs to the order as a whole, so the lines it exceeds have no
+         * residual value to give back; guessing a share of it into a money column is what the tax
+         * note below this refuses to do, for the same reason.
+         *
+         * IT DOES NOT REPAIR AN ORDER ALREADY INFLATED BY THIS DEFECT. The register notes the figure
+         * washes out of the NEXT call's reconstructed base, so a fully returned order ends on the
+         * right number either way -- measured: that case passed before this change. Between the two
+         * calls the merchant's screen and the driver's collection figure carry `original + c`, and
+         * nothing obliges a second call ever to happen. Reconciling rows already written needs a
+         * production read first and is an owner item, as P4-F082's note says of the same question.
+         *
+         * AND IT DOES NOT MAKE `final_price` NON-NEGATIVE IN GENERAL, which is a DIFFERENT cause and
+         * is stated so the floor is not read as more than it is. When the order's stored
+         * `coupon_price` exceeds what the detail row's `coupon_discount_number` takes off the
+         * returned total, the subtraction below still overshoots. MEASURED on 90.00 + 40.00 of goods
+         * with `coupon_price` 100.00 and a detail row whose configured number is 0.00: returning both
+         * lines writes `final_price` -100.00 with `return_price` 130.00 -- identical before and after
+         * this change, because the floor only catches a NEGATIVE returned total and that one is
+         * positive. It is the recorded-versus-configured coupon disagreement P4-F134/F135 recorded as
+         * still open, and flooring `final_price` here would hide it rather than fix it -- the same
+         * reason the tax column below is left untouched instead of guessed at. GAP-261 records it.
+         */
+        $return_price = max(0.0, $return_price - $coupon_price);
 
         /*
          * P4-F082 -- THE BASE IS THE ORDER'S ORIGINAL TOTAL, NOT ITS CURRENT ONE.

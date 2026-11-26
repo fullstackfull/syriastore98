@@ -672,4 +672,492 @@ class CouponDiscountAuthorizationTest extends SecurityTestCase
         $this->assertApplied($body, 'Control: a 200.00 basket DOES meet a minimum of 100, so this '
             . 'must apply. If it does not, the refusal tests above prove nothing.');
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | P4-F061 / GAP-132 — A DEACTIVATED COUPON STILL DISCOUNTED
+    |--------------------------------------------------------------------------
+    |
+    | THE FINDING, as measured in docs/development/phase-4/findings/pricing-discounts.md:
+    | "`coupons.status` is assigned in SEVEN places across six files ... It is read by no query
+    | predicate and no conditional anywhere in app/ or packages/workdo/: not by
+    | Coupon::findByExactCode(), not by any of its eight call-site constraints, not by
+    | Cart::getCouponTotalAmount(), not by the guest-checkout lookup (PaymentService) or the
+    | order-recording lookup. Coupon declares no global scope and is in no scoped_models entry, so
+    | nothing underneath can supply one. A coupon the merchant switched to Inactive therefore still
+    | validates and still discounts, bounded only by its own expiry, coupon_limit,
+    | coupon_limit_user and spend gates, which all still work."
+    |
+    | The column's own meaning is in its migration:
+    | `$table->integer('status')->default(1)->comment('0 => Inactive, 1 => Active ')`.
+    |
+    | REACHABLE BY AN ANONYMOUS VISITOR who knows the code — `routes/customer.php:203` carries no
+    | auth middleware — and it moves money on a cod order, where `orders.final_price` is the cash a
+    | driver collects. The merchant believes they have withdrawn the offer.
+    |
+    | FOUR CASES, BECAUSE THERE ARE TWO ARITHMETICS AND TWO DOORS. `apply_coupon` and
+    | `Cart::getCouponTotalAmount()` are separate code paths that have disagreed before — the
+    | `coupon_limit` family was missed exactly that way, which is what
+    | `test_the_cart_and_apply_coupon_agree_about_a_default_usage_limit` above exists for — and the
+    | anonymous web route reaches the same handler through a different front door. The positive
+    | control is not optional: without it every case below is satisfied by a fix that refuses
+    | everything.
+    */
+
+    /**
+     * The 100.00-basket fixture of `applyCoupon()`, but built so the caller can also drive
+     * `cart-list` and the anonymous web route against the same rows.
+     *
+     * COUPON WRITTEN THROUGH ELOQUENT, DELIBERATELY. `Coupon` is `Cachable` and the suite runs
+     * under `CACHE_STORE=array`, so a raw `DB::table('coupons')->update(['status' => 0])` would
+     * leave every later lookup serving the pre-write row — a green test proving nothing (CLAUDE.md,
+     * model caching). `status` is in `$fillable`, so `Coupon::create()` persists it.
+     *
+     * @return array{0:mixed,1:\App\Models\Customer,2:\App\Models\Coupon,3:string}
+     */
+    private function storeWithCoupon(int $status, array $overrides = []): array
+    {
+        [, $store] = $this->tenant();
+        $shopper = $this->shopper($store);
+        $product = $this->productIn($store, 100.00);
+
+        $coupon = \App\Models\Coupon::create(array_merge([
+            'coupon_name' => 'Save', 'coupon_code' => 'SAVE',
+            'coupon_type' => 'flat', 'discount_amount' => 50.00,
+            'coupon_limit' => 0,
+            'coupon_expiry_date' => now()->addYear()->toDateString(),
+            'status' => $status,
+        ], $overrides));
+        // `store_id` and `coupon_limit_user` are not fillable on this model.
+        $coupon->forceFill(['store_id' => $store->id, 'coupon_limit_user' => 0])->save();
+
+        Cart::forceCreate([
+            'customer_id' => $shopper->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 2, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+
+        return [$store, $shopper, $coupon, $shopper->createToken('f061')->plainTextToken];
+    }
+
+    /** THE PREMISE: the column really does say Inactive, and the row really is the store's. */
+    public function test_premise_the_fixture_stores_an_inactive_coupon_for_this_store(): void
+    {
+        [$store, , $coupon] = $this->storeWithCoupon(0);
+
+        $row = DB::table('coupons')->where('id', $coupon->id)->first();
+
+        $this->assertSame(0, (int) $row->status,
+            'the fixture did not persist status = 0, so every case below measures nothing. '
+            . '`status` must be in Coupon::$fillable and the write must flush the model cache.');
+        $this->assertSame((int) $store->id, (int) $row->store_id,
+            'premise: the coupon belongs to the store the requests name');
+    }
+
+    /** (1) THE DEFECT, on the signed-in storefront API. */
+    public function test_a_deactivated_coupon_is_refused_by_apply_coupon(): void
+    {
+        [$store, $shopper, , $token] = $this->storeWithCoupon(0);
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->postJson('/api/' . $store->slug . '/apply-coupon', [
+                'coupon_code' => 'SAVE', 'customer_id' => $shopper->id, 'sub_total' => 200.00,
+            ]);
+
+        $this->assertSame(200, $response->getStatusCode(),
+            'premise: the route exists and the handler ran — a 404 or a 500 satisfies a row '
+            . 'assertion for the wrong reason');
+
+        $body = json_decode((string) $response->getContent(), true) ?: [];
+
+        $this->assertSame(0, (int) ($body['status'] ?? 1),
+            'A COUPON THE MERCHANT SWITCHED TO INACTIVE STILL APPLIED. `coupons.status` is '
+            . 'written by four merchant-facing editors and read by no gate, so the toggle does '
+            . 'nothing. Measured before the fix: status 1 with a 50.00 discount on a 200.00 '
+            . 'basket. Body: ' . json_encode($body['data'] ?? $body));
+
+        $this->assertNotSame('', $this->refusalMessage($body),
+            'the refusal carries no message, so the shopper is told nothing');
+    }
+
+    /** (2) THE CONTROL. An active coupon must stay green across the fix. */
+    public function test_an_active_coupon_still_applies(): void
+    {
+        [$store, $shopper, , $token] = $this->storeWithCoupon(1);
+
+        $body = json_decode((string) $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->postJson('/api/' . $store->slug . '/apply-coupon', [
+                'coupon_code' => 'SAVE', 'customer_id' => $shopper->id, 'sub_total' => 200.00,
+            ])->getContent(), true) ?: [];
+
+        $data = $this->assertApplied($body, 'CONTROL: an ACTIVE coupon is refused, so the status '
+            . 'gate refuses everything and the cases around it prove nothing');
+
+        $this->assertSame('50.00', number_format((float) $data['amount'], 2, '.', ''),
+            'the active coupon no longer discounts its configured 50.00');
+    }
+
+    /**
+     * (3) THE SECOND ARITHMETIC, which a two-site fix would miss.
+     *
+     * `Cart::getCouponTotalAmount()` is handed an already-resolved model and makes its own refusal
+     * decisions, so it needs its own check: the `coupon_limit` family went wrong exactly here.
+     *
+     * AND THE REFUSAL MUST RETURN THE LINE UNDISCOUNTED, NEVER 0. `Cart.php`'s own docblock records
+     * why — a `return 0;` means "this line is free" to both callers, which is the zeroed-line
+     * defect `RefusedCouponLinePriceTest` pins — so this case asserts the SUBTOTAL as well as the
+     * absent discount.
+     */
+    public function test_a_deactivated_coupon_does_not_discount_the_cart_line(): void
+    {
+        [$store, $shopper, , $token] = $this->storeWithCoupon(0);
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->postJson('/api/' . $store->slug . '/cart-list', [
+                'coupon_code' => 'SAVE', 'customer_id' => $shopper->id,
+            ]);
+
+        $this->assertSame(200, $response->getStatusCode(), 'premise: cart-list answered');
+
+        $data = (json_decode((string) $response->getContent(), true) ?: [])['data'] ?? [];
+
+        $this->assertArrayHasKey('total_coupon_price', $data,
+            'premise: cart-list reports a coupon figure — if the key moved, this case is vacuous');
+
+        $this->assertSame('0.00', number_format((float) $data['total_coupon_price'], 2, '.', ''),
+            'THE CART STILL DISCOUNTS A DEACTIVATED COUPON. This is the second coupon arithmetic '
+            . 'and a different code path from apply_coupon; the two have disagreed before. '
+            . 'Measured before the fix: 50.00.');
+
+        $this->assertSame('200.00', number_format((float) $data['sub_total'], 2, '.', ''),
+            'the refusal must leave the line UNDISCOUNTED (getCouponTotalAmount returns $subTotal), '
+            . 'not zero it — a 0 there is the free-line defect RefusedCouponLinePriceTest pins');
+    }
+
+    /**
+     * (4) THE ANONYMOUS WEB DOOR. `routes/customer.php:203` is in the auth-free group, so this runs
+     * with no session and no token at all.
+     *
+     * `OrderController::applycoupon` resolves the coupon itself and then delegates to
+     * `ApiController::apply_coupon`, so a gate placed only in the API handler's own constraint
+     * would leave this door's resolution untouched.
+     *
+     * TWO FIXTURE MECHANICS THIS CASE WAS WRONG ABOUT FIRST, both measured rather than reasoned,
+     * and both of which made it pass for the wrong reason:
+     *
+     *   (a) `postJson()` SENDS NO COOKIES unless `withCredentials()` is called --
+     *       `prepareCookiesForJsonRequest()` returns `[]` otherwise (Laravel 11,
+     *       MakesHttpRequests:715). So `Cookie::get('cart')` answered null.
+     *   (b) AN ANONYMOUS SHOPPER'S BASKET IS THE COOKIE CART, not the signed-in customer's rows.
+     *       With an empty one, `apply_coupon`'s guest branch refuses with "This coupon has
+     *       expired." -- `empty(array_diff([], []))` on both sides of its sale-items test is true
+     *       for an empty product list, whatever the coupon is. The first version of this case
+     *       therefore PASSED before any fix while its own control FAILED, which is what caught it.
+     */
+    public function test_a_deactivated_coupon_is_refused_on_the_anonymous_web_route(): void
+    {
+        [$store] = $this->storeWithCoupon(0);
+        $cookie = $this->guestBasketIn($store);
+
+        $response = $this->withCredentials()->withCookie('cart', $cookie)
+            ->postJson('/' . $store->slug . '/applycoupon', [
+                'coupon_code' => 'SAVE', 'sub_total' => 200.00,
+            ]);
+
+        $this->assertNotSame(404, $response->getStatusCode(),
+            'premise: the anonymous web route exists — a 404 satisfies the assertion below for '
+            . 'the wrong reason');
+
+        $body = json_decode((string) $response->getContent(), true) ?: [];
+
+        $this->assertSame(0, (int) ($body['status'] ?? 1),
+            'A DEACTIVATED COUPON APPLIED TO AN ANONYMOUS VISITOR who knows the code. This route '
+            . 'carries no auth middleware, so the merchant\'s withdrawn offer is public. Measured '
+            . 'before the fix: "Coupon code applied successfully", 50.00 off a 200.00 basket, '
+            . 'final_price 150.00, with no session at all. '
+            . 'Body: ' . json_encode($body['data'] ?? $body));
+    }
+
+    /**
+     * AND THE SAME DOOR STILL WORKS FOR AN ACTIVE COUPON — the control for case 4, and the one
+     * that found both fixture faults above.
+     */
+    public function test_an_active_coupon_still_applies_on_the_anonymous_web_route(): void
+    {
+        [$store] = $this->storeWithCoupon(1);
+        $cookie = $this->guestBasketIn($store);
+
+        $body = json_decode((string) $this->withCredentials()->withCookie('cart', $cookie)
+            ->postJson('/' . $store->slug . '/applycoupon', [
+                'coupon_code' => 'SAVE', 'sub_total' => 200.00,
+            ])->getContent(), true) ?: [];
+
+        $this->assertSame(1, (int) ($body['status'] ?? 0),
+            'CONTROL: the anonymous door refuses an ACTIVE coupon too, so case 4 proves nothing. '
+            . 'Body: ' . json_encode($body['data'] ?? $body));
+
+        $this->assertSame('150.00', number_format((float) ($body['data']['final_price'] ?? 0), 2, '.', ''),
+            'CONTROL: the anonymous door no longer discounts an active coupon by its 50.00');
+    }
+
+    /**
+     * A GUEST'S BASKET: cart rows keyed on a cookie value, and the cookie that names them.
+     *
+     * `Cart::scopeForGuestCookie()` matches on `cookie_session_id`, and `cart_list_cookie()` reads
+     * the value from `Cookie::get('cart')` — so a signed-in customer's rows are invisible to this
+     * path and vice versa.
+     */
+    private function guestBasketIn($store): string
+    {
+        $cookie = 'guest-' . uniqid();
+
+        Cart::forceCreate([
+            'customer_id' => 0,
+            'cookie_session_id' => $cookie,
+            'product_id' => DB::table('products')->where('store_id', $store->id)->orderByDesc('id')->value('id'),
+            'variant_id' => 0, 'qty' => 2, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+
+        return $cookie;
+    }
+
+    /**
+     * AND THE MERCHANT MUST STILL BE ABLE TO SEE WHAT THEY DEACTIVATED.
+     *
+     * The finding is explicit that this is the way to get the fix wrong: "Merchant-side reads
+     * (`CouponDataTable::query()`, `CouponController::edit`, `DashboardController::CouponList`) must
+     * NOT get the predicate or the merchant can no longer see or re-enable what they deactivated."
+     * A gate pushed into a global scope, or into a plain `Coupon::where()`, would do exactly that.
+     */
+    public function test_the_merchant_can_still_list_and_read_a_deactivated_coupon(): void
+    {
+        [$store, , $coupon] = $this->storeWithCoupon(0);
+
+        $this->assertNotNull(\App\Models\Coupon::find($coupon->id),
+            'a deactivated coupon has become invisible to a plain model read, so the merchant '
+            . 'cannot re-enable it and the edit screen 404s');
+
+        $this->assertSame(1, \App\Models\Coupon::where('store_id', $store->id)->count(),
+            'the merchant\'s own coupon list no longer shows a deactivated coupon');
+    }
+
+    /**
+     * NO STOREFRONT COUPON RESOLUTION BYPASSES THE GATE.
+     *
+     * The shape of `test_no_raw_coupon_limit_gate_remains_outside_the_shared_helper` above, for the
+     * same reason: the gate is placed in `Coupon::findByExactCode()` because that is the single
+     * chokepoint for all eight storefront lookups, four of which live in files this change may not
+     * edit. If a ninth lookup appears that resolves a coupon by CODE without going through it, this
+     * fails and somebody reads it.
+     *
+     * KEYED ON THE CONSTRUCT WITH COMMENTS STRIPPED by PHP's own tokenizer — a docblock naming the
+     * old shape would satisfy a grep, which CLAUDE.md records happening four times in one day.
+     *
+     * WHAT IT READS, AND WHAT IT DOES NOT — stated because a completeness claim here has failed
+     * four times in this project by being keyed on spelling rather than on the thing it measures.
+     *
+     * IT READS every narrowing of a query by the `coupon_code` COLUMN anywhere under `app/`, with
+     * comments stripped. Measured: TWO occurrences, of which one is the docblock sentence in
+     * `Coupon::findByExactCode()` explaining the narrowing — so with comments stripped there is
+     * exactly ONE, and it is inside the helper. (`packages/workdo/` has zero, measured
+     * separately.) That is what makes the chokepoint a real chokepoint rather than a hope.
+     *
+     * IT DOES NOT READ lookups by a posted `coupon_id`. Those are a different family — P4-F135's —
+     * and they are order-RECORDING sites rather than validation sites: `PaymentService` x3,
+     * `PaymentController` x6, `AuthorizeNetPaymnetController` x3, `PayUPaymentController` x2,
+     * `SspayController` x1 and about twenty more gateway controllers, measured. The status gate in
+     * `findByExactCode()` does not reach any of them, deliberately: a redemption must be recorded
+     * against whatever coupon the server actually granted, even one the merchant deactivated in
+     * the meantime, or the caps under-count (which is P4-F134's harm). They are listed here rather
+     * than ratcheted by count, because a count over twenty gateway controllers is the kind of
+     * line-keyed inventory CLAUDE.md §6b records as the commonest way unrelated work turns CI red.
+     */
+    public function test_no_storefront_coupon_code_lookup_bypasses_the_status_gate(): void
+    {
+        $offenders = [];
+        $total = 0;
+
+        foreach ($this->phpFilesUnder(base_path('app')) as $path => $code) {
+            if (! preg_match_all('/where\s*\(\s*[\'"]coupon_code[\'"]/', $code, $m, PREG_OFFSET_CAPTURE)) {
+                continue;
+            }
+
+            foreach ($m[0] as [, $offset]) {
+                $total++;
+                $relative = str_replace(base_path() . '/', '', $path);
+
+                // The one permitted site: the shared helper itself.
+                if ($relative === 'app/Models/Coupon.php') {
+                    continue;
+                }
+
+                $offenders[] = $relative . ':' . (substr_count(substr($code, 0, $offset), "\n") + 1);
+            }
+        }
+
+        $this->assertSame([], $offenders,
+            'A COUPON IS NARROWED BY ITS CODE OUTSIDE Coupon::findByExactCode(), so the status '
+            . 'gate does not cover it. Either route it through the helper or state here why it is '
+            . 'exempt: ' . implode(', ', $offenders));
+
+        // REACHABILITY: a scan that found nothing because it read nothing is not evidence.
+        $this->assertSame(1, $total,
+            'the scan expected exactly ONE coupon_code narrowing in app/ (the helper\'s own) and '
+            . 'found ' . $total . '. If the helper was renamed or rewritten, this scan is no '
+            . 'longer measuring the chokepoint it claims to.');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | THE TWO CONTRACTS NO HTTP CASE CAN REACH — and that is measured, not assumed
+    |--------------------------------------------------------------------------
+    |
+    | FOUND BY MUTATION, not by reading. Three mutants of this fix SURVIVED every HTTP case above:
+    | deleting the cart arithmetic's own status check, turning its refusal into `return 0`, and
+    | making the redemption recorder stop opting out of the gate. The reason is the same for all
+    | three and it is not a coverage gap in the HTTP cases — it is that the chokepoint gets there
+    | first:
+    |
+    |   BOTH call sites of `CouponBasketAllocator::forBasket()` (`Cart.php:684`,
+    |   `ApiController.php:934`) resolve their coupon through `Coupon::findByExactCode()` seven
+    |   lines earlier, so `getCouponTotalAmount()` is never HANDED an inactive coupon over HTTP.
+    |   Its own check is defence in depth, which the F061 finding asked for by name ("it is handed
+    |   an already-resolved model, so it needs its own check") — and defence in depth whose only
+    |   input comes from a layer that already refuses cannot be driven end to end.
+    |
+    | SO THEY ARE PINNED AT THEIR OWN CONTRACT instead, by direct call. Per this project's rule for
+    | a surviving mutant: do not weaken the mutant, ask what input would make the two behaviours
+    | disagree. The answer is a caller that resolves a coupon some other way — which is exactly what
+    | the defence exists for, and exactly what these two cases supply.
+    |
+    | AND THE TWO LAYERS MAKE ONE HTTP CASE DOUBLE-COVERED, which is worth writing down because it
+    | looks like a hole from either side. `test_a_deactivated_coupon_does_not_discount_the_cart_line`
+    | survives the deletion of EITHER layer alone — the chokepoint refuses the lookup, or the cart
+    | check refuses the model — and only fails when both are removed together. That is the shape the
+    | F134/F135 work recorded too ("both together, because either alone still blocks the write"); it
+    | is depth rather than redundancy, and the single-layer mutants are killed by the cases above and
+    | the direct-call cases below respectively.
+    |
+    | A DIRECT CALL NEEDS THE DEFAULT GUARD PUT BACK. `getCouponTotalAmount()` reads
+    | `auth('customers')->user()` for the per-user cap; over HTTP the kernel sets the guard, and in a
+    | direct call `actingAs(..., 'customers')` would also call `shouldUse('customers')` and change
+    | what `getCurrentStore()` answers (CLAUDE.md; skill lesson 5). No principal is signed in here,
+    | which is the production shape for a guest basket, and the cap is left at 0 so it cannot be the
+    | thing that refuses.
+    */
+
+    public function test_the_cart_arithmetic_refuses_an_inactive_coupon_handed_to_it_directly(): void
+    {
+        [$store, , $coupon] = $this->storeWithCoupon(0);
+
+        $this->assertNull(auth()->user(),
+            'premise: no principal is signed in, so the per-user cap cannot be what refuses');
+        $this->assertSame(0, (int) $coupon->status, 'premise: the model carries status 0');
+
+        $this->assertSame(
+            200.00,
+            (float) Cart::getCouponTotalAmount($coupon, 200.00, 0, 0),
+            'getCouponTotalAmount() discounted a line for a coupon whose status is 0. It is handed '
+            . 'an already-resolved model, so the chokepoint in findByExactCode() cannot protect a '
+            . 'caller that resolves one some other way. AND THE REFUSAL MUST BE $subTotal, NOT 0: '
+            . 'both readers compute the discount as `$final_price - $answer`, so a 0 here makes the '
+            . 'whole line free — the defect RefusedCouponLinePriceTest pins.'
+        );
+    }
+
+    /** THE CONTROL for the case above: an ACTIVE coupon still discounts when handed over directly. */
+    public function test_the_cart_arithmetic_still_discounts_an_active_coupon_handed_to_it_directly(): void
+    {
+        [, , $coupon] = $this->storeWithCoupon(1);
+
+        $this->assertSame(
+            150.00,
+            (float) Cart::getCouponTotalAmount($coupon, 200.00, 0, 0),
+            'CONTROL: a 50.00 flat coupon on a 200.00 line must leave 150.00. If this fails the '
+            . 'status check refuses everything and the case above proves nothing.'
+        );
+    }
+
+    /**
+     * AND THE RECORDER MUST STILL RECORD A COUPON THE MERCHANT SWITCHED OFF MID-FLIGHT.
+     *
+     * `CouponRedemptionRecorder` passes `activeOnly: false` deliberately. If it did not, a merchant
+     * deactivating a coupon between `apply_coupon()`'s acceptance and the order write would leave
+     * the order discounted with no `user_coupons` row — and every cap is a count on that table, so
+     * the missing row is a limit that cannot fire. That is P4-F134's own harm arriving through the
+     * F061 fix, and no HTTP case can stage the window, so it is pinned at the class's contract.
+     */
+    public function test_the_redemption_recorder_still_records_a_deactivated_coupon(): void
+    {
+        [$store, $shopper, $coupon] = $this->storeWithCoupon(0);
+
+        $order = \App\Models\Order::withoutEvents(fn () => \App\Models\Order::forceCreate([
+            'product_order_id' => 'F061-' . uniqid(),
+            'customer_id' => $shopper->id, 'store_id' => $store->id,
+            'product_json' => json_encode([]), 'product_price' => 200.00,
+            'final_price' => 150.00, 'coupon_price' => 50.00,
+            'payment_type' => 'cod', 'payment_status' => 'Unpaid',
+        ]));
+
+        $detail = app(\App\Services\CouponRedemptionRecorder::class)
+            ->record($order, $store, 'SAVE', 50.00, 150.00, (int) $shopper->id);
+
+        $this->assertNotNull($detail,
+            'THE RECORDER REFUSED A DEACTIVATED COUPON, so a merchant switching a coupon off '
+            . 'between acceptance and the order write leaves the discount granted and the '
+            . 'redemption unrecorded. P4-F134 re-opened by the F061 fix.');
+
+        $this->assertSame((int) $coupon->id, (int) $detail->coupon_id,
+            'the row was recorded against a different coupon than the one granted');
+
+        $this->assertSame(1,
+            DB::table('user_coupons')->where('order_id', $order->id)->where('coupon_id', $coupon->id)->count(),
+            'the detail row exists and the row the CAPS count does not, which is the half that '
+            . 'matters: every coupon limit is a count on user_coupons');
+    }
+
+    /** AND THE GATE REALLY IS IN THE HELPER, not merely described in its docblock. */
+    public function test_the_status_gate_is_in_the_shared_helper_and_not_only_in_its_prose(): void
+    {
+        $source = $this->phpFilesUnder(base_path('app/Models'))[base_path('app/Models/Coupon.php')] ?? '';
+
+        $this->assertNotSame('', $source, 'premise: Coupon.php was read');
+
+        $this->assertMatchesRegularExpression(
+            '/where\s*\(\s*[\'"]status[\'"]\s*,\s*1\s*\)/',
+            $source,
+            'Coupon::findByExactCode() carries no status predicate in CODE. A docblock saying it '
+            . 'does would satisfy a grep — CLAUDE.md records that happening four times in one '
+            . 'day — so this reads the source with comments stripped by PHP\'s own tokenizer.'
+        );
+    }
+
+    /**
+     * Every PHP file under a root, with comments replaced by blank lines.
+     *
+     * @return array<string, string> path => source without comments
+     */
+    private function phpFilesUnder(string $root): array
+    {
+        $out = [];
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root)) as $file) {
+            if (! $file->isFile() || $file->getExtension() !== 'php') {
+                continue;
+            }
+
+            $code = '';
+            foreach (token_get_all((string) file_get_contents($file->getPathname())) as $token) {
+                if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    $code .= str_repeat("\n", substr_count($token[1], "\n"));
+
+                    continue;
+                }
+                $code .= is_array($token) ? $token[1] : $token;
+            }
+
+            $out[$file->getPathname()] = $code;
+        }
+
+        return $out;
+    }
 }

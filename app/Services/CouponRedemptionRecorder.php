@@ -95,9 +95,21 @@ final class CouponRedemptionRecorder
          * and broke SQLite; that is the model's concern, not this one's, but it is why a plain
          * `where()` is not enough.
          */
+        /*
+         * AND IT DELIBERATELY IGNORES `coupons.status`. P4-F061 / GAP-132 put an active-only
+         * predicate in `findByExactCode()`, because every storefront VALIDATION comes through it.
+         * This is not a validation: the server has already granted the discount above, and this
+         * method's whole job is to record the redemption against the row that was granted. If a
+         * merchant switches the coupon off between acceptance and the order write, refusing here
+         * would write no `user_coupons` row -- and every coupon cap is a count on that table, so a
+         * missing row is a limit that cannot fire. That is P4-F134's harm, which this class exists
+         * to close, arriving through the F061 fix. The opt-out is explicit and this is its only
+         * permitted use.
+         */
         $coupon = Coupon::findByExactCode(
             $code === null ? null : trim($code),
-            fn ($query) => $query->where('store_id', $store->id)
+            fn ($query) => $query->where('store_id', $store->id),
+            activeOnly: false
         );
 
         if ($coupon === null) {
