@@ -145,7 +145,8 @@
                         </ul>
                     </div>
                     <div class="card-footer p-3">
-                        {!! Form::button(__('Save Changes'), ['type' => 'submit', 'class' => 'btn btn-primary']) !!}
+                        {{-- GAP-098: 2.58:1 dark on the host fill; `.ss-btn--primary` 7.92:1. --}}
+                        {!! Form::button(__('Save Changes'), ['type' => 'submit', 'class' => 'ss-btn ss-btn--primary']) !!}
                     </div>
                      {!! Form::close() !!}
                 </div>

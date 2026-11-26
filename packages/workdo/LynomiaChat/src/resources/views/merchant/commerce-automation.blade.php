@@ -51,18 +51,39 @@
      data-endpoint-store-consent-reconcile="{{ route('lynomia.automation.api.store_consents.reconcile') }}"
      data-can-consent="{{ $canManageConsent ? '1' : '0' }}">
 
+    {{-- GAP-179. THE LABEL IS WRAPPED; THE TONE DOES NOT GO ON THE BUTTON, BECAUSE THERE IT WOULD
+         DO NOTHING. Measured on this page as the merchant, dark theme, both languages:
+         `button.nav-link.active` paints rgb(51,93,168) on rgb(34,36,44) = 2.41:1 against a 4.5:1
+         requirement, and it PASSES in light, which is why it survived every earlier pass.
+
+         `style-dark.css` declares `.nav-link { color: var(--theme-color) !important; }` -- an
+         `!important` on a (0,1,0) selector -- so `.ss-tab`, `.ss-text-strong` or any `text-*`
+         tone placed HERE is beaten outright and the re-measurement comes back unchanged under a
+         longer selector name. That has happened three times in this project and an inert class
+         reads as a finished repair. The remedy is the recorded one: move the label into a
+         `<span>` the host selector cannot match. Out-importanting `.nav-link` would repaint tabs
+         across all 70 vendored modules and is not a module's decision to take.
+
+         BOTH LABELS, NOT ONLY THE ACTIVE ONE. `data-bs-toggle="tab"` moves `.active`
+         CLIENT-SIDE, so whichever tab the merchant clicks becomes the 2.41:1 one -- a fix applied
+         to the initially-active tab alone is correct until the first click.
+
+         WHAT IS LOST IS NOTHING: the host gives the active tab borders the inactive one does not
+         have, and the colour cue being removed was BACKWARDS in dark anyway -- the selected tab
+         sat at 2.41:1 while its neighbour read 5.05:1, so the selected one was the harder to
+         read. Same finding as `superadmin/integration.blade.php`. --}}
     <ul class="nav nav-tabs mb-3" role="tablist">
         <li class="nav-item" role="presentation">
             <button class="nav-link active" id="lync-tab-rules" data-bs-toggle="tab" data-bs-target="#lync-pane-rules"
                     type="button" role="tab" aria-controls="lync-pane-rules" aria-selected="true">
-                {{ __('Rules') }}
+                <span class="ss-text-strong">{{ __('Rules') }}</span>
             </button>
         </li>
         @if ($canManageConsent)
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="lync-tab-consent" data-bs-toggle="tab" data-bs-target="#lync-pane-consent"
                         type="button" role="tab" aria-controls="lync-pane-consent" aria-selected="false">
-                    {{ __('Consent') }}
+                    <span class="ss-text-strong">{{ __('Consent') }}</span>
                 </button>
             </li>
         @endif
@@ -82,7 +103,14 @@
                     <div class="d-flex gap-2 lync-actions">
                         <button type="button" class="btn btn-sm btn-light" id="lync-refresh"
                                 aria-label="{{ __('Refresh') }}"><i class="ti ti-refresh" aria-hidden="true"></i></button>
-                        <button type="button" class="btn btn-sm btn-primary" id="lync-new">
+                        {{-- GAP-179. `.ss-btn--primary` AND NOT THE HOST'S `.btn btn-primary`, measured rather than
+                             preferred: the host's primary fill paints rgb(4,34,42) on rgb(51,93,168) in the dark
+                             admin theme -- 2.58:1 against 4.5:1 -- and this toolbar button is one of the six
+                             findings measured on this page. Unlike `.nav-link` the fill is NOT `!important`, so
+                             this is a class swap rather than a wrap, following
+                             platform/content/edit.blade.php:124-128. The design system's button takes
+                             `--ss-brand` / `--ss-on-brand` and is correct in both themes by construction. --}}
+                        <button type="button" class="ss-btn ss-btn--primary ss-btn--sm" id="lync-new">
                             <i class="ti ti-plus me-1" aria-hidden="true"></i>{{ __('New rule') }}
                         </button>
                     </div>
@@ -184,7 +212,9 @@
                             <div class="d-flex gap-2 flex-wrap">
                                 <input type="text" class="form-control form-control-sm" id="lync-optin-policy"
                                        style="max-width: 16rem" maxlength="64" placeholder="{{ __('for example v3') }}">
-                                <button type="button" class="btn btn-sm btn-primary" id="lync-optin-save">{{ __('Save') }}</button>
+                                {{-- Same class swap as the toolbar button above. NOT measured: this pane is the
+                                     inactive tab on first paint, so the capture never renders it. --}}
+                                <button type="button" class="ss-btn ss-btn--primary ss-btn--sm" id="lync-optin-save">{{ __('Save') }}</button>
                             </div>
                             <p class="text-muted small mb-0 mt-2">
                                 {{ __('Recorded with every consent so you can show what a customer agreed to. Changing it does not alter consent already given.') }}
@@ -254,7 +284,8 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-light" data-bs-dismiss="modal">{{ __('Cancel') }}</button>
-                <button type="submit" class="btn btn-primary" id="lync-rule-save">{{ __('Save') }}</button>
+                {{-- Same class swap. NOT measured: the modal is display:none until opened. --}}
+                <button type="submit" class="ss-btn ss-btn--primary" id="lync-rule-save">{{ __('Save') }}</button>
             </div>
         </form>
     </div>

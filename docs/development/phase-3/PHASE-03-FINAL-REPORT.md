@@ -43,6 +43,23 @@ Closed as `fe555adc`. Nine packages, M4-0 through M4-9. The substance:
 - **M4-7** added a **third boundary**, `theme.draft` (membership), beside `theme.editor`
   (management) — inside the management group the draft route was unreachable for exactly the staff
   it exists for.
+
+  > **THIS BULLET IS NOT THE PLAN'S M4-7, AND THE COLLISION OVERSTATED THE PHASE** (`GAP-098`,
+  > corrected 2026-11-26). `PHASE-03-M4-THEME-EDITOR-PLAN.md:266` names M4-7 **"The editor shell
+  > (UI)"** — moving the editor's four views onto the design system, with a four-combination
+  > capture and contrast checked. That is a different piece of work from the boundary above, and it
+  > was **not** part of this closure. A reader matching the plan's ten packages against these
+  > bullets sees M4-7 accounted for and concludes the shell shipped.
+  >
+  > Measured while correcting this: the report below mentions neither the editor shell, nor the
+  > design system in connection with the editor, nor a capture of it, nor its contrast — its "four
+  > combinations" (§1) is M7's storefront matrix and its 13.73:1 (§7) is a storefront figure.
+  >
+  > The bullet is **left as written** rather than renumbered: a delivery report is evidence of what
+  > was done, and editing it to match a plan it did not follow would destroy that. Where the shell
+  > actually stands — its first rendered evidence (16 cells, 0 premise failures), its contrast
+  > closed 14 findings to 2, and the 498 host class tokens that remain — is
+  > `PHASE-03-THEME-EDITOR-SHELL-DISPOSITION.md`.
 - **M4-9** removed a jQuery UI load **from the vendor's public demo site** into authenticated
   merchant pages, and validated `updateOrder()`'s previously unexamined input.
 - **M4-8** brought the editor and all three themes' taxonomy to **100% Arabic coverage**, pinned by
