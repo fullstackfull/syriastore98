@@ -53,6 +53,16 @@ namespace Tests\Support\Analytics;
  * have been scoped to an order's store is still wrong and counts as `principal` here. So the
  * non-principal columns are a LOWER BOUND on the exposure, never an upper one.
  *
+ * AND `ownership_checked` IS WEAKER STILL, QUANTIFIED RATHER THAN ASSERTED. It means a gate token
+ * is present SOMEWHERE IN THE ENCLOSING FUNCTION, not that this read goes through one. MEASURED by
+ * a declared mutation (`tests/Support/bin/mutate-gap167.py`): deleting ONE
+ * `reportSelectionWithinCurrentStore(ProductBrand::class, ...)` call from `ReportController` moves
+ * NO number here, because `order_brand_reports` is a single ~555-line method holding FOUR of those
+ * calls, one per `chart_data` arm -- three survive and still credit every site in the method,
+ * including the ten in the arm that just lost its gate. Attributing a gate to an ARM needs
+ * branch-aware scoping and is a slice of its own. An independent review predicted this survivor
+ * before it was run; it is declared in that file rather than retired.
+ *
  * LIMIT 2. THE STATEMENT IS A TEXT WINDOW: the matched line plus following lines to the first `;`,
  * capped at 40 -- AND, when the matched line assigns a builder to a variable, the following lines
  * that call a method on that same variable, with their continuations, up to a reassignment of it
@@ -82,6 +92,25 @@ namespace Tests\Support\Analytics;
  * LIMIT 4. COMMENTS ARE STRIPPED THROUGH PHP'S OWN TOKENIZER, so prose about a defect cannot
  * satisfy or break this census -- CLAUDE.md §3 records eight occasions it did. The stripper
  * preserves newlines, so every line number here is the line number in the real file.
+ *
+ * LIMIT 5. THE WATCH LIST IS A NAMED SET OF THIRTEEN MODELS, NOT EVERY UNSCOPED MODEL THESE FILES
+ * READ -- and until an independent review asked, nothing recorded the difference.
+ * `test_every_model_this_census_watches_really_adds_no_predicate` asserts the list contains nothing
+ * SCOPED; nothing asserted it contains everything unscoped. The proof was `ProductBrand`:
+ * `Category`'s identical twin, read 17 times in `ReportController` with 10 of them a bare `find()`,
+ * carrying NO `BelongsToStore` and no `StoreScope` at all -- strictly MORE open than `Category`'s
+ * inert scope -- and entirely uncounted, so removing a gate call that narrowed those ids moved no
+ * number. It is now watched, which took the census from 312 sites to 337.
+ *
+ * The gap is now a measurement rather than a claim:
+ * `test_the_watch_list_covers_every_unscoped_model_these_files_read` requires every Eloquent model
+ * these files read that is absent from `scoped_models` to be either WATCHED or exempted BY NAME
+ * WITH A REASON in `self::NOT_WATCHED`, in both directions -- a stale exemption fails it too, and
+ * deleted the two models this author had guessed at. **FIVE OF THE TWENTY-FOUR EXEMPTIONS ARE
+ * MONEY-BEARING AND ARE NAMED AS THE NEXT ONES TO WATCH** (`OrderCouponDetail`, `OrderTaxDetail`,
+ * `OrderBillingDetail`, `Tax`, `Shipping`): each carries money or a money rule and adds no
+ * predicate for any principal, exactly like `Order`. Watching them re-measures every total here and
+ * needs a disposition per shape, so they are named rather than quietly absent.
  *
  * Neither limit is a reason not to measure. An exact, reproducible lower bound that moves when the
  * code moves is worth more than an estimate, and every limit is recorded so no reader can mistake
@@ -143,8 +172,87 @@ final class AnalyticsTenancyCensus
      * @var list<string>
      */
     public const UNSCOPED_MODELS = [
-        'Order', 'Visit', 'Store', 'User', 'Product', 'Category',
+        'Order', 'Visit', 'Store', 'User', 'Product', 'Category', 'ProductBrand',
         'Wishlist', 'Testimonial', 'ProductImage', 'DeliveryAddress', 'ProductVariant', 'Coupon',
+    ];
+
+    /**
+     * MODELS THESE FILES READ THAT ARE UNSCOPED AND ARE DELIBERATELY NOT WATCHED, with the reason.
+     *
+     * THE LIST ABOVE IS A NAMED SET, NOT "EVERY UNSCOPED MODEL", and until an independent review
+     * said so nothing recorded the difference -- `test_every_model_this_census_watches_really_adds_no_predicate`
+     * asserts the list contains nothing SCOPED and nothing asserted it contains everything
+     * unscoped. `ProductBrand` was the proof: `Category`'s identical twin, read 17 times in
+     * `ReportController` with 10 of them a bare `find()`, carrying NO `BelongsToStore` and no
+     * `StoreScope` at all -- strictly more open than `Category`'s inert scope -- and uncounted.
+     * It is now watched, and `test_the_watch_list_covers_every_unscoped_model_these_files_read`
+     * makes the completeness question a measurement rather than a claim.
+     *
+     * An entry here is an exemption with a stated reason, which a reader can disagree with. An
+     * absence is a model nobody has looked at.
+     *
+     * @var array<string, string>
+     */
+    public const NOT_WATCHED = [
+        /* Not a tenant-discriminated model: `countries`, `states` and `cities` are platform
+           reference data with no `store_id` column, so there is no predicate to look for. */
+        'Country' => 'platform reference data, no store_id column',
+        'State' => 'platform reference data, no store_id column',
+        'City' => 'platform reference data, no store_id column',
+        'Plan' => 'the platform\'s own subscription catalogue; every tenant reads the same rows',
+        'PlanOrder' => 'a tenant\'s subscription PAYMENT to the platform, scoped by order not store',
+        'AddOnManager' => 'the platform module registry; one row set for every tenant',
+        'Utility' => 'a helper model over `settings`, read through its own static API',
+        /* THE TWO I GUESSED AND THE TEST DELETED. `Role` and `Permission` were in this list on
+           the assumption that these controllers read them; the completeness test's SECOND
+           direction said they do not, so the entries were dead text about models nobody here
+           touches. An exemption outliving its subject is how a register becomes decoration. */
+        'Setting' => 'read through `Setting::where(store_id, ...)` helpers whose predicate this census does see when it is written inline; the model itself carries no figure',
+
+        /*
+         * THE FIVE MONEY-BEARING ONES, AND THEY ARE THE NEXT ONES TO WATCH RATHER THAN SETTLED.
+         *
+         * Each is read in a censused file, carries money or a money rule, and is in no
+         * `scoped_models` entry -- so its reads add no predicate for any principal, exactly like
+         * `Order`. They are exempted HERE AND NOW only because watching them re-measures every
+         * total in this census and needs a disposition per shape, which is a slice of its own; the
+         * exemption names them so the next reader has a target rather than a feeling. An
+         * independent review raised the completeness question that found them.
+         */
+        'OrderCouponDetail' => 'MONEY, NEXT TO WATCH: the coupon-discount source `CouponRedemption` sums; unscoped',
+        'OrderTaxDetail' => 'MONEY, NEXT TO WATCH: per-order tax rows; unscoped',
+        'OrderBillingDetail' => 'MONEY, NEXT TO WATCH: per-order billing rows; unscoped',
+        'Tax' => 'MONEY RULE, NEXT TO WATCH: tax definitions a report applies; unscoped',
+        'Shipping' => 'MONEY RULE, NEXT TO WATCH: shipping charges a report sums; unscoped',
+
+        /* Coupon and plan rows: tenant-discriminated, read by the marketing and SaaS handlers of
+           the wide controllers rather than by any analytics figure. */
+        'UserCoupon' => 'a shopper\'s coupon claim, read by the marketing handlers, not by a figure',
+        'PlanCoupon' => 'the PLATFORM\'s own subscription coupons; every tenant reads the same rows',
+        'PlanUserCoupon' => 'a tenant\'s claim on a platform subscription coupon, scoped by plan order',
+        'PlanRequest' => 'a tenant\'s request to the platform; platform-side by construction',
+        'FlashSale' => 'a promotion definition; `FlashSaleCondition` is the scoped half and IS in scoped_models',
+
+        /* Catalogue and CMS rows read by the storefront half of `HomeController`, carrying no
+           figure this census is about. The storefront census owns them. */
+        'Blog' => 'storefront CMS; the storefront census owns it',
+        'BlogCategory' => 'storefront CMS; the storefront census owns it',
+        'Page' => 'storefront CMS; the storefront census owns it',
+        'Faq' => 'storefront CMS; the storefront census owns it',
+        'Contact' => 'a storefront contact-form row; the storefront census owns it',
+        'Newsletter' => 'a storefront newsletter signup; the storefront census owns it',
+        'ProductLabel' => 'catalogue presentation; no figure',
+        'ProductQuestion' => 'storefront Q&A; the storefront census owns it',
+        'ShippingMethod' => 'a per-store shipping method definition; read by the checkout, not by a figure',
+        'TaxOption' => 'a per-store tax option definition; read by the checkout, not by a figure',
+
+        /* Platform and per-principal rows with no store figure. */
+        'AppSetting' => 'platform-wide application settings; one row set for every tenant',
+        'CurrencyRate' => 'per-store currency rows read by name through `CurrencySymbol`; carries a code, not a figure',
+        'AnalyticsReportSchedule' => 'scoped by `forCurrentPrincipal()` on the model itself, which this census does not read as a `store_id` predicate',
+        'SavedView' => 'scoped by `forCurrentPrincipal()` on the model itself, as above',
+        'StoreNotification' => 'a per-store notification row; carries no figure',
+        'DeliveryEarning' => 'a driver\'s earning row; Phase 04\'s subject, not an analytics figure',
     ];
 
     /** Expressions whose value can only have come from the authenticated principal. */
@@ -157,6 +265,13 @@ final class AnalyticsTenancyCensus
         'OperatorStoreSelection::reportStoreId(',
         'OperatorStoreSelection::storeId(',
         'resolveOwnedStore(',
+        /* THE GATE VOCABULARY IS INCOMPLETE BY CONSTRUCTION and an independent review said so:
+           `Api/DashboardController` has at least three ownership helpers and this list names
+           them one at a time. `resolveChangeableOrder(` is the third, found by that review at
+           `:318`. A helper nobody has added classifies as `request`, which is the safe direction
+           for this census to be wrong in -- but it IS being wrong, and the dispositions say so
+           rather than asserting the absence of a gate nobody looked for. */
+        'resolveChangeableOrder(',
         'MetricScope::store(',
         'MetricScope::stores(',
         'merchantTenantRoot(',
@@ -188,9 +303,47 @@ final class AnalyticsTenancyCensus
         $sites = [];
 
         foreach ($this->files() as $relative) {
+            foreach ($this->sitesIn($relative) as $site) {
+                $sites[] = $site;
+            }
+        }
+
+        return $sites;
+    }
+
+    /**
+     * The sites of ONE file, so the pattern can be self-tested against a string of source.
+     *
+     * Added because the premise test could not see the defect that hid 34 reads: it required the
+     * known shapes to be found SOMEWHERE in the tree, and the unqualified spelling satisfied it
+     * while the fully-qualified one was invisible. A self-test needs a door into one file.
+     *
+     * @return list<array{file: string, line: int, model: string, call: string, verdict: string, predicate: ?string}>
+     */
+    public function sitesIn(string $relative): array
+    {
+        $sites = [];
+
+        {
             $lines = explode("\n", $this->codeOnly($relative));
             $functions = $this->functionRanges($lines);
-            $pattern = '/(?<![\w\\\\$>])(' . implode('|', self::UNSCOPED_MODELS) . ')::(\w+)\s*\(/';
+            /*
+             * THE LOOKBEHIND NO LONGER EXCLUDES A BACKSLASH, AND THAT ONE CHARACTER HID 34 READS.
+             *
+             * Its class used to contain a literal backslash, so a FULLY-QUALIFIED reference --
+             * `\App\Models\Order::where(...)` -- failed it and was invisible. Measured by an
+             * independent review: 31 such sites in `Api/DashboardController.php`, the file this
+             * class censuses "whole", 2 in `PlatformAnalyticsFigures.php` and 1 in
+             * `HomeController.php`, several with no store predicate at all -- among them
+             * `\App\Models\DeliveryAddress::where('customer_id', ...)` on a model carrying no
+             * scope whatever.
+             *
+             * It is the tenancy skill's §7 census failure in a fourth dress, keyed on SPELLING
+             * rather than on the handler, and this class's own docblock claimed to have avoided it.
+             * The exclusions that remain do real work: `\w` stops `SomeOrder::`, `$` stops
+             * `$Order::`, `>` stops `->Order::`.
+             */
+            $pattern = '/(?<![\w$>])(' . implode('|', self::UNSCOPED_MODELS) . ')::(\w+)\s*\(/';
 
             foreach ($lines as $index => $line) {
                 if (! preg_match($pattern, $line, $match)) {
@@ -350,12 +503,28 @@ final class AnalyticsTenancyCensus
      */
     private function source(string $expression, array $bindings, array $parameters = []): string
     {
-        if ($this->hasAny($expression, self::REQUEST_TOKENS)) {
-            return 'request';
-        }
-
+        /*
+         * THE PRINCIPAL IS TESTED FIRST, AND THE OLD ORDER MADE 44 DISPOSITIONS SAY SOMETHING FALSE.
+         *
+         * `REQUEST_TOKENS` used to be tested first, so
+         * `where('store_id', $this->resolveOwnedStore($request->store_id)->id)` -- the admin API's
+         * DOCUMENTED shape, gate the requested id then filter on the gated store -- classified as
+         * `request`, and the disposition's reason read "with no `resolveOwnedStore()` in the
+         * handler". That sentence pointed the next reader at about forty-five sites of remediation
+         * work against a hole that is not there. Found by independent review, which verified the
+         * gate at `DashboardController.php:1755`, `:1806`, `:1934`, `:2065`, `:4373` and `:4860`
+         * and counted `resolveOwnedStore(` 144 times in that file.
+         *
+         * An expression carrying BOTH a request token and a gate token is GATED: the gate's whole
+         * job is to take a caller-supplied id and refuse it unless the principal owns it. An
+         * expression carrying only a request token is unchanged.
+         */
         if ($this->hasAny($expression, self::PRINCIPAL_TOKENS)) {
             return 'principal';
+        }
+
+        if ($this->hasAny($expression, self::REQUEST_TOKENS)) {
+            return 'request';
         }
 
         if (preg_match_all('/\$(\w+)/', $expression, $matches)) {
@@ -410,14 +579,17 @@ final class AnalyticsTenancyCensus
                 $verdicts = [];
 
                 foreach ($expressions as $expression) {
-                    if ($this->hasAny($expression, self::REQUEST_TOKENS)) {
-                        $verdicts[] = 'request';
+                    /* PRINCIPAL FIRST, for the reason `source()` records: an assignment that
+                       passes a request id THROUGH an ownership gate is gated, not request-sourced,
+                       and testing the request token first called it the latter. */
+                    if ($this->hasAny($expression, self::PRINCIPAL_TOKENS)) {
+                        $verdicts[] = 'principal';
 
                         continue;
                     }
 
-                    if ($this->hasAny($expression, self::PRINCIPAL_TOKENS)) {
-                        $verdicts[] = 'principal';
+                    if ($this->hasAny($expression, self::REQUEST_TOKENS)) {
+                        $verdicts[] = 'request';
 
                         continue;
                     }

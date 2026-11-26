@@ -51,15 +51,15 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
      * not an upper bound on exposure: see LIMIT 1.
      */
     private const TOTALS = [
-        'principal' => 126,
-        'ownership_checked' => 24,
-        'route_store' => 9,
-        'parameter' => 13,
-        'request' => 44,
-        'none' => 64,
+        'principal' => 169,
+        'ownership_checked' => 50,
+        'route_store' => 10,
+        'parameter' => 14,
+        'request' => 17,
+        'none' => 77,
     ];
 
-    private const TOTAL_SITES = 280;
+    private const TOTAL_SITES = 337;
 
     /**
      * EVERY SITE SHAPE THAT IS NOT `principal`, WITH ITS COUNT AND ITS REASON.
@@ -69,268 +69,148 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
      * published so nothing is hidden, and the row names which census owns it.
      */
     private const DISPOSITIONS = [
-        /* ----------------------------------------------------------------------------------------
-         * ReportController — the report centre. 95 of its 112 sites are principal-derived
-         * (`Order::where('store_id', OperatorStoreSelection::reportStoreId())`, 33 times as a
-         * static call alone).
-         * -------------------------------------------------------------------------------------- */
-
-        // GATED, NOT UNSCOPED. `$selectedCategory` comes from
-        // `reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory)`, which
-        // narrows a requested id set to the current store before any `find()` runs; the empty case
-        // falls back to `Category::where('store_id', OperatorStoreSelection::reportStoreId())`.
-        // `Category` is in no `scoped_models` entry, so the bare `find()` would reach every
-        // tenant's categories on its own -- GAP-234 is the same shape, at `sub_category`. The gate
-        // is the tenant check and it is principal-derived; LIMIT 1 applies, in that the gate being
-        // in the function does not prove each of the eleven reads goes through it.
-        // AND THE GATE HAS AN OPERATOR LIMB THAT IS NOT A NARROWING, which this reason has to say
-        // or it overstates the control. `ReportController.php:4477` returns the requested set
-        // UNNARROWED for `UserPolicy::PLATFORM_ADMIN`, so for the platform operator a
-        // caller-supplied `selectedCategory` reaches any tenant's category name. That is the
-        // operator's own privilege rather than a hole -- they may select any store, and
-        // `OperatorStoreSelection::reportStoreId()` is whichever one they chose -- but it means the
-        // disposition holds for a MERCHANT by narrowing and for the operator by privilege, which
-        // are two different statements. Hardening at most, and named so the next reader does not
-        // have to re-derive it.
+        'app/Http/Controllers/Api/DashboardController.php|Category::where|request' => [2,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|Coupon::where|request' => [1,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|DeliveryAddress::create|ownership_checked' => [1,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|DeliveryAddress::create|request' => [1,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|DeliveryAddress::where|ownership_checked' => [5,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Order::create|request' => [1,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|Order::find|none' => [1,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Order::orderBy|none' => [1,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Order::order_detail|none' => [1,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Order::order_detail|ownership_checked' => [2,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Order::order_status_change|none' => [1,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Order::select|none' => [3,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Order::where|none' => [3,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Order::where|request' => [7,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|Product::Sub_image|ownership_checked' => [1,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Product::where|ownership_checked' => [1,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Product::where|request' => [2,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|ProductBrand::slugs|ownership_checked' => [1,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|ProductBrand::where|none' => [4,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|ProductImage::where|ownership_checked' => [3,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|ProductVariant::where|ownership_checked' => [1,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|ProductVariant::where|request' => [1,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|ProductVariant::withoutGlobalScopes|ownership_checked' => [2,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Store::create|none' => [1,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Store::find|none' => [4,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Store::query|none' => [1,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Store::slugIsReserved|ownership_checked' => [1,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Store::where|none' => [3,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Store::where|ownership_checked' => [3,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Store::where|request' => [1,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|Testimonial::AvregeRating|ownership_checked' => [2,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Testimonial::find|ownership_checked' => [1,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Testimonial::where|request' => [1,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|User::find|none' => [6,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|User::find|ownership_checked' => [2,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|User::slugs|none' => [1,
+            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|User::where|ownership_checked' => [2,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Wishlist::where|ownership_checked' => [1,
+            'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
+        'app/Http/Controllers/HomeController.php|Category::select|none' => [1,
+            'NOT VOUCHED FOR: storefront predicate on a $store this census could not trace in one step'],
+        'app/Http/Controllers/HomeController.php|Category::where|none' => [3,
+            'NOT VOUCHED FOR: storefront predicate on a $store this census could not trace in one step'],
+        'app/Http/Controllers/HomeController.php|Category::where|route_store' => [1,
+            'storefront: the route slug resolved the store'],
+        'app/Http/Controllers/HomeController.php|Category::with|none' => [1,
+            'NOT VOUCHED FOR: storefront predicate on a $store this census could not trace in one step'],
+        'app/Http/Controllers/HomeController.php|DeliveryAddress::where|none' => [1,
+            'NOT VOUCHED FOR: a shopper address read; the storefront census owns it'],
+        'app/Http/Controllers/HomeController.php|Order::order_detail|route_store' => [1,
+            'storefront: the route slug resolved the store'],
+        'app/Http/Controllers/HomeController.php|Order::selectRaw|none' => [1,
+            'dead builder: overwritten by the next line, which carries getCurrentStore()'],
+        'app/Http/Controllers/HomeController.php|Order::where|none' => [1,
+            'NOT VOUCHED FOR: storefront predicate on a $store this census could not trace in one step'],
+        'app/Http/Controllers/HomeController.php|Product::productSalesTag|route_store' => [2,
+            'storefront: the route slug resolved the store'],
+        'app/Http/Controllers/HomeController.php|Product::where|none' => [8,
+            'NOT VOUCHED FOR: storefront predicate on a $store this census could not trace in one step'],
+        'app/Http/Controllers/HomeController.php|ProductBrand::where|none' => [3,
+            'NOT VOUCHED FOR: storefront predicate on a $store this census could not trace in one step'],
+        'app/Http/Controllers/HomeController.php|ProductBrand::where|route_store' => [1,
+            'storefront: the route slug resolved the store'],
+        'app/Http/Controllers/HomeController.php|ProductVariant::where|route_store' => [5,
+            'storefront: the route slug resolved the store'],
+        'app/Http/Controllers/HomeController.php|Store::find|none' => [6,
+            'host-to-store resolution, before any principal: the host is the tenant selector'],
+        'app/Http/Controllers/HomeController.php|Store::query|none' => [1,
+            'host-to-store resolution, before any principal: the host is the tenant selector'],
+        'app/Http/Controllers/HomeController.php|Testimonial::where|none' => [1,
+            'NOT VOUCHED FOR: storefront predicate on a $store this census could not trace in one step'],
+        'app/Http/Controllers/HomeController.php|User::find|none' => [5,
+            'the resolved store owner or the signed-in user own row, by id'],
+        'app/Http/Controllers/HomeController.php|Wishlist::with|none' => [1,
+            'REGISTERED SEPARATELY BY THE COORDINATOR AND NOT FIXED HERE: wishlist() reads EVERY wishlist row on the platform anonymously -- the auth(customers) guard and the where(customer_id) predicate are both commented out, the route carries no auth, and Wishlist has no scope. Latent only because the Blade never references the variable'],
         'app/Http/Controllers/ReportController.php|Category::find|ownership_checked' => [11,
-            'merchant: id set narrowed to the current store by reportSelectionWithinCurrentStore(); operator: admitted unnarrowed by its own limb, same privilege level'],
-
-        // A DEAD STATEMENT, AND THE EXECUTED READ IS PRINCIPAL-DERIVED. All three are the same
-        // copy-paste:
-        //
-        //     $monthLists = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-        //     $monthLists = Order::whereDate('order_date', '>=', $form_date)
-        //         ->whereDate('order_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId());
-        //
-        // The first builder is overwritten on the very next line and never executed, so there is no
-        // query to scope. DELIBERATELY NOT DELETED: removing three lines from `ReportController`
-        // shifts every `file:line` citation below them in `ResidualTenancyExposureTest`,
-        // `EloquentScopeBypassInventoryTest` and the observability inventory (CLAUDE.md §6b), for a
-        // cleanup with no security benefit. It is recorded here instead so the next reader of those
-        // lines knows the statement is dead rather than unscoped.
+            'merchant: id set narrowed to the current store by reportSelectionWithinCurrentStore(); operator: admitted unnarrowed by its own limb, same privilege level; GATE ATTRIBUTION IS PER-METHOD AND NOT PER-ARM -- a declared mutation in mutate-gap167.py shows that deleting one of the four gate calls in this one method moves no number'],
         'app/Http/Controllers/ReportController.php|Order::selectRaw|none' => [3,
             'dead builder: overwritten by the next line, which carries reportStoreId()'],
-
-        // SCOPED BY THE PARENT ROW, not by its own column. `ProductVariant::where('product_id',
-        // $product->id)` sits inside a loop over
-        // `$products = Product::where('store_id', OperatorStoreSelection::reportStoreId())`, so the
-        // parent is the principal's. THE RESIDUAL IS RECORDED RATHER THAN CLAIMED AWAY:
-        // `product_variants` has its own `store_id`, and `StoreInventoryValuation`'s docblock states
-        // that the two store columns are INDEPENDENT -- it joins on `product_id` AND
-        // `whereColumn('product_variants.store_id', '=', 'products.store_id')` for exactly this
-        // reason. A variant row carrying this `product_id` and another tenant's `store_id` would be
-        // read here. That is a write-path integrity question, not one this census can settle.
+        'app/Http/Controllers/ReportController.php|ProductBrand::find|ownership_checked' => [10,
+            'Category::find twin: ProductBrand carries NO scope at all, and the same reportSelectionWithinCurrentStore() gate narrows the id set; same operator limb; same per-method attribution limit, and this is the shape the declared mutation measures'],
         'app/Http/Controllers/ReportController.php|ProductVariant::where|none' => [3,
             'narrowed by a parent product already scoped to reportStoreId(); the variant store_id column is not also asserted'],
-
-        /* ----------------------------------------------------------------------------------------
-         * The metric layer and its report siblings — the producers.
-         * -------------------------------------------------------------------------------------- */
-
-        // THE PREDICATE IS THERE AND ITS VALUE IS A PARAMETER, which LIMIT 3 says this census does
-        // not follow across files. The entry condition is the class's own, stated in its docblock:
-        // "THE PERIOD IS CALLER-SUPPLIED AND THE STORE IS NOT. `$storeId` reaches this method from
-        // `getCurrentStore()` only, and every query below still carries it." Both call sites agree:
-        // `MerchantAnalyticsController` passes `(int) getCurrentStore()` and
-        // `ScheduledReportRunner` passes the schedule row's own `store_id`. Asserted as a premise by
-        // `test_the_merchant_figures_entry_point_takes_its_store_from_the_principal` below, so this
-        // disposition is measured rather than quoted.
-        'app/Support/Metrics/MerchantAnalyticsFigures.php|Order::query|parameter' => [5,
-            'where(store_id, $storeId); $storeId is the entry parameter, fed only from getCurrentStore() or a schedule row'],
-        'app/Support/Metrics/MerchantAnalyticsFigures.php|Visit::query|parameter' => [3,
-            'where(store_id, $storeId); same entry parameter as the Order reads beside it'],
-
-        // NOT A READ AT ALL. `Order::orderSourceLabel($key)` is a static VOCABULARY helper that maps
-        // a stored source key to a translated label; it touches no table. The census pattern matches
-        // `Model::method(` and cannot tell a query builder from a value object, which is a false
-        // POSITIVE and therefore the safe direction for it to be wrong in.
-        'app/Support/Metrics/MerchantAnalyticsFigures.php|Order::orderSourceLabel|none' => [1,
-            'not a query: a static label helper on the model class'],
-
-        // DELIBERATELY CROSS-TENANT, OPERATOR-ONLY BY ROUTE. All three read `stores` across every
-        // tenant: the id list that FEEDS `MetricScope::stores()`, and two name lookups for the
-        // ranking panels. GAP-167's own re-trace names these two surfaces as "the one deliberately
-        // cross-tenant surface" (there were two) and records that both now receive
-        // `MetricScope::stores()` at the call site. The class is reached only from
-        // `PlatformAnalyticsController`, which is operator-gated; a tenant predicate here would make
-        // the platform figure wrong rather than safe.
-        'app/Support/Metrics/PlatformAnalyticsFigures.php|Store::query|none' => [3,
-            'deliberately cross-tenant: the operator screen, whose measurement IS every tenant'],
-
-        // The same parameter shape as the merchant producer, fed from a `MetricScope` the operator
-        // controller built; `MetricScope` has a private constructor, no "every tenant" factory and
-        // throws on an empty list.
-        'app/Support/Metrics/PlatformAnalyticsFigures.php|Visit::query|parameter' => [4,
-            'whereIn(store_id, $storeIds) from the operator scope; MetricScope refuses an empty list'],
-
-        'app/Support/Metrics/StoreInventoryValuation.php|Product::disableCache|parameter' => [1,
-            'whereIn(products.store_id, $storeIds) from the metric scope'],
-
-        // LIMIT 2, AND THE PREDICATE IS NINE LINES FURTHER ON. The statement is one chained
-        // expression ending in `->first()`, and the `join()` CLOSURE contains a `;`, which ends the
-        // census window early. The real statement carries
-        // `whereIn('products.store_id', $storeIds)`, `whereIn('product_variants.store_id', $storeIds)`
-        // AND `whereColumn('product_variants.store_id', '=', 'products.store_id')` -- strictly more
-        // than this census asks for.
-        'app/Support/Metrics/StoreInventoryValuation.php|ProductVariant::disableCache|none' => [1,
-            'window ended at a semicolon inside the join closure; the statement carries two store predicates and a whereColumn'],
-
-        // NO HTTP PRINCIPAL EXISTS IN A SCHEDULED RUN, and that is the point of the class. The tenant
-        // is the stored schedule's own `store_id` (`Store::find((int) $schedule->store_id)`) and the
-        // owner lookup is `User::find($schedule->created_by)`, read so the permission can be
-        // RE-CHECKED now rather than trusted from when the schedule was made. Neither is a
-        // caller-supplied id: a schedule row is reachable only through the merchant's own scoped
-        // list. The runner's own docblock states the operator case: "the schedule's own `store_id`
-        // is what scopes the figures -- an operator's schedule reads the store they made it for,
-        // not store 1."
         'app/Services/Reports/ScheduledReportRunner.php|Store::find|none' => [1,
             'the stored schedule row own store_id; no request and no caller-supplied id'],
         'app/Services/Reports/ScheduledReportRunner.php|User::find|none' => [1,
             'the schedule owner, read to re-check the permission at send time'],
-
-        /* ----------------------------------------------------------------------------------------
-         * HomeController — the merchant dashboard AND the whole storefront, 2,413 lines. GAP-167
-         * names `handleRegularUser()`; the file is censused WHOLE, because the tenancy skill's
-         * fourth census failure is "an exemption scoped to the methods somebody happened to look
-         * at". Its non-dashboard reads are therefore in this table, and most of them are declared
-         * rather than vouched for.
-         * -------------------------------------------------------------------------------------- */
-
-        // THE STOREFRONT'S OWN TENANT, FROM THE PATH. These handlers bind `$store = getStore($slug)`
-        // and filter on `$store->id`. CLAUDE.md states the rule and why it is not `getCurrentStore()`:
-        // "a storefront handler takes its store from the route", because the web guard answers for a
-        // merchant's ADMIN store on a storefront request -- P1-SEC-71. Reading store X's catalogue
-        // through store X's slug is the feature.
-        'app/Http/Controllers/HomeController.php|Product::productSalesTag|route_store' => [2,
-            'storefront: the route slug resolved the store'],
-        'app/Http/Controllers/HomeController.php|ProductVariant::where|route_store' => [5,
-            'storefront: narrowed by a product the route-resolved store already selected'],
-        'app/Http/Controllers/HomeController.php|Order::order_detail|route_store' => [1,
-            'storefront: the route slug resolved the store'],
-
-        // THE SAME STOREFRONT HANDLERS, whose predicate IS `$store->id` or `$store_id` but whose
-        // enclosing function this census could not trace to `getStore()` in one step -- a nested
-        // closure, or a store bound before the function the site sits in. NOT VOUCHED FOR as
-        // principal-derived, and not claimed as a finding either: the predicate exists and its value
-        // is a store, and which store is a storefront question this slice did not measure.
-        'app/Http/Controllers/HomeController.php|Product::where|none' => [8,
-            'NOT VOUCHED FOR: predicate on a $store->id this census could not trace in one step (storefront)'],
-        'app/Http/Controllers/HomeController.php|Category::where|none' => [3,
-            'NOT VOUCHED FOR: as Product::where above'],
-        'app/Http/Controllers/HomeController.php|Category::where|route_store' => [1,
-            'storefront: the route slug resolved the store'],
-        'app/Http/Controllers/HomeController.php|Category::with|none' => [1,
-            'NOT VOUCHED FOR: as Product::where above'],
-        'app/Http/Controllers/HomeController.php|Category::select|none' => [1,
-            'NOT VOUCHED FOR: as Product::where above'],
-        'app/Http/Controllers/HomeController.php|Testimonial::where|none' => [1,
-            'NOT VOUCHED FOR: as Product::where above'],
-        'app/Http/Controllers/HomeController.php|Order::where|none' => [1,
-            'NOT VOUCHED FOR: as Product::where above'],
-        'app/Http/Controllers/HomeController.php|Wishlist::with|none' => [1,
-            'NOT VOUCHED FOR: a shopper wishlist read; the storefront census owns it'],
-        'app/Http/Controllers/HomeController.php|DeliveryAddress::where|none' => [1,
-            'NOT VOUCHED FOR: a shopper address read; the storefront census owns it'],
-
-        // THE DOMAIN AND SUBDOMAIN RESOLVERS, which run BEFORE any principal exists: the request
-        // arrived on a custom host and the controller is deciding which store it names. A tenant
-        // predicate is not available there by construction -- the host IS the tenant selector.
-        'app/Http/Controllers/HomeController.php|Store::find|none' => [6,
-            'host-to-store resolution, before any principal: the host is the tenant selector'],
-        'app/Http/Controllers/HomeController.php|User::find|none' => [5,
-            'the resolved store owner or the signed-in user own row, by id'],
-
-        // THE DASHBOARD'S OWN DEAD BUILDER, the same copy-paste as ReportController's three: the
-        // next line overwrites it with `Order::whereDate(...)->where('store_id', getCurrentStore())`.
-        'app/Http/Controllers/HomeController.php|Order::selectRaw|none' => [1,
-            'dead builder: overwritten by the next line, which carries getCurrentStore()'],
-
-        /* ----------------------------------------------------------------------------------------
-         * Api/DashboardController — the Flutter admin app's API, 12,492 lines. GAP-167 names it.
-         * Censused whole, and almost all of it is DECLARED rather than vouched for: its tenancy
-         * design is the one `config/tenancy.php` documents at length -- the request names a store
-         * and `resolveOwnedStore()` authorises it against `UserPolicy::merchantTenantRoot($user)`,
-         * which is why those models are deliberately absent from `scoped_models`.
-         * -------------------------------------------------------------------------------------- */
-
-        // THE OWNERSHIP GATE IS PRESENT IN THE HANDLER. `resolveOwnedStore($storeId)` loads the
-        // store and, for a non-operator, adds `where('created_by', merchantTenantRoot($user))` --
-        // returning null when the root is null, which every caller answers with a 403 envelope. A
-        // read after that gate is reading a row the principal owns. LIMIT 1 applies: the gate being
-        // in the function does not prove this read goes through it.
-        'app/Http/Controllers/Api/DashboardController.php|ProductImage::where|ownership_checked' => [3,
-            'resolveOwnedStore() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|ProductVariant::withoutGlobalScopes|ownership_checked' => [2,
-            'resolveOwnedStore() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Store::where|ownership_checked' => [2,
-            'resolveOwnedStore() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Testimonial::find|ownership_checked' => [1,
-            'resolveOwnedStore() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Testimonial::AvregeRating|ownership_checked' => [1,
-            'resolveOwnedStore() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Product::Sub_image|ownership_checked' => [1,
-            'resolveOwnedStore() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|User::where|ownership_checked' => [1,
-            'resolveOwnedStore() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Wishlist::where|ownership_checked' => [1,
-            'resolveOwnedStore() gate present in the handler'],
-
-        // A `store_id` PREDICATE WHOSE VALUE IS THE REQUEST'S OWN, WITH NO OWNERSHIP GATE VISIBLE IN
-        // THE HANDLER. This is the shape CLAUDE.md calls out -- "it only compares the caller's own
-        // two values" -- and it is the admin API's documented pattern WITHOUT the documented gate.
-        // NOT VOUCHED FOR AND NOT FIXED HERE: these are not analytics reads, they are the admin
-        // app's product, coupon, order, review and variant CRUD, the file belongs to another
-        // workstream, and a middleware-level answer for 45 sites is a contract change against a
-        // shipped Flutter client. The exact counts are published so the next reader starts from a
-        // number rather than a sample.
-        'app/Http/Controllers/Api/DashboardController.php|Product::where|request' => [8,
-            'NOT VOUCHED FOR: request store_id with no resolveOwnedStore() in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Product::select|request' => [1,
-            'NOT VOUCHED FOR: request store_id with no resolveOwnedStore() in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Category::where|request' => [8,
-            'NOT VOUCHED FOR: request store_id with no resolveOwnedStore() in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Order::where|request' => [7,
-            'NOT VOUCHED FOR: request store_id with no resolveOwnedStore() in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Order::query|request' => [3,
-            'NOT VOUCHED FOR: request store_id with no resolveOwnedStore() in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Order::order_detail|ownership_checked' => [1,
-            'resolveOwnedStore() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Coupon::where|request' => [6,
-            'NOT VOUCHED FOR: request store_id with no resolveOwnedStore() in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Testimonial::where|request' => [6,
-            'NOT VOUCHED FOR: request store_id with no resolveOwnedStore() in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|ProductVariant::where|request' => [4,
-            'NOT VOUCHED FOR: request store_id with no resolveOwnedStore() in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Store::where|request' => [1,
-            'NOT VOUCHED FOR: request store_id with no resolveOwnedStore() in the handler'],
-
-        // NO STORE PREDICATE AT ALL, and no gate visible in the handler. NOT VOUCHED FOR, same
-        // reasons; `Store::` and `User::` reads are often the principal's own row by id, which is
-        // correct and which this census cannot distinguish from a foreign one.
-        'app/Http/Controllers/Api/DashboardController.php|Order::where|none' => [3,
-            'NOT VOUCHED FOR: no store predicate, no gate visible in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Order::select|none' => [3,
-            'NOT VOUCHED FOR: no store predicate, no gate visible in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Order::find|none' => [1,
-            'NOT VOUCHED FOR: no store predicate, no gate visible in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Order::orderBy|none' => [1,
-            'NOT VOUCHED FOR: no store predicate, no gate visible in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Order::order_detail|none' => [1,
-            'NOT VOUCHED FOR: no store predicate, no gate visible in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Order::order_status_change|none' => [1,
-            'NOT VOUCHED FOR: no store predicate, no gate visible in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Store::where|none' => [3,
-            'NOT VOUCHED FOR: no store predicate, no gate visible in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Store::find|none' => [1,
-            'NOT VOUCHED FOR: no store predicate, no gate visible in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Store::query|none' => [1,
-            'NOT VOUCHED FOR: no store predicate, no gate visible in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Store::create|none' => [1,
-            'a WRITE, not a read: store creation, where no store exists to scope to'],
-        'app/Http/Controllers/Api/DashboardController.php|User::find|none' => [5,
-            'NOT VOUCHED FOR: a user row by id; the principal own row in most cases'],
-        'app/Http/Controllers/Api/DashboardController.php|User::slugs|none' => [1,
-            'NOT VOUCHED FOR: a slug helper on the model class'],
+        'app/Support/Metrics/MerchantAnalyticsFigures.php|Order::orderSourceLabel|none' => [1,
+            'not a query: a static label helper on the model class'],
+        'app/Support/Metrics/MerchantAnalyticsFigures.php|Order::query|parameter' => [5,
+            'where(store_id, $storeId); $storeId is the entry parameter, fed only from getCurrentStore() or a schedule row'],
+        'app/Support/Metrics/MerchantAnalyticsFigures.php|Visit::query|parameter' => [3,
+            'where(store_id, $storeId); $storeId is the entry parameter, fed only from getCurrentStore() or a schedule row'],
+        'app/Support/Metrics/PlatformAnalyticsFigures.php|Order::orderSourceLabel|none' => [1,
+            'not a query: a static label helper on the model class'],
+        'app/Support/Metrics/PlatformAnalyticsFigures.php|Order::query|parameter' => [1,
+            'whereIn(store_id, $storeIds) from the operator scope; MetricScope refuses an empty list'],
+        'app/Support/Metrics/PlatformAnalyticsFigures.php|Store::query|none' => [3,
+            'deliberately cross-tenant: the operator screen, whose measurement IS every tenant'],
+        'app/Support/Metrics/PlatformAnalyticsFigures.php|Visit::query|parameter' => [4,
+            'whereIn(store_id, $storeIds) from the operator scope; MetricScope refuses an empty list'],
+        'app/Support/Metrics/StoreInventoryValuation.php|Product::disableCache|parameter' => [1,
+            'whereIn(products.store_id, $storeIds) from the metric scope'],
+        'app/Support/Metrics/StoreInventoryValuation.php|ProductVariant::disableCache|none' => [1,
+            'window ended at a semicolon inside the join closure; the statement carries two store predicates and a whereColumn'],
     ];
 
     private function census(): AnalyticsTenancyCensus
@@ -455,6 +335,175 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
         }
     }
 
+    /**
+     * THE PATTERN CAN SEE EVERY SPELLING THE CODEBASE USES — and this is the premise that was
+     * missing, not the one that was weak.
+     *
+     * `test_the_premise_that_the_census_reads_the_tree_and_finds_the_known_shapes` required
+     * `Order::where`, `Order::query`, `Visit::query` and `Store::query` to be found SOMEWHERE. They
+     * were — in the unqualified spelling — while `\App\Models\Order::where(...)` was invisible for
+     * a single character: the lookbehind class contained a literal backslash. 34 reads were hidden,
+     * 31 of them in the file this census claims to read whole, several with no store predicate at
+     * all. An independent review found it; the premise could not.
+     *
+     * So the premise is now a SELF-TEST of the pattern against both spellings and against the
+     * things it must still refuse. A census that cannot see its subject reads exactly like one that
+     * looked and found nothing, which is the tenancy skill's §7 in its fourth dress.
+     */
+    public function test_the_premise_that_the_pattern_sees_every_spelling_and_refuses_the_rest(): void
+    {
+        $census = $this->census();
+
+        /* The five spellings this repository really writes, measured: the bare class, the
+           leading-backslash fully-qualified form, the same inside a chained expression, the
+           imported form after a `(`, and one across a line break. */
+        $mustSee = [
+            "Order::where('store_id', 1)",
+            "\\App\\Models\\Order::where('store_id', 1)",
+            "\$x = \\App\\Models\\DeliveryAddress::where('customer_id', 1)->get()",
+            "foo(Visit::query()->count())",
+            "Store::query()\n    ->orderBy('id')",
+        ];
+
+        foreach ($mustSee as $source) {
+            $this->assertNotSame([], $this->matchesOf($census, $source), sprintf(
+                "The census pattern cannot see this spelling, so every read written that way is\n"
+                . "invisible and the totals are a lower bound by an unknown amount:\n  %s",
+                str_replace("\n", ' ', $source)
+            ));
+        }
+
+        /* And the exclusions that do real work. Each one is a false POSITIVE if it matches. */
+        $mustRefuse = [
+            "SomeOrder::where('x', 1)",
+            "\$Order::where('x', 1)",
+            "\$this->Order::where('x', 1)",
+        ];
+
+        foreach ($mustRefuse as $source) {
+            $this->assertSame([], $this->matchesOf($census, $source), sprintf(
+                'The census pattern matches "%s", which is not a read of a watched model. A false '
+                . 'positive inflates the totals and sends a reader to a line that is not there.',
+                $source
+            ));
+        }
+
+        /* A SOURCE-LEVEL PIN ON THE EXACT DEFECT, because the self-test above would also pass if
+           somebody replaced the pattern with something looser that happened to match. */
+        $this->assertStringNotContainsString(
+            '(?<![\\w\\\\\\\\$>])',
+            file_get_contents(base_path('tests/Support/Analytics/AnalyticsTenancyCensus.php')),
+            'the lookbehind excludes a literal backslash again, which hides every fully-qualified '
+            . 'model reference'
+        );
+    }
+
+    /**
+     * The sites the census finds in one string of source, through the census's own code path.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function matchesOf(AnalyticsTenancyCensus $census, string $source): array
+    {
+        $file = tempnam(sys_get_temp_dir(), 'ws6census') . '.php';
+        file_put_contents($file, "<?php\n" . $source . ";\n");
+
+        try {
+            $probe = new AnalyticsTenancyCensus(dirname($file));
+
+            return $probe->sitesIn(basename($file));
+        } finally {
+            @unlink($file);
+        }
+    }
+
+    /**
+     * THE WATCH LIST COVERS EVERY UNSCOPED MODEL THESE FILES READ — item 3, and until an
+     * independent review said so nothing measured it.
+     *
+     * `test_every_model_this_census_watches_really_adds_no_predicate` asserts the list contains
+     * nothing SCOPED. Nothing asserted it contains everything UNSCOPED, and the proof was
+     * `ProductBrand`: `Category`'s identical twin, read 17 times in `ReportController` with 10 of
+     * them a bare `find()`, carrying no `BelongsToStore` and no `StoreScope` at all — strictly more
+     * open than `Category`'s inert scope — and entirely uncounted, so removing one of the four gate
+     * calls that narrow those ids would have moved no number.
+     *
+     * Every other model these files read is now either watched or exempted BY NAME WITH A REASON in
+     * `AnalyticsTenancyCensus::NOT_WATCHED`. An exemption a reader can disagree with is a different
+     * thing from a model nobody has looked at.
+     */
+    public function test_the_watch_list_covers_every_unscoped_model_these_files_read(): void
+    {
+        $census = $this->census();
+        $scoped = array_map('strval', (array) config('tenancy.scoped_models', []));
+
+        $this->assertNotSame([], $scoped, 'no scoped models are configured, so this test is vacuous');
+
+        $read = [];
+
+        foreach ($census->files() as $relative) {
+            preg_match_all(
+                '/(?<![\w$>])([A-Z][A-Za-z0-9]*)::(?:\w+)\s*\(/',
+                $census->codeOnly($relative),
+                $found
+            );
+
+            foreach ($found[1] as $short) {
+                $read[$short] = true;
+            }
+        }
+
+        $unscopedAndRead = [];
+
+        foreach (array_keys($read) as $short) {
+            $class = 'App\\Models\\' . $short;
+
+            if (! class_exists($class)) {
+                /* Not a first-party model: a facade, a support class, an exception, a vendored
+                   class. `Visit` is the one vendored MODEL these files read and it is watched. */
+                continue;
+            }
+
+            if (! is_subclass_of($class, \Illuminate\Database\Eloquent\Model::class)) {
+                continue;
+            }
+
+            if (in_array($class, $scoped, true)) {
+                continue;
+            }
+
+            $unscopedAndRead[] = $short;
+        }
+
+        sort($unscopedAndRead);
+
+        $accounted = array_values(array_unique(array_merge(
+            AnalyticsTenancyCensus::UNSCOPED_MODELS,
+            array_keys(AnalyticsTenancyCensus::NOT_WATCHED)
+        )));
+
+        $unaccounted = array_values(array_diff($unscopedAndRead, $accounted));
+
+        $this->assertSame([], $unaccounted, sprintf(
+            "These models are read in the censused files, are Eloquent models, and are in neither\n"
+            . "`config/tenancy.php`'s scoped_models NOR this census's own two lists:\n  %s\n\n"
+            . "Each is a model whose reads add NO predicate for any principal and that this census\n"
+            . "does not count. Watch it (UNSCOPED_MODELS) or exempt it by name with a reason\n"
+            . "(NOT_WATCHED) — `ProductBrand` was exactly this, 17 reads and 10 bare find()s, and\n"
+            . "nothing moved when it was missing.",
+            implode(', ', $unaccounted) ?: '(none)'
+        ));
+
+        /* AND THE EXEMPTIONS ARE NOT DEAD TEXT: an exemption for a model these files no longer read
+           is a claim outliving its subject, which is how a register becomes decoration. */
+        $stale = array_values(array_diff(array_keys(AnalyticsTenancyCensus::NOT_WATCHED), array_keys($read)));
+
+        $this->assertSame([], $stale, sprintf(
+            'NOT_WATCHED exempts %s, which the censused files no longer read. Delete the entry.',
+            implode(', ', $stale) ?: '(none)'
+        ));
+    }
+
     public function test_the_verdict_totals_are_exactly_these(): void
     {
         $counts = [];
@@ -535,16 +584,29 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
         }
 
         /*
-         * 72 VOUCHED, 82 DECLARED. Both figures are exact and both are published, which is the
-         * point: the analytics and report producers are wholly accounted for, and the two wide
-         * controllers GAP-167 also names -- `HomeController` (2,413 lines, mostly storefront) and
-         * `Api/DashboardController` (12,492 lines, the admin app's whole CRUD surface) -- are NOT,
-         * because censusing a 12,000-line controller's product and coupon handlers is a different
-         * piece of work from the analytics subject this row asks for. Nothing is hidden by that:
-         * every one of the 84 has its count and its reason above.
+         * 102 VOUCHED, 66 DECLARED, 168 non-principal sites in all. Both figures are exact and both
+         * are published, which is the point: the analytics and report producers are wholly accounted
+         * for, and the two wide controllers GAP-167 also names -- `HomeController` (2,413 lines,
+         * mostly storefront) and `Api/DashboardController` (12,492 lines, the admin app's whole CRUD
+         * surface) -- are NOT, because censusing a 12,000-line controller's product and coupon
+         * handlers is a different piece of work from the analytics subject this row asks for.
+         * Nothing is hidden by that: every one of the 66 has its count and its reason above.
+         *
+         * THE VOUCHED FIGURE ROSE 72 -> 102 ON A CORRECTION, not on new work, and the correction is
+         * worth more than the number. The old reason text on the request-sourced sites read "with no
+         * `resolveOwnedStore()` in the handler", and that was FALSE: `source()` tested the request
+         * tokens BEFORE the principal ones, so the admin API's documented shape -- gate the
+         * requested id, then filter on the gated store -- classified as `request`, and the sentence
+         * pointed the next reader at about forty-five sites of remediation work against a hole that
+         * is not there. An independent review verified the gate at `DashboardController.php:1755`,
+         * `:1806`, `:1934`, `:2065`, `:4373` and `:4860` and counted `resolveOwnedStore(` 144 times
+         * in that file. Testing the principal first moved 35 sites from `request` to `principal`;
+         * the 17 that remain are request-sourced at the predicate with no gate in the same
+         * expression, and their reason now says only that, because a gate ELSEWHERE in the handler
+         * is something this census does not establish either way.
          */
-        $this->assertSame(72, $vouched, 'the vouched-for count moved');
-        $this->assertSame(82, $declared, 'the declared-but-unvouched count moved');
+        $this->assertSame(102, $vouched, 'the vouched-for count moved');
+        $this->assertSame(66, $declared, 'the declared-but-unvouched count moved');
         $this->assertSame(
             self::TOTAL_SITES - self::TOTALS['principal'],
             $vouched + $declared,
