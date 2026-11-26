@@ -603,34 +603,51 @@ final class CustomerJourneyTest extends SecurityTestCase
     // =============================================================================================
 
     /**
-     * THE THEME VIEW ROOT LEAKS BETWEEN REQUESTS IN ONE PROCESS, AND THE MERCHANT PANEL'S LAYOUT
-     * NAME IS SHADOWED BY A STOREFRONT FILE. Measured, and pinned here because the journeys above
-     * depend on knowing it.
+     * THE THEME VIEW ROOT STILL LEAKS BETWEEN REQUESTS IN ONE PROCESS — BUT IT NO LONGER SHADOWS
+     * THE MERCHANT PANEL'S LAYOUT, AND THIS CASE NOW ASSERTS THAT CLOSURE. `GAP-265`.
      * ---------------------------------------------------------------------------------------------
-     * `ActiveTheme::handle()` calls `Theme::set($store->theme_id)`, which prepends
-     * `themes/<theme>/views` to the view finder's path list, and `FileViewFinder` memoises
-     * name -> path. One FPM process serves one request, so production is unaffected; a test process
-     * serves every request in the file.
+     * WHAT THIS CASE USED TO SAY. It asserted the LEAK: that `GET /order` as a provisioned
+     * merchant answered **HTTP 500** after one storefront request in the same process, and 200
+     * only with `onTheAdminSurface()`'s reset. `themes/stylique/views/layouts/app.blade.php`
+     * answered to `layouts.app` — the panel's own layout name — and printed `$store->name`.
      *
-     * `themes/stylique/views/layouts/app.blade.php` exists, prints `$store->name`, and answers to
-     * `layouts.app` — the MERCHANT PANEL's layout name. So the first admin request after a
-     * storefront request renders the storefront layout with no `$store` and answers 500.
+     * WHAT CHANGED, and it is a fix rather than this test going stale. That file is now
+     * `themes/stylique/views/front_end/layouts/app-scaffold.blade.php`: still present, still the
+     * unused non-functional scaffold it always was, but inside `front_end/`, the namespace the
+     * storefront renders through and where a theme shadowing a host view is the intended mechanism.
+     * Nothing ever referenced it — all three themes' `main_file.blade.php` extend
+     * `front_end.layouts.app`, a different and working file — so the move costs no storefront
+     * behaviour. The general property, for every theme and every name, is ratcheted by
+     * `tests/Unit/Ui/ThemeViewsStayInTheStorefrontNamespaceTest`; this case is the end-to-end half,
+     * driven through two real requests in one process.
      *
-     * WHY PIN IT. Without this test the only trace of the finding would be a private helper whose
-     * removal makes a journey fail with "Undefined variable $store (View: themes/stylique/views/
-     * layouts/app.blade.php)" — a message that points at a file neither journey mentions. It is
-     * also the half of the finding that could become a PRODUCTION defect: if any admin surface ever
-     * resolves a theme inside its own request, it renders that file.
+     * WHAT IS *NOT* CLAIMED. The view-root leak itself is untouched and is not a defect to fix
+     * here: `Theme::set()` still `prependLocation()`s the theme's directory and `FileViewFinder`
+     * still memoises name -> path, so a theme's `front_end.*` and `components.*` files still bleed
+     * into a later request in the same process. `ThemeDraftPreview.php` records the same mechanism
+     * in the same words. One FPM process serves one request, so that remains a test-harness fact.
+     * What is fixed is the part that crossed from the storefront into the PANEL.
      *
-     * `ThemeDraftPreview`'s own docblock records the same class of leak in the same words, which is
-     * why this is stated as a harness fact rather than reported as a defect.
+     * `onTheAdminSurface()` IS THEREFORE NO LONGER LOAD-BEARING FOR THIS CAUSE, and the assertion
+     * below is what says so — if a panel request after a storefront request ever answers non-200
+     * again, this reddens and names the file. The helper is KEPT at its call sites regardless: it
+     * clears the theme and flushes the finder, which is still the honest way to say "this request
+     * is a panel request", and the leak it guards against still exists for other names. Removing
+     * it is a separate change with its own measurement.
      */
-    public function test_premise_the_admin_layout_name_is_shadowed_by_the_stylique_theme(): void
+    public function test_premise_the_admin_panel_layout_is_no_longer_shadowed_by_a_theme(): void
     {
-        $this->assertFileExists(
+        $this->assertFileDoesNotExist(
             base_path('themes/stylique/views/layouts/app.blade.php'),
-            'the shadowing file is gone, so the reset in onTheAdminSurface() may no longer be '
-            . 'needed — re-measure before deleting it'
+            'the file is back at the path that made it answer to `layouts.app`, the MERCHANT '
+            . 'PANEL\'s layout name. Move it under `themes/stylique/views/front_end/` — see '
+            . 'tests/Unit/Ui/ThemeViewsStayInTheStorefrontNamespaceTest.'
+        );
+
+        $this->assertFileExists(
+            base_path('themes/stylique/views/front_end/layouts/app-scaffold.blade.php'),
+            'premise: the moved scaffold is gone entirely. That may be fine, but this case no '
+            . 'longer measures what it claims — re-measure before trusting it.'
         );
 
         [$merchant, $store] = $this->storefront();
@@ -640,25 +657,26 @@ final class CustomerJourneyTest extends SecurityTestCase
 
         $this->assertNotNull(
             \Qirolab\Theme\Theme::active(),
-            'premise: the storefront request did not activate a theme, so nothing is shadowed and '
-            . 'this case is measuring the wrong thing'
+            'premise: the storefront request did not activate a theme, so nothing is prepended to '
+            . 'the view finder and this case is measuring the wrong thing'
         );
 
-        /* WITHOUT the reset: the panel resolves the theme's copy of `layouts.app`. */
+        /* WITHOUT the reset — the half that used to be 500. */
         $polluted = $this->actingAs($merchant)->get('/order');
 
-        /* WITH the reset: the panel resolves its own. */
+        /* WITH the reset. */
         $clean = $this->onTheAdminSurface()->actingAs($merchant)->get('/order');
 
         $this->assertSame(200, $clean->getStatusCode(),
-            'the merchant order screen does not render even with the theme root cleared, so the '
-            . 'reset is not what this case thinks it is');
+            'the merchant order screen does not render even with the theme root cleared, so this '
+            . 'case is measuring something other than the shadowing it is named for');
 
-        $this->assertSame(500, $polluted->getStatusCode(),
-            'THE LEAK IS GONE. A panel request after a storefront request in the same process now '
-            . 'renders correctly, so `onTheAdminSurface()` is no longer load-bearing and both '
-            . 'journeys can drop it. That is an improvement — delete this test and the helper, and '
-            . 'say so in docs/development/phase-1/PHASE-01-G1-G2-JOURNEY-EVIDENCE.md.');
+        $this->assertSame(200, $polluted->getStatusCode(),
+            'THE PANEL IS SHADOWED BY A THEME AGAIN. A merchant request after a storefront request '
+            . 'in the same process answered ' . $polluted->getStatusCode() . ' instead of 200. '
+            . 'That is GAP-265 reopened: some file under `themes/<theme>/views` is answering to a '
+            . 'view name the merchant panel also uses, and `FileViewFinder` has memoised it. The '
+            . 'response body names the offending file.');
     }
 
     // =============================================================================================
@@ -795,20 +813,33 @@ final class CustomerJourneyTest extends SecurityTestCase
      * test ONE application instance serves every request, so the theme root stays prepended into
      * the next one.
      *
-     * `themes/stylique/views/layouts/app.blade.php` EXISTS and is a storefront layout that prints
-     * `$store->name` at line 8 — and `layouts.app` is the name the MERCHANT PANEL's layout answers
-     * to. So the first admin request after a storefront request resolved the panel's layout name to
-     * the THEME's file and died on `Undefined variable $store`. MEASURED: `GET /order` answered
+     * WHY THIS HELPER WAS WRITTEN, and why that reason no longer applies — `GAP-265`.
+     * `themes/stylique/views/layouts/app.blade.php` used to exist and print `$store->name` at
+     * line 8, and `layouts.app` is the name the MERCHANT PANEL's layout answers to. So the first
+     * admin request after a storefront request resolved the panel's layout name to the THEME's
+     * file and died on `Undefined variable $store`. MEASURED at the time: `GET /order` answered
      * HTTP 500 for a merchant who, in a process that had made no storefront request, got 200.
+     *
+     * THAT COLLISION IS FIXED. The file is now
+     * `themes/stylique/views/front_end/layouts/app-scaffold.blade.php` — inside the namespace the
+     * storefront renders through, where a theme shadowing a host view is the intended mechanism
+     * rather than a cross-surface trap. `test_premise_the_admin_panel_layout_is_no_longer_shadowed
+     * _by_a_theme` drives two real requests in one process and asserts the panel answers 200
+     * WITHOUT this reset, and `tests/Unit/Ui/ThemeViewsStayInTheStorefrontNamespaceTest` ratchets
+     * the property for every theme and every name.
+     *
+     * SO WHY IS THE HELPER STILL HERE? Because the LEAK is untouched and is not the same thing as
+     * the collision. `Theme::set()` still prepends the theme's directory and `FileViewFinder` still
+     * memoises name -> path, so a theme's `front_end.*` and `components.*` files still bleed into
+     * the next request in the same process — `ThemeDraftPreview`'s docblock records the same class
+     * of leak in the same words. Calling this at a panel call site is the honest way to say "this
+     * request is a panel request", and it costs nothing. It is no longer load-bearing for the
+     * layout name, which is exactly what the premise case above now asserts; dropping it from the
+     * journeys is a separate change needing its own measurement.
      *
      * `Theme::clear()` removes exactly the paths `Theme::set()` added (`ThemeViewFinder::
      * clearThemes()`); the `flush()` is needed as well because `prependLocation()` does not clear
-     * the resolved-name cache, so `layouts.app` would keep answering with the theme's file.
-     *
-     * THIS IS A HARNESS CORRECTION, NOT A PRODUCTION FIX, and the distinction is stated because
-     * `ThemeDraftPreview`'s docblock already records the same class of leak in the same words. The
-     * shadowed layout NAME is a standing hazard all the same: any admin surface that ever resolves
-     * a theme inside its own request would render that file and 500.
+     * the resolved-name cache.
      */
     private function onTheAdminSurface(): self
     {
