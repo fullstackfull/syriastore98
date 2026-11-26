@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 180 VERIFIED COMPLETE. 170 are not.**
+**350 requirements recovered. 181 VERIFIED COMPLETE. 169 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 180 verified complete, 190 not.** It read 368/198
+project-wide figure is **370 known requirements, 181 verified complete, 189 not.** It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -143,8 +143,8 @@ against a pre-reorganization original.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **180** |
-| PARTIALLY IMPLEMENTED | **102** |
+| VERIFIED COMPLETE | **181** |
+| PARTIALLY IMPLEMENTED | **101** |
 | NOT IMPLEMENTED | **10** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
@@ -157,7 +157,7 @@ against a pre-reorganization original.
 | 01 Foundation — architecture, security, tenant isolation, pe | 70 | 18 | **52** |
 | 02 Merchant Experience | 114 | 100 | **14** |
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
-| 03 Storefront, Themes, Official Website and Documentation (M | 36 | 13 | **23** |
+| 03 Storefront, Themes, Official Website and Documentation (M | 36 | 14 | **22** |
 | 04 Commerce (P4-0 .. P4-9) | 43 | 18 | **25** |
 | 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 2 | **33** |
 
@@ -3745,14 +3745,14 @@ against a pre-reorganization original.
 
 ### `P03-B-07` — 03-B Controlled visual theme editor
 
-**Status: PARTIALLY IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
 
 - **Requirement (original wording / faithful reference):** "...accessibility, keyboard operation..." applied to the editor's reorder control. M4-9 measured the defect: "neither first-party sortable has any keyboard path (keydown count 0 in both), a WCAG 2.1.1 and 2.5.7 failure for any reorder UI shipped as-is."
 - **Source:** `docs/development/phase-3/PHASE-03-M4-THEME-EDITOR-PLAN.md §M4-9 (line ~303); PHASE-03-EXECUTION-PREP.md §03-A/03-E accessibility criteria`
 - **Expected behaviour:** The reorder control is operable by keyboard, or it is not shipped.
 - **Actual behaviour:** Measured when this row was written: `grep -c keydown resources/views/theme_customize/order.blade.php` returned 0, alongside `tabindex` 0 and `role=` 0 — the screen shipped a jQuery UI `.sortable()` with `disableSelection()` and no keyboard path, at the named route theme.customize.order. M4-9 fixed the third-party jQuery UI load and the input validation but not the keyboard failure, and the final report did not mention it. **RE-MEASURED AND PARTLY CLOSED 2026-11-25 (`5608bd54`).** The named view now carries native `<button type="button">` move controls per row — a visually-hidden name giving direction and section, `aria-describedby` to a per-row `Position n of N`, `aria-disabled` rather than `disabled` so the end stops stay in the tab order, focus restored after a move, a polite live region, `aria-hidden` on the decorative glyph — and one shared writer for the persisted order, the position text and the end stops, so the drag and the keyboard path cannot disagree. Buttons and not arrow keys **because 2.5.7 wants a non-dragging POINTER alternative** and an arrow-key handler answers only 2.1.1. Verified keyboard-only in a real Chromium: 44 checks across LTR and RTL, 0 failed; 21 mutants caught; with the pre-fix view restored 10 of 13 tests fail. Up/down are **not** mirrored in RTL, which mirrors the inline axis only. **A caution for anyone re-running M4-9's instrument:** `grep -c keydown` on that view now returns 1 and all of it is PROSE in a comment quoting the original finding — zero listeners remain, which the Unit test proves by stripping `{{-- --}}` first. The two sortables the finding covers are not both done: `resources/views/attribute_option/index.blade.php` re-measures at `keydown` 0, and five new strings have no Arabic entry.
 - **Implementation:** resources/views/theme_customize/order.blade.php:88-116
-- **Gap:** A WCAG 2.1.1 (keyboard) failure ships on an authenticated merchant screen, measured by the project itself and then not carried into any outstanding list. It is absent from PHASE-03-FINAL-REPORT.md §9.
+- **Gap:** None. Both halves of the original finding are closed and were re-verified on 2026-11-26 rather than taken from the row: the keyboard path exists on BOTH first-party sortables (`theme_customize/order.blade.php` and `attribute_option/index.blade.php`, each with native buttons, `aria-describedby` position text, `aria-disabled` end stops that stay in the tab order, visually-hidden directional names and a live region), and the 2.1.1/2.5.7 failure is carried in `PHASE-03-FINAL-REPORT.md` §9 rather than existing only in an M4 planning document. Buttons and not arrow keys deliberately, because an arrow-key handler satisfies 2.1.1 and NOT 2.5.7 and the original finding names both; and up/down are correctly NOT mirrored in RTL, since RTL mirrors the inline axis and not the block axis.
 - **Responsible:** phase 03 (unclosed)
 - **Next action:** **Both halves of the original action are done for the named control:** the keyboard reordering path ships, and the gap is now carried explicitly in `PHASE-03-FINAL-REPORT.md` §9 rather than existing only in an M4 planning document. The control was made accessible rather than removed, because removing it is a product decision — `P03-B-06` is untouched and still the owner's, and nothing on the storefront consumes saved ordering, so the control is now fully operable and still changes nothing a shopper sees. Remaining, and the reason this is PARTIALLY and not VERIFIED COMPLETE: the second sortable (`attribute_option/index.blade.php`, which persists by AJAX rather than a hidden input, so the same fix needs the shared writer pointed at its endpoint) and the five untranslated strings, which no coverage census catches because `ArabicUiCoverageTest::SURFACES` does not glob `resources/views/theme_customize/`.
 

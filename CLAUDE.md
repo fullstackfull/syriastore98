@@ -196,7 +196,7 @@ Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as 
 | 01 Foundation | security, CI, regression gates, design-system foundation | engineering complete (2026-10-24), **NOT release-ready or accepted** |
 | 02 Merchant Experience | merchant dashboard, product/order UX, preferences, search, notifications, onboarding, web and Flutter parity | **owner authorised isolated engineering (2026-10-25); not authorised to merge/release** |
 | 02.5 Premium Merchant UI/UX | a separately approved FUTURE polish stage over Phase 02's surfaces | **not started — must not be merged into Phase 02** |
-| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO, **plus a separately scoped Official Website and a bilingual Documentation Center** | engineering under way on the branch; **13 of 36** requirements verified. Not authorised to merge or release |
+| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO, **plus a separately scoped Official Website and a bilingual Documentation Center** | engineering under way on the branch; **14 of 36** requirements verified. Not authorised to merge or release |
 | 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | engineering under way on the branch; **18 of 43** requirements verified. Not authorised to merge or release |
 | 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | engineering under way on the branch; counted with 06 below. Not authorised to merge or release |
 | 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin, **plus premium Super Admin UX** | engineering under way on the branch (14 documents under `docs/development/phase-6/`); **05 and 06 together: 1 of 35** requirements verified. Not authorised to merge or release |
@@ -240,7 +240,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
-| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **180 verified complete, 170 not, +20 recovered and untracked = 190 open** |
+| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **181 verified complete, 169 not, +20 recovered and untracked = 189 open** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |
