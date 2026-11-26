@@ -73,7 +73,7 @@ class RolePolicy
      * THE ONE PREDICATE, so the two gates over this invariant cannot disagree again.
      *
      * THEY DID DISAGREE, and the asymmetry was measured rather than reasoned about.
-     * `RoleController::store():124` and `::update():254` validated with
+     * `RoleController::store():195` and `::update():335` validated with
      * `Rule::notIn(self::RESERVED_NAMES)`, which is CASE-SENSITIVE, while the only two
      * tenant-reachable writers of `users.type` -- `UserController:154` and `:305` -- are gated by
      * `in_array(strtolower(trim((string) $role->name)), self::RESERVED_NAMES, true)` at `:147` and

@@ -198,7 +198,7 @@ class OrderDataTable extends DataTable
                  * `super admin` role (Utility.php:3200), is absent from the merchant grant list
                  * (`$companyNewPermission`, :2983-3170), and is denylisted in
                  * `config/superadminaccess.php:9`, which `RolePolicy::isGrantableBy()` enforces on
-                 * the WRITE path (RoleController.php:170, :314) and not merely in the form. So it
+                 * the WRITE path (RoleController.php:239, :383) and not merely in the form. So it
                  * takes a deliberate operator action to put a translator-sourced string here.
                  *
                  * `e()` closes it regardless, and costs nothing: measured, all 57 label literals

@@ -970,9 +970,16 @@ final class Gap143ShippingTaxOrderTotalsTest extends SecurityTestCase
     }
 
     /**
-     * A SECOND FINDING IN THE SAME FIELD, FOUND BY REVIEWING THE FIX AND **OLDER THAN IT**: with no
-     * row of its own, this store's checkout reports **ANOTHER TENANT'S** currency symbol to a viewer
-     * who holds a panel session for that tenant.
+     * **INVERTED ON 2026-11-26 BECAUSE GAP-278 IS FIXED.** This case used to be
+     * `test_known_bad_another_tenants_symbol_reaches_this_stores_checkout` and asserted the
+     * neighbour's `€`; its own failure message said to invert it rather than relax it when the
+     * fall-through was closed, and that is what happened. Nothing here is weakened: the fixture,
+     * the dual session and every premise are byte-for-byte the old ones, and only the EXPECTED
+     * symbol moved — from the neighbour's to this store's own default.
+     *
+     * WHAT IT RECORDED, AND IT WAS **OLDER** THAN THE GAP-143 CHANGE THAT FOUND IT: with no symbol
+     * row of its own, this store's checkout reported **ANOTHER TENANT'S** currency symbol to a
+     * viewer who holds a panel session for that tenant.
      *
      * THE MECHANISM. `Utility::GetValueByName($name, $storeId)` reads the named store's rows, but on
      * a MISS falls through to `Utility::Setting($storeId)`, which IGNORES its store-id argument
@@ -981,27 +988,30 @@ final class Gap143ShippingTaxOrderTotalsTest extends SecurityTestCase
      * cookie path of `/`, so a merchant holding a panel login is a populated web-guard principal on
      * every storefront request. The identical fall-through is recorded as `GAP-230` against
      * `OrderCurrencyStamp::codeFor`, and `DocumentDirection::ownRow()` plus
-     * `OrderCurrencyStamp::configuredCodeFor()` are this repository's two existing remedies for it.
+     * `OrderCurrencyStamp::configuredCodeFor()` were this repository's two existing remedies for it.
      *
-     * MEASURED BOTH WAYS, which is what makes the attribution rather than the guess: the neighbour's
-     * `€` arrives at this store's checkout under the fixed code AND under the original
-     * `GetValueByName('defult_currancy_symbol', $store->id)` line, restored and re-run. So this
-     * change neither causes nor cures it; it is reported, pinned, and NOT fixed here, because the
-     * remedy is a new scoped reader in a shared money class and the brief for GAP-143 is the null.
+     * MEASURED BOTH WAYS WHEN IT WAS RAISED, which is what made the attribution rather than the
+     * guess: the neighbour's `€` arrived under the GAP-143 code AND under the original
+     * `GetValueByName('defult_currancy_symbol', $store->id)` line, restored and re-run. So that
+     * change neither caused nor cured it.
      *
-     * THE REMEDY, NAMED SO NOBODY HAS TO RE-DERIVE IT: a `configuredSymbolFor(int $storeId): ?string`
-     * on `App\Support\Money\OrderCurrencyStamp`, mirroring its `configuredCodeFor()` exactly — raw
-     * query, explicit `where('store_id', …)`, `orderByDesc('id')` because `settings` has no unique
-     * index, `CurrencySymbol::cleanSetting()` applied — read here with `?? DEFAULT_SYMBOL`. That
-     * keeps the decision in the one class that owns it and leaves `symbolFor()`, which the order
-     * writers use, byte-for-byte unchanged.
+     * WHICH CHANGE DID IT, as this case's old message demanded be recorded: `CartController:851`
+     * and `:1084` now read `OrderCurrencyStamp::configuredSymbolFor((int) $store->id) ??
+     * DEFAULT_SYMBOL` — the third copy of this repository's standing remedy, a raw query with an
+     * explicit `store_id` predicate and `orderByDesc('id')`, alongside `DocumentDirection::ownRow()`
+     * and `configuredCodeFor()`. `symbolFor()` is UNTOUCHED, because five ORDER writers stamp
+     * `orders.currency_symbol` from it and a stamped currency is recorded financial data (`D-N34`).
+     * The reader is pinned in its own right by `Gap278ConfiguredSymbolReaderTest`, including the
+     * edges no caller can reach.
      *
-     * HOW BAD IT IS, stated rather than implied: a store's currency symbol is printed on every price
-     * of its public storefront, so this is a MISLABELLED price for one viewer, not a disclosure of
-     * anything confidential. It is pinned at the measured behaviour, in the style this repository
-     * already uses for an owner-gated defect — when it is fixed, INVERT this case, do not relax it.
+     * MEASURED BOTH WAYS AGAIN FOR THE FIX: with the two call sites reverted to `symbolFor()` this
+     * case fails with `'€'`, and with them in place it answers `'$'`.
+     *
+     * HOW BAD IT WAS, stated rather than implied: a store's currency symbol is printed on every
+     * price of its public storefront, so this was a MISLABELLED price for one viewer, not a
+     * disclosure of anything confidential.
      */
-    public function test_known_bad_another_tenants_symbol_reaches_this_stores_checkout(): void
+    public function test_another_tenants_symbol_does_not_reach_this_stores_checkout(): void
     {
         foreach (['defult_currancy_symbol', 'currency_symbol'] as $name) {
             DB::table('settings')->insert([
@@ -1018,7 +1028,7 @@ final class Gap143ShippingTaxOrderTotalsTest extends SecurityTestCase
             DB::table('settings')->where('store_id', $this->store->id)
                 ->whereIn('name', ['defult_currancy_symbol', 'currency_symbol'])->count(),
             'premise: THIS store still has no symbol row, which is the only state in which the '
-            . 'fall-through is reached'
+            . 'fall-through was reached'
         );
 
         $neighbourOwner = User::findOrFail($this->neighbourStore->created_by);
@@ -1035,7 +1045,107 @@ final class Gap143ShippingTaxOrderTotalsTest extends SecurityTestCase
             'premise: getCurrentStore() answers for the OTHER tenant. Without this the case '
             . 'measures nothing -- it is the whole condition of the fall-through.');
 
-        $response = $this->post('/' . $this->store->slug . '/get-tax-data', [
+        /* BOTH SITES, not just the one the finding was raised on. `CartController` emits `CURRENCY`
+           from two reads (`:851` in get_shipping_data and `:1084` in get_tax_data) and each was its
+           own copy of the defect, so a fix applied to one and a test that drives one would leave
+           the other open and look green -- the shape CLAUDE.md records for a print written twice. */
+        foreach ($this->bothCurrencyPayloads() as $endpoint => $payload) {
+            $this->assertSame(
+                \App\Support\Money\OrderCurrencyStamp::DEFAULT_SYMBOL,
+                $payload['CURRENCY'] ?? null,
+                sprintf(
+                    'GAP-278 AT `%s`: the neighbour tenant\'s symbol reached this store\'s '
+                    . 'checkout (it answered %s). This store has no symbol row, so the only '
+                    . 'correct answer is the platform default -- never the symbol of whichever '
+                    . 'tenant the viewer happens to hold a panel session for. Payload: %s',
+                    $endpoint, var_export($payload['CURRENCY'] ?? null, true), json_encode($payload)
+                )
+            );
+        }
+    }
+
+    /**
+     * THE OTHER HALF, AND THE ONE THAT SEPARATES A FIX FROM A HARDCODED DEFAULT: two stores whose
+     * configured symbols DIFFER, with the viewer holding the neighbour's panel session.
+     *
+     * The case above cannot tell "read the route store's own row" from "always answer `$`" — this
+     * store has no row in it, so both behaviours give `$`. Here THIS store is configured `£` and
+     * the neighbour `€`, so the three candidate behaviours give three different answers: the
+     * correct one `£`, the defect `€`, and a reader that lost its chain `$`. Without this case a
+     * mutant returning `DEFAULT_SYMBOL` unconditionally survives, and GAP-143's own
+     * `test_a_configured_symbol_still_wins_in_both_payloads` cannot see it either, because that
+     * case has no competing tenant and no panel session.
+     *
+     * **IT IS NOT A PIN ON THE CALL-SITE SWAP, AND SAYING SO IS THE POINT — MEASURED.** With
+     * `CartController:851`/`:1084` reverted to `symbolFor()` this case STILL PASSES, because when
+     * the route store has a row of its own `Utility::GetValueByName()`'s PRIMARY read finds it and
+     * the `Utility::Setting()` fall-through is never reached. The fall-through — and therefore the
+     * defect — exists only for a store with NO row, which is why the inverted case above is the one
+     * that goes red on a revert and this one does not. What this case does buy, and what nothing
+     * else here buys: it kills a `configuredSymbolFor()` that answers the default unconditionally,
+     * and it proves the swap did not regress a store that HAS configured a symbol — the direction a
+     * tenancy fix most easily breaks.
+     */
+    public function test_this_stores_own_symbol_wins_over_a_neighbours_even_for_that_neighbours_merchant(): void
+    {
+        DB::table('settings')->insert([
+            'name' => 'defult_currancy_symbol', 'value' => '€',
+            'store_id' => $this->neighbourStore->id,
+            'created_by' => $this->neighbourStore->created_by,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('settings')->insert([
+            'name' => 'defult_currancy_symbol', 'value' => '£',
+            'store_id' => $this->store->id,
+            'created_by' => $this->store->created_by,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        (new \App\Models\Setting)->flushCache();
+        Cache::flush();
+
+        $neighbourOwner = User::findOrFail($this->neighbourStore->created_by);
+        $neighbourOwner->current_store = $this->neighbourStore->id;
+        $neighbourOwner->save();
+
+        $this->actingAs($neighbourOwner, 'web');
+        $this->actingAs($this->shopper, 'customers');
+        $this->app['auth']->shouldUse('web');
+
+        $this->assertSame((int) $this->neighbourStore->id, (int) getCurrentStore(),
+            'premise: the viewer resolves the OTHER tenant, so a reader that consults the session '
+            . 'answers `€` and one that consults the route store answers `£`.');
+        $this->assertNotSame('£', '€', 'premise: the two symbols differ, which is the point');
+
+        foreach ($this->bothCurrencyPayloads() as $endpoint => $payload) {
+            $this->assertSame('£', $payload['CURRENCY'] ?? null, sprintf(
+                'at `%s` the checkout reported %s where this store is configured `£`. `€` is the '
+                . 'GAP-278 defect (the viewer\'s store); `$` means the reader lost its setting '
+                . 'chain and is answering the default for a store that configured a symbol. '
+                . 'Payload: %s',
+                $endpoint, var_export($payload['CURRENCY'] ?? null, true), json_encode($payload)
+            ));
+        }
+    }
+
+    /**
+     * The `CURRENCY` key from BOTH emitting endpoints, keyed by path so a failure names which one.
+     *
+     * Driven with the session the CALLER has already established — deliberately NOT through
+     * `asAShopper()`, which puts the default guard back on `web` with nobody in it and would
+     * dissolve the dual-session premise these two cases depend on.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function bothCurrencyPayloads(): array
+    {
+        $shipping = $this->post('/' . $this->store->slug . '/get-shipping-data', [
+            'product_id' => $this->product->id,
+            'address_id' => $this->address->id,
+            'countryId' => $this->country, 'stateId' => $this->state, 'cityId' => $this->city,
+            'coupon_code' => '', 'total_coupon_amount' => '',
+        ]);
+
+        $tax = $this->post('/' . $this->store->slug . '/get-tax-data', [
             'product_id' => $this->product->id,
             'billing_address_id' => $this->address->id,
             'countryId' => $this->country, 'stateId' => $this->state, 'cityId' => $this->city,
@@ -1044,16 +1154,27 @@ final class Gap143ShippingTaxOrderTotalsTest extends SecurityTestCase
                 'delivery_state' => $this->state, 'delivery_city' => $this->city],
         ]);
 
-        $this->assertSame(200, $response->status(), 'premise: the endpoint answered');
+        $payloads = [];
 
-        $payload = $this->decode($response->getContent());
+        foreach (['get-shipping-data' => $shipping, 'get-tax-data' => $tax] as $endpoint => $response) {
+            $this->assertNotSame(404, $response->status(),
+                "premise: {$endpoint} is a real route -- a payload assertion is satisfied by a 404");
+            $this->assertSame(200, $response->status(),
+                "premise: {$endpoint} answered 200; every assertion about its payload is vacuous "
+                . 'on a redirect or a 500');
 
-        $this->assertSame('€', $payload['CURRENCY'] ?? null, sprintf(
-            'THE NEIGHBOUR\'S SYMBOL NO LONGER REACHES THIS STORE\'S CHECKOUT (it answered %s). If '
-            . 'that is `$`, the fall-through has been closed -- INVERT this case to assert the '
-            . 'route store\'s own answer, and record which change did it. Payload: %s',
-            var_export($payload['CURRENCY'] ?? null, true), json_encode($payload)
-        ));
+            $payload = $this->decode($response->getContent());
+
+            $this->assertArrayHasKey('CURRENCY', $payload, sprintf(
+                'premise: %s emitted a CURRENCY key at all. Without it `$payload[\'CURRENCY\'] ?? '
+                . 'null` is null and an equality assertion would be measuring the absence of the '
+                . 'field rather than its value. Payload: %s', $endpoint, json_encode($payload)
+            ));
+
+            $payloads[$endpoint] = $payload;
+        }
+
+        return $payloads;
     }
 
     /*

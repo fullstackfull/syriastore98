@@ -848,7 +848,7 @@ foreach ($response->data->product_list as $item) {
         $Product = Product::find($Products);
 
         $store = getStore($slug);
-        $CURRENCY = \App\Support\Money\OrderCurrencyStamp::symbolFor($store->id); // GAP-143: the name this used to read has no default in Utility::Setting, so this field was null for every store StoreController did not create. P5-R14's chain decides a store's symbol in one place. Kept to ONE line: P01-OBSERVABILITY-INVENTORY.md anchors this file at :1581 and :1784. Full reasoning in Gap143ShippingTaxOrderTotalsTest.
+        $CURRENCY = \App\Support\Money\OrderCurrencyStamp::configuredSymbolFor((int) $store->id) ?? \App\Support\Money\OrderCurrencyStamp::DEFAULT_SYMBOL; // GAP-278: was symbolFor(), whose Utility::GetValueByName falls through on a miss to Utility::Setting, which IGNORES its store-id argument when Auth::check() is true -- so a store with no symbol row served the NEIGHBOUR's symbol to a merchant holding that neighbour's panel session. configuredSymbolFor() is the same scoped-raw-query remedy as configuredCodeFor() and DocumentDirection::ownRow(); symbolFor() is untouched because five ORDER writers stamp orders.currency_symbol from it. GAP-143: the name this read has no default in Utility::Setting, so the field was null for every store StoreController did not create. Kept to ONE line: P01-OBSERVABILITY-INVENTORY.md anchors this file at :1581 and :1784. Full reasoning in Gap143ShippingTaxOrderTotalsTest and Gap278ConfiguredSymbolReaderTest.
         $code = trim($request->coupon_code);
         // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
         $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
@@ -1081,7 +1081,7 @@ foreach ($response->data->product_list as $item) {
         $code = trim($request->coupon_code);
         // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
         $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
-        $CURRENCY = \App\Support\Money\OrderCurrencyStamp::symbolFor($store->id); // GAP-143: the name this used to read has no default in Utility::Setting, so this field was null for every store StoreController did not create. P5-R14's chain decides a store's symbol in one place. Kept to ONE line: P01-OBSERVABILITY-INVENTORY.md anchors this file at :1581 and :1784. Full reasoning in Gap143ShippingTaxOrderTotalsTest.
+        $CURRENCY = \App\Support\Money\OrderCurrencyStamp::configuredSymbolFor((int) $store->id) ?? \App\Support\Money\OrderCurrencyStamp::DEFAULT_SYMBOL; // GAP-278: was symbolFor(), whose Utility::GetValueByName falls through on a miss to Utility::Setting, which IGNORES its store-id argument when Auth::check() is true -- so a store with no symbol row served the NEIGHBOUR's symbol to a merchant holding that neighbour's panel session. configuredSymbolFor() is the same scoped-raw-query remedy as configuredCodeFor() and DocumentDirection::ownRow(); symbolFor() is untouched because five ORDER writers stamp orders.currency_symbol from it. GAP-143: the name this read has no default in Utility::Setting, so the field was null for every store StoreController did not create. Kept to ONE line: P01-OBSERVABILITY-INVENTORY.md anchors this file at :1581 and :1784. Full reasoning in Gap143ShippingTaxOrderTotalsTest and Gap278ConfiguredSymbolReaderTest.
         $tax_option = TaxOption::where('store_id', $store->id)
             ->pluck('value', 'name')->toArray();
         if ($Product == null) {
