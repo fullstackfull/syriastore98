@@ -93,10 +93,53 @@ final class MetricCaveat
     public const MIXED_CURRENCY = 'mixed_currency';
 
     /**
-     * Section 11 rule 4. The figure comes off `orders.final_price`, which is FLOAT -- about seven
-     * significant digits on a currency that runs to millions. Aggregate on
-     * `store_order_financials` (DECIMAL(15,2)) wherever both are available; GMV is the one metric
-     * where they are not.
+     * Section 11 rule 4 -- AND ITS STATED BASIS IS REFUTED. MEASURED 2026-11-26 ON MARIADB 10.11.14.
+     *
+     * What this docblock used to say: "The figure comes off `orders.final_price`, which is FLOAT --
+     * about seven significant digits on a currency that runs to millions."
+     *
+     * `orders.final_price` is declared `$table->float()` (`2024_01_23_061635_create_orders_table.php:26`)
+     * and `order_coupon_details.coupon_discount_amount` likewise
+     * (`2024_02_07_090758_create_order_coupon_details_table.php:25`) -- and **Laravel's `float()`
+     * emits a MySQL `double`**, not a `float`. Built through the framework's own schema builder with
+     * those exact declarations and read back from `information_schema`:
+     * `DATA_TYPE=double`, `NUMERIC_PRECISION=22` on both.
+     *
+     *   every money value round-trips exactly   0.01 · 99.99 · 999999.99 · 1234567.89 · 2500000.49
+     *   a real FLOAT column, for contrast       999999.99 -> 1000000 · 1234567.89 -> 1234570
+     *                                           · 2500000.49 -> 2500000
+     *   10,000 accumulated rows incl. 0.07      SQL SUM() and PHP `+=` both differ from the exact
+     *                                           decimal total by 0.0000111163 on 253,136,425.00
+     *   the DECIMAL(15,2) ledger sum            identical to the cent
+     *
+     * So the reasoning would be right if the column were a real `float`; it is not, and the
+     * divergence is four orders of magnitude below the "smallest units" the message names.
+     * CLAUDE.md records this withdrawal having already happened once, on `plan_orders.price`
+     * (`GAP-192`), and states the rule in terms: "money off such a column is NOT
+     * `MetricCaveat::FLOAT_PRECISION`'s basis".
+     *
+     * `tests/Support/Security/bin/verify-money-column-precision-on-mysql.php` -- 18 checks, 0 failed.
+     *
+     * THE CONSTANT IS NOT WITHDRAWN HERE, AND THAT IS DELIBERATE RATHER THAN CAUTIOUS. Two reasons,
+     * and the second is the one that decides it:
+     *
+     *   1. A figure off a column that really IS `float` would still carry this honestly, and
+     *      section C of that script measures exactly what such a column costs.
+     *   2. **The production column type is unknown.** CLAUDE.md's standing rule is that the
+     *      migrations are not the schema: a column altered by hand, or created by an older
+     *      migration on a server since upgraded, can be a real `float`, and only
+     *      `SHOW CREATE TABLE orders` on production settles it. No session here has that access.
+     *      Withdrawing the sentence would REMOVE a monetary disclosure from eleven merchant-facing
+     *      surfaces on the strength of a fresh schema, which is a material change to what the
+     *      product tells a merchant about money -- the owner's call, not engineering's
+     *      (CLAUDE.md §2).
+     *
+     * So the measurement is recorded, the attachment sites are named below, and the withdrawal is
+     * escalated. Until it is decided, nothing new may be attached on the float reasoning: the four
+     * sites that do are `GrossMerchandiseValue:55`, `CouponRedemption:152`,
+     * `ReportFigureNote::moneyCaveats()` and `StoreInventoryValuation:386` -- and the last of those
+     * already states in its own docblock that its columns are `double`, which is the same unsound
+     * step taken knowingly.
      */
     public const FLOAT_PRECISION = 'float_precision';
 
@@ -109,12 +152,17 @@ final class MetricCaveat
      * two including shipping and tax, Shipping charged and Coupon value applied -- so a cell
      * saying "This figure" leaves the reader to guess which of the six it means.
      *
-     * The basis is identical and was measured, not assumed: every one of those six is accumulated
-     * in `ReportController` as `+= (float) $order->...` off `orders.final_price`, which is FLOAT
-     * (see `FLOAT_PRECISION` above). This constant states that about all of them at once. It adds
-     * no inclusion rule, no payment-status predicate and no new definition of any figure -- those
-     * belong to the owner's D1/D2 labelling decisions, and the column HEADERS already carry the
-     * labels those decisions settled.
+     * The basis is identical -- AND IT IS THE SAME REFUTED BASIS. Every one of those six is
+     * accumulated in `ReportController` as `+= (float) $order->...` off `orders.final_price`, which
+     * `FLOAT_PRECISION` above now records as a MySQL **`double`** on a fresh schema from this
+     * repository's own migrations, with every money value round-tripping exactly and a 10,000-row
+     * accumulation differing from the exact decimal total by 0.0000111163 on 253,136,425.00.
+     *
+     * So this constant inherits that finding, that escalation and that prohibition exactly: nothing
+     * new may be attached on the float reasoning, and the withdrawal of both is one decision rather
+     * than two. It still adds no inclusion rule, no payment-status predicate and no new definition
+     * of any figure -- those belong to the owner's D1/D2 labelling decisions, and the column HEADERS
+     * already carry the labels those decisions settled.
      */
     public const MONEY_FLOAT_PRECISION = 'money_float_precision';
 

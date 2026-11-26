@@ -57,7 +57,44 @@
 require __DIR__ . '/../../../../vendor/autoload.php';
 
 $app = require __DIR__ . '/../../../../bootstrap/app.php';
+/*
+ * THE SESSION DRIVER IS SET BEFORE THE FRAMEWORK BOOTS, AND THAT ORDER IS THE WHOLE FIX.
+ * `config/session.php` reads `env('SESSION_DRIVER', 'database')` while the config is loaded, so a
+ * `config([...])` call AFTER `bootstrap()` is too late -- measured: it changed nothing and the
+ * script still exited 1.
+ */
+putenv('SESSION_DRIVER=array');
+$_ENV['SESSION_DRIVER'] = 'array';
+$_SERVER['SESSION_DRIVER'] = 'array';
+
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+/*
+ * THE SESSION STORE IS FORCED TO `array`, AND THAT IS A DEFECT REPAIR RATHER THAN A SETTING.
+ *
+ * MEASURED 2026-11-26, while executing the whole Phase 05 real-MySQL evidence set for the P05-24
+ * report: this script exited 1 -- "a check FAILED" -- with
+ *
+ *     the script threw: Illuminate\Database\QueryException -- Database file at path
+ *     [.../database/database.sqlite] does not exist (Connection: sqlite,
+ *     SQL: delete from "sessions" where "id" = ...)
+ *
+ * `config/session.php` defaults to the `database` driver, so booting the framework in an
+ * environment with no `.env` lets the DEFAULT connection -- still sqlite -- touch the session
+ * table before this script points anything at MySQL. The sibling
+ * `verify-analytics-breakdowns-on-mysql.php` documents the remedy in its USAGE line
+ * (`SESSION_DRIVER=array`), and with it this script is 22 checks, 0 failed.
+ *
+ * SO THE PRODUCT WAS SOUND AND THE SCRIPT WAS WRONG ABOUT ITS OWN RESULT. Its stated exit contract
+ * reserves 2 for "a precondition was not met"; reporting an absent sqlite file as a failed CHECK
+ * tells a reader of the Phase 05 evidence that a money figure is broken when nothing is. An
+ * evidence script that cries wolf makes the whole evidence set less trustworthy, which is the
+ * reporting-honesty failure P05-24 exists to close.
+ *
+ * It is forced here rather than documented because a precondition nobody can forget is better than
+ * one they must remember: the session store is irrelevant to everything this script measures (it
+ * drives HTTP requests and reads money figures), and `array` is what the whole suite runs on.
+ */
 
 use App\Http\Controllers\ReportController;
 use App\Models\User;

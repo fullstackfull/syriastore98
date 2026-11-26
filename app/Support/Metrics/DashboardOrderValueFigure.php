@@ -14,9 +14,21 @@ namespace App\Support\Metrics;
  * MEASURED AGAIN BEFORE THE MOVE. `GrossMerchandiseValue::for()` attaches
  * `MetricCaveat::FLOAT_PRECISION` unconditionally, because GMV is the one money metric that cannot
  * be aggregated on `store_order_financials`' `DECIMAL(15,2)` and has to come off
- * `orders.final_price`, which is FLOAT. The `@php` block consulted the result's `currencies()` and
- * `totalIn()` and never its `caveats()`, so the one thing the metric knew about its own limits
- * reached the busiest money figure in the product on no screen at all.
+ * `orders.final_price`. The `@php` block consulted the result's `currencies()` and `totalIn()` and
+ * never its `caveats()`, so the one thing the metric knew about its own limits reached the busiest
+ * money figure in the product on no screen at all.
+ *
+ * AND THE CAVEAT'S OWN BASIS IS NOW IN DOUBT, WHICH THIS CLASS MUST NOT STATE MORE CONFIDENTLY THAN
+ * ITS SIBLING DOES. An earlier draft of this paragraph said `orders.final_price` "is FLOAT". It is
+ * declared `$table->float()` BY ITS MIGRATION, and Laravel's `float()` emits a MySQL `double`:
+ * measured on MariaDB 10.11.14, every money value round-trips exactly and a 10,000-row accumulation
+ * differs from the exact decimal total by 0.0000111163 on 253,136,425.00
+ * (`tests/Support/Security/bin/verify-money-column-precision-on-mysql.php`, 18 checks, 0 failed).
+ * Per CLAUDE.md the migrations are not the schema, so production's own column type is unknown and
+ * needs `SHOW CREATE TABLE` there -- the same hedge `MerchantAnalyticsFigures` applies to
+ * `order_coupon_details.coupon_discount_amount`, and this class now applies it too. The
+ * withdrawal is `MetricCaveat::FLOAT_PRECISION`'s to record and the owner's to decide; this class
+ * renders whatever the metric attaches and invents no caveat of its own.
  *
  * THE WORDS ARE NOT REWRITTEN. Every sentence below is moved from the view BYTE FOR BYTE, including
  * the two that are owner-decision text -- the cancellation exclusion and the F257 returns clause --
