@@ -39,6 +39,157 @@ class SuperAdminMenuListener
             'module' => $module,
             'permission' => ''
         ]);
+        /*
+         * ADM-001 / GAP-231 — THE PLATFORM-WIDE INSTRUMENTS, IN THE OPERATOR'S OWN NAVIGATION.
+         * =========================================================================================
+         *
+         * The recovered decision is `لوحة قيادة شاملة للمنصة` — a COMPREHENSIVE platform command
+         * dashboard. Whether the dashboard that exists is the one the plan describes is a product
+         * judgement and is `GAP-231`'s question for the owner. What is not a judgement is this:
+         * *comprehensive* cannot be true of a command surface whose instruments are not on it, and
+         * MEASURED, none of them was on it: this listener declared TEN entries -- dashboard,
+         * add-on-manager, users, coupons, plan, plan request, email templates, settings, country,
+         * currency -- and not one was a `platform/*` screen. The FIVE that already existed
+         * (analytics, revenue, resources, documentation, site-content) were reachable only from a
+         * link panel inside the dashboard body, which `OperatorDashboardPlatformLinksTest` added
+         * precisely because this file "does not belong to that workstream in this phase" and
+         * recorded a sidebar entry as a CROSS-AGENT DEPENDENCY. ADM-001 is the requirement it was
+         * deferred against, so it is paid here. The sixth, Store 360, is ADM-002 and arrives in the
+         * same change -- it is listed below as a child like the others, not counted among the five
+         * that were unreachable.
+         *
+         * A PARENT WITH `'route' => ''` AND SIX CHILDREN, which is `CompanyMenuListener`'s own
+         * shape for a group (its `admin_dashboard` entry does exactly this -- cited by name
+         * rather than by line, which CLAUDE.md records going stale four times in one task).
+         * `menuTree()` turns
+         * an entry with children into a `dash-submenu`, and an empty `route` renders `href="#!"`
+         * so the parent toggles rather than navigating. `MerchantPageDirectory` skips an entry with
+         * no route, so the group header does not become a favouritable "page" either.
+         *
+         * `'permission' => ''` ON EVERY ONE OF THESE, AND IT IS THE CORRECT GATE RATHER THAN A
+         * SHORTCUT. `Menu::permits()` admits an entry when its module is active AND the permission
+         * is empty OR `isAbleTo()` answers true. These seven screens are gated by IDENTITY —
+         * `PlatformOperatorOnly`, a string comparison on `users.type` — and NOT by a permission,
+         * for two reasons that both matter here:
+         *
+         *   1. There is no super-admin bypass in this application's Laratrust setup
+         *      (`permissions_as_gates => false`), so `isAbleTo()` REFUSES the platform operator for
+         *      any name they have not been granted. A permission name on these entries would
+         *      therefore be capable of HIDING a screen the operator may certainly open — the same
+         *      defect this group fixes, in a subtler form.
+         *   2. A merchant creates their own roles through the product, so "holds permission X" is
+         *      substantially self-assignable — the wrong KIND of gate for a screen that reads every
+         *      tenant at once.
+         *
+         * IT IS SAFE BECAUSE THE EVENT IS THE GATE, not the permission: `getMenu()` fires
+         * `SuperAdminMenuEvent` only for `type == 'super admin'` and `MerchantPageDirectory` only
+         * for `UserPolicy::isOperator()`. `add-on-manager` below already ships this way, and
+         * `OperatorPlatformNavigationTest` asserts the consequence in both directions rather than
+         * trusting this argument — that none of these routes can appear in a merchant's menu.
+         *
+         * THE SET IS NOT MAINTAINED BY HAND. `OperatorPlatformNavigationTest` computes it from the
+         * booted route table — every GET route carrying `PlatformOperatorOnly` whose uri is
+         * `platform/<one segment>` with no parameter — so the NEXT operator screen of that shape
+         * reddens that test until it is added here, instead of shipping unreachable as these six
+         * did.
+         */
+        $menu->add([
+            'title' => __('Across the platform'),
+            'icon' => 'layout-dashboard',
+            'name' => 'platform-command',
+            'parent' => null,
+            'order' => 20,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => '',
+            'module' => $module,
+            'permission' => ''
+        ]);
+
+        /* Store 360 first: it is the only one of the six that answers "which store", and the
+           operator's question usually starts there. ADM-002. */
+        $menu->add([
+            'title' => __('Store 360'),
+            'icon' => 'building-store',
+            'name' => 'platform-stores',
+            'parent' => 'platform-command',
+            'order' => 1,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'platform.stores.index',
+            'module' => $module,
+            'permission' => ''
+        ]);
+
+        /* Revenue and analytics are adjacent ON PURPOSE and in this order: SAAS-007 is the
+           separation of platform revenue (what merchants pay Store Syria) from merchant sales
+           (what shoppers pay merchants). Naming them one after the other is where an operator
+           chooses between them, so the distinction has to be legible at the point of choosing. */
+        $menu->add([
+            'title' => __('Platform revenue'),
+            'icon' => 'receipt',
+            'name' => 'platform-revenue',
+            'parent' => 'platform-command',
+            'order' => 2,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'platform.revenue',
+            'module' => $module,
+            'permission' => ''
+        ]);
+
+        $menu->add([
+            'title' => __('Platform analytics'),
+            'icon' => 'chart-histogram',
+            'name' => 'platform-analytics',
+            'parent' => 'platform-command',
+            'order' => 3,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'platform.analytics',
+            'module' => $module,
+            'permission' => ''
+        ]);
+
+        $menu->add([
+            'title' => __('Platform resources'),
+            'icon' => 'server',
+            'name' => 'platform-resources',
+            'parent' => 'platform-command',
+            'order' => 4,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'platform.resources',
+            'module' => $module,
+            'permission' => ''
+        ]);
+
+        $menu->add([
+            'title' => __('Official website content'),
+            'icon' => 'world',
+            'name' => 'platform-site-content',
+            'parent' => 'platform-command',
+            'order' => 5,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'platform.site_content.index',
+            'module' => $module,
+            'permission' => ''
+        ]);
+
+        $menu->add([
+            'title' => __('Documentation Center'),
+            'icon' => 'book',
+            'name' => 'platform-documentation',
+            'parent' => 'platform-command',
+            'order' => 6,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'platform.documentation.index',
+            'module' => $module,
+            'permission' => ''
+        ]);
+
         $menu->add([
             'title' => __('Users'),
             'icon' => 'user',

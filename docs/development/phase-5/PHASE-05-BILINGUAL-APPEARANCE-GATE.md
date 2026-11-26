@@ -198,6 +198,7 @@ Pinned by `DashboardOrderValueStatesItsPrecisionTest` and `AnalyticsTilesCarryTh
 | `app/Support/Analytics/MetricThreshold.php` | 4 | the threshold panel on `analytics`; `RecoveryQueueController` (Phase 04 surface) |
 | `app/Support/Customers/CustomerMoneyFigures.php` | 4 | the customer detail money tiles: **Phase 02 / 2.5** surface; and `Api\DashboardController` (JSON) |
 | `app/Support/Customers/CustomerMoneyTiles.php` | 5 | as above |
+| `app/Support/Operator/StoreThreeSixty.php` | 5 | `platform-stores-360` — the operator's Store 360 screen (`GAP-232` / `ADM-002`): **Phase 06** surface, whose appearance acceptance is Phase 06's. It reads `GrossMerchandiseValue` through `MetricScope::store()` for one tenant and renders the per-currency rows and the metric's own caveats; it adds no new figure of its own |
 | `app/Support/Reports/DimensionPeriodRevenue.php` | 1 | the by-dimension report bodies (`ReportController`) |
 | `app/Support/Reports/ReportFigureNote.php` | 2 | the disclosure note under a report figure, and the carrier its five composites now derive their words from |
 | `app/Support/TopSellersByRevenue.php` | 1 | the top-sellers panel shared by the dashboards and the reports |
