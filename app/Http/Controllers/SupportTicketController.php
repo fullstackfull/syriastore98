@@ -137,13 +137,51 @@ class SupportTicketController extends Controller
         }
     }
 
+    /**
+     * THE FOURTH DOOR, AND IT WAS LEFT OUT OF THE CONFINEMENT THE OTHER THREE GOT.
+     *
+     * `edit()`, `destroy()` and `ticket_status_change()` resolve the ticket through
+     * `actingTenantStoreIds()` because `StoreScope` adds NO predicate on `MODE_UNRESOLVED`
+     * (`null_tenant => 'open'`). This method resolved it with a bare `SupportTicket::find()` and
+     * relied on the scope -- the one thing CLAUDE.md says never to rely on alone. Measured on this
+     * branch as a staff member of tenant A with `Replay Support Ticket` and `current_store = null`
+     * (the state `UserController` leaves an operator-created staff row in): one POST wrote a reply
+     * into tenant B's support thread, which B's merchant and the shopper who raised the ticket both
+     * read.
+     *
+     * THE TEST THAT CLAIMED TO COVER THIS PASSED ON THE OPEN DOOR.
+     * `SupportTicketTenantConfinementTest::test_an_unresolved_principal_cannot_reply_on_another_tenants_ticket`
+     * posted `description`; the validator below requires `reply_description`, so the request was
+     * refused before the lookup and "no row was written" held either way. Both that case and
+     * `SupportTicketReplyConfinementTest` now drive the field the handler actually reads, and the
+     * latter carries the control that proves it.
+     *
+     * THE ROW'S `store_id` AND THE ATTACHMENT FOLDER NOW COME FROM THE TICKET, NOT FROM
+     * `getCurrentStore()`, which answers the ACTOR's store: `null` for the unresolved staff member
+     * above and the hardcoded `1` for the platform operator, who keeps a deliberate cross-store
+     * reach here. `SupportConversion` is in `scoped_models` and really filters, so an operator reply
+     * on tenant B's ticket was filed under store 1 -- invisible to B's merchant reading
+     * `$ticket->conversions()` and attached to a ticket store 1's merchant cannot open. The folder
+     * was `uploads/<actor store>/reply_tickets`, which for those two principals is
+     * `uploads//reply_tickets` and `uploads/1/reply_tickets`: the merchant-side twin of P1-SEC-71's
+     * "a folder no store's id is part of", which was fixed on the storefront path only. Files
+     * already on the server do not move, as there.
+     *
+     * `D-P6-14` is untouched: this door has always required `Replay Support Ticket`.
+     */
     public function conversion_store(Request $request,$ticket_id)
     {
         if(auth()->user() && auth()->user()->isAbleTo('Replay Support Ticket'))
         {
             $user =auth()->user();
 
-            $ticket = SupportTicket::find($ticket_id);
+            $storeIds = $this->actingTenantStoreIds();
+
+            if ($storeIds === []) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+
+            $ticket = $this->confineToTenant(SupportTicket::query(), $storeIds)->find($ticket_id);
             if($ticket) {
 
                 $validator = \Validator::make(
@@ -164,7 +202,8 @@ class SupportTicketController extends Controller
                 $post['ticket_id'] = $ticket->id;
                 $post['description'] = $request->reply_description;
                 $post['user_id'] = $user->id;
-                $post['store_id'] = getCurrentStore();
+                // The ticket's store, never the actor's: see this method's docblock.
+                $post['store_id'] = $ticket->store_id;
 
                 $data = [];
 
@@ -178,7 +217,8 @@ class SupportTicketController extends Controller
                         if($result==1)
                         {
                             $imageName = $file->getClientOriginalName();
-                            $dir        = 'uploads/' . getCurrentStore().'/reply_tickets';
+                            // The ticket's store, never the actor's: see this method's docblock.
+                            $dir        = 'uploads/' . $ticket->store_id . '/reply_tickets';
                             $path = Utility::keyWiseUpload_file($request,'reply_attachments',$imageName,$dir,$filekey,[]);
                             if($path['flag'] == 1){
                                 $data[] = $path['url'];
@@ -202,7 +242,22 @@ class SupportTicketController extends Controller
 
                 return redirect()->back()->with('success', __('Reply added successfully') . ((isset($error_msg)) ? '<br> <span class="text-danger">' . $error_msg . '</span>' : '') .((isset($result) && $result!=1) ? '<br> <span class="text-danger">' . $result . '</span>' : ''));
             }else{
-                return view('403');
+                /*
+                 * A DENIAL, NOT AN HTTP 500. This was `return view('403')`, and there is no
+                 * `403.blade.php` anywhere in `resources/views` or in any theme -- Laravel's own
+                 * bare template lives in the `errors::` namespace, so `view('403')` raises
+                 * `View [403] not found`. It was the only such call site in the repository and it
+                 * went unnoticed because it used to be reached only for a non-existent ticket id.
+                 *
+                 * THE TENANT CONFINEMENT ABOVE MADE IT THE ORDINARY CROSS-TENANT REFUSAL, so a
+                 * merchant got a server error where a denial belongs. Found by the independent
+                 * review of that change; every refusal case in
+                 * `SupportTicketReplyConfinementTest` was blind to it, because they assert that no
+                 * conversation row was written and a 500 satisfies that perfectly.
+                 *
+                 * Now the same answer the three already-confined siblings give.
+                 */
+                return redirect()->back()->with('error', __('Ticket not found'));
             }
         }
         else

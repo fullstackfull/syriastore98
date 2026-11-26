@@ -170,7 +170,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/ThemeEditorAccess.php:59` | Theme editor access refused. |
 | `app/Http/Middleware/ThemeDraftAccess.php:56` | Theme draft access refused. |
 | `app/Http/Controllers/Api/ApiController.php:6542` | shipping quote refused a cart line naming another store |
-| `app/Models/Cart.php:1331` | flat-rate shipping refused a cart line naming another store |
+| `app/Models/Cart.php:1377` | flat-rate shipping refused a cart line naming another store |
 | `app/Http/Controllers/PaymentCallbackController.php:107` | Paytm plan callback refused: no usable order reference. |
 | `app/Http/Controllers/PaymentCallbackController.php:159` | Paytm plan callback refused: the provider did not confirm the payment. |
 | `app/Http/Controllers/PaymentCallbackController.php:173` | Paytm plan callback refused at the intent. |
@@ -223,8 +223,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:398` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:262` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:315` | product_cart: refused a product belonging to another store |
-| `app/Http/Controllers/CartController.php:1553` | abandoned-cart e-mail nudge failed |
-| `app/Http/Controllers/CartController.php:1756` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/CartController.php:1581` | abandoned-cart e-mail nudge failed |
+| `app/Http/Controllers/CartController.php:1784` | abandoned-cart WhatsApp nudge failed |
 | `app/Http/Controllers/WishlistController.php:316` | abandoned-wishlist e-mail nudge failed |
 | `app/Http/Controllers/WishlistController.php:734` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Services/Reports/ScheduledReportRunner.php:197` | scheduled analytics report: stored recipient differs from the owner address; using the owner |
@@ -247,7 +247,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:208` | Order cancellation skipped a line the stock record says never took stock out |
 | `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:252` | Order cancellation skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:851` | customer login: refused a social row still holding its module-assigned password |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1113` | Newsletter subscription failed during customer registration |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1193` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
@@ -309,8 +309,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/StoreFinanceController.php:79` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/StoreFinanceController.php:365` | Financial action refused: operator has selected no merchant store |
 | `app/Support/Tenancy/OperatorStoreSelection.php:94` | Report refused: operator has selected no merchant store |
-| `app/Http/Controllers/StoreFinanceController.php:2461` | Manual wallet change refused as a duplicate submission |
-| `app/Http/Controllers/StoreFinanceController.php:2662` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:2529` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:2730` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/SavedViewController.php:117` | Saved view apply refused: not the owner or no such view |
 | `app/Http/Controllers/SavedViewController.php:159` | Saved view delete refused: not the owner or no such view |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |
@@ -325,8 +325,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
-| `app/Models/Order.php:1241` | Order return refused: the order carries no readable product_json |
-| `app/Models/Order.php:1252` | Order return refused: the order lines are not in a shape this workflow can return |
+| `app/Models/Order.php:1248` | Order return refused: the order carries no readable product_json |
+| `app/Models/Order.php:1259` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2318` | New Order webhook skipped: no store could be resolved for the order |
 | `app/Models/Utility.php:2328` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |

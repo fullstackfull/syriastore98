@@ -904,8 +904,51 @@ foreach ($defaultCurrencies as $currency) {
             return redirect()->back()->with('error', __('Store is locked'));
         }
 
+        $previous = $user->current_store;
+
         $user->current_store = $store->id;
         $user->update();
+
+        /*
+         * THE SECOND WAY INTO A MERCHANT'S TENANT, AND IT LEFT NO TRACE.
+         *
+         * `SUPPORT-004` of the recovered plan asks for temporary, scoped support access with merchant
+         * consent and an AUDIT LOG. Only the audit half exists, and it covered one door of two:
+         * `App\Support\Audit\RecordImpersonation` records `LoginWithAdmin` ("log in as this
+         * merchant"). This handler is the other. For a merchant the lookup above confines the target
+         * to their own tenant; for the platform operator that predicate is SKIPPED by design, so one
+         * request points `users.current_store` -- the discriminator every
+         * `where('store_id', getCurrentStore())` reads -- at any merchant's store, and the whole panel
+         * then answers for that tenant.
+         *
+         * It is the LESS visible of the two, not the more: impersonation at least changes the
+         * signed-in user, so later rows carry the merchant's id; a store switch leaves the OPERATOR's
+         * id on them with nothing saying whose data was on the screen.
+         *
+         * AFTER THE WRITE, DELIBERATELY. A row written before it would claim a tenant was entered
+         * when the switch was refused, and a trail that over-reports is worse than one that is
+         * silent, because it will be believed.
+         *
+         * ONLY THE OPERATOR ENTERING SOMEBODY ELSE'S TENANT. A merchant or a staff member is confined
+         * by the predicate above to stores their own tenant owns, which is ordinary product use and
+         * visible to that tenant; recording it would fill the support-access trail with noise, and a
+         * noisy trail is not read. `isOperator()` rather than the raw `!==` above because operator
+         * status is a string comparison whose stored case and padding are not guaranteed -- and it is
+         * strictly the broader test, so no cross-tenant switch escapes it.
+         *
+         * NO PERMISSION CHANGES. Who may switch, and the operator's bypass, are untouched; narrowing
+         * either is an owner decision. The temporary, scoped and consented halves of `SUPPORT-004`
+         * need storage this container may not migrate and remain open on `GAP-176`.
+         */
+        if (\App\Policies\UserPolicy::isOperator($user) && (int) $store->created_by !== (int) $user->id) {
+            \App\Models\AuditLog::record(
+                'operator_store_switched',
+                $store,
+                ['current_store' => $previous],
+                ['current_store' => $store->id],
+                $user instanceof \App\Models\User ? $user : null
+            );
+        }
 
         return redirect()->back()->with('success', __('Store Change Successfully!'));
     }

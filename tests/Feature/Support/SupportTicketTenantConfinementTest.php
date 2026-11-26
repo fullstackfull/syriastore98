@@ -176,12 +176,28 @@ class SupportTicketTenantConfinementTest extends SecurityTestCase
             "another tenant's ticket row was DELETED by a principal that resolves no tenant");
     }
 
+    /**
+     * CORRECTED: THIS CASE USED TO POST A FIELD THE HANDLER DOES NOT READ, AND SO PASSED ON THE OPEN
+     * DOOR.
+     *
+     * It posted `['description' => ...]`. `conversion_store()` validates **`reply_description`**, so
+     * the request was refused by the validator, redirected back with an error, and never reached the
+     * ticket lookup -- CLAUDE.md's trap 3, a precondition that was never met. The assertion held
+     * whether or not the door was confined, and the door was NOT: unlike its three siblings,
+     * `conversion_store()` resolved the ticket with a bare `SupportTicket::find()` and relied on a
+     * scope that adds nothing for this principal. Driving the real field wrote a reply into another
+     * tenant's thread.
+     *
+     * The field is corrected here and the door is covered in full, with the control that proves the
+     * field is right and the case that pins where the row is filed, in
+     * `SupportTicketReplyConfinementTest`.
+     */
     public function test_an_unresolved_principal_cannot_reply_on_another_tenants_ticket(): void
     {
         $staff = $this->unresolvedStaff(['Replay Support Ticket']);
 
         $this->actingAs($staff)->post("/ticket/{$this->victimTicket}/conversion", [
-            'description' => 'A REPLY FROM ANOTHER TENANT',
+            'reply_description' => 'A REPLY FROM ANOTHER TENANT',
         ]);
 
         $this->assertSame(0,
