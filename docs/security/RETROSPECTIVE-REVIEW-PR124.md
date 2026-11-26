@@ -137,7 +137,7 @@ Recorded as prominently as the findings, because a review that only produces fin
 that flatters its author.
 
 **(a) The permission gap was already disclosed, and my report of it implied otherwise.**
-`P01-SECURITY-WORK-QUEUE.md:4617-4620` says, in #124's own write-up: *"**Still open and NOT changed
+`P01-SECURITY-WORK-QUEUE.md:4627-4620` says, in #124's own write-up: *"**Still open and NOT changed
 here:** that route carries no permission check, only `['auth','xss','setlocate','verified']` …
 adding an authorization gate is a different decision from closing an SSRF."* That is accurate and
 it predates this review. §4 is a reproduction of a **disclosed** gap, not a discovery.

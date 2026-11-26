@@ -289,5 +289,5 @@ that charge nothing are a separate slice.
 
 Related and already tracked: `upload_theme_image()`'s `$user_id = 0` default charges nobody
 (`0 ?? x` is `0`, `User::find(0)` is null), six of its seven callers pass `0`, and
-`P01-SECURITY-WORK-QUEUE.md:6671` holds it OPEN pending a decision on the counters — **which this
+`P01-SECURITY-WORK-QUEUE.md:6681` holds it OPEN pending a decision on the counters — **which this
 slice is**. That row is now unblocked.
