@@ -39,7 +39,7 @@ use Tests\TestCase;
  * asserts what the product really does -- user, store, tenant pointer and role -- which
  * the stock version never checked.
  *
- * WHAT USED TO BE RED HERE, AND WHY IT IS NOT ANY MORE (GAP-014, 2026-11-25).
+ * WHAT USED TO BE RED HERE, AND WHY IT IS NOT ANY MORE (GAP-014, 2026-11-26).
  * test_new_users_can_register was this suite's LAST declared failure in
  * `.github/known-test-outcomes.json`, and the entry has been deleted because it passes --
  * which that gate requires rather than permits.
@@ -133,7 +133,7 @@ class RegistrationTest extends TestCase
             $user->fresh()->hasRole('admin'),
             'The merchant was created and logged in but never got the admin role, although the '
             . 'role was seeded above -- so the assignment itself has broken. This assertion '
-            . 'carried this suite\'s last declared CI failure until GAP-014 (2026-11-25). Two '
+            . 'carried this suite\'s last declared CI failure until GAP-014 (2026-11-26). Two '
             . 'things kept it red and both are gone: the fixture never seeded the role (fixed '
             . 'above), and when the role was absent registration SUCCEEDED anyway -- 302, '
             . 'authenticated, users +1, stores +1, store_wallets +1, role_user 0 -- because both '

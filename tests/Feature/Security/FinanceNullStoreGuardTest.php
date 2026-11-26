@@ -418,7 +418,7 @@ class FinanceNullStoreGuardTest extends SecurityTestCase
      *
      * EACH HOP CARRIES THE SESSION THE PREVIOUS ONE LEFT BEHIND, and it did not: every hop was
      * `actingAs($staff)->get($next)`, which re-authenticates the principal before each request.
-     * CORRECTED 2026-11-25 while closing GAP-013, because that made this case report a loop a
+     * CORRECTED 2026-11-26 while closing GAP-013, because that made this case report a loop a
      * browser cannot have. `/dashboard` now answers a storeless principal with
      * `auth()->logout()` plus a redirect to sign-in -- the answer `getOrderChart()` has always
      * chosen for them and `HomeController::handleRegularUser()` used to discard into `$chartData`
@@ -468,7 +468,7 @@ class FinanceNullStoreGuardTest extends SecurityTestCase
              * ESTABLISHED PER CHAIN: the previous URL must already be /finance. A GET that answers
              * a 302 still records itself, so one refused visit is enough to set it.
              *
-             * MOVED INSIDE THE LOOP 2026-11-25 (GAP-013). It used to run once, above, and the
+             * MOVED INSIDE THE LOOP 2026-11-26 (GAP-013). It used to run once, above, and the
              * walk below then carried the LAST chain's terminus into the next chain as its
              * previous URL. That was harmless only while `/dashboard` answered this principal with
              * a 500 and every walk stopped there. Now that `/dashboard` signs them out and sends

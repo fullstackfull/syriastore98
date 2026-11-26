@@ -602,7 +602,7 @@ class ClaudeConfigurationTest extends TestCase
             'The command does not run the known-outcome gate, so its output cannot be '
             . 'interpreted: the Feature suite has accepted outcomes by design, and the gate is '
             . 'the only thing that says which. The count moved 8 -> 2 -> 1 -> 0 accepted '
-            . 'FAILURES as each entry was fixed and deleted (the last on 2026-11-25, GAP-014), '
+            . 'FAILURES as each entry was fixed and deleted (the last on 2026-11-26, GAP-014), '
             . 'with one accepted SKIP still declared -- so the number is deliberately not '
             . 'restated here. Read .github/known-test-outcomes.json.');
 

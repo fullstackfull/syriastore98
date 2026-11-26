@@ -700,7 +700,7 @@ XML);
         // did exactly that while recording twice that the shared chrome was a 500 for a storeless
         // principal and that fixing it was not finance's to do.
         //
-        // AND THE LAST ONE REMOVED 2026-11-25, with the proof this list demands produced before it
+        // AND THE LAST ONE REMOVED 2026-11-26, with the proof this list demands produced before it
         // went. RegistrationTest::test_new_users_can_register was the seeder fixture gap that
         // exposed silent role-assignment tolerance, and its own `owner` field named the decision
         // the fix had to make: 'a null guard plus a decision about what to do when the role is
@@ -935,7 +935,7 @@ XML);
     /**
      * THE SENTINEL EXISTS BECAUSE AN EMPTY PROVIDER IS AN ERROR, NOT A PASS.
      *
-     * `expected_failures` became EMPTY on 2026-11-25 when its last entry was deleted for passing,
+     * `expected_failures` became EMPTY on 2026-11-26 when its last entry was deleted for passing,
      * which this gate requires. PHPUnit treats a data provider that returns no sets as an ERROR,
      * and this suite's zero-errors property is enforced unconditionally -- so an empty manifest
      * would have broken the run that proves the manifest is right. A conditional skip was the

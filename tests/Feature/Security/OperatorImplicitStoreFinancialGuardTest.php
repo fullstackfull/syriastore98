@@ -838,7 +838,7 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
      *         /dashboard  operator, no selection   -> 500   (REPAIRED 2026-11-22: now 200)
      *         /dashboard  operator, store selected -> 200
      *         /dashboard  merchant, store resolved -> 200
-     *         /dashboard  merchant, no store       -> 500   (REPAIRED 2026-11-25: now 302 -> /login)
+     *         /dashboard  merchant, no store       -> 500   (REPAIRED 2026-11-26: now 302 -> /login)
      *
      *       REPAIRED FOR THE OPERATOR ON 2026-11-22, AS THIS NOTE ASKED WHOEVER DID IT TO RECORD.
      *       The row above and everything below it describe the state this case was written
@@ -850,7 +850,7 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
      *       REFUSAL REACHES THE EYE, which is the thing this paragraph said it could not do.
      *
      *       THE STORELESS MERCHANT'S 500 WAS NEVER "THE SAME 500", AND IT IS NOW REPAIRED TOO
-     *       (2026-11-25, GAP-013). With the operator's cause removed, what was left was a second
+     *       (2026-11-26, GAP-013). With the operator's cause removed, what was left was a second
      *       one: a merchant with no resolvable store is signed out by `APP_THEME()` /
      *       `getOrderChart()`, the redirect those return is assigned and never sent, and
      *       `handleRegularUser()` carried on to dereference the store it does not have.
@@ -889,7 +889,7 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
      *       for a recorded open finding (`EloquentScopeBypassInventoryTest`'s "and that is an open
      *       finding" cases), with an instruction to CHANGE the case rather than delete it when the
      *       cause was repaired. Both legs of it have been: the operator's on 2026-11-22 (200), the
-     *       storeless merchant's on 2026-11-25 (302 -> /login). Both are now asserted as
+     *       storeless merchant's on 2026-11-26 (302 -> /login). Both are now asserted as
      *       requirements below, and the end-to-end coverage for the merchant leg is
      *       `StorelessMerchantDashboardTest`.
      *
@@ -942,7 +942,7 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
          *
          * This was `assertSame(500, ...)` with the recorded instruction: "If this now answers a
          * redirect to sign-in, that is the repair: change this assertion and close the gap-register
-         * lead that records it." Done 2026-11-25 under GAP-013.
+         * lead that records it." Done 2026-11-26 under GAP-013.
          * `HomeController::handleRegularUser()` was discarding the redirect `getOrderChart()`
          * returns for this principal and then dereferencing the null store at :637
          * (`ErrorException: Attempt to read property "slug" on null`); it now signs them out and

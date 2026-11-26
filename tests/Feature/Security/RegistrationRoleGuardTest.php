@@ -27,7 +27,7 @@ use Tests\Support\StripsSourceComments;
  * 500 -- it is a half-registered merchant with a live session and no role.
  *
  * ========================================================================================
- * TWO OF THE THREE ASSERTIONS BELOW ARE INVERTED, 2026-11-25, AND THE REASON IS THE WHOLE
+ * TWO OF THE THREE ASSERTIONS BELOW ARE INVERTED, 2026-11-26, AND THE REASON IS THE WHOLE
  * POINT OF THIS SLICE'S SECOND HALF.
  * ========================================================================================
  *

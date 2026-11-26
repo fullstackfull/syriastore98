@@ -119,7 +119,7 @@
         "gap that exposes silent role-assignment tolerance. The skip SET is unchanged.",
         "",
         "=========================================================================================",
-        " 2026-11-25 -- THE LAST FAILURE ENTRY DELETED BECAUSE IT NOW PASSES, WHICH THIS GATE REQUIRES.",
+        " 2026-11-26 -- THE LAST FAILURE ENTRY DELETED BECAUSE IT NOW PASSES, WHICH THIS GATE REQUIRES.",
         "=========================================================================================",
         "RegistrationTest::test_new_users_can_register is GONE from expected_failures, which is now",
         "EMPTY. `expected_skips` still holds its one entry and is untouched. Deleting this is",
