@@ -1462,6 +1462,55 @@ class OrderRefundController extends Controller
         $amount = $capped['amount'];
 
         if ($amount <= 0) {
+            /*
+             * GAP-316 -- NAME THE CAUSE, NOT THE MERCHANT'S NUMBER.
+             *
+             * The ceiling here is the ORDER'S OWN TOTAL, and when that is absent the ceiling is 0
+             * (`RefundIntegrityService::toAmount()` ends `return $amount > 0 ? $amount : 0.0`). Every
+             * positive request is then capped to 0 and lands in this branch -- so the single message
+             * that used to live here told the merchant their amount was too large when the amount was
+             * never the problem. They try a smaller number and are refused identically. MEASURED over
+             * 500, 50 and 1: byte-identical refusals. There is no number that works, and the sentence
+             * named the only thing they could change while withholding the only thing they could not.
+             *
+             * Found while measuring GAP-294, which is the reachability: orders really do carry a NULL
+             * `final_price`.
+             *
+             * THE CAUSE WAS ALREADY IN HAND. `cappedRefundAmount()` returns `limit` beside `amount`;
+             * this method read `amount` and discarded the rest. No new query and no recomputation --
+             * the limit is simply consulted before the sentence is chosen.
+             *
+             * A ZERO TOTAL IS NOT AN ABSENT TOTAL. An order that genuinely came to zero has nothing
+             * to refund; an order with no recorded total has a data problem upstream that the
+             * merchant cannot fix from this screen. Telling the first that its total is missing would
+             * be a second wrong answer, so they are separated -- `RefundRefusalNamesTheCauseTest`
+             * asserts which sentence each one gets.
+             *
+             * "NOT A POSITIVE AMOUNT" RATHER THAN "ZERO", so the recorded branch stays true without a
+             * third one. `limit <= 0` also covers a NEGATIVE total, which a coupon exceeding the
+             * subtotal could produce, and telling that merchant their total "is zero" would be the
+             * same kind of confidently wrong sentence this change exists to remove.
+             *
+             * NOTHING ELSE CHANGES: same refusal, same 422, no money moves, and the cap itself is
+             * untouched (`RefundIntegrityTest` owns that). Only the sentence differs.
+             *
+             * TRANSLATION, STATED RATHER THAN ASSUMED: both sentences go through `refundDenied()`,
+             * which wraps in `__()`, and neither has an `ar.json` entry -- exactly like the message
+             * they sit beside, which has none either (nor does 'Refund request not found.'). So this
+             * is no worse than the branch it joins, and it is NOT done: Arabic copy for a
+             * merchant-facing financial refusal is a content decision and is not invented here.
+             */
+            if ($capped['limit'] <= 0) {
+                $totalIsRecorded = $order->final_price !== null && trim((string) $order->final_price) !== '';
+
+                return $this->refundDenied(
+                    $totalIsRecorded
+                        ? 'This order\'s total is not a positive amount, so there is nothing to refund against it.'
+                        : 'This order has no recorded total, so a refund cannot be checked against it. The order total has to be recorded before a refund amount can be entered.',
+                    422
+                );
+            }
+
             return $this->refundDenied(
                 'A refund amount must be a positive number no greater than the order total.',
                 422

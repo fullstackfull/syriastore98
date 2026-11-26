@@ -229,8 +229,11 @@ try {
     );
     printf("        NULL total -> amount %.2f (limit %.2f); the controller then answers 422\n",
         $onNull['amount'], $onNull['limit']);
-    printf("        \"A refund amount must be a positive number no greater than the order total.\"\n");
-    printf("        <- which names the AMOUNT, not the missing total. See the recommendation.\n");
+    printf("        It USED to answer \"A refund amount must be a positive number no greater than\n");
+    printf("        the order total.\" -- naming the AMOUNT when the cause is the missing total, so no\n");
+    printf("        number the merchant tried could work. CLOSED as GAP-316: the controller now reads\n");
+    printf("        the `limit` this service already returns and names the cause. The CEILING below\n");
+    printf("        is unchanged, which is what this script measures.\n");
 
     // ─────────────────────────── [D] can the application itself produce a NULL?
     echo "\n[D] REACHABILITY IN THE CODE -- does any first-party writer put a null there?\n";
@@ -357,11 +360,13 @@ try {
     echo "           Zero -> the migration is a no-op alignment and safe to schedule.\n";
     echo "           Non-zero -> each row is an order whose total is unknown and whose refunds are\n";
     echo "           already refused; they want reconciling, not defaulting to 0.\n";
-    echo "        4. THE CHEAP, NON-MONEY IMPROVEMENT, independent of 1-3: the refusal message says\n";
-    echo "           \"A refund amount must be a positive number no greater than the order total\",\n";
-    echo "           which names the amount the merchant typed when the real cause is a missing\n";
-    echo "           total. A merchant cannot act on that. Distinguishing the two costs one branch\n";
-    echo "           and moves no money. Recommended, not implemented here.\n";
+    echo "        4. THE CHEAP, NON-MONEY IMPROVEMENT, independent of 1-3: DONE, as GAP-316. The\n";
+    echo "           refusal used to say \"A refund amount must be a positive number no greater than\n";
+    echo "           the order total\", naming the amount the merchant typed when the real cause was\n";
+    echo "           a missing total -- so no number worked and the merchant could not act on it.\n";
+    echo "           One branch on the `limit` cappedRefundAmount() already returns now separates\n";
+    echo "           a missing total from a non-positive one. No money moved, the ceiling is\n";
+    echo "           untouched, and items 1-3 above remain open owner questions.\n";
 } finally {
     try {
         DB::connection('fresh')->disconnect();
