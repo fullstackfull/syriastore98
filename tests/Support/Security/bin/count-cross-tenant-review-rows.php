@@ -51,6 +51,25 @@ function line(string $text = ''): void
     fwrite(STDOUT, $text . PHP_EOL);
 }
 
+/**
+ * ONE REFUSAL, USED BY EVERY READ -- F-D of the independent review.
+ *
+ * The first version wrapped only the table-existence loop, so a missing COLUMN (which that loop
+ * does not check) threw out of the count queries and the script exited **255 with a stack trace**:
+ * the exact failure mode the wrap was added to fix, one layer down. Every read is inside the guard
+ * now, and the guard is one function so a future read cannot be added outside it by omission.
+ */
+function cannotLook(\Throwable $e): void
+{
+    line('COULD NOT LOOK: the database could not be read.');
+    line('  ' . $e->getMessage());
+    line();
+    line('Point `.env` at the database you mean to inspect. This script needs READ access to');
+    line('`testimonials` and `products`, including the `store_id` and `product_id` columns, and');
+    line('nothing else.');
+    exit(1);
+}
+
 line('GAP-193 / F2 -- review rows whose store disagrees with their product\'s store');
 line('=========================================================================');
 line('Connection: ' . config('database.default')
@@ -72,12 +91,7 @@ try {
         }
     }
 } catch (\Throwable $e) {
-    line('COULD NOT LOOK: the database could not be read.');
-    line('  ' . $e->getMessage());
-    line();
-    line('Point `.env` at the database you mean to inspect. This script needs READ access to');
-    line('`testimonials` and `products` and nothing else.');
-    exit(1);
+    cannotLook($e);
 }
 
 /*
@@ -86,28 +100,32 @@ try {
  * separately instead. This is the same distinction `TestimonialController::callerOwnsTestimonial()`
  * draws when it requires `! empty($testimonial->store_id)` before comparing.
  */
-$mismatched = DB::table('testimonials')
-    ->join('products', 'products.id', '=', 'testimonials.product_id')
-    ->whereNotNull('testimonials.store_id')
-    ->whereNotNull('products.store_id')
-    ->whereColumn('testimonials.store_id', '<>', 'products.store_id')
-    ->count();
+try {
+    $mismatched = DB::table('testimonials')
+        ->join('products', 'products.id', '=', 'testimonials.product_id')
+        ->whereNotNull('testimonials.store_id')
+        ->whereNotNull('products.store_id')
+        ->whereColumn('testimonials.store_id', '<>', 'products.store_id')
+        ->count();
 
-$unknownSide = DB::table('testimonials')
-    ->join('products', 'products.id', '=', 'testimonials.product_id')
-    ->where(function ($q) {
-        $q->whereNull('testimonials.store_id')->orWhereNull('products.store_id');
-    })
-    ->count();
+    $unknownSide = DB::table('testimonials')
+        ->join('products', 'products.id', '=', 'testimonials.product_id')
+        ->where(function ($q) {
+            $q->whereNull('testimonials.store_id')->orWhereNull('products.store_id');
+        })
+        ->count();
 
-$orphanProduct = DB::table('testimonials')
-    ->leftJoin('products', 'products.id', '=', 'testimonials.product_id')
-    ->whereNotNull('testimonials.product_id')
-    ->where('testimonials.product_id', '<>', 0)
-    ->whereNull('products.id')
-    ->count();
+    $orphanProduct = DB::table('testimonials')
+        ->leftJoin('products', 'products.id', '=', 'testimonials.product_id')
+        ->whereNotNull('testimonials.product_id')
+        ->where('testimonials.product_id', '<>', 0)
+        ->whereNull('products.id')
+        ->count();
 
-$total = DB::table('testimonials')->count();
+    $total = DB::table('testimonials')->count();
+} catch (\Throwable $e) {
+    cannotLook($e);
+}
 
 line('testimonials rows, total .................. ' . $total);
 line('CROSS-TENANT (both store_ids known, differ)  ' . $mismatched);
@@ -124,31 +142,35 @@ if ($mismatched === 0) {
 
 line('THE AFFECTED ROWS (review id, its store, the product, the product\'s store):');
 
-DB::table('testimonials')
-    ->join('products', 'products.id', '=', 'testimonials.product_id')
-    ->whereNotNull('testimonials.store_id')
-    ->whereNotNull('products.store_id')
-    ->whereColumn('testimonials.store_id', '<>', 'products.store_id')
-    ->orderBy('testimonials.id')
-    ->select([
-        'testimonials.id as review_id',
-        'testimonials.store_id as review_store',
-        'testimonials.product_id as product_id',
-        'products.store_id as product_store',
-        'testimonials.rating_no as rating',
-        'testimonials.status as status',
-    ])
-    ->limit(500)
-    ->get()
-    ->each(static function ($row): void {
-        /* NO REVIEW TEXT IS PRINTED. The title and description are customer-authored content and
-           this script is meant to be runnable, and its output pasteable, without handling any. */
-        line(sprintf(
-            '  review %-8s store %-6s -> product %-8s store %-6s  rating %-3s status %s',
-            $row->review_id, $row->review_store, $row->product_id,
-            $row->product_store, $row->rating, $row->status
-        ));
-    });
+try {
+    DB::table('testimonials')
+        ->join('products', 'products.id', '=', 'testimonials.product_id')
+        ->whereNotNull('testimonials.store_id')
+        ->whereNotNull('products.store_id')
+        ->whereColumn('testimonials.store_id', '<>', 'products.store_id')
+        ->orderBy('testimonials.id')
+        ->select([
+            'testimonials.id as review_id',
+            'testimonials.store_id as review_store',
+            'testimonials.product_id as product_id',
+            'products.store_id as product_store',
+            'testimonials.rating_no as rating',
+            'testimonials.status as status',
+        ])
+        ->limit(500)
+        ->get()
+        ->each(static function ($row): void {
+            /* NO REVIEW TEXT IS PRINTED. The title and description are customer-authored content and
+               this script is meant to be runnable, and its output pasteable, without handling any. */
+            line(sprintf(
+                '  review %-8s store %-6s -> product %-8s store %-6s  rating %-3s status %s',
+                $row->review_id, $row->review_store, $row->product_id,
+                $row->product_store, $row->rating, $row->status
+            ));
+        });
+} catch (\Throwable $e) {
+    cannotLook($e);
+}
 
 line();
 line('WHAT THIS DOES NOT DO, deliberately: nothing. No delete, no re-point, no recompute of');

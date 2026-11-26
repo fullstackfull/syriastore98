@@ -285,7 +285,15 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
             /* ADDED AFTER THE INDEPENDENT REVIEW OF `8834cef15` FOUND THEM MISSING. `UpdateReview`
                writes seven columns including `product_id` and recomputes the product's average;
                `ReviewStatus` writes `status`, i.e. it PUBLISHES a review. Both were absent from the
-               hand-picked list above, and `UpdateReview` carried a live cross-tenant write. */
+               hand-picked list above, and `UpdateReview` carried a live cross-tenant write.
+
+               `ReviewStatus` NEEDS NO GUARD, for a stronger reason than "it only writes status",
+               which is what I first assumed. The exposure does not depend on `status` AT ALL: the
+               two unpredicated readers (`product_detail`, `product_detail_guest`) ignore it, every
+               reader that DOES filter it also filters `store_id`, and `AvregeRating()` ignores it
+               too. So a legacy foreign-`product_id` row is already served on the victim's page
+               whether published or not, and gating the toggle would refuse a merchant a switch on
+               their own row and buy nothing. It stays in this census because it is a writer. */
             'DashboardController::UpdateReview' => $this->methodBody(
                 'app/Http/Controllers/Api/DashboardController.php', 'UpdateReview'),
             'DashboardController::ReviewStatus' => $this->methodBody(
@@ -916,6 +924,133 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
         $this->assertSame('After', (string) $fresh->title);
         $this->assertSame(3, (int) $fresh->rating_no,
             'control: and the rating landed, so the guard did not short-circuit the write.');
+    }
+
+    /**
+     * F-B: THE `refusalFor()` NO-STORE ARM, WHICH NO TEST REACHED.
+     *
+     * Raised by the independent review of `1b2e0eff5`, which asked whether
+     * `$storeId === false || $storeId <= 0` was NEW -- because if it were, it would be an
+     * undisclosed narrowing: a staff principal with an empty `current_store` could previously save
+     * a general testimonial and now could not. **It is not new.**
+     * `git show 1b2e0eff5^:app/Http/Controllers/TestimonialController.php:468-471` carries it
+     * verbatim in the pre-extraction inline body, same condition, same message shape. Verified here
+     * rather than taken on report.
+     *
+     * So F-B reduces to a COVERAGE GAP, and this case closes it. Deleting that arm survives every
+     * other case in this file, because `where('store_id', false)` still matches nothing -- the only
+     * observable difference is WHICH message comes back, and no other case reads it. That is the
+     * same shape as the F3 finding on this file: a refusal asserted without its reason.
+     *
+     * NO PRODUCT IS POSTED, deliberately: with a product id present the product arm would refuse
+     * first and this case would measure that instead.
+     */
+    public function test_a_principal_who_resolves_no_store_is_refused_with_the_store_reason(): void
+    {
+        [$merchant, $store, , ] = $this->tenantWithAProduct('g193-nostore');
+
+        /* THE SHAPE `UserController::store()` LEAVES AN OPERATOR-CREATED STAFF ROW IN -- the same
+           principal GAP-279 measured, reused here because it is the one that really resolves no
+           store. */
+        $staff = $this->makeStaff($merchant, ['current_store' => null]);
+        $this->permit($staff, ['Create Testimonial']);
+        $staff = User::find($staff->id);
+
+        $this->actingAs($staff);
+        $this->assertNull(getCurrentStore(),
+            'premise: this principal resolves no store, which is the only way to reach the arm '
+            . 'under test.');
+        $this->assertTrue($staff->isAbleTo('Create Testimonial'),
+            'premise: they hold the permission, so a refusal is the STORE arm and not the gate.');
+
+        $this->actingAs($staff)->post('/testimonial', [
+            'rating_no' => 5, 'title' => 'G193 no store', 'description' => 'x', 'status' => 1,
+        ]);
+
+        $this->assertFlashedRefusalIs(
+            __('No store is selected, so a review cannot be saved. Open the store it belongs to and try again.')
+        );
+
+        $this->assertNull(
+            Testimonial::withoutGlobalScopes()->where('title', 'G193 no store')->first(),
+            'and nothing was written.'
+        );
+    }
+
+    /**
+     * **F-A, MEASURED: `UpdateReview`'s `user_id` is STILL UNSCOPED, and it hands back the platform
+     * operator's e-mail address.**
+     *
+     * Raised by the independent review of `1b2e0eff5`. `product_id` and `category_id` are closed by
+     * the F1 guard; `user_id` is the third input-written column and is written straight from input
+     * with no `exists:` rule and no store predicate. `testimonials.user_id` is read through
+     * `Testimonial::UserData()` -- `hasOne(User::class, 'id', 'user_id')` -- and emitted as
+     * `user_email` by `ApiController::product_detail()`.
+     *
+     * So the whole chain is one merchant acting entirely inside their own tenant:
+     *
+     *     POST api/admin/updatereview {store_id: own, id: own review, user_id: 1}
+     *     POST api/{own slug}/product-detail {id: own product}
+     *       -> data.product_Review[].user_email == the platform operator's users.email
+     *
+     * THIS DOOR IS WHERE THE PRIMITIVE IS MOST USEFUL, which is why it is pinned rather than only
+     * noted: the attacker RE-POINTS AN EXISTING ROW, so they do not need a reviewable pair, a
+     * purchase, or a shopper at all.
+     *
+     * **PINNED, NOT FIXED, AND NOT BY WIDENING THE SHARED CLASS** -- `AddReview`'s own block
+     * already gives the reason and `UpdateReview`'s block now carries it too: the column holds ids
+     * from two different tables depending on which writer created the row, so the right predicate
+     * is a decision about what the column means, not a copy of the product one. **INVERT this case
+     * when that decision lands; do not relax it.**
+     */
+    public function test_known_bad_the_admin_api_still_writes_an_unscoped_user_id(): void
+    {
+        $operator = $this->makePlatformAdmin(['email' => 'g193-THE-OPERATOR@example.test']);
+
+        $this->assertSame(1, (int) $operator->id,
+            'premise: the operator is user id 1, which is the value posted below.');
+
+        [$merchant, $store, $category, $product] = $this->tenantWithAProduct('g193-fa');
+
+        $own = Testimonial::forceCreate([
+            'category_id' => $category->id, 'product_id' => $product->id,
+            'rating_no' => 5, 'title' => 'G193 FA', 'description' => 'G193 FA body',
+            'status' => 1, 'store_id' => $store->id, 'user_id' => 999999,
+        ]);
+        (new Testimonial)->flushCache();
+
+        $bearer = $merchant->createToken('g193-fa')->plainTextToken;
+
+        $write = $this->withHeaders(['Authorization' => 'Bearer ' . $bearer])
+            ->postJson('/api/admin/updatereview', [
+                'store_id' => $store->id,
+                'id' => $own->id,
+                'user_id' => 1,                 // the operator, and the column's own default
+            ]);
+
+        $this->assertSame(1, (int) $write->json('status'), sprintf(
+            'premise: the write was ACCEPTED -- the F1 guard does not look at `user_id`, which is '
+            . 'the finding. Body: %s', $write->getContent()
+        ));
+
+        $this->assertSame(1, (int) Testimonial::withoutGlobalScopes()->findOrFail($own->id)->user_id,
+            'premise: the posted id landed in the column unscoped.');
+
+        $read = $this->withHeaders(['Authorization' => 'Bearer ' . $bearer])
+            ->postJson('/api/' . $store->slug . '/product-detail', ['id' => $product->id]);
+
+        $this->assertSame(200, $read->status(), 'premise: the reader answered.');
+
+        $emails = array_filter(array_column(
+            (array) data_get($read->json(), 'data.product_Review', []), 'user_email'
+        ));
+
+        $this->assertContains('g193-THE-OPERATOR@example.test', $emails, sprintf(
+            'F-A IS FIXED: `UpdateReview` no longer writes an unscoped `user_id`, so the operator '
+            . 'address no longer comes back. Confirm which predicate was chosen for a column that '
+            . 'holds ids from TWO tables, then INVERT this case. Emails seen: %s',
+            json_encode(array_values($emails))
+        ));
     }
 
     /**

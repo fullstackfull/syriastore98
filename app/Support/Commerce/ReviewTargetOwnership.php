@@ -58,11 +58,17 @@ use App\Models\Product;
  *      store B. Verified: there is **no raw write to `products` or `categories` anywhere in
  *      production code** — every `DB::table('products'|'categories')` site in `app/` and `packages/`
  *      is a read. A future raw write to either table re-opens this.
- *   2. **The tests are the real exposure.** Under `CACHE_STORE=array` the store IS taggable, and the
- *      suite already contains raw writes that MOVE `store_id` (`StockAttributionTest.php:740`,
- *      `TopSalesReportSuiteReachabilityTest.php:447`, `:487`). A fixture that repoints a product with
- *      `DB::table()` and then drives one of these doors can read a stale `true`. Write such a fixture
- *      through Eloquent, or `(new Product)->flushCache()`.
+ *   2. **The tests are the real exposure, and the list is ONE fixture, not three.** Under
+ *      `CACHE_STORE=array` the store IS taggable, so a fixture that repoints a row with
+ *      `DB::table()` and then drives one of these doors can read a stale `true`. The one dangerous
+ *      site is `StockAttributionTest.php:740`, which raw-updates `store_id` with no `flushCache()`.
+ *      **An earlier version of this note also named `TopSalesReportSuiteReachabilityTest.php:447`
+ *      and `:487` and was wrong on both:** they update `category_id`/`brand_id`, not `store_id`, and
+ *      each is immediately followed by `(new Product)->flushCache()`, so neither can change the
+ *      truth value this guard asks. Corrected because an overstated hazard list is exactly what a
+ *      future author trims — and then trims the real entry with it. Write such a fixture through
+ *      Eloquent, or `(new Product)->flushCache()` / `(new Category)->flushCache()`: the category arm
+ *      has the identical exposure, and only `Product` used to be named here.
  *
  * THE STORE ID MUST BE PRINCIPAL-DERIVED, AND EACH CALLER SAYS SO AT ITS CALL SITE:
  * `TestimonialController` passes `getCurrentStore()` (the session), `UpdateReview` passes
@@ -74,6 +80,18 @@ use App\Models\Product;
  * `'1abc'` to 1 in the lookup while `filter_var` refuses it) the swap is STRICTER, not weaker, and
  * SQLite's affinity cannot show it. Recorded as equivalent rather than chased, because `$store->id`
  * says at a glance that the value is principal-derived.
+ *
+ * THAT EQUIVALENCE HOLDS ONLY WHILE THE GUARD SITS **BELOW** `resolveOwnedStore()`. Hoisted above
+ * it, `$request->store_id` becomes a comparison of the caller's own two values — which CLAUDE.md
+ * records as not a tenant check at all — so the call site's ORDER is load-bearing, not incidental.
+ *
+ * ONE MERCHANT-FACING STRING CHANGED WHEN THIS CLASS WAS EXTRACTED, AND IT IS DISCLOSED HERE
+ * BECAUSE NOBODY DISCLOSED IT AT THE TIME. The inline panel version read *"…so a testimonial cannot
+ * be saved"*; this one reads *"…so a review cannot be saved"*. Not a regression — neither wording is
+ * in `en.json` or `ar.json`, so no Arabic translation was lost, and "review" is arguably righter for
+ * a class that serves three doors. But a user-facing wording change arriving as a side effect of a
+ * refactor is the class of thing this project watches for, so it is recorded rather than left to be
+ * noticed.
  *
  * @see \App\Http\Controllers\TestimonialController::foreignRowRefusal()
  * @see \Api\DashboardController::UpdateReview()
