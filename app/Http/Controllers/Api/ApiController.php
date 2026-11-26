@@ -8616,6 +8616,29 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             return $this->error(['message' => __('Order not found.')], __('Order not found.'));
         }
 
+        /* GAP-135 / P4-F036. A SHOPPER MAY ONLY CANCEL -- the whole account, the precedent it
+           follows and the one narrowing it makes are on FulfilmentStateMachine::refusalForShopper().
+           The principal is DERIVED: resolveStoreCustomer() is the storefront's shared predicate and
+           answers null for a merchant's or a driver's token, and also for a null store, which is
+           what getStore() answers for a slug naming no store -- so auth('customers')->user(), the
+           expression that helper itself evaluates, is the fallback and this fails CLOSED. A
+           signed-in Customer is also exactly the branch resolveViewableOrder() admitted this order
+           on -- it tests auth('customers')->user() before the driver and User branches -- so the
+           guard and the ownership decision cannot disagree about who the caller is, even for a
+           visitor holding both a shopper and a panel session. The value judged is `$request->
+           order_status`, character for character the expression the line below hands the writer, so
+           this cannot authorise one word while another is written. Asked AFTER ownership so a
+           foreign caller still gets the identical 'Order not found.' and cannot enumerate ids. */
+        $ssShopper = $this->resolveStoreCustomer($store) ?? auth('customers')->user();
+
+        if ($ssShopper instanceof Customer) {
+            $ssRefusal = \App\Support\Orders\FulfilmentStateMachine::refusalForShopper($request->order_status);
+
+            if ($ssRefusal !== null) {
+                return $this->error(['message' => $ssRefusal], $ssRefusal);
+            }
+        }
+
         $data['order_id'] = $order->id;
         $data['order_status'] = $request->order_status;
 

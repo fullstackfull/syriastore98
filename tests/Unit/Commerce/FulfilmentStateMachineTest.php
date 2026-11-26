@@ -239,7 +239,7 @@ class FulfilmentStateMachineTest extends TestCase
     /**
      * THE COLUMN HOLDS VALUES OUTSIDE 0..8 AND THOSE ROWS MUST NOT BE STRANDED.
      *
-     * `Api\ApiController:10471` writes the literal `'-'`, and `OrderDataTable:334` branches on
+     * `Api\ApiController:10518` writes the literal `'-'`, and `OrderDataTable:334` branches on
      * `null` and `''`. The pre-existing loose comparisons are what decide those rows, and casting
      * would have changed them: `(int) '-'` is `0` -- which would make a `'-'` order cancellable --
      * while `'-' == 0` is false under PHP 8, which is what the writer has always evaluated.

@@ -923,7 +923,7 @@ if ($order_status == 'cancel') {
      * change, which CLAUDE.md puts in the escalate-to-owner set, not a defect.
      *
      * THE RAW COLUMN VALUE IS PASSED, NOT A CAST ONE, and that is deliberate: one shipped handler
-     * writes the literal `-` into this column (`Api\ApiController:10471`), and under PHP 8 a cast
+     * writes the literal `-` into this column (`Api\ApiController:10518`), and under PHP 8 a cast
      * would have made such a row cancellable when it is not today. The machine reproduces the
      * writer's own loose comparisons for the two pre-existing rules.
      *

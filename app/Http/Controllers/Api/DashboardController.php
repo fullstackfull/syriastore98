@@ -3909,7 +3909,7 @@ public function AddProduct(Request $request)
         $Product->status = $request->status ?? 1;
 
         $Product->product_weight = $request->product_weight ?? 0;
-        $Product->shipping_id = $request->shipping_id ?? null;
+        $Product->shipping_id = \App\Support\Commerce\ShippingClassOwnership::keepOwned($request->shipping_id ?? null, $store->id, null);
         $Product->tax_status = $request->tax_status ?? 'none';
 
         if (!empty($request->tax_id)) {
@@ -4107,7 +4107,7 @@ public function UpdateProduct(Request $request)
     $product->status = $request->status ?? 1;
 
     $product->product_weight = $request->product_weight ?? 0;
-    $product->shipping_id = $request->shipping_id ?? null;
+    $product->shipping_id = \App\Support\Commerce\ShippingClassOwnership::keepOwned($request->shipping_id ?? null, $store->id, $product->shipping_id);
     $product->tax_status = $request->tax_status ?? 'none';
 
     if (!empty($request->tax_id)) {

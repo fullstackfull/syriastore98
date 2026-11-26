@@ -65,7 +65,7 @@ namespace App\Support\Orders;
  * =================================================================================================
  *
  * `orders.delivered_status` is written as the literal `'-'` by one shipped handler
- * (`Api\ApiController:10495`), and `OrderDataTable:334` already branches on `null` and `''`, so
+ * (`Api\ApiController:10518`), and `OrderDataTable:334` already branches on `null` and `''`, so
  * rows outside the vocabulary exist. {@see self::stateOf()} therefore answers `null` for a value
  * that is not one of the nine, and an unrecognised state is NOT GOVERNED for the four progression
  * arms -- it stays as movable as it is today, because making such a row unmovable would be a new
@@ -270,7 +270,7 @@ final class FulfilmentStateMachine
      * nor any other known state: `cancel` was refused on it (`'' != 0` is true) and `return` was
      * permitted on it. Reading it as Pending here would have refused that return -- a behaviour
      * change dressed as a tidy-up. So `''` answers `null`, unrecognised, exactly like the `'-'`
-     * one shipped handler writes (`Api\ApiController:10495`) and anything else outside 0..8.
+     * one shipped handler writes (`Api\ApiController:10518`) and anything else outside 0..8.
      */
     public static function stateOf($raw): ?int
     {
@@ -434,5 +434,169 @@ final class FulfilmentStateMachine
     public static function matrix(): array
     {
         return self::PERMITTED;
+    }
+
+    /*
+     * ============================================================================================
+     * WHICH STATUSES A SHOPPER MAY SET. GAP-135 / `P04-P4-03`, finding `P4-F036`.
+     * ============================================================================================
+     *
+     * EVERYTHING BELOW THIS LINE IS APPENDED RATHER THAN FILED WITH ITS RELATIVES, and that is
+     * deliberate: four prose citations elsewhere name lines `:26-32`, `:68` and `:273` of THIS file
+     * (`Api\ApiController:10518`, `StorefrontOrderFulfilmentStateNotCallerChosenTest:78`,
+     * `DeliverySyriaOrderTransitionTest:34` and the GAP-258 register row), and CLAUDE.md records
+     * that an absolute line citation goes stale on any insertion above it while only the ones a
+     * test covers say so. A constant block at the top would have moved all four.
+     *
+     * WHAT WAS WRONG. The rules above answer "may this ORDER move there". Nothing answered "may
+     * this PRINCIPAL say so". `Api\ApiController::order_status_change` -- the storefront door, which
+     * a store's own customer reaches with the Sanctum token self-registration mints -- resolved
+     * ownership through `resolveMutableOrder()` and then took the word itself from the request:
+     *
+     *     $data['order_status'] = $request->order_status;
+     *
+     * Measured through the real route before this existed: a shopper POSTing `delivered` against
+     * their own Pending order answered `{status: 1}` and the row read `delivered_status = 1`;
+     * `confirmed`, `pickedup`, `shipped` and `return` likewise. That is the state
+     * `Order::product_return()` requires before it CREDITS MERCHANT STOCK and REDUCES
+     * `final_price`, and the same token reaches `api/{slug}/product-return`, so the pair composes
+     * into a self-service refund for goods that never moved. The AUTHZ-3 fix said so in its own
+     * docblock -- *"WHICH status each principal may set is not constrained"* -- and owner decision
+     * H2's cost note says closing `P4-F036` "is what removes the sharp edge", because `FORWARD_ONLY`
+     * made a shopper-declared DELIVERED unrecoverable from any product surface.
+     *
+     * CANCEL, AND NOTHING ELSE, AND THAT IS A PRECEDENT RATHER THAN A NEW RULE. The sibling SHOPPER
+     * door -- `OrderController::status_cancel`, the web storefront's own cancellation route -- was
+     * given exactly this rule under `P4-F235`: it trims the posted word, requires `cancel`, and
+     * answers `This action is not available.` to everything else. Its reasoning is quoted because it
+     * is the reasoning here: *"What is wrong is that a CUSTOMER self-service cancellation endpoint
+     * accepts any lifecycle transition at all"*, and the refusal belongs in the door, *"NOT in
+     * `order_status_change()` ... shared with the merchant admin and the two API doors, which
+     * legitimately set `confirmed`, `pickedup`, `shipped` and `delivered`"*.
+     *
+     * SO THE RULE LIVES HERE AND IS ASKED AT THE DOOR. One definition, because that is what this
+     * class is for; applied where the principal is known, because a model-layer rule that read
+     * `auth()` would be reading the DEFAULT guard -- `web` -- which is null for a shopper and, for a
+     * shopper who also holds a panel login, answers for that merchant instead (CLAUDE.md §1).
+     *
+     * DEFAULT-DENY, AND THE LIST IS NOT THE POINT -- the direction is. A word this machine does not
+     * govern is refused for a shopper too: `pre_order` and the `PartialPayments` vocabulary are
+     * handled by module arms below the writer's six and write `delivered_status` 8 and 7, a payment
+     * state and an order type. Neither is a shopper's to name, and `refusalFor()`'s own history is
+     * the argument -- it answered `null` for an ungoverned word, every caller read that as "go
+     * ahead", and `FORWARD_ONLY` exists because of what that cost. One consequence is disclosed
+     * rather than discovered: on THIS door, for a CUSTOMER only, a word outside the six now answers
+     * the sentence below instead of the writer's "That order status is not recognised." No client
+     * calls the storefront API (CLAUDE.md), no test asserted that string for this principal, and
+     * the merchant, driver and operator paths are untouched.
+     *
+     * `return` IS NARROWED, AND IT IS THE ONE JUDGEMENT CALL IN THIS BLOCK. A shopper could push any
+     * order that had left Pending into `delivered_status = 3` / `return_status = 1` -- out of SHIPPED,
+     * that is a buyer declaring goods returned while the courier is still carrying them, and
+     * approving such a request credits the stock. The shopper's own return journey is NOT this word
+     * and is untouched: `api/{slug}/product-return` is the per-line door and is gated on
+     * `delivered_status == 1`, and the web refund request is gated on delivery the same way. Both
+     * still work for a genuinely delivered order with the same token. If an owner wants a shopper to
+     * be able to REQUEST a return through this door, adding `self::RETURNED` to the list below is the
+     * whole change and
+     * `Gap135ShopperFulfilmentTransitionTest::test_a_shopper_cannot_push_their_own_order_into_the_return_workflow`
+     * is the case to invert.
+     *
+     * WHAT THIS DOES NOT DO. It does not touch the merchant web screen, the order board, the Flutter
+     * admin door (`Api\DashboardController`), the courier webhook (`Api\DeliverySyriaOrderController`)
+     * or `OrderReplacement`: none of them is reached by a shopper, and all of them legitimately set
+     * the four progression words. It does not change any money field, any stock path, or what any
+     * status MEANS. It adds a refusal for one principal on one door.
+     */
+
+    /**
+     * The status words a SHOPPER -- a `Customer` acting on their own order -- may set.
+     *
+     * @var list<string>
+     */
+    public const SHOPPER_PERMITTED = [self::CANCEL];
+
+    /**
+     * THE REFUSAL, AND IT IS NOT A NEW STRING ON PURPOSE.
+     *
+     * `resources/lang/en.json:4413` and `ar.json:4409` already carry it (`هذا الإجراء غير متاح.`),
+     * put there by the sibling shopper door's own fix. A new sentence would have gone out
+     * untranslated to every Arabic shopper, which CLAUDE.md puts in the escalate set; this one is
+     * the same answer the other shopper door already gives for the same refusal, in the shopper's
+     * own language.
+     */
+    public const MESSAGE_SHOPPER_NOT_PERMITTED = 'This action is not available.';
+
+    /**
+     * Why a SHOPPER may not set this status, or `null` when they may.
+     *
+     * Asked with the RAW posted value and compared strictly: a non-string -- an array, an integer,
+     * `null` -- is refused rather than coerced, because the writer's own branch chain matches
+     * `'cancel'` and nothing else that could coerce to it. Whitespace is not trimmed either, so
+     * `' cancel '` is refused here; the writer would have answered "not recognised" for it anyway,
+     * and trimming would mean admitting a word the writer then refuses, with a worse message.
+     *
+     * It says nothing about the ORDER's own state. The caller composes it with {@see self::refusalFor()}
+     * -- which the shared writer asks for every door -- so a shopper's `cancel` out of a
+     * non-Pending order is still refused by `MESSAGE_CANCEL_REFUSED`, exactly as before.
+     *
+     * @param  mixed  $word  the status word, exactly as the request supplied it
+     */
+    public static function refusalForShopper($word): ?string
+    {
+        if (is_string($word) && in_array($word, self::SHOPPER_PERMITTED, true)) {
+            return null;
+        }
+
+        return (string) __(self::MESSAGE_SHOPPER_NOT_PERMITTED);
+    }
+
+    /**
+     * The `delivered_status` values an order may be CREATED with. See {@see self::refusalForBirth()}.
+     *
+     * @var list<int>
+     */
+    public const BIRTH_PERMITTED = [self::PENDING, self::STATE_PRE_ORDER];
+
+    /**
+     * WHETHER AN ORDER MAY BE BORN IN THIS STATE. GAP-135 / `P04-P4-03`, finding `P4-F043`.
+     *
+     * A CREATION IS NOT A TRANSITION, so none of the rules above spoke about it: `refusalFor()`
+     * needs a from-state, and a new order has none. `P4-F043` is what that cost --
+     * `Api\ApiController::ordersave` assigned `delivered_status` straight from request input, so a
+     * store's own shopper could have their order BORN DELIVERED, arriving in the state
+     * `Order::product_return()` requires before it REDUCES `final_price`. That door was closed under
+     * `GAP-258` by not reading the request at all; this is the RULE it was closed against, named
+     * once so that the next writer has something to ask instead of a convention to guess at.
+     *
+     * THE TWO LEGAL BIRTH STATES ARE MEASURED, NOT CHOSEN. Every order writer in `app/` was read:
+     * `PaymentService` and the gateway controllers assign `0` or `8` (`8` = Pre-Order, for a basket
+     * holding a pre-order product, and `PreOrder`'s own module arm writes the same), the merchant web
+     * form, the Flutter admin order form, `PosController`, `place_order` and
+     * `OrderReplacement::cancelAndReplace()` all assign `0` or leave the column's own default, and
+     * `ordersave` assigns the literal `'-'`. So `{0, 8}` plus "unrecognised" is exactly what ships.
+     *
+     * AN UNRECOGNISED VALUE IS PERMITTED AT BIRTH, for `stateOf()`'s own reason: the literal `'-'`
+     * is written by a shipped handler on purpose, `GAP-254` settled that such a row keeps its own
+     * board bucket, and refusing it here would turn a documented default into a defect.
+     *
+     * IT IS A PREDICATE, NOT A REWRITE. Nothing in this class may silently change a value a writer
+     * chose -- a normalisation at creation would rewrite the fulfilment state of every order the
+     * fixtures and the gateways create, which is a behaviour change dressed as a guard. It answers a
+     * question; the caller decides. `Gap135OrderBirthStateTest` asks it of every creation site in
+     * `app/`, so a future writer that hardcodes a born-Delivered order fails a test rather than
+     * shipping.
+     *
+     * @param  mixed  $raw  the `delivered_status` value a writer is about to create the order with
+     */
+    public static function refusalForBirth($raw): ?string
+    {
+        $state = self::stateOf($raw);
+
+        if ($state === null || in_array($state, self::BIRTH_PERMITTED, true)) {
+            return null;
+        }
+
+        return (string) __(self::MESSAGE_NOT_PERMITTED);
     }
 }

@@ -600,7 +600,7 @@ final class DeliverySyriaOrderTransitionTest extends SecurityTestCase
     /**
      * THE MACHINE IS ASKED WITH THE RAW COLUMN VALUE, NOT THE CAST ONE.
      *
-     * `orders.delivered_status` really holds values outside 0..8: `Api\ApiController:10495` writes
+     * `orders.delivered_status` really holds values outside 0..8: `Api\ApiController:10518` writes
      * the literal `-` into it (`!empty($request->delivered_status) ? $request->delivered_status :
      * '-'`), so a storefront order placed without one carries that. The handler keeps its own
      * `$oldStatus = (int) $order->delivered_status` for the response and the log, and `(int) '-'`
