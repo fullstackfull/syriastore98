@@ -574,6 +574,19 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **What would settle it outright** | `SHOW CREATE TABLE orders` on production. If the column is a `double` there too, the caveat can be re-worded to the measured magnitude or dropped; if it is a real `FLOAT`, the present wording is roughly right and should stay. |
 | **Blocked** | The wording only. Nothing else waits on this. |
 
+### J25 — `GAP-244`: a competitor reads your unit cost from your public slug
+
+| | |
+|---|---|
+| **The choice** | Drop `cost_price` and `user_email` from the two storefront product-detail responses, or leave them? |
+| **Why it is yours** | It changes a public API payload, which your standing instruction reserves to you. |
+| **Measured on a real response, both routes** | Store A's product carrying `cost_price 42.42` returns `"42.42"` to a **customer** token of store B, a **merchant** token of store B, and a **driver** token of store B — all three, because `custom.auth` keys on the tokenable class. **The case that matters is the merchant: store B's owner holds a legitimate token, needs only A's public slug, and reads A's unit cost on every product.** The payload also carries `created_by`, `detail`, `store_id` and over twenty product columns. |
+| **And the e-mail is the ordinary case, not a contrivance** | `product-rating` stores a **`customers`** id; the review's `UserData()` joins **`users`**; the page prints that row's address. An attempt to *construct* a colliding `users` row **failed with `UNIQUE constraint failed: users.id`, because `customers.id = 1` and `users.id = 1` — the store's own merchant — already collide.** The field also defaults to `1`, which is the platform operator. |
+| **Engineering recommendation** | **`unset()` both keys at both storefront handlers, unconditionally.** There is no principal on that surface for whom either field is legitimate — unlike the admin API, the storefront has no "who may see it" axis at all. |
+| **The precedent is this repository's own** | The same question was decided on the admin API and the answer was `unset()` at the handler, whose docblock records that *"the client reads `cost_price` with a null-safe default"*. **So client tolerance for that key's absence is already established by our own prior finding.** `user_email` has no equivalent evidence, so that half wants a look at the shipped app before it moves. |
+| **Two remedies NOT to take** | `$hidden` on the `Product` model would break the merchant's **own** app — their product list assigns `cost_price` on every row. And sourcing `user_email` from `customers` instead is **not** safer: it would publish the **shopper's** address on a public page. |
+| **Blocked** | Only the narrowing. The measurement, the pins and all seven candidate-remedy mutations are done, so the change is three lines in two byte-identical twins — applied **twice** — plus the one test that currently pins the disclosure in the other direction on purpose. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to
