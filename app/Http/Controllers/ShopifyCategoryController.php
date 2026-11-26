@@ -171,7 +171,39 @@ class ShopifyCategoryController extends Controller
                         return redirect()->back()->with('error', $errorMessage);
                     } else {
                         $upddata = ShopifyConection::where('store_id', getCurrentStore())->where('module', '=', 'category')->where('shopify_id', $id)->first();
-                        $original_id = $upddata->original_id;
+
+                        /*
+                         * P1-INV-13 / DATA-001. This read `$upddata->original_id` on a mapping that
+                         * `->first()` can return as NULL, then located the row with a bare
+                         * `Category::find($original_id)` and overwrote its name, slug and three image
+                         * paths. `Category` is in `config/tenancy.php`'s `scoped_models`? It is NOT --
+                         * CLAUDE.md measures that `Category` adds no predicate for ANY principal even
+                         * though `getGlobalScopes()` answers `[StoreScope]` -- so that `find()` reached
+                         * every tenant's categories and the write landed on whichever one the mapping
+                         * named. `shopify_conections.original_id` carries no foreign key, so a mapping
+                         * row scoped to THIS store can still name another store's category.
+                         *
+                         * The identical defect was fixed in `ShopifyProductController::edit` and the
+                         * three Woo handlers; this handler was missed because the census that was
+                         * supposed to cover "every re-sync handler" iterated a hardcoded list of four.
+                         * See `ImportResyncOwnershipCompletenessTest`, which discovers the door instead.
+                         *
+                         * THE REFUSAL IS BEFORE THE FETCH, THE QUOTA CHARGE AND THE UPLOAD, which is
+                         * the ordering that test pins for the product handler: a refused re-sync must
+                         * not first cost the merchant storage quota and leave an orphan upload.
+                         *
+                         * BEHAVIOUR NOTE: a mapping whose category was DELETED previously fell through
+                         * to the create branch below, which inserted a fresh category AND a SECOND
+                         * mapping row for the same `shopify_id` -- so the next re-sync resolved the
+                         * stale mapping again. It is refused here instead, exactly as the four sibling
+                         * handlers refuse it. The create branch is left in place rather than deleted,
+                         * because removing reachable-looking code is not a security fix's business.
+                         */
+                        $owned = \App\Services\ImportMappingOwnership::owned($upddata, Category::class, getCurrentStore());
+
+                        if (!$owned) {
+                            return redirect()->back()->with('error', __('Category Not Found.'));
+                        }
 
                         if (!empty($category['custom_collections'][0]['image']['src'])) {
 
@@ -207,7 +239,15 @@ class ShopifyCategoryController extends Controller
                             $uplaod = Utility::upload_woo_file($url, $file2, $path);
                         }
                         if (!empty($category)) {
-                            $exist               = Category::find($original_id);
+                            /*
+                             * `$owned` IS the row, already located and already ownership-checked
+                             * above, so re-reading it with `Category::find($original_id)` would be
+                             * a second query that reaches every tenant's categories to arrive at
+                             * the row we are holding. Using the checked object keeps the
+                             * authorization and the write on the SAME row -- a re-read is where a
+                             * time-of-check/time-of-use gap would live.
+                             */
+                            $exist               = $owned;
                             if ($exist) {
                                 $exist->name         = $category['custom_collections'][0]['title'];
                                 $exist->slug         = 'collections/' . strtolower(preg_replace("/[^\w]+/", "-", $category['custom_collections'][0]['title']));

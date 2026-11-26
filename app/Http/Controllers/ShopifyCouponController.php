@@ -163,9 +163,34 @@ class ShopifyCouponController extends Controller
 
                         if (!empty($coupons)) {
                             $upddata = ShopifyConection::where('store_id',getCurrentStore())->where('module','=','coupon')->where('shopify_id' , $id)->first();
-                            $original_id = $upddata->original_id;
 
-                            $coupon                    = Coupon::find($original_id);                            $coupon->coupon_name       = $coupons['price_rule']['title'];
+                            /*
+                             * P1-INV-13 / DATA-001. THIS ONE REWROTE A MONEY RULE ACROSS TENANTS.
+                             *
+                             * It read `$upddata->original_id` on a mapping `->first()` can return as
+                             * null, located the coupon with a bare `Coupon::find($original_id)` -- and
+                             * `Coupon` carries no tenant scope at all, so that reached every store's
+                             * coupons -- then overwrote `coupon_name`, `coupon_type`,
+                             * `discount_amount`, `coupon_limit`, `coupon_expiry_date` and
+                             * `coupon_code` and saved. Not a label: the DISCOUNT and the CODE of
+                             * another merchant's live coupon, settable from this caller's Shopify
+                             * payload. `shopify_conections.original_id` has no foreign key, so a
+                             * mapping scoped to this store can name another store's coupon.
+                             *
+                             * The null dereference was the second half: with no mapping, `$coupon`
+                             * was null, `$coupon->coupon_name = ...` threw, and the enclosing
+                             * `catch (\Exception)` reported it to the merchant as
+                             * "This email already used." -- in a coupon handler.
+                             *
+                             * Same fix as `WoocomCouponController::edit`, which was already correct.
+                             */
+                            $coupon = \App\Services\ImportMappingOwnership::owned($upddata, Coupon::class, getCurrentStore());
+
+                            if (!$coupon) {
+                                return redirect()->back()->with('error', __('Coupon Not Found.'));
+                            }
+
+                            $coupon->coupon_name       = $coupons['price_rule']['title'];
                             $coupon->coupon_type       = $coupon_type;
                             $coupon->discount_amount   =  str_replace('-', '', $coupons['price_rule']['value']);
                             $coupon->coupon_limit      =  !empty($coupons['price_rule']['usage_limit']) ? $coupons['price_rule']['usage_limit'] : -1;

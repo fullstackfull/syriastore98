@@ -256,8 +256,35 @@ class ShopifyCustomerController extends Controller
                                 $uplaod = Utility::upload_woo_file($url, $file2, $path);
                             }
                             if (!empty($customer)) {
-                                $upddata = ShopifyConection::where('store_id', getCurrentStore())->where('module', '=', 'customer')->where('shopify_id', $customer['customers'][0]['id'])->pluck('original_id')->first();
-                                $cutomer                 = Customer::find($upddata);
+                                $upddata = ShopifyConection::where('store_id', getCurrentStore())->where('module', '=', 'customer')->where('shopify_id', $customer['customers'][0]['id'])->first();
+
+                                /*
+                                 * P1-INV-13 / DATA-001. This plucked `original_id` and called
+                                 * `Customer::find($upddata)` with no check of either half.
+                                 *
+                                 * `Customer` IS in `config/tenancy.php`'s `scoped_models`, so unlike
+                                 * the category and coupon handlers the global scope really does add a
+                                 * predicate here -- and that is precisely why this was still a defect
+                                 * rather than a safe accident. CLAUDE.md: `null_tenant => 'open'`
+                                 * means the scope adds NOTHING when no tenant resolves, and "never
+                                 * let the scope be your only tenant check". The handler's own
+                                 * authorization was the scope and nothing else.
+                                 *
+                                 * The unconditional half was the null dereference: `pluck()->first()`
+                                 * returns null for an unmapped Shopify id, `Customer::find(null)`
+                                 * returns null, and `$cutomer->first_name = ...` threw -- reaching
+                                 * the catch below, which until P1-INV-13 blamed a duplicate e-mail.
+                                 *
+                                 * `->first()` replaces `->pluck('original_id')->first()` because the
+                                 * service takes the MAPPING ROW, as its three sibling handlers pass
+                                 * it, and performs both checks in one place.
+                                 */
+                                $cutomer = \App\Services\ImportMappingOwnership::owned($upddata, Customer::class, getCurrentStore());
+
+                                if (!$cutomer) {
+                                    return redirect()->back()->with('error', __('Customer Not Found.'));
+                                }
+
                                 $cutomer->first_name    = $customer['customers'][0]['first_name'];
                                 $cutomer->last_name     = $customer['customers'][0]['last_name'];
                                 $cutomer->profile_image = $uplaod['url'];
