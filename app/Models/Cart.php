@@ -245,7 +245,7 @@ class Cart extends Model
     {
         $store = Store::find($storeid);
 
-        $store_id = $store->id ?? getCurrentStore();
+        $store_id = $store->id ?? getCurrentStore(); $store = $store ?? Store::find($store_id); // GAP-292: recover the store the rest of this method is about; see GuestCartUnresolvableStoreTest
         $Carts = $cart_Cookie = Cookie::get('cart');
         $shipping_price_1 = $data['shipping_final_price'] ?? 0;
 
@@ -291,7 +291,7 @@ class Cart extends Model
         // One entry per cart line, filled by the loop and consumed by the coupon/tax pass after
         // it. See the note at the `$coupon_lines[]` push below (P4-F001 / P4-F062).
         $coupon_lines = [];
-        if (!empty($Carts)) {
+        if (!empty($Carts) && $store !== null) { // GAP-292: 12 `$store->slug` sites below
             foreach ($Carts as $key => $cart_value) {
                 $variant_name = '';
                 $cart_product_data = Product::find($cart_value->product_id);
