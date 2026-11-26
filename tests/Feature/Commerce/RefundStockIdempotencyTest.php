@@ -9,7 +9,7 @@ use App\Models\OrderRefund;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
-use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -45,11 +45,43 @@ use Tests\TestCase;
  *     -- two lines, same product, different variants -- the line is SKIPPED
  *     rather than guessed.
  *
- * Builds its own minimal schema, like the rest of tests/Feature/Commerce, and
- * refuses to run anywhere but sqlite :memory:.
+ * RUNS AGAINST THE MIGRATED SCHEMA (`RefreshDatabase`), and it used to build its own.
+ * ------------------------------------------------------------------------------------
+ * The hand-built shape declared SEVEN tables and one column the product does not have, so
+ * every figure here was measured against a database that does not ship. Converted 2026-11-26;
+ * what the conversion measured, against a fresh in-memory migrate, in both directions:
+ *
+ *  1. `product_variants.name` DOES NOT EXIST. The real migration
+ *     (2024_01_01_104858_create_product_variants_table.php) declares `variant` and `sku`, both
+ *     NOT NULL, plus `price` NOT NULL -- three columns the hand-built table omitted entirely.
+ *     So the variant label now goes into `variant`, which is the column that holds it, and the
+ *     two other NOT NULL columns are supplied. The same invented `name` was in four suites;
+ *     it is one copied scaffold error, not four findings.
+ *
+ *  2. THE MIGRATED SCHEMA ENFORCES FOREIGN KEYS THE HAND-BUILT ONE DECLARED NONE OF, and
+ *     `DB_FOREIGN_KEYS` is unset so sqlite enforces them in this suite:
+ *     `order_notes.customer_id -> customers.id`, `order_notes.order_id -> orders.id`,
+ *     `order_refunds.order_id -> orders.id`, `product_variants.product_id -> products.id`.
+ *     The idempotency marker is an `order_notes` row carrying `$order->customer_id`
+ *     (OrderRefundController::markRefundedLinesRestored()), so the order's customer must now
+ *     really exist -- see customerTheOrdersBelongTo(). Under the hand-built shape the marker
+ *     was written with a customer id that named nobody.
+ *
+ *  3. `order_refunds.product_refund_id` is `varchar(255)` in the migration and the hand-built
+ *     table widened it to TEXT. Both carry TEXT affinity in sqlite and sqlite enforces no
+ *     length at all, so the widening bought nothing even on its own terms; on MySQL a refund
+ *     of three or four lines overflows 255 and is refused under strict mode. The fixtures use
+ *     one or two short lines either way. REPORTED, not worked around.
+ *
+ *  4. `products.variant_product` defaults to 1 in the migration and the hand-built table
+ *     defaulted it to 0. Inert here only because makeProduct() always supplies it.
+ *
+ * Still refuses to run anywhere but sqlite :memory:.
  */
 class RefundStockIdempotencyTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const STORE_A = 11;
     private const STORE_B = 22;
 
@@ -63,7 +95,19 @@ class RefundStockIdempotencyTest extends TestCase
             'this suite must only ever run against sqlite :memory:'
         );
 
-        $this->createRefundSchema();
+        /*
+         * THE PREMISE OF DIVERGENCE 1, ASSERTED RATHER THAN ASSUMED. If `variant` is ever
+         * renamed, makeVariant() throws a QueryException from inside a fixture and the
+         * failure reads as a defect in the feature; this names the column instead.
+         */
+        foreach (['variant', 'sku', 'price', 'stock'] as $column) {
+            $this->assertTrue(
+                Schema::hasColumn('product_variants', $column),
+                "product_variants.{$column} must exist in the migrated schema "
+                    . '(2024_01_01_104858_create_product_variants_table.php); `name` never did'
+            );
+        }
+
         $this->loginMerchantOfStoreA();
     }
 
@@ -71,18 +115,6 @@ class RefundStockIdempotencyTest extends TestCase
     {
         Auth::logout();
         Cache::flush();
-
-        foreach ([
-            'order_notes',
-            'order_refunds',
-            'orders',
-            'product_variants',
-            'products',
-            'settings',
-            'users',
-        ] as $table) {
-            Schema::dropIfExists($table);
-        }
 
         parent::tearDown();
     }
@@ -447,6 +479,34 @@ class RefundStockIdempotencyTest extends TestCase
             (int) getCurrentStore(),
             'the fixture must resolve to store A, or every ownership assertion is vacuous'
         );
+
+        $this->customerTheOrdersBelongTo();
+    }
+
+    /**
+     * `customers` row 1, which every makeOrder() here names as its `customer_id`.
+     *
+     * DIVERGENCE 2. The migrated `order_notes` carries a foreign key on `customer_id` to
+     * `customers.id` (2024_02_07_071700_create_order_notes_table.php) and sqlite enforces it,
+     * so the idempotency marker cannot be written for an order whose customer does not exist.
+     * The hand-built schema created no `customers` table at all and declared no foreign key,
+     * so the marker was written against a customer id that named nobody -- a row production
+     * could not have.
+     *
+     * Raw insert, not the model: `Customer` is tenant-scoped AND soft-deleting, and this row
+     * is a referential premise rather than anything the suite reads back.
+     */
+    private function customerTheOrdersBelongTo(): void
+    {
+        DB::table('customers')->insert([
+            'id' => 1,
+            'first_name' => 'Refund',
+            'last_name' => 'Buyer',
+            'email' => 'refund-buyer@example.test',
+            'store_id' => self::STORE_A,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function makeProduct(int $storeId, array $attributes = []): Product
@@ -467,12 +527,20 @@ class RefundStockIdempotencyTest extends TestCase
         return $product;
     }
 
+    /**
+     * DIVERGENCE 1. The label goes into `variant`, which is the column the migration declares
+     * for it; `sku` and `price` are NOT NULL with no default, so they are supplied rather than
+     * omitted. Nothing here reads any of the three -- every assertion in this file is about
+     * `stock` -- so the label's value is unchanged from what the hand-built fixture used.
+     */
     private function makeVariant(int $productId, int $storeId, int $stock): ProductVariant
     {
         $variant = new ProductVariant();
         $variant->forceFill([
             'product_id' => $productId,
-            'name' => 'Variant ' . uniqid('', false),
+            'variant' => 'Variant ' . uniqid('', false),
+            'sku' => 'sku-' . uniqid('', false),
+            'price' => 10,
             'stock' => $stock,
             'stock_order_status' => 'not_allow',
             'store_id' => $storeId,
@@ -525,136 +593,5 @@ class RefundStockIdempotencyTest extends TestCase
         $refund->save();
 
         return $refund;
-    }
-
-    /**
-     * Only the tables RefundStock reads or writes.
-     *
-     * NOTE ON `order_refunds.product_refund_id`: the real migration declares it
-     * `$table->string(...)`, i.e. varchar(255), and it stores a JSON ARRAY of
-     * refund lines. Three or four lines overflow 255 characters and the blob is
-     * truncated or rejected depending on the driver's strict mode. That is a
-     * real data-integrity defect in the schema, it is reported rather than
-     * worked around, and it is NOT reproduced here as a 255-char column, because
-     * doing so would make this suite fail for a reason that has nothing to do
-     * with what it tests. The fixtures use one or two short lines, well inside
-     * 255 either way.
-     */
-    private function createRefundSchema(): void
-    {
-        foreach ([
-            'order_notes',
-            'order_refunds',
-            'orders',
-            'product_variants',
-            'products',
-            'settings',
-            'users',
-        ] as $table) {
-            Schema::dropIfExists($table);
-        }
-
-        Schema::create('users', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->string('type')->default('admin');
-            $table->string('password');
-            $table->unsignedBigInteger('current_store')->nullable()->index();
-            $table->string('is_active')->default('1');
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->rememberToken();
-            $table->timestamps();
-        });
-
-        // Order::booted()'s `creating` hook resolves the store's currency via
-        // Utility::GetValueByName (app/Models/Order.php:100-113), which reads
-        // `settings`. Without this table every makeOrder() dies with
-        // "no such table: settings" -- nothing to do with what is under test.
-        Schema::create('settings', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->longText('value')->nullable();
-            $table->string('created_by');
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        Schema::create('products', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->integer('track_stock');
-            $table->string('stock_order_status')->nullable();
-            $table->float('price')->default(0);
-            $table->float('sale_price')->default(0);
-            $table->integer('product_stock')->default(0);
-            $table->integer('low_stock_threshold')->default(0);
-            $table->string('stock_status')->default(0);
-            $table->boolean('variant_product')->default(0);
-            $table->double('average_rating', 8, 2)->default(0);
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->integer('created_by');
-            $table->timestamps();
-        });
-
-        Schema::create('product_variants', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('product_id');
-            $table->string('name')->nullable();
-            $table->integer('stock')->default(0);
-            $table->string('stock_order_status')->nullable();
-            $table->string('variation_option')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('orders', function (Blueprint $table) {
-            $table->id();
-            $table->string('product_order_id')->nullable();
-            $table->dateTime('order_date')->nullable();
-            $table->integer('customer_id')->default(0);
-            $table->text('product_json')->nullable();
-            $table->string('product_id')->default(0);
-            $table->float('product_price')->nullable()->default(0);
-            $table->float('coupon_price')->nullable()->default(0);
-            $table->float('delivery_price')->nullable()->default(0);
-            $table->float('tax_price')->nullable()->default(0);
-            $table->float('final_price')->nullable()->default(0);
-            $table->string('payment_type')->nullable();
-            $table->string('payment_status')->nullable();
-            // Written by Order::booted()'s creating hook; added by
-            // 2026_10_12_000102_add_currency_and_created_by_to_orders_table.php.
-            $table->string('currency_code', 3)->nullable();
-            $table->string('currency_symbol', 8)->nullable();
-            $table->unsignedBigInteger('created_by')->nullable()->index();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        Schema::create('order_refunds', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->string('refund_status');
-            $table->longText('refund_reason');
-            $table->string('custom_refund_reason')->nullable();
-            $table->longText('attachments')->nullable();
-            // See the note in this method's docblock about the real column type.
-            $table->text('product_refund_id')->nullable();
-            $table->string('product_refund_price')->default(0);
-            $table->float('refund_amount')->default(0);
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        Schema::create('order_notes', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->unsignedBigInteger('customer_id')->nullable();
-            $table->string('notes')->nullable();
-            $table->string('note_type')->nullable();
-            $table->string('status')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
     }
 }
