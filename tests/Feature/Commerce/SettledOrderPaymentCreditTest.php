@@ -4,6 +4,7 @@ namespace Tests\Feature\Commerce;
 
 use App\Http\Controllers\HomeController;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\OrderEntitlementReversal;
@@ -328,6 +329,113 @@ class SettledOrderPaymentCreditTest extends SecurityTestCase
         $this->assertSame(2, $this->creditCount($order),
             'the ledger should hold two order_paid credits for one order here — that is the '
             . '"credit the merchant a second time" P4-F124\'s docblock names');
+    }
+
+    /**
+     * CASE C', THE FIGURE: a `Paid` after a REAL return credits the PRE-RETURN total.
+     * =============================================================================================
+     *
+     * Case C above shows the credit happening. This shows WHAT IS CREDITED, and it is a second,
+     * independent arithmetic fact rather than a restatement — it was reasoned from the code when
+     * `GAP-257` was widened, and reasoning is not a figure, so it is driven here.
+     *
+     * `createForOrder()` snapshots `customer_total` from `orders.final_price` at creation, and
+     * keeps it deliberately: "السجل التاريخي يبقى بقيمته الأصلية". `Order::product_return()` then
+     * writes `orders.final_price` DOWN by what came back. Nothing reconciles the two, so a later
+     * `Paid` credits the ORIGINAL figure.
+     *
+     * MEASURED: goods 90.00 returned out of a 100.00 order — `orders.final_price` 100.00 -> 10.00,
+     * `orders.return_price` 90.00 — and the `Paid` that follows credits the wallet **100.00** while
+     * the order says **10.00** is owed. The merchant is credited 90.00 for goods they have back.
+     *
+     * THIS IS THE SAME OWNER DECISION, not a new one, and it is named on `J16` so it is not
+     * discovered separately: whichever way the credit-on-a-settled-order rule goes, the figure
+     * question (original total or current total) has to be answered with it.
+     */
+    public function test_case_c_prime_the_credit_is_the_pre_return_total_not_the_current_one(): void
+    {
+        [$merchant, $store, $order] = $this->merchantWithOrder();
+
+        /* A product and a line `product_return()` can actually read and match. */
+        $product = Product::forceCreate([
+            'name' => 'sop-' . uniqid(), 'slug' => 'sop-' . uniqid(),
+            'track_stock' => 0, 'stock_order_status' => 'not_allow',
+            'price' => 90.00, 'product_stock' => 0, 'variant_product' => 0,
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+
+        $fresh = Order::withoutGlobalScopes()->findOrFail($order->id);
+        $fresh->product_json = json_encode([[
+            'product_id' => $product->id, 'variant_id' => 0, 'qty' => 1,
+            'final_price' => 90.00, 'return' => 0, 'store_id' => $store->id,
+        ]]);
+        $fresh->delivered_status = HomeController::ORDER_STATUS_DELIVERED;
+        $fresh->save();
+
+        $result = Order::product_return([
+            'order_id' => $order->id, 'product_id' => $product->id, 'variant_id' => 0,
+        ]);
+
+        $this->assertSame('success', $result['status'] ?? null,
+            'premise: the return was accepted, without which nothing below is about a return: '
+            . ($result['message'] ?? ''));
+
+        $raw = DB::table('orders')->where('id', $order->id)->first();
+
+        $this->assertEquals(10.00, (float) $raw->final_price,
+            'premise: the return really did write the order total down. If it did not, the '
+            . 'comparison below is between two equal numbers and proves nothing.');
+        $this->assertEquals(90.00, (float) $raw->return_price);
+
+        $snapshot = (float) DB::table('store_order_financials')
+            ->where('order_id', $order->id)->value('customer_total');
+
+        $this->assertEquals(100.00, $snapshot,
+            'premise: the financial row still holds the ORIGINAL total, which is the deliberate '
+            . 'historical snapshot and the source of the figure credited');
+
+        /*
+         * AND THE READING THAT CORRECTED THIS CASE'S OWN PREMISE, WHICH IS A RESIDUAL OF THE FIX
+         * IN THIS FILE. The first draft asserted `delivered_status` would be 3 here. It is 1.
+         * `Order::product_return()` restocks a line and rewrites the money and does NOT move the
+         * order's fulfilment state; `delivered_status = 3` comes from a DIFFERENT door,
+         * `Order::order_status_change()`'s `return` arm (`Order.php:803-808`), which sets 3 and
+         * `return_status = 1` and leaves `final_price` alone. Two different things are called a
+         * return.
+         *
+         * SO THE AUDIT LINE DOES NOT FIRE FOR THIS SHAPE, and that is asserted below rather than
+         * left to be discovered. Its predicate is `delivered_status` 2 or 3 — identical to the API
+         * twin's, deliberately, because two copies of one decision pointing different ways is a
+         * worse outcome than one narrow decision. A line-level return is therefore outside BOTH
+         * doors' traces, while being exactly the shape that credits the wrong figure. Widening it
+         * (the platform's own wider definition of returned is
+         * `delivered_status = 3 OR return_price > 0`, `Api\ApiController:8240`) would mean editing
+         * both copies, so it is recorded on `J16` with this figure rather than taken here.
+         */
+        $this->assertSame(HomeController::ORDER_STATUS_DELIVERED, (int) $raw->delivered_status,
+            'product_return() now moves the order out of Delivered. If it sets 3, the audit-line '
+            . 'assertion below must be INVERTED, because the trace would then cover this shape.');
+
+        $lines = [];
+        Log::listen(function ($message) use (&$lines) {
+            if ($message->message === 'Payment status changed on a settled order') {
+                $lines[] = $message->context;
+            }
+        });
+
+        $this->postPaidThroughThePanel($merchant, $order);
+
+        $this->assertEquals(100.00, $this->walletBalance($store),
+            'GAP-257 changed behaviour. The merchant is credited the PRE-RETURN 100.00 while the '
+            . 'order says 10.00 is owed. If the owner has taken J16, INVERT this to whichever '
+            . 'figure the decision names — 0.00 if a returned order may not be credited, or 10.00 '
+            . 'if it may be credited at its current worth — and do not relax it.');
+
+        $this->assertCount(0, $lines,
+            'RESIDUAL, asserted so it is not read as covered: a LINE-level return leaves '
+            . 'delivered_status at 1, so neither door\'s audit line fires for the shape that '
+            . 'credits the wrong figure. Recorded on J16. If the predicate is widened, INVERT '
+            . 'this to 1 and say which change did it.');
     }
 
     /*
