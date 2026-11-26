@@ -3922,9 +3922,22 @@ public function AddProduct(Request $request)
         if ($request->track_stock == 1) {
             $Product->track_stock = 1;
             $Product->stock_status = $request->stock_status ?? 'in_stock';
+            /*
+             * INV-006 (GAP-182). THIS METHOD WROTE `stock_order_status` NOWHERE, so every product
+             * the shipped Flutter admin app has created carries NULL -- and
+             * `ProductStockService::forbidsOversell()` reads anything but the exact word
+             * `not_allow` as "oversell permitted". The app's products therefore oversold with no
+             * merchant decision anywhere, which is INV-004's "by default" inverted and INV-006's
+             * "explicit" absent. The default written here is the one
+             * `resources/views/product/create.blade.php` already ships `checked`, so the API now
+             * agrees with the screen; an explicit `allow` or `notify_customer` from the app is
+             * still honoured verbatim.
+             */
+            $Product->stock_order_status = \App\Support\Commerce\BackorderPolicy::forCreate($request->stock_order_status);
         } else {
             $Product->track_stock = 0;
             $Product->stock_status = $request->stock_status ?? 'in_stock';
+            $Product->stock_order_status = \App\Support\Commerce\BackorderPolicy::untracked();
         }
 
         $Product->store_id = $request->store_id;
@@ -4117,9 +4130,13 @@ public function UpdateProduct(Request $request)
     if ($request->track_stock == 1) {
         $product->track_stock = 1;
         $product->stock_status = $request->stock_status ?? 'in_stock';
+        /* INV-006 (GAP-182), as in AddProduct(). `forUpdate()` and not `forCreate()`: an app build
+           that sends no backorder key must KEEP the merchant's stored choice, not replace it. */
+        $product->stock_order_status = \App\Support\Commerce\BackorderPolicy::forUpdate($request->stock_order_status, $product->getOriginal('stock_order_status'));
     } else {
         $product->track_stock = 0;
         $product->stock_status = $request->stock_status ?? 'in_stock';
+        $product->stock_order_status = \App\Support\Commerce\BackorderPolicy::untracked();
     }
 
     $product->store_id = $request->store_id;

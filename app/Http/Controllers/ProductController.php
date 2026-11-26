@@ -850,11 +850,13 @@ $Product->cost_price = $request->cost_price;
                         $Product->product_stock = !empty($request->product_stock) ? $request->product_stock : 0;
                         if ($request->track_stock == 1) {
                             $Product->track_stock = $request->track_stock ?? 0;
-                            $Product->stock_order_status = $request->stock_order_status;
+                            /* INV-006 (GAP-182): an absent or unrecognised value is not a
+                               permission to oversell. See App\Support\Commerce\BackorderPolicy. */
+                            $Product->stock_order_status = \App\Support\Commerce\BackorderPolicy::forCreate($request->stock_order_status);
                             $Product->low_stock_threshold = !empty($request->low_stock_threshold) ? $request->low_stock_threshold :  '';
                         } else {
                             $Product->track_stock = !empty($request->track_stock) ? $request->track_stock : 0;
-                            $Product->stock_order_status = '';
+                            $Product->stock_order_status = \App\Support\Commerce\BackorderPolicy::untracked();
                             $Product->low_stock_threshold = !empty($request->low_stock_threshold) ? $request->low_stock_threshold :  '';
                         }
                        
@@ -1155,11 +1157,12 @@ $Product->cost_price = $request->cost_price;
                         $product->trending = $request->trending ?? 0;   // F61, as above
                         if (isset($request->track_stock) && $request->track_stock == 1) {
                             $product->track_stock = $request->track_stock;
-                            $product->stock_order_status = $request->stock_order_status;
+                            /* INV-006 (GAP-182), as in the variant limb above. */
+                            $product->stock_order_status = \App\Support\Commerce\BackorderPolicy::forCreate($request->stock_order_status);
                             $product->low_stock_threshold = !empty($request->low_stock_threshold) ? $request->low_stock_threshold : 0;
                         } else {
                             $product->track_stock = isset($request->track_stock) ? $request->track_stock : 0;
-                            $product->stock_order_status = '';
+                            $product->stock_order_status = \App\Support\Commerce\BackorderPolicy::untracked();
                             $product->low_stock_threshold = !empty($request->low_stock_threshold) ? $request->low_stock_threshold : 0;
                         }
 
@@ -1390,14 +1393,16 @@ $Product->cost_price = $request->cost_price;
                                         $product_stock->stock_status = !empty($request['stock_status_' . str_replace('.', '_', $str)]) ? $request['stock_status_' . str_replace('.', '_', $str)] : '';
                                         if ($variation_option) {
                                             if (in_array('manage_stock', $variation_option)) {
-                                                $product_stock->stock_order_status = !empty($request['stock_order_status_' . str_replace('.', '_', $str)]) ? $request['stock_order_status_' . str_replace('.', '_', $str)] : 0;
+                                                /* INV-006 (GAP-182). This defaulted to the INTEGER 0, which
+                                                   `ProductStockService::forbidsOversell()` reads as "allow". */
+                                                $product_stock->stock_order_status = \App\Support\Commerce\BackorderPolicy::forCreate($request['stock_order_status_' . str_replace('.', '_', $str)] ?? null);
 
                                                 $product_stock->stock = !empty($request['product_stock_' . str_replace('.', '_', $str)]) ? $request['product_stock_' . str_replace('.', '_', $str)] : 0;
                                                 $product_stock->low_stock_threshold = !empty($request['low_stock_threshold_' . str_replace('.', '_', $str)]) ? $request['low_stock_threshold_' . str_replace('.', '_', $str)] : 0;
                                             } else {
 
                                                 $product_stock->stock = 0;
-                                                $product_stock->stock_order_status = '';
+                                                $product_stock->stock_order_status = \App\Support\Commerce\BackorderPolicy::untracked();
                                                 $product_stock->low_stock_threshold = !empty($request['low_stock_threshold_' . str_replace('.', '_', $str)]) ? $request['low_stock_threshold_' . str_replace('.', '_', $str)] : 0;
                                             }
                                         }
@@ -2114,11 +2119,14 @@ $Product->cost_price = $request->cost_price;
              */
             if ($request->track_stock == 1) {
                 $product->track_stock = $request->track_stock ?? 0;
-                $product->stock_order_status = $request->stock_order_status;
+                /* INV-006 (GAP-182). This assignment was UNCONDITIONAL, so a PUT that omitted the
+                   key wrote NULL over an explicit `not_allow` and demoted the product to
+                   oversellable. `forUpdate()` keeps a stored choice the request did not replace. */
+                $product->stock_order_status = \App\Support\Commerce\BackorderPolicy::forUpdate($request->stock_order_status, $product->getOriginal('stock_order_status'));
                 $product->low_stock_threshold = !empty($request->low_stock_threshold) ? $request->low_stock_threshold : 0;
             } else {
                 $product->track_stock = !empty($request->track_stock) ? $request->track_stock : 0;
-                $product->stock_order_status = '';
+                $product->stock_order_status = \App\Support\Commerce\BackorderPolicy::untracked();
                 $product->low_stock_threshold = !empty($request->low_stock_threshold) ? $request->low_stock_threshold : 0;
             }
 
@@ -2838,7 +2846,32 @@ $Product->cost_price = $request->cost_price;
                                 $product_stock->stock = $this->ssVariantValue($request, 'product_stock_' . $ssKey, $product_stock->stock, 0, $ssIsNewVariant);
                                 $product_stock->low_stock_threshold = $this->ssVariantValue($request, 'low_stock_threshold_' . $ssKey, $product_stock->low_stock_threshold, 0, $ssIsNewVariant);
                                 $product_stock->weight = $this->ssVariantValue($request, 'product_weight_' . $ssKey, $product_stock->weight, 0, $ssIsNewVariant);
-                                $product_stock->stock_order_status = $this->ssVariantValue($request, 'stock_order_status_' . $ssKey, $product_stock->stock_order_status, 0, $ssIsNewVariant);
+                                /*
+                                 * INV-006 (GAP-182). ONLY THE DEFAULT CHANGES, and the first version of this
+                                 * change got it wrong in a way two pinned contracts caught.
+                                 *
+                                 * The `0` this argument used to be is not one of the three recognised
+                                 * backorder words, so a NEW variant was created oversellable with no choice
+                                 * made (`ProductStockService::forbidsOversell()` reads anything but
+                                 * `not_allow` as "allow"). The 4th argument IS the new-variant default, so
+                                 * naming the strict choice there is the whole fix for that.
+                                 *
+                                 * WHAT WAS TRIED AND REVERTED: wrapping this call in
+                                 * `BackorderPolicy`'s update-side resolver -- named here WITHOUT its call
+                                 * parens, per CLAUDE.md §6, so a future census of that method's call sites
+                                 * cannot be moved by this prose -- to also resolve an ambiguous value
+                                 * already STORED on an existing variant. That broke
+                                 * `ProductVariantPersistenceTest`'s census -- which requires every
+                                 * per-variant column to be written through `ssVariantValue()` verbatim,
+                                 * because one surviving emptiness-guarded ternary over the request bag
+                                 * re-opens F105 (eleven of twelve variant prices zeroed by a save that
+                                 * touched nothing) -- and it broke the behavioural pin that an ordinary save changes
+                                 * no column of any UNTOUCHED variant, since normalising a stored `0` to
+                                 * `not_allow` is such a change. The contract wins: a stored ambiguous value
+                                 * on an existing variant is left exactly as it is, and the remainder is
+                                 * recorded rather than papered over.
+                                 */
+                                $product_stock->stock_order_status = $this->ssVariantValue($request, 'stock_order_status_' . $ssKey, $product_stock->stock_order_status, \App\Support\Commerce\BackorderPolicy::NOT_ALLOW, $ssIsNewVariant);
 
                                 /* A description is text a merchant may legitimately clear, so a
                                    posted blank IS the new value here. */

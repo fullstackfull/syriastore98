@@ -90,6 +90,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             'AuctionProduct' => ['Auction Product', 'auction-product'],
             'DigitalProduct' => ['Digital Product', 'digital-product'],
             'ProductReview' => ['ProductReview', 'product-review'],   // name/package_name as the module's own module.json declares them
+            'BundleProduct' => ['BundleProduct', 'bundle-product'],
         ];
 
         foreach ($modules as $module) {
@@ -1065,7 +1066,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
      */
     public function test_the_guard_targets_and_the_route_table_agree(): void
     {
-        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview']);
+        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview', 'BundleProduct']);
 
         $targets = array_keys(
             (new \ReflectionClass(\App\Http\Middleware\ModuleResourceOwnershipGuard::class))
@@ -1078,7 +1079,12 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
         // update() is the one that matters -- unscoped ProductReview::find() plus no store_id assignment meant another store's review was
         // rewritten IN PLACE, keeping that store's store_id, and `description` is in ProductReviewDataTable's rawColumns, so the victim
         // store's own screen then rendered the attacker's markup in ITS admin origin.
-        $this->assertCount(20, $targets);
+        // 20 -> 30 with BundleProduct, the FOURTH clone (master plan PRD-005 / GAP-184, found while
+        // ASSESSING the requirement rather than by a census). Ten and not five because the module
+        // declares `Route::resource` TWICE -- `bundleproduct` and `bundle-product` -- so the same
+        // five handlers answer at two uri families with two parameter names, and guarding one
+        // spelling would leave the defect reachable at the other URL.
+        $this->assertCount(30, $targets);
 
         $registered = [];
 
@@ -1121,6 +1127,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             'AuctionOrdersController@update', 'AuctionOrdersController@destroy',
             'DigitalProductController@update', 'DigitalProductController@destroy', 'DigitalProductController@file_delete',
             'ProductReviewController@update', 'ProductReviewController@destroy',
+            'BundleProductController@update', 'BundleProductController@destroy',
         ];
 
         $unguarded = [];
@@ -1155,7 +1162,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             . "second uri, a prefix or a rename will land here:\n  "
             . implode("\n  ", $unguarded));
 
-        // THE SCAN MUST BE REACHABLE. Eleven action names are listed; if a controller is renamed
+        // THE SCAN MUST BE REACHABLE. Thirteen action names are listed; if a controller is renamed
         // upstream the loop above silently matches nothing and passes vacuously.
         $this->assertSame(
             array_values($guardedActions),
@@ -1210,19 +1217,22 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             'Delete Auction Product',
             'Delete Auction Product Order',
             'Delete Auction Setting',
+            'Delete Bundle Product',
             'Delete Digital Product',
             'Delete Product Review',
             'Edit Auction Product',
             'Edit Auction Setting',
+            'Edit Bundle Product',
             'Edit Digital Product',
             'Edit Product Review',
             'Manage Auction Product Order',
+            'Manage Bundle Product',
         ], $required);
 
         $this->makeGlobalAdminRole();
-        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview']);
+        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview', 'BundleProduct']);
 
-        foreach (['AuctionProduct', 'DigitalProduct', 'ProductReview'] as $module) {
+        foreach (['AuctionProduct', 'DigitalProduct', 'ProductReview', 'BundleProduct'] as $module) {
             \Illuminate\Support\Facades\Artisan::call('db:seed', [
                 '--class' => 'Workdo\\' . $module . '\\database\\seeders\\' . $module . 'DatabaseSeeder',
                 '--force' => true,

@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 270 lines
+### `warning` — 272 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -169,7 +169,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Helper/helper.php:687` | an image upload was refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:323` | Delivery Syria order status transition refused |
 | `app/Http/Controllers/Api/DashboardController.php:1044` | Payment status changed on a settled order |
-| `app/Http/Controllers/OrderController.php:2206` | Payment status changed on a settled order |
+| `app/Http/Controllers/OrderController.php:2270` | Payment status changed on a settled order |
 | `app/Http/Controllers/Api/DashboardController.php:2499` | api category delete refused: products would be cascade-deleted with it |
 | `app/Http/Controllers/Api/DashboardController.php:3333` | api variant delete refused: the variant is still referenced |
 | `app/Http/Controllers/Auth/RegisteredUserController.php:125` | Registration refused: no Role named |
@@ -178,16 +178,16 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/CategoryController.php:570` | category delete refused: products would be cascade-deleted with it |
 | `app/Http/Controllers/PaymentController.php:4898` | WhatsApp URL built for a cart line that is short on stock |
 | `app/Http/Controllers/PaymentController.php:4933` | WhatsApp URL built for a cart line that is short on stock |
-| `app/Http/Controllers/ProductController.php:3328` | variant panel refused: the product is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3557` | product image delete refused: the image belongs to another store |
-| `app/Http/Controllers/ProductController.php:3611` | product image row deleted but the file was not unlinked: StoredUpload refused |
-| `app/Http/Controllers/ProductController.php:3701` | variant image upload refused: the variant is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3814` | variant image row replaced but the old file was not unlinked: StoredUpload |
-| `app/Http/Controllers/ProductController.php:3877` | variant image delete refused: the variant is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3906` | variant image row deleted but the file was not unlinked: StoredUpload refused |
-| `app/Http/Controllers/ProductController.php:3948` | attribute combination edit refused: the product belongs to another store |
-| `app/Http/Controllers/ProductController.php:4114` | product variant delete refused: the variant belongs to another store |
-| `app/Http/Controllers/ProductController.php:4208` | product variant delete refused: the variant is still referenced |
+| `app/Http/Controllers/ProductController.php:3361` | variant panel refused: the product is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3590` | product image delete refused: the image belongs to another store |
+| `app/Http/Controllers/ProductController.php:3644` | product image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3734` | variant image upload refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3847` | variant image row replaced but the old file was not unlinked: StoredUpload |
+| `app/Http/Controllers/ProductController.php:3910` | variant image delete refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3939` | variant image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3981` | attribute combination edit refused: the product belongs to another store |
+| `app/Http/Controllers/ProductController.php:4147` | product variant delete refused: the variant belongs to another store |
+| `app/Http/Controllers/ProductController.php:4241` | product variant delete refused: the variant is still referenced |
 | `app/Http/Controllers/WoocomProductController.php:418` | woocommerce product edit refused: the mapped product is not in this store |
 | `app/Http/Middleware/BulkDeleteTenantGuard.php:677` | bulk category delete refused: products would be cascade-deleted with the categories |
 | `app/Models/Order.php:1362` | order return refused: the order carries no store_id |
@@ -289,14 +289,14 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/NMIPayController.php:436` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/OrderController.php:442` | Manual order total did not match its components; the computed total was stored |
 | `app/Http/Controllers/OrderController.php:1411` | order receipt could not be rendered |
-| `app/Http/Controllers/OrderController.php:1573` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1619` | Return approval skipped a line whose stock was already credited |
-| `app/Http/Controllers/OrderController.php:1639` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1660` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1694` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1809` | Order replacement refused. |
-| `app/Http/Controllers/OrderController.php:2352` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:2570` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1637` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1683` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1703` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1724` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1758` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1873` | Order replacement refused. |
+| `app/Http/Controllers/OrderController.php:2416` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:2634` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:277` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:299` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:533` | Refund cancellation refused: the record does not match the order |
@@ -306,6 +306,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/AccountProfileController.php:2014` | A refund request carried attachments to a store that accepts none; nothing was stored |
 | `app/Services/RefundPolicy.php:171` | A store refund policy could not be read; the action was refused |
 | `app/Http/Controllers/PaymentController.php:3653` | Benefit return refused: the capture was not established |
+| `app/Http/Controllers/OrderController.php:1475` | order packing list could not be rendered |
 | `app/Http/Controllers/OzowController.php:217` | Ozow plan return refused: no TransactionId to key on. |
 | `app/Http/Controllers/PaiementProPaymentController.php:357` | PaiementPro return recorded PENDING: this gateway is not provider-verified |
 | `app/Http/Controllers/PaiementProPaymentController.php:488` | Pending partial payment refused: the balance named does not belong to this customer. |
@@ -353,12 +354,13 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/SofortController.php:233` | Plan payment return rejected: claimed amount does not match the plan price. |
 | `app/Http/Controllers/ZidOAuthController.php:31` | DS exchange failed |
 | `app/Http/Middleware/ActiveTheme.php:35` | Storefront visit log failed |
+| `app/Http/Middleware/BundleProductMemberOwnershipGuard.php:222` | bundle product member write refused |
 | `app/Http/Middleware/AuctionBidIdentityGuard.php:410` | P1-SEC-61 auction bid refused: products.slug collision across stores. |
 | `app/Http/Middleware/AuctionBidIdentityGuard.php:424` | P1-SEC-61 auction bid refused: bid target does not belong to this storefront. |
 | `app/Http/Middleware/FlashedMessageSafety.php:74` | an exception object was flashed to a session and was replaced before it could be rendered |
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
-| `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
+| `app/Http/Middleware/ModuleResourceOwnershipGuard.php:661` | module resource mutation refused |
 | `app/Models/Order.php:1248` | Order return refused: the order carries no readable product_json |
 | `app/Models/Order.php:1259` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2318` | New Order webhook skipped: no store could be resolved for the order |
@@ -548,7 +550,7 @@ GAP-257 shape and the wallet is worth checking against `payments:reconcile`.
 
 ### The SECOND copy of that row, added 2026-11-26 (`GAP-257`, the panel door)
 
-`app/Http/Controllers/OrderController.php:2206` —
+`app/Http/Controllers/OrderController.php:2270` —
 *Payment status changed on a settled order.*
 
 **Why a second copy, and why it is the more important one.** The section above says in its own text
