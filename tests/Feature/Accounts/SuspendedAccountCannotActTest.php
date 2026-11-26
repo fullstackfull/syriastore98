@@ -225,7 +225,7 @@ class SuspendedAccountCannotActTest extends SecurityTestCase
     #[Test]
     public function test_a_deactivated_merchants_existing_session_is_sent_to_the_login_route(): void
     {
-        $merchant = $this->makeMerchant();
+        [$merchant, $store] = $this->makeTenant();
 
         $merchant->is_active = 0;
         $merchant->save();
@@ -246,7 +246,7 @@ class SuspendedAccountCannotActTest extends SecurityTestCase
     #[Test]
     public function test_a_login_disabled_merchants_existing_session_is_sent_to_the_login_route(): void
     {
-        $merchant = $this->makeMerchant();
+        [$merchant, $store] = $this->makeTenant();
 
         $merchant->is_enable_login = 0;
         $merchant->save();
@@ -260,11 +260,33 @@ class SuspendedAccountCannotActTest extends SecurityTestCase
     /**
      * THE CONTROL. An active merchant must NOT be sent to the login route -- otherwise the guard
      * signs every merchant out of the panel, which is the regression that matters most here.
+     *
+     * THE FIXTURE IS A PROVISIONED TENANT, AND THAT IS THE THIRD VERSION OF THIS TEST. The note on
+     * the deactivated case above records the second: the status code stopped discriminating, so the
+     * assertion moved to the DESTINATION. GAP-013 then took the destination away too. It added a
+     * null-store guard at `HomeController::index()` (`:689-695`) that signs out a merchant or staff
+     * member whose `current_store` resolves to nothing -- correct in itself, and it replaced an
+     * HTTP 500 -- but `makeMerchant()` creates no store, so after GAP-013 a storeless ACTIVE
+     * merchant is sent to `/login` by the STORE guard and this control went red against a
+     * suspension guard that was behaving correctly.
+     *
+     * IT ALSO MEANS ALL THREE SESSION CASES HAD STOPPED TESTING THE SUSPENSION GUARD. The two
+     * suspended cases above assert a `/login` redirect, and a storeless merchant gets one whether
+     * or not the guard exists -- so they would have passed with `SuspendedAccountGuard` deleted
+     * outright. And the control only ever passed because the pre-GAP-013 dashboard answered 500 for
+     * this fixture: a 500 carries no `Location` header, so `(string) null` is `''` and
+     * `assertStringNotContainsString('/login', '')` was satisfied by the absence of a response
+     * rather than by the guard admitting anybody.
+     *
+     * `makeTenant()` fixes all three at once and makes them STRICTER, not looser: measured, a
+     * provisioned active merchant gets HTTP 200 from `/dashboard` with no `Location` at all and
+     * `auth('web')->check()` still true, so a `/login` redirect can now only come from this guard.
+     * The mutation evidence in the class docblock is what holds that.
      */
     #[Test]
     public function test_an_active_merchants_session_is_not_sent_to_the_login_route(): void
     {
-        $merchant = $this->makeMerchant();
+        [$merchant, $store] = $this->makeTenant();
 
         $this->actingAs($merchant);
         $response = $this->get('/dashboard');
@@ -274,6 +296,41 @@ class SuspendedAccountCannotActTest extends SecurityTestCase
             (string) $response->headers->get('Location'),
             'The guard logged out an account that is not suspended.'
         );
+    }
+
+    /**
+     * THE BEHAVIOUR THE FIXTURE CHANGE ABOVE MOVED OUT OF THE WAY, PINNED WHERE IT BELONGS.
+     *
+     * A storeless merchant IS sent to the login route, and by a different mechanism: GAP-013's
+     * null-store guard, not suspension. This is asserted here so the fixture change above subtracts
+     * nothing from the suite, and so that whoever changes `HomeController::index()`'s storeless arm
+     * is told by a failing test which two behaviours share this destination.
+     *
+     * NOT A CLAIM THAT THE LOCKOUT IS RIGHT. A merchant whose store was deleted cannot reach the
+     * panel at all -- they sign in, are bounced, and sign in again. Registration always creates a
+     * store, so the reachable population is narrow; it is recorded as GAP-264 rather than changed
+     * here, because what a storeless merchant should see is a product decision and not engineering's
+     * to take.
+     */
+    #[Test]
+    public function test_a_storeless_merchant_is_sent_to_the_login_route_by_the_null_store_guard(): void
+    {
+        $merchant = $this->makeMerchant();
+
+        $this->assertNull(
+            $merchant->current_store,
+            'premise: this fixture must have no resolvable store, or it is not the case being pinned.'
+        );
+        $this->assertNull(
+            \App\Support\Accounts\AccountSuspension::reasonFor($merchant),
+            'premise: the merchant must NOT be suspended, or this would pin the suspension guard '
+            . 'and the two mechanisms would be indistinguishable again.'
+        );
+
+        $this->actingAs($merchant);
+        $response = $this->get('/dashboard');
+
+        $this->assertStringEndsWith('/login', (string) $response->headers->get('Location'));
     }
 
     /**
