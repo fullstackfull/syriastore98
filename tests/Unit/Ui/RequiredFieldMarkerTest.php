@@ -79,6 +79,34 @@ class RequiredFieldMarkerTest extends TestCase
     }
 
     /**
+     * THE COUNT IS RATCHETED, NOT FLOORED, because a floor of 100 lets a 165-field detector decay
+     * to 101 in silence and the figure that proves `isRequired()` was NARROWED and not WEAKENED
+     * would then live only in a docblock.
+     *
+     * 165 is measured on this tree: 167 before the translated-copy redaction, 165 after, the two
+     * removed being `AppSetting/index.blade.php` (pre-existing, a note rather than a control) and
+     * `setting/recaptcha_setting.blade.php` (GAP-060 WS5's instruction). See `isRequired()`.
+     *
+     * IF THIS FAILS LEGITIMATELY — somebody added or removed a required merchant field — the fix
+     * is to change the number here in the same commit, so the change is visible in a diff rather
+     * than absorbed. A DROP is the one to look at hard: it means either a field lost its
+     * `required` attribute or the detector stopped seeing a shape it used to see.
+     */
+    public function test_the_detected_required_field_count_is_the_measured_one(): void
+    {
+        [, $withMarker, $without] = $this->census();
+
+        $this->assertSame(165, $withMarker + count($without), sprintf(
+            'The detector now finds %d required merchant fields; it measured 165 when the '
+            . 'translated-copy redaction was added to isRequired(). A RISE means a required field '
+            . 'was added (fine — update this number). A DROP means one lost its attribute, or the '
+            . 'detector stopped matching a shape, which is the direction that turns this whole '
+            . 'ratchet vacuous.',
+            $withMarker + count($without)
+        ));
+    }
+
+    /**
      * THE DETECTOR MUST READ MARKUP AND NOT THE PRODUCT'S OWN COPY — both directions, so the
      * redaction cannot be loosened into "nothing is ever required" and cannot drift back either.
      *
@@ -295,7 +323,7 @@ class RequiredFieldMarkerTest extends TestCase
      *
      * ONE OF THE TWO BLOCKS THIS STOPS MATCHING IS NOT NEW, which is what settles that this is a
      * detector fix rather than an accommodation for the sentence that exposed it.
-     * `AppSetting/index.blade.php:720` prints
+     * `AppSetting/index.blade.php:732` prints
      * `__('Use the Is Checkout Required feature to prevent guest checkout, …')` — a NOTE, not a
      * control — and this detector has been counting it as a required field all along. It passed
      * only because that block carries a marker for a different reason, so the ratchet was green
@@ -310,6 +338,12 @@ class RequiredFieldMarkerTest extends TestCase
      *
      * The REDACTION IS LOCAL TO THIS PREDICATE, not applied to the census's source, so the marker
      * match and the `__('…')` label-name extraction in the failure message still see the real text.
+     *
+     * A REMAINING GAP, STATED RATHER THAN IMPLIED: this redacts `__()` only. Copy printed through
+     * `@lang()` or `trans()`, or raw English text with no translation call at all, would still read
+     * as markup to the second limb. Nothing in the merchant tree currently trips that — the count
+     * ratchet below is 165 either way — but it is a narrower fix than "the detector no longer reads
+     * prose", and the next person to hit it should widen this rather than reword their copy.
      */
     private function isRequired(string $block): bool
     {

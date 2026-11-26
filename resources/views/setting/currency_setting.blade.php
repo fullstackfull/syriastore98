@@ -52,23 +52,56 @@
                          defect this file's own comment records at the top: a form that reports the
                          opposite of what the four money formatters are doing.
 
-                         `(string) $ssValue` on both sides is the whole fix, kept beside the
-                         instruction because the instruction would otherwise sit next to a control
-                         that misreports itself -- which is not guidance, it is a second trap.
+                         CASTING BOTH SIDES TO STRING WAS NOT THE WHOLE FIX, and an independent
+                         review of the first cut said so. It marks exactly one option for the five
+                         VALID values -- but for an ABSENT row, a stored empty string, or anything
+                         else, still no option is marked, the browser pre-selects `value="0"`, and
+                         the next Save writes 0: the exact outcome the fix set out to remove.
+
+                         AND THAT STATE IS REACHABLE, MEASURED, NOT THEORETICAL. Two sources:
+                           - `Api/DashboardController.php:11551` validates this name as
+                             `nullable|string|max:50` and `:11657-11662` writes it with
+                             `updateOrCreate`, so the SHIPPED FLUTTER APP can store '' or any
+                             50-character string in this row.
+                           - the two defaults disagree: `defaultSetting()` seeds
+                             `currency_format => "1"` (helper.php:1602) while the formatters' own
+                             absent-value default is 2 (helper.php:1758-1762, :2452-2456). So a
+                             store with no row PRINTS two decimals while the panel SHOWS "1".
+
+                         SO THE COMPARISON IS NORMALISED, not merely cast, and the fallback is the
+                         formatters' own absent-value default rather than a number chosen here --
+                         the screen must not be able to report something the price does not do. A
+                         value that is not one of the five is treated as absent, because there is no
+                         honest option to mark for it: `number_format($price, '')` is a PHP 8
+                         TypeError, so a non-numeric stored value does not print 2 decimals, it
+                         500s every page that prints a price. That is a separate registered finding;
+                         what this guarantees is only that the SELECT always marks exactly one
+                         option, so saving cannot silently rewrite the format.
 
                          THE INSTRUCTION'S OWN CLAIM: the value is `number_format`'s SECOND argument
                          in `currency_format_with_sym()` (app/Helper/helper.php:1773) and in its
                          three siblings, so it is a display width and nothing rounds a stored
-                         amount. --}}
+                         amount. Verified by the review across every reader: no writer, total,
+                         export or order column derives from it. --}}
+                    @php
+                        /* The five the select offers, as STRINGS, so nothing here depends on PHP
+                           casting integer-like array keys. */
+                        $ssDecimalFormats = ['0' => '1', '1' => '1.0', '2' => '1.00', '3' => '1.000', '4' => '1.0000'];
+                        $ssCurrencyFormat = (string) ($setting['currency_format'] ?? '');
+
+                        if (! in_array($ssCurrencyFormat, ['0', '1', '2', '3', '4'], true)) {
+                            $ssCurrencyFormat = '2';
+                        }
+                    @endphp
                     <label class="ss-label" for="currency_format">{{ __('Decimal Format') }}</label>
                     <select class="ss-input currency_note" name="currency_format" id="currency_format"
                             aria-describedby="currency_format-help">
-                        @foreach (['0' => '1', '1' => '1.0', '2' => '1.00', '3' => '1.000', '4' => '1.0000'] as $ssValue => $ssText)
-                            <option value="{{ $ssValue }}" @selected((string) ($setting['currency_format'] ?? '') === (string) $ssValue)>{{ $ssText }}</option>
+                        @foreach ($ssDecimalFormats as $ssValue => $ssText)
+                            <option value="{{ $ssValue }}" @selected((string) $ssValue === $ssCurrencyFormat)>{{ $ssText }}</option>
                         @endforeach
                     </select>
 
-                    <x-ss.field-help for="currency_format">{{ __('How many decimal places every amount is printed with, here and on your storefront. It changes only how a price is written and never the amount that is stored: choosing 1 prints 10 for a price of 10.49.') }}</x-ss.field-help>
+                    <x-ss.field-help for="currency_format">{{ __('How many decimal places every amount is printed with, here and on your storefront. It changes only how a price is written and never the amount that is stored: choosing the first option prints 10 for a price of 10.49.') }}</x-ss.field-help>
                 </div>
             </div>
 
@@ -178,7 +211,7 @@
                     (GAP-060 / GAP-061), because the control does not work and a sentence saying
                     what it does would be a false statement.
 
-                    `app/Helper/helper.php:1740`, `:1741`, `:2435` and `:2436` all read
+                    `app/Helper/helper.php:1772`, `:1773`, `:2467` and `:2468` all read
                     `((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '')`. The
                     parenthesisation makes the left operand a BOOLEAN, so the comparison is
                     `true == 'withspace'`, which PHP settles by casting the string to bool -- true.
@@ -219,7 +252,7 @@
 
                     The sentence says the thing a merchant cannot see from this screen: the choice
                     is read by `currency_format_with_sym()` and its three siblings
-                    (app/Helper/helper.php:1740), which print every price in the panel and the
+                    (app/Helper/helper.php:1752-1754), which print every price in the panel and the
                     storefront -- not just the preview beside these controls.
                 --}}
                 <fieldset class="ss-field" aria-describedby="site_currency_symbol_position-group-help">
@@ -246,7 +279,7 @@
                 {{--
                     GAP-060 / GAP-061 (WS I4 + I5). The instruction here corrects the LABEL rather
                     than repeating it: "With Currency Name" prints `defult_currancy`
-                    (app/Helper/helper.php:1737), which is the three-letter CODE, not a
+                    (app/Helper/helper.php:1766-1770), which is the three-letter CODE, not a
                     spelled-out name. A merchant reading the label expects "US Dollars".
                 --}}
                 <fieldset class="ss-field" aria-describedby="site_currency_symbol_name-group-help">

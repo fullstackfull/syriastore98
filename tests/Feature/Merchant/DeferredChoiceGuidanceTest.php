@@ -950,6 +950,85 @@ final class DeferredChoiceGuidanceTest extends SecurityTestCase
     }
 
     /**
+     * AND THE CAST ALONE WAS NOT THE WHOLE FIX — an independent review of the first cut said so,
+     * and this is the case it asked for.
+     *
+     * `(string) (… ?? '') === (string) $ssValue` marks exactly one option for the five VALID values
+     * and NONE for an absent row, a stored empty string, or anything else. In those states the
+     * browser pre-selects `value="0"` and the next Save writes 0 — the very outcome the fix existed
+     * to remove, so the fix was only as good as the stored value being one of five.
+     *
+     * AND THOSE STATES ARE REACHABLE, which is why this is a test and not a note.
+     * `Api/DashboardController.php:11551` validates this name as `nullable|string|max:50` and
+     * `:11657-11662` writes it with `updateOrCreate`, so the SHIPPED FLUTTER APP can put '' or any
+     * fifty-character string in the row. And the two defaults disagree: `defaultSetting()` seeds
+     * `"1"` (helper.php:1602) while the formatters default an absent row to 2
+     * (helper.php:1758-1762), so a store with no row prints two decimals while the panel shows one.
+     *
+     * THE FALLBACK IS THE FORMATTERS' OWN, NOT A NUMBER CHOSEN HERE. Anything that is not one of
+     * the five is treated as absent and the select marks `2`, because the screen must not be able
+     * to report something the price does not do.
+     *
+     * @dataProvider unusableStoredDecimalFormats
+     */
+    public function test_the_decimal_format_select_still_marks_one_option_for_an_unusable_stored_value(
+        ?string $stored,
+        string $expected
+    ): void {
+        if ($stored !== null) {
+            \App\Models\Setting::putForStore(
+                'currency_format', $stored, $this->merchant->current_store, $this->merchant->id
+            );
+        }
+
+        Cache::flush();
+
+        $html = $this->panel('currency_setting');
+
+        preg_match('/<select[^>]*id="currency_format".*?<\/select>/s', $html, $m);
+
+        $this->assertNotEmpty($m[0] ?? '', 'the Decimal Format select is not on the currency panel');
+
+        $this->assertSame(1, preg_match_all('/<option[^>]*\bselected\b/', $m[0]), sprintf(
+            'with %s stored, %d options are marked selected. With NONE marked the browser '
+            . 'pre-selects the first (value="0", no decimals) and the next Save on this panel '
+            . 'stores 0, stripping the minor units off every price — which is the defect this '
+            . 'control was fixed for, reachable again through the Flutter settings writer.',
+            $stored === null ? 'no row at all' : "'" . $stored . "'",
+            preg_match_all('/<option[^>]*\bselected\b/', $m[0])
+        ));
+
+        $this->assertMatchesRegularExpression(
+            '/<option value="' . preg_quote($expected, '/') . '"[^>]*\bselected\b/',
+            $m[0],
+            sprintf(
+                'with %s stored, the marked option is not %s. The fallback must be the value the '
+                . 'FORMATTERS use for an absent row (helper.php:1758-1762), so the screen cannot '
+                . 'report a format the price does not use.',
+                $stored === null ? 'no row at all' : "'" . $stored . "'",
+                $expected
+            )
+        );
+    }
+
+    /**
+     * @return array<string, array{0: ?string, 1: string}>
+     */
+    public static function unusableStoredDecimalFormats(): array
+    {
+        return [
+            'no row at all' => [null, '2'],
+            'an empty string, which the Flutter writer accepts' => ['', '2'],
+            'a space' => [' ', '2'],
+            'out of range' => ['9', '2'],
+            'non-numeric' => ['auto', '2'],
+            /* The controls: a valid value must still win over the fallback. */
+            'a valid 0' => ['0', '0'],
+            'a valid 4' => ['4', '4'],
+        ];
+    }
+
+    /**
      * THE REAL PAGE, IN ALL FOUR COMBINATIONS — and the capture the browser harness measures.
      *
      * THIS IS A TEST THAT ALWAYS RUNS, not a conditionally-skipped one: a skip would break the

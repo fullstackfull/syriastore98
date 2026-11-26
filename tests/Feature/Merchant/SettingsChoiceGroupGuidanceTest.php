@@ -208,7 +208,7 @@ final class SettingsChoiceGroupGuidanceTest extends SecurityTestCase
         $text = (string) $this->textOfId($html, $m[1] ?? '');
 
         $this->assertStringContainsString('code', $text,
-            'the option is labelled "With Currency Name" and helper.php:1737 prints '
+            'the option is labelled "With Currency Name" and helper.php:1766-1770 prints '
             . '`defult_currancy`, which is the three-letter CODE. An instruction that repeats the '
             . 'label tells the merchant nothing they did not already misread.');
     }
@@ -268,7 +268,7 @@ final class SettingsChoiceGroupGuidanceTest extends SecurityTestCase
      * AN INSTRUCTION FOR A CONTROL THAT DOES NOT WORK IS A FALSE STATEMENT, so these two groups
      * are left silent on purpose and the reason is pinned here rather than only in a comment.
      *
-     *   `currency_space` — `app/Helper/helper.php:1740`, `:1741`, `:2435` and `:2436` read
+     *   `currency_space` — `app/Helper/helper.php:1772`, `:1773`, `:2467` and `:2468` read
      *   `((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '')`. The
      *   parenthesisation makes the left operand a BOOLEAN, so the comparison is `true ==
      *   'withspace'`, which PHP 8 settles by casting the string to bool — true. Measured: the

@@ -161,7 +161,7 @@
                         <option value="exclusive" @selected(($tax_option['checkout_price'] ?? '') === 'exclusive')>{{ __('Exclusive Tax') }}</option>
                     </select>
 
-                    <x-ss.field-help for="checkout_price">{{ __('You cannot set this on its own. When you save, it is forced to match the Prices entered with tax choice above: inclusive stores Including Tax both here and in Display prices in the shop, whatever you picked, and the confirmation message changes to say the three were made consistent.') }}</x-ss.field-help>
+                    <x-ss.field-help for="checkout_price">{{ __('You cannot set this on its own. When you save, it is forced to match the Prices entered with tax choice above: inclusive stores Including Tax both here and in Display prices in the shop, whatever you picked, and the message afterwards is a note about keeping prices uniform rather than a confirmation that your choice was saved.') }}</x-ss.field-help>
                 </div>
             </div>
 

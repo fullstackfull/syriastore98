@@ -48,14 +48,45 @@ SELECTS = 'test_each_instructed_settings_select_is_described_by_its_own_instruct
 GROUPS = 'test_each_instructed_switch_group_is_described_on_its_fieldset'
 DANGLE = 'test_no_settings_instruction_dangles_or_is_orphaned_on_any_touched_panel'
 
+NORMALISE = """                        $ssCurrencyFormat = (string) ($setting['currency_format'] ?? '');
+
+                        if (! in_array($ssCurrencyFormat, ['0', '1', '2', '3', '4'], true)) {
+                            $ssCurrencyFormat = '2';
+                        }"""
+
 MUTATIONS = [
-    # ---- the one behaviour fix, reverted -------------------------------------------------------
+    # ---- the ORIGINAL defect, reproduced at its real site ---------------------------------------
+    # THE FIRST VERSION OF THIS MUTANT WAS MIS-TARGETED AND SURVIVED, and that is worth recording
+    # because the survival said nothing about the test. It removed the NORMALISATION and left the
+    # cast in the loop, so `'2' === '2'` still matched and the int-vs-string bug was not reproduced
+    # at all. The defect's real site is the comparison: with `$ssValue` as the raw integer array
+    # key, `'2' === 2` is false for every option and NOTHING is marked. A mutant that does not
+    # reproduce the defect is not evidence either way.
     Mutation(
-        'decimal format: revert the string/int comparison fix',
+        'decimal format: the comparison back to int-vs-string, which marks no option at all',
         V + 'currency_setting.blade.php',
-        "@selected((string) ($setting['currency_format'] ?? '') === (string) $ssValue)",
-        "@selected(($setting['currency_format'] ?? '') === $ssValue)",
+        '@selected((string) $ssValue === $ssCurrencyFormat)',
+        '@selected($ssValue === $ssCurrencyFormat)',
         T, 'test_the_decimal_format_select_marks_the_format_the_store_has_saved',
+    ),
+    # ---- the FIRST CUT: the cast, with no normalisation ----------------------------------------
+    Mutation(
+        'decimal format: the cast alone, with no normalisation (the first cut)',
+        V + 'currency_setting.blade.php',
+        NORMALISE,
+        "                        $ssCurrencyFormat = (string) ($setting['currency_format'] ?? '');",
+        T, 'test_the_decimal_format_select_still_marks_one_option_for_an_unusable_stored_value',
+    ),
+    # ---- AND REVERTED TO THE ONE-LINER THE REVIEW NAMED, which is not sufficient ---------------
+    # `?? '2'` fixes an ABSENT row and leaves a stored '' marking nothing, because `??` catches
+    # null and absence but not the empty string -- and the Flutter settings writer accepts ''.
+    # This mutant is the reason the fix normalises instead of defaulting.
+    Mutation(
+        'decimal format: the ?? \'2\' one-liner alone, which leaves a stored empty string unmarked',
+        V + 'currency_setting.blade.php',
+        NORMALISE,
+        "                        $ssCurrencyFormat = (string) ($setting['currency_format'] ?? '2');",
+        T, 'test_the_decimal_format_select_still_marks_one_option_for_an_unusable_stored_value',
     ),
 
     # ---- the association, once per file --------------------------------------------------------
