@@ -1113,9 +1113,20 @@ Route::get(
      * REMOVED rather than pointed at a method, because nothing calls it: `route(
      * 'products.sku_combination_edit')` appears in no Blade template and no JavaScript (0 hits in
      * resources/ and public/). The POST sibling `products.sku_combination` -> `sku_combination()`
-     * is left alone: its method exists, so it does not 500, and it is likewise unreferenced by
-     * any view -- removing a route that works is a contract change this task was not asked to
-     * make.
+     * is left alone -- BUT NOT FOR THE REASON THIS COMMENT GAVE, and the reason it gave is why
+     * nobody looked again. It read "its method exists, so it does not 500". **The METHOD exists;
+     * the VIEW does not.** `sku_combination()` returns `view('product.sku_combinations')`, which
+     * is absent, so the route answers HTTP 500 for a verified provisioned merchant -- measured,
+     * with 0 references to `sku_combination` in `resources/` or `public/`. A question answered
+     * about the wrong object: true of the method, false of the route, and the claim is what
+     * caused this route to be passed over by the census that withdrew its sibling. `GAP-318`.
+     *
+     * It is STILL left alone, on three grounds that do hold: nothing calls it; its live
+     * replacement is `attribute_combination_data()`, the renderer the product editor actually
+     * injects; and inventing a Blade file for an endpoint nothing calls is building a feature,
+     * while deleting the route reopens P1-INV-10. `KnownUnrenderableRoutesTest` pins it in the
+     * FALSE direction -- whoever makes that view exist is told to delete the test and correct
+     * this paragraph.
      */
     Route::any('products/attribute_combination_data/edit', [ProductController::class, 'attribute_combination_data'])->name('products.attribute_combination_data');
 
