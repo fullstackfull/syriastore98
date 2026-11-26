@@ -154,7 +154,7 @@ while the raw table still held it. Assert through `withoutGlobalScopes()`.
 ## 3. Tests
 
 ```bash
-php artisan test --testsuite=Unit        # 6524 tests +1 skip, ~2 min. CI RUNS THIS AND BLOCKS
+php artisan test --testsuite=Unit        # 6762 tests +1 skip, ~2 min. CI RUNS THIS AND BLOCKS
 php artisan test --testsuite=Contract    # 58 tests — the Flutter API contract. Also blocking
 php artisan test --testsuite=Feature     # 12500 tests, ~32 min. SKIPPED ENTIRELY if Unit is red
 /tenant-check                            # tenancy + security suites (see .claude/commands)
