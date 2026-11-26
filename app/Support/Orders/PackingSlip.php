@@ -90,7 +90,7 @@ final class PackingSlip
         $lines = is_array($lines) ? $lines : iterator_to_array($lines);
 
         $codes = self::productCodes($lines, $storeId);
-        $skus = self::variantSkus($lines);
+        $skus = self::variantSkus($lines, $storeId);
 
         $built = [];
         $units = 0;
@@ -201,17 +201,29 @@ final class PackingSlip
     }
 
     /**
-     * `product_variants.sku` for the order's own variant ids.
+     * `product_variants.sku` for the order's own variant ids, scoped to the order's store.
      *
-     * No store predicate, and that is deliberate rather than an omission: `product_variants.store_id`
-     * is nullable and the variant is reached through the order's own recorded `variant_id`, so a
-     * store filter here would blank the SKU on legacy rows that carry no store. A variant id the
-     * order recorded is the order's own; the caller has already been authorised for the order.
+     * THE FIRST VERSION OF THIS METHOD CARRIED NO STORE PREDICATE, and argued for it: the variant
+     * is reached through the order's own recorded `variant_id`, and `product_variants.store_id` is
+     * nullable (migration `2024_01_01_104858:30`, measured `nullable = true` against the migrated
+     * schema), so a plain store filter would blank the SKU on a legacy row that carries no store.
+     *
+     * `RawQueryTenancyInventoryTest` refused that. It is a per-table census of raw query-builder
+     * entry points, and it put `product_variants` in the "tenant discriminated and rawly unscoped"
+     * set -- correctly: `product_json` is written at checkout from the cart, and S19 established a
+     * cart can carry a FOREIGN product id, so an order's recorded `variant_id` is not guaranteed to
+     * be the order's own. A foreign variant's SKU on the slip is small, but it is a disclosure the
+     * census exists to stop being added silently.
+     *
+     * The predicate is therefore `store_id = the order's store OR store_id IS NULL`, which is the
+     * shape five other readers of a nullable `store_id` already use (`Cart`, `Tax`,
+     * `ShippingClassOwnership` and two gateway controllers): it refuses another tenant's variant and
+     * keeps the legacy rows the first argument was right about.
      *
      * @param  list<mixed>  $lines
      * @return array<int, string>
      */
-    private static function variantSkus(array $lines): array
+    private static function variantSkus(array $lines, int $storeId): array
     {
         $ids = self::idsOf($lines, 'variant_id');
 
@@ -221,6 +233,9 @@ final class PackingSlip
 
         return DB::table('product_variants')
             ->whereIn('id', $ids)
+            ->where(function ($query) use ($storeId) {
+                $query->where('store_id', $storeId)->orWhereNull('store_id');
+            })
             ->whereNotNull('sku')
             ->pluck('sku', 'id')
             ->map(fn ($sku) => (string) $sku)

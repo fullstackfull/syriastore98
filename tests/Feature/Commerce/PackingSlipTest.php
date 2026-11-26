@@ -205,6 +205,54 @@ class PackingSlipTest extends TestCase
         $this->assertNull($slip['lines'][0]['code']);
     }
 
+    /**
+     * THE VARIANT SKU READ DOES NOT CROSS TENANTS EITHER, and this case exists because
+     * `RawQueryTenancyInventoryTest` refused the first version of that read for having no store
+     * predicate.
+     *
+     * The route in is not hypothetical: `product_json` is written at checkout from the cart, and
+     * S19 established a cart can carry a FOREIGN product id, so an order's recorded `variant_id` is
+     * not guaranteed to be the order's own.
+     *
+     * A NULL-store variant is still readable -- `product_variants.store_id` is nullable (measured)
+     * and blanking the SKU on legacy rows would be a regression, which is the `store_id = mine OR
+     * store_id IS NULL` shape five other readers in this codebase use.
+     */
+    public function test_the_variant_sku_read_does_not_cross_tenants(): void
+    {
+        $foreignParent = $this->product(99, 'Another tenant parent');
+        $foreignVariant = $this->variant($foreignParent, 99, 'SKU-FOREIGN');
+
+        $mineParent = $this->product(7, 'My parent');
+        $mineVariant = $this->variant($mineParent, 7, 'SKU-MINE');
+
+        $legacyParent = $this->product(7, 'Legacy parent');
+        $legacyVariant = (int) DB::table('product_variants')->insertGetId([
+            'product_id' => $legacyParent, 'variant' => 'S-Red', 'sku' => 'SKU-LEGACY',
+            'price' => 10, 'stock' => 5, 'store_id' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $slip = PackingSlip::forLines([
+            ['product_id' => $foreignParent, 'variant_id' => $foreignVariant, 'name' => 'Foreign', 'qty' => 1],
+            ['product_id' => $mineParent, 'variant_id' => $mineVariant, 'name' => 'Mine', 'qty' => 1],
+            ['product_id' => $legacyParent, 'variant_id' => $legacyVariant, 'name' => 'Legacy', 'qty' => 1],
+        ], 7);
+
+        $this->assertSame('SKU-MINE', $slip['lines'][1]['code'],
+            'premise: the store\'s OWN variant SKU did not come back, so "the foreign one is '
+            . 'absent" says nothing about the predicate');
+
+        $this->assertNull($slip['lines'][0]['code'],
+            'ANOTHER TENANT\'S VARIANT SKU REACHED THIS SLIP. `product_json` is written from the '
+            . 'cart and S19 established a cart can carry a foreign product id, so the order\'s own '
+            . 'recorded variant_id is not proof of ownership.');
+
+        $this->assertSame('SKU-LEGACY', $slip['lines'][2]['code'],
+            'a variant with no store_id lost its SKU. `product_variants.store_id` is nullable, so '
+            . 'blanking those rows is a regression for old data, not a tightening.');
+    }
+
     /** The order's own recorded name, not the catalogue's current one. */
     public function test_the_recorded_name_is_used_not_the_catalogues(): void
     {
