@@ -68,9 +68,18 @@ final class StoredUpload
     /**
      * @param  int|string|null  $ownerId  the tenant owner's user id (User::creatorId()); null skips rule 3. It is not trusted to carry
      *                                    the operator's exemption on its own: see mayTouchStoreFolder()
+     * @param  string|null  $confineTo  a directory, relative to base_path(), that the RESOLVED file must sit strictly inside;
+     *                                  null applies no confinement. Rule 3 only fires when the resolved first segment is a run
+     *                                  of DIGITS, which is correct for what it claims -- it answers "whose store folder is
+     *                                  this" -- but it means a caller that derives a folder from its principal cannot express
+     *                                  "and nothing outside it" through $ownerId alone. A caller that holds such a folder
+     *                                  passes it here, and the test is applied to the realpath, so `<folder>/../elsewhere/x`
+     *                                  is refused by the same comparison that admits `<folder>/x`. The alternative -- having
+     *                                  the caller realpath() the value itself and compare -- is TWO resolutions of one string
+     *                                  that can disagree, which is the defect this parameter exists to make unexpressible.
      * @return string|null the real, absolute path of an existing file that may be touched; null otherwise
      */
-    public static function resolve(?string $relativePath, $ownerId = null): ?string
+    public static function resolve(?string $relativePath, $ownerId = null, ?string $confineTo = null): ?string
     {
         $relativePath = trim((string) $relativePath);
 
@@ -90,6 +99,24 @@ final class StoredUpload
             Log::warning('a stored upload path points outside the uploads directory and was not touched', ['path' => $relativePath]);
 
             return null;
+        }
+
+        /*
+         * The caller's own confinement, imposed on the RESOLVED path. See $confineTo: this is the
+         * only place the comparison can be made exactly once, which is why it lives here rather
+         * than in the caller.
+         */
+        if ($confineTo !== null) {
+            $confineReal = realpath(base_path($confineTo));
+
+            if ($confineReal === false || ! str_starts_with($real, $confineReal . DIRECTORY_SEPARATOR)) {
+                Log::warning('a stored upload path resolved outside the folder its caller confined it to and was not touched', [
+                    'path' => $relativePath,
+                    'confined_to' => $confineTo,
+                ]);
+
+                return null;
+            }
         }
 
         foreach (self::PLATFORM_DEFAULTS as $default) {
@@ -139,9 +166,9 @@ final class StoredUpload
     /**
      * @return bool true when a file was unlinked
      */
-    public static function delete(?string $relativePath, $ownerId = null): bool
+    public static function delete(?string $relativePath, $ownerId = null, ?string $confineTo = null): bool
     {
-        $real = self::resolve($relativePath, $ownerId);
+        $real = self::resolve($relativePath, $ownerId, $confineTo);
 
         return $real !== null && File::delete($real);
     }

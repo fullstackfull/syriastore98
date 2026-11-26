@@ -82,7 +82,7 @@ class EveryRouteActionExistsTest extends TestCase
      *   -1   `AppSettingController@image_delete` -- IMPLEMENTED rather than withdrawn, the only
      *        one of the 73 that was broken IN USE. See below.
      *
-     * THE 9 THAT REMAIN, AND WHY EACH IS NOT A DELETION:
+     * THE 8 THAT REMAIN, AND WHY EACH IS NOT A DELETION:
      *
      *   `AppSettingController@image_delete` IS GONE FROM THIS LIST BECAUSE IT WAS FIXED, not
      *   withdrawn, and it is the only one of the 73 that went that way. It was the only entry

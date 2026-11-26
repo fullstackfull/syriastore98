@@ -31,10 +31,15 @@ use PHPUnit\Framework\Attributes\Test;
  *      alone refuses the platform operator.
  *   3. FAIL CLOSED ON A STORE THAT IS NOT A POSITIVE INTEGER. `getCurrentStore()` answers `null`
  *      for a merchant with no store and no `current_store`. A null store silently makes the prefix
- *      in layer 4 `uploads/` — the root — which is how P1-SEC-71 happened.
- *   4. THE PREFIX COMES FROM THE PRINCIPAL, NOT THE REQUEST. Only the leaf is caller-supplied: the
- *      path must begin `uploads/<that store id>/`. This layer is what covers the DEGENERATE
- *      STORED DATA — the uploader is `$dir = 'uploads/' . getCurrentStore()`, so a file uploaded
+ *      in layer 4 `uploads//` — NOT `uploads/`, which this said until the independent review
+ *      concatenated it: `filter_var(null, FILTER_VALIDATE_INT)` is `false` and `false` renders as
+ *      the empty string. Nothing is confined either way, which is how P1-SEC-71 happened.
+ *   4. THE PREFIX COMES FROM THE PRINCIPAL, AND IT IS IMPOSED ON THE RESOLVED PATH. "Only the leaf
+ *      is caller-supplied" was this file's reasoning and it was FALSE — the leaf is itself a path,
+ *      so a traversal beginning with the principal's own prefix left it (see the traversal case at
+ *      the foot of this file, which the review found missing and which reproduced a live delete of
+ *      a bank-transfer receipt). This layer is also what covers the DEGENERATE STORED DATA — the
+ *      uploader is `$dir = 'uploads/' . getCurrentStore()`, so a file uploaded
  *      while the store was null sits at `uploads/<file>` with NO numeric segment, and
  *      `StoredUpload`'s tenant rule (layer 5) skips a first segment that is not digits. Without
  *      layer 4 any merchant could delete those.
@@ -70,6 +75,14 @@ class AppSettingImageDeleteDoorTest extends SecurityTestCase
     /** @var list<string> absolute paths this test created, removed in tearDown */
     private array $made = [];
 
+    /**
+     * @var list<string> directories this test created, removed in tearDown AFTER the files. Only
+     *                   ones it created itself: `uploads/receipt` and `uploads/profile` are real
+     *                   product folders in a deployed tree and must survive if they were already
+     *                   there. rmdir() refuses a non-empty directory, which is the safety net.
+     */
+    private array $madeDirs = [];
+
     protected function tearDown(): void
     {
         foreach ($this->made as $path) {
@@ -78,7 +91,14 @@ class AppSettingImageDeleteDoorTest extends SecurityTestCase
             }
         }
 
+        foreach (array_reverse($this->madeDirs) as $dir) {
+            if (is_dir($dir)) {
+                @rmdir($dir);
+            }
+        }
+
         $this->made = [];
+        $this->madeDirs = [];
 
         parent::tearDown();
     }
@@ -257,7 +277,7 @@ class AppSettingImageDeleteDoorTest extends SecurityTestCase
 
         $this->assertSame(403, $response->getStatusCode(),
             'a merchant with no resolvable store was not refused with 403. A null store must fail '
-            . 'closed: it makes the principal-derived prefix `uploads/`, which is the whole root.');
+            . 'closed: it makes the principal-derived prefix `uploads//` -- measured, not `uploads/` as this message read until the independent review concatenated it.');
 
         $this->assertFileExists($absolute, 'a storeless merchant deleted another store\'s file.');
     }
@@ -400,5 +420,90 @@ class AppSettingImageDeleteDoorTest extends SecurityTestCase
             . '`getCurrentStore()` hands that literal 1 to anything with that type word, so the '
             . 'handler must establish that the principal is a `User` BEFORE it asks which store '
             . 'it is acting for.');
+    }
+
+    /**
+     * THE CASE THE INDEPENDENT REVIEW FOUND MISSING, AND THE DEFECT IT FOUND WITH IT.
+     *
+     * The sibling case above drives `uploads/<name>` -- the naive spelling, which layer 4's
+     * `str_starts_with` really does refuse. **It therefore could not fail on the live defect**, and
+     * it passed against vulnerable code: the reachable form is a traversal that BEGINS with the
+     * principal's own prefix and then leaves it. `uploads/<myStore>/../receipt/<file>` satisfies
+     * `str_starts_with($path, 'uploads/<myStore>/')` as a STRING, resolves to
+     * `uploads/receipt/<file>`, stays strictly under the uploads root -- and lands on a first
+     * segment that is not digits, so `StoredUpload`'s tenant rule skips itself. Every control
+     * declined, in order, for a different reason.
+     *
+     * The gap was exactly ONE PATH SEGMENT. The two traversal probes already here aim one segment
+     * too far in each direction: `uploads/<A>/../../<name>` LEAVES the uploads root (refused on the
+     * root test) and `uploads/<A>/../<B>/<file>` lands on another STORE (refused on the tenant
+     * rule, because B is digits). Neither drives a traversal that stays inside `uploads/` and lands
+     * somewhere with no tenant segment to read.
+     *
+     * `uploads/receipt/` IS THE CHOSEN TARGET BECAUSE IT IS FULLY KNOWABLE, not guessable: it holds
+     * bank-transfer plan-payment receipts (`BankTransferController`, `$dir = 'uploads/receipt'`),
+     * the merchant uploaded the file, the path is on their own plan order -- and this project had
+     * already decided the payer must not be able to erase it, which `BulkDeleteTenantGuard` records
+     * by putting `plan-order` in `PLATFORM_GLOBAL`. So the finding was self-serve destruction of
+     * payment evidence, not a lottery over other tenants' filenames.
+     *
+     * ASSERT ON THE FILE, never on the status: a 403 proves nothing here, because the old code
+     * answered 200 after deleting and the fix must answer 403 without. The file is the subject.
+     */
+    #[Test]
+    public function test_a_traversal_that_stays_inside_uploads_cannot_reach_a_folder_with_no_tenant_segment(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Manage Store Setting');
+
+        /* The principal's own folder must EXIST for realpath() to resolve the traversal at all --
+           without it the handler is a no-op and the case would pass for the wrong reason. */
+        $own = $this->probeFile($store->id, 'ws4-own-' . bin2hex(random_bytes(4)) . '.png');
+
+        $targets = [];
+
+        foreach (['receipt', 'profile'] as $folder) {
+            $dir = base_path('uploads/' . $folder);
+
+            if (! is_dir($dir)) {
+                mkdir($dir, 0777, true);
+                $this->madeDirs[] = $dir;
+            }
+
+            $name = 'ws4-victim-' . bin2hex(random_bytes(4)) . '.png';
+            $absolute = $dir . '/' . $name;
+            file_put_contents($absolute, 'evidence');
+            $this->made[] = $absolute;
+            $targets[$folder] = $absolute;
+        }
+
+        /* Premise: the traversal really does resolve where the finding says it does. If this is
+           false the probe is aimed at nothing and the assertions below are vacuous. */
+        $this->assertSame(
+            realpath($targets['receipt']),
+            realpath(base_path('uploads/' . $store->id . '/../receipt/' . basename($targets['receipt']))),
+            'PREMISE FAILED: `uploads/<store>/../receipt/<file>` does not resolve to the receipt '
+            . 'file, so this case cannot be driving the traversal it was written for.'
+        );
+
+        foreach ($targets as $folder => $absolute) {
+            $this->postDelete('user', $merchant, 'uploads/' . $store->id . '/../' . $folder . '/' . basename($absolute));
+
+            $this->assertFileExists($absolute,
+                'a merchant deleted `uploads/' . $folder . '/' . basename($absolute) . '` by posting '
+                . '`uploads/' . $store->id . '/../' . $folder . '/<file>`. The string begins with the '
+                . 'principal-derived prefix, so layer 4 admitted it; it resolves inside the uploads '
+                . 'root, so that test admitted it; and its resolved first segment is not digits, so '
+                . 'StoredUpload\'s tenant rule skipped itself. The prefix must be imposed on the '
+                . 'RESOLVED path, not on the request string.');
+        }
+
+        /* And the fix must not have closed the door on the principal's own file. A confinement that
+           refuses everything would satisfy every assertion above and break the feature. */
+        $this->postDelete('user', $merchant, $own);
+
+        $this->assertFileDoesNotExist(base_path($own),
+            'the confinement refused the merchant their OWN file, so the layer is now a blanket '
+            . 'denial rather than a boundary -- which every refusal assertion above would still pass.');
     }
 }
