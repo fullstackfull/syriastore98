@@ -1364,6 +1364,53 @@ Route::get(
         ->name('platform.operations');
 
     /*
+     * OPS-003 — THE PLATFORM'S OWN INCIDENT LOG, for the platform operator only.
+     *
+     * "إدارة الحوادث والتنبيهات والتشخيص" — incident, alert and diagnostics management. The RECORD
+     * half: what went wrong with the shared infrastructure, the states it passed through, and who
+     * moved it. The ALERT half is not here and is not coming by accident:
+     * `App\Support\Operations\PlatformIncidentPolicy` records the five decisions that would be
+     * needed first, and a test asserts that nothing on this platform alerts anybody.
+     *
+     * THE FIRST WRITING SURFACE IN THIS GROUP, and that changes what the gate is protecting. Its
+     * three read-only neighbours disclose; these three routes let a caller WRITE the platform's
+     * operational history, which is the one record that must not be forgeable. Same gate for the
+     * same reason — `PlatformOperatorOnly` and not a permission name, because a merchant creates
+     * their own roles through the product and `isAbleTo()` alone would refuse the operator — and
+     * `SuperAdminIncidentsController` repeats the test in all five actions, because a later
+     * declaration of the same verb and URI REPLACES the earlier one and silently drops its
+     * middleware (`GAP-268` found a real duplicate in this file).
+     *
+     * `{incident}` IS NOT A ROUTE-MODEL BINDING, deliberately. The handler calls `find()` and
+     * answers its own redirect for a missing row, so a bad id is an error message on the index and
+     * not a 404 page — and nothing about it is implicitly resolved before the operator check runs.
+     * There is no tenant dimension to get wrong here: the table has no `store_id` at all.
+     *
+     * Inside the same `auth` group as its neighbours, so an anonymous caller is redirected to sign
+     * in by `auth` — which runs first — rather than told 403; and 403 and never 401 for a signed-in
+     * non-operator, because repo B maps any 401 to a forced logout.
+     */
+    Route::get('platform/incidents', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.index');
+
+    Route::post('platform/incidents', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'store'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.store');
+
+    Route::get('platform/incidents/{incident}', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'show'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.show');
+
+    Route::post('platform/incidents/{incident}/transition', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'transition'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.transition');
+
+    Route::post('platform/incidents/{incident}/note', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'note'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.note');
+
+    /*
      * GAP-192 / SAAS-007 — THE PLATFORM'S OWN REVENUE (MRR/ARR), SEPARATE FROM MERCHANT SALES.
      *
      * A SEPARATE SCREEN FROM `platform/analytics` ON PURPOSE, because the separation IS the

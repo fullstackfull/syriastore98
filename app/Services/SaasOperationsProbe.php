@@ -73,6 +73,42 @@ class SaasOperationsProbe
 
     /*
      * =============================================================================================
+     * THE FOUR TABLES THIS CLASS READS BY NAME, AS LITERALS — AND WHY NOT FROM CONFIGURATION
+     * =============================================================================================
+     *
+     * Every one of these names is also a configuration key: `DB_QUEUE_TABLE`, `queue.failed.table`,
+     * `DB_CACHE_TABLE`, `SESSION_TABLE`. The obvious reader is `DB::table(config(...))`, and it is
+     * wrong here for two separate reasons:
+     *
+     *   1. IT IS A TABLE IDENTIFIER TAKEN FROM OUTSIDE THE CODE. A table name is not a bound
+     *      parameter — it is interpolated into the SQL — so `DB::table($fromConfig)` reads whatever
+     *      the environment names, including a table this screen has no business counting. Nothing
+     *      in this codebase validates those keys, and an operations screen is the wrong place to
+     *      start trusting them.
+     *
+     *   2. IT DEFEATS THIS REPOSITORY'S OWN RAW-QUERY CENSUS. `RawQueryTenancyInventoryTest`
+     *      classifies every raw query BY TABLE, keyed on a literal in the source
+     *      (`LITERAL_TABLE_PATTERN`), so `DB::table($variable)` is a site it cannot classify at
+     *      all — and an unclassifiable raw site in a shared-database multi-tenant product is
+     *      exactly what that census exists to prevent. Writing the names as literals keeps every
+     *      statement here visible to it.
+     *
+     * SO THE CONFIGURED NAME IS COMPARED, NOT USED. A deployment that has renamed one of these
+     * tables gets the figure WITHHELD with a sentence naming what it configured — which is the
+     * honest answer, because this class genuinely cannot measure a table it does not know about,
+     * and a count from the wrong table would be a plausible wrong number.
+     */
+
+    public const JOBS_TABLE = 'jobs';
+
+    public const FAILED_JOBS_TABLE = 'failed_jobs';
+
+    public const CACHE_TABLE = 'cache';
+
+    public const SESSIONS_TABLE = 'sessions';
+
+    /*
+     * =============================================================================================
      * THE DATABASE
      * =============================================================================================
      */
@@ -305,7 +341,8 @@ class SaasOperationsProbe
      *
      * Null for every driver but `database`, and that refusal is the measurement on a Redis or SQS
      * deployment: this class cannot see that backlog, and an empty `jobs` table there means the
-     * table is unused, not that nothing is queued.
+     * table is unused, not that nothing is queued. Null too when the deployment has renamed the
+     * table — see the table constants above.
      *
      * RESERVED IS COUNTED SEPARATELY FROM PENDING, because they fail differently. Pending is
      * throughput — work waiting for a worker. Reserved and NOT shrinking is a worker that died
@@ -315,51 +352,43 @@ class SaasOperationsProbe
      * `available_at` in the future and has not been waiting at all; `created_at` is when the job
      * was handed over, which is the age an operator means.
      *
-     * @return array{pending: int, reserved: int, oldest_pending_created_at: int|null, per_queue: array<string, int>}|null
+     * NO PER-QUEUE BREAKDOWN, DELIBERATELY. An earlier draft produced one and nothing displayed
+     * it. A figure nothing shows is a figure nobody checks, and here it would also have been the
+     * one aggregate on this screen needing a `GROUP BY` over a table that can hold six figures of
+     * rows. The failure breakdown below is different: it IS displayed, and `failed_jobs` is
+     * bounded by how often an operator clears it.
+     *
+     * @return array{pending: int, reserved: int, oldest_pending_created_at: int|null}|null
      */
     public function queuedJobs(): ?array
     {
-        if ($this->queueDriver() !== self::QUEUE_DRIVER_DATABASE) {
+        if ($this->queueDriver() !== self::QUEUE_DRIVER_DATABASE || $this->queueTable() !== self::JOBS_TABLE) {
             return null;
         }
 
-        $table = $this->queueTable();
-
         try {
-            if (! $this->connection()->getSchemaBuilder()->hasTable($table)) {
+            if (! $this->connection()->getSchemaBuilder()->hasTable(self::JOBS_TABLE)) {
                 return null;
             }
 
-            $pending = (int) DB::table($table)->whereNull('reserved_at')->count();
-            $reserved = (int) DB::table($table)->whereNotNull('reserved_at')->count();
-
-            $oldest = DB::table($table)->whereNull('reserved_at')->min('created_at');
-
-            $perQueue = DB::table($table)
-                ->selectRaw('queue, count(*) as c')
-                ->whereNull('reserved_at')
-                ->groupBy('queue')
-                ->orderBy('queue')
-                ->get();
+            $pending = (int) DB::table('jobs')->whereNull('reserved_at')->count();
+            $reserved = (int) DB::table('jobs')->whereNotNull('reserved_at')->count();
+            $oldest = DB::table('jobs')->whereNull('reserved_at')->min('created_at');
         } catch (Throwable) {
             return null;
-        }
-
-        $breakdown = [];
-
-        foreach ($perQueue as $row) {
-            $breakdown[(string) $row->queue] = (int) $row->c;
         }
 
         return [
             'pending' => $pending,
             'reserved' => $reserved,
             'oldest_pending_created_at' => $oldest === null ? null : (int) $oldest,
-            'per_queue' => $breakdown,
         ];
     }
 
-    /** The table the configured failed-job driver writes to, when it writes to one at all. */
+    /**
+     * The table the configured failed-job driver writes to, when it writes to one at all — and
+     * when it is the one this class knows how to read.
+     */
     public function failedJobsTable(): ?string
     {
         $driver = (string) config('queue.failed.driver');
@@ -369,8 +398,9 @@ class SaasOperationsProbe
         }
 
         $table = config('queue.failed.table');
+        $table = is_string($table) && $table !== '' ? $table : self::FAILED_JOBS_TABLE;
 
-        return is_string($table) && $table !== '' ? $table : 'failed_jobs';
+        return $table === self::FAILED_JOBS_TABLE ? $table : null;
     }
 
     /**
@@ -392,39 +422,46 @@ class SaasOperationsProbe
      */
     public function failedJobs(int $sinceHours = 24): ?array
     {
-        $table = $this->failedJobsTable();
-
-        if ($table === null) {
+        if ($this->failedJobsTable() === null) {
             return null;
         }
 
         try {
-            if (! $this->connection()->getSchemaBuilder()->hasTable($table)) {
+            if (! $this->connection()->getSchemaBuilder()->hasTable(self::FAILED_JOBS_TABLE)) {
                 return null;
             }
 
-            $total = (int) DB::table($table)->count();
+            $total = (int) DB::table('failed_jobs')->count();
 
-            $since = (int) DB::table($table)
+            $since = (int) DB::table('failed_jobs')
                 ->where('failed_at', '>=', now()->subHours($sinceHours))
                 ->count();
 
-            $newest = DB::table($table)->max('failed_at');
+            $newest = DB::table('failed_jobs')->max('failed_at');
 
-            $perQueue = DB::table($table)
-                ->selectRaw('queue, count(*) as c')
-                ->groupBy('queue')
-                ->orderBy('queue')
-                ->get();
+            /*
+             * THE BREAKDOWN WITHOUT A `GROUP BY`, and the two queries are the point.
+             *
+             * `selectRaw('queue, count(*)')` would be a builder-raw statement, which
+             * `BuilderRawQueryVisibilityTest` records as INVISIBLE to this repository's main
+             * raw-query census — the blind spot that census exists to measure. The distinct list
+             * of queue names is tiny (a handful on any deployment), so asking for it and then
+             * counting each one is the same answer with no raw SQL in it at all.
+             */
+            $queues = DB::table('failed_jobs')->distinct()->pluck('queue');
+
+            $breakdown = [];
+
+            foreach ($queues as $queue) {
+                $breakdown[(string) $queue] = (int) DB::table('failed_jobs')
+                    ->where('queue', $queue)
+                    ->count();
+            }
         } catch (Throwable) {
             return null;
         }
 
-        $breakdown = [];
-
-        foreach ($perQueue as $row) {
-            $breakdown[(string) $row->queue] = (int) $row->c;
-        }
+        ksort($breakdown);
 
         return [
             'total' => $total,
@@ -461,24 +498,116 @@ class SaasOperationsProbe
     }
 
     /**
-     * How many rows a database-backed store is holding.
+     * HOW MANY ROWS THE DATABASE-BACKED CACHE IS HOLDING.
      *
      * Only for the `database` driver, and null otherwise — a Redis cache's key count is not a SQL
-     * question and an empty `cache` table on a Redis deployment is not an empty cache.
+     * question and an empty `cache` table on a Redis deployment is not an empty cache. Null too
+     * when the deployment has renamed the table; see the table constants above for why the name is
+     * compared rather than used.
      *
-     * NOT A HEALTH FIGURE, AND THE SCREEN SAYS SO. A large `cache` table is normal; a large
-     * `sessions` table is normal. The figure exists because the rows are on the same disk as the
-     * data, and because a `sessions` table that stops growing is a session store that stopped
-     * working — both things an operator reads a trend for, neither of which this one reading judges.
+     * NOT A HEALTH FIGURE, AND THE SCREEN SAYS SO. A large `cache` table is normal. The figure
+     * exists because those rows are on the same disk as the orders, which is a thing an operator
+     * reads a trend for — and this one reading judges nothing.
      */
-    public function tableRowCount(string $table): ?int
+    public function cacheRowCount(): ?int
+    {
+        if ($this->cacheState() !== self::STORE_MEASURED) {
+            return null;
+        }
+
+        try {
+            return (int) DB::table('cache')->count();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * WHY A DATABASE-BACKED STORE'S ROW COUNT IS OR IS NOT AVAILABLE — and the fourth value is the
+     * one this method exists for.
+     *
+     * A plain `null` would collapse four different situations into one sentence, and one of them is
+     * an OUTAGE rather than an absence of interest:
+     *
+     *   `not_database`   the driver keeps nothing in a table. Expected, and nothing is wrong.
+     *   `renamed`        this deployment has named the table something this class does not read.
+     *   `table_absent`   **the store is configured to use the database and the table is not
+     *                    there.** That is not a measurement this screen cannot take; it is a store
+     *                    that cannot work.
+     *   `measured`       the figure is available.
+     *
+     * AND `table_absent` IS NOT HYPOTHETICAL IN THIS REPOSITORY. Measured 2026-11-26: `.env.example`
+     * ships `SESSION_DRIVER=database`, `config/session.php` defaults to `database`, and
+     * `database/migrations/` contains NO migration that creates a `sessions` table — `grep -rln
+     * "create('sessions'" database/migrations/` is empty, while `cache` and `jobs` both have one
+     * (`0001_01_01_000001`, `0001_01_01_000002`). So a deployment taking the shipped defaults has a
+     * session store pointed at a table that does not exist. Reporting that as "this driver keeps
+     * nothing in a table" would be the exact opposite of what is wrong.
+     */
+    public const STORE_MEASURED = 'measured';
+
+    public const STORE_NOT_DATABASE = 'not_database';
+
+    public const STORE_TABLE_RENAMED = 'renamed';
+
+    public const STORE_TABLE_ABSENT = 'table_absent';
+
+    public function cacheState(): string
+    {
+        if ($this->cacheDriver() !== 'database') {
+            return self::STORE_NOT_DATABASE;
+        }
+
+        $configured = config('cache.stores.' . $this->cacheStoreName() . '.table');
+
+        if ((is_string($configured) && $configured !== '' ? $configured : self::CACHE_TABLE) !== self::CACHE_TABLE) {
+            return self::STORE_TABLE_RENAMED;
+        }
+
+        return $this->hasTable(self::CACHE_TABLE) ? self::STORE_MEASURED : self::STORE_TABLE_ABSENT;
+    }
+
+    public function sessionState(): string
+    {
+        if ($this->sessionDriver() !== 'database') {
+            return self::STORE_NOT_DATABASE;
+        }
+
+        $configured = config('session.table');
+
+        if ((is_string($configured) && $configured !== '' ? $configured : self::SESSIONS_TABLE) !== self::SESSIONS_TABLE) {
+            return self::STORE_TABLE_RENAMED;
+        }
+
+        return $this->hasTable(self::SESSIONS_TABLE) ? self::STORE_MEASURED : self::STORE_TABLE_ABSENT;
+    }
+
+    /** Whether a table is there, without letting a refusing connection become an exception. */
+    protected function hasTable(string $table): bool
     {
         try {
-            if (! $this->connection()->getSchemaBuilder()->hasTable($table)) {
-                return null;
-            }
+            return $this->connection()->getSchemaBuilder()->hasTable($table);
+        } catch (Throwable) {
+            return false;
+        }
+    }
 
-            return (int) DB::table($table)->count();
+    /**
+     * HOW MANY ROWS THE DATABASE-BACKED SESSION STORE IS HOLDING.
+     *
+     * The twin of `cacheRowCount()`, and not a count of people signed in: a row survives until the
+     * framework's own sweep removes it, and one person using two browsers has two rows. It is worth
+     * a row of its own because a `sessions` table that stops growing is a session store that
+     * stopped accepting writes, which signs every principal on the platform out.
+     */
+    public function sessionRowCount(): ?int
+    {
+        if ($this->sessionState() !== self::STORE_MEASURED) {
+            return null;
+        }
+
+        try {
+            return (int) DB::table('sessions')->count();
         } catch (Throwable) {
             return null;
         }
@@ -507,7 +636,7 @@ class SaasOperationsProbe
      * data, so it is counted rather than smoothed over: see `ambiguous`.
      *
      * @param  list<array{id: string, fields: list<string>, required_fields: list<string>}> $gateways
-     * @return array<string, array{enabled_stores: int, complete_stores: int, ambiguous_rows: int, required: int}>|null
+     * @return array{gateways: array<string, array{enabled_stores: int, complete_stores: int, required: int}>, ambiguous_rows: int}|null
      */
     public function paymentGatewayEnablement(array $gateways): ?array
     {
@@ -528,29 +657,32 @@ class SaasOperationsProbe
             }
 
             /*
-             * NO `value` IN ANY SELECT LIST. `'on'` and `''` are literals in the predicate, so the
-             * engine answers the presence question and the secrets stay in the engine.
+             * NO `value` IN ANY SELECT LIST. `'on'`, `'off'` and `''` are literals in the
+             * PREDICATE, so the engine answers the presence question and the secrets stay in the
+             * engine.
+             *
+             * AND NO AGGREGATE EITHER. An earlier draft asked the engine for
+             * `count(distinct store_id) ... group by name`, which is a builder-raw statement —
+             * invisible to this repository's main raw-query census by construction
+             * (`BuilderRawQueryVisibilityTest` measures exactly that blind spot). The (name,
+             * store_id) pairs are a bounded set, one row per gateway a store has switched on, and
+             * counting them in PHP gives the same two figures from ONE query instead of three.
              */
-            $enabled = DB::table('settings')
-                ->selectRaw('name, count(distinct store_id) as c')
-                ->whereIn('name', array_keys($enableNames))
-                ->where('value', 'on')
-                ->groupBy('name')
-                ->get();
-
-            $ambiguous = DB::table('settings')
-                ->selectRaw('name, count(*) as c')
-                ->whereIn('name', array_keys($enableNames))
-                ->whereNotNull('value')
-                ->whereNotIn('value', ['on', 'off'])
-                ->groupBy('name')
-                ->get();
-
             $enabledPairs = DB::table('settings')
                 ->select('name', 'store_id')
                 ->whereIn('name', array_keys($enableNames))
                 ->where('value', 'on')
                 ->get();
+
+            /*
+             * THE AMBIGUOUS ROWS AS ONE TOTAL. Only the total is shown, so only the total is asked
+             * for; a per-gateway breakdown nothing displays would be a figure nobody checks.
+             */
+            $ambiguousTotal = (int) DB::table('settings')
+                ->whereIn('name', array_keys($enableNames))
+                ->whereNotNull('value')
+                ->whereNotIn('value', ['on', 'off'])
+                ->count();
 
             $presentPairs = $requiredNames === [] ? collect() : DB::table('settings')
                 ->select('name', 'store_id')
@@ -568,25 +700,8 @@ class SaasOperationsProbe
             $measured[$gateway['id']] = [
                 'enabled_stores' => 0,
                 'complete_stores' => 0,
-                'ambiguous_rows' => 0,
                 'required' => count($gateway['required_fields']),
             ];
-        }
-
-        foreach ($enabled as $row) {
-            $id = $enableNames[(string) $row->name] ?? null;
-
-            if ($id !== null && isset($measured[$id])) {
-                $measured[$id]['enabled_stores'] = (int) $row->c;
-            }
-        }
-
-        foreach ($ambiguous as $row) {
-            $id = $enableNames[(string) $row->name] ?? null;
-
-            if ($id !== null && isset($measured[$id])) {
-                $measured[$id]['ambiguous_rows'] = (int) $row->c;
-            }
         }
 
         // store id => the set of required field names that store has a non-empty value for
@@ -605,6 +720,10 @@ class SaasOperationsProbe
             if ($id !== null) {
                 $on[$id][] = (int) $row->store_id;
             }
+        }
+
+        foreach ($measured as $id => $figures) {
+            $measured[$id]['enabled_stores'] = count(array_unique($on[$id] ?? []));
         }
 
         foreach ($gateways as $gateway) {
@@ -636,7 +755,7 @@ class SaasOperationsProbe
             $measured[$gateway['id']]['complete_stores'] = $complete;
         }
 
-        return $measured;
+        return ['gateways' => $measured, 'ambiguous_rows' => $ambiguousTotal];
     }
 
     /**

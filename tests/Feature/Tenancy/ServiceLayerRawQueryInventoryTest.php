@@ -263,6 +263,121 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
         "->update([ 'payment_status' => 'unpaid'," =>
             'The unpaid write inside markFinancialAsUnpaid\'s transaction, on the row the '
             . 'lockForUpdate above returned and the status check accepted.',
+
+        /* -------------------------------------------------------------------------------------
+           OPS-001 (2026-11-26): `App\Services\SaasOperationsProbe`, THIRTEEN STATEMENTS, AND THEY
+           ARE STORE-LESS FOR A REASON THIS LIST HAS NOT SEEN BEFORE — the subject is the SHARED
+           INFRASTRUCTURE, so one tenant's figure would be the wrong answer rather than a narrower
+           one.
+
+           The recovered requirement is "مراقبة الخوادم وقواعد البيانات والطوابير والتكاملات" —
+           monitor servers, databases, queues and integrations. A queue depth of one store's jobs
+           is not a queue depth; the queue is one queue, shared, and an operator asking how deep
+           it is is asking about the machine every tenant is waiting on. A `store_id` predicate
+           here would not narrow an exposure, it would produce a figure that is wrong by however
+           many jobs belong to everybody else.
+
+           THE DISCLOSURE SURFACE IS A COUNT AND THE DOOR IS IDENTITY. Every one of these thirteen
+           is a `count()`, a `min()`, a `max()` or a `distinct()->pluck()` of queue NAMES; none
+           returns a row of anybody's data. Their one caller is `SaasPlatformOperations`, whose one
+           caller is `SuperAdminOperationsController`, gated by `PlatformOperatorOnly` on the route
+           AND by the same test again inside the handler — `PlatformOperationsScreenTest` drives a
+           merchant, a staff member, a staff member holding `Manage Reports`, and the handler
+           directly with the route gate removed. Nothing takes an id from request input; the handler
+           reads nothing from the request at all, which `test_a_query_string_changes_nothing`
+           asserts rather than leaves to be read off the code.
+
+           FOUR OF THESE TABLES HAVE NO `store_id` COLUMN AT ALL. `jobs`, `failed_jobs`, `cache`
+           and `sessions` are the framework's own, created by `0001_01_01_000002` and
+           `2019_08_19_000000`; there is no predicate available to omit. `otp_integrations` and
+           `settings` DO carry one, which is why their rows in the by-table map are the ones to
+           read carefully — see the note there.
+
+           WHY RAW AND NOT ELOQUENT, per table. `jobs`, `failed_jobs`, `cache` and `sessions` have
+           no model in `app/Models/`. `OtpIntegration` has one and casts `api_secret` to
+           `encrypted`, so an Eloquent read would decrypt every merchant's provider secret into the
+           request's memory to answer "how many are active". `Setting` is `Cachable`, and a cached
+           figure on an operations screen is read as the current one — which is the exact failure
+           these figures exist to catch.
+           ------------------------------------------------------------------------------------- */
+
+        "DB::table('jobs')->whereNull('reserved_at')->count()" =>
+            'The queue depth: jobs handed over and not yet taken by a worker. The queue is one '
+            . 'shared queue and `jobs` has no store_id column, so there is no predicate to omit. '
+            . 'A count, behind the operator-only gate.',
+
+        "DB::table('jobs')->whereNotNull('reserved_at')->count()" =>
+            'Jobs a worker has taken and not finished — counted apart from the waiting ones '
+            . 'because held-and-not-shrinking is a dead worker rather than a backlog. Same table, '
+            . 'same absence of a store_id column, same gate.',
+
+        "DB::table('jobs')->whereNull('reserved_at')->min('created_at')" =>
+            'When the oldest job still waiting was dispatched. `created_at` and not '
+            . '`available_at`, because a delayed job has a due time in the future and has not been '
+            . 'waiting at all. One timestamp, no row data, same gate.',
+
+        "DB::table('failed_jobs')->count()" =>
+            'Every failure still in the table. `failed_jobs` has no store_id column; it is the '
+            . 'framework\'s own table and the only durable failure record this product keeps '
+            . 'anywhere, which is why the screen says in words that the figure covers queued work '
+            . 'only.',
+
+        "DB::table('failed_jobs') ->where('failed_at', '>=', now()->subHours(\$sinceHours))" =>
+            'The same count inside a stated window. The window is a constant on the controller and '
+            . 'is never read from the request: a failure count with no window is the commonest way '
+            . 'an operations page misleads, and a caller-chosen one would be the one input on a '
+            . 'screen that has none.',
+
+        "DB::table('failed_jobs')->max('failed_at')" =>
+            'When the newest recorded failure happened. One timestamp.',
+
+        "DB::table('failed_jobs')->distinct()->pluck('queue')" =>
+            'The distinct QUEUE NAMES that hold failures — configuration-level strings such as '
+            . '`default` or `mail`, not data. Asked for so the per-queue counts below can be taken '
+            . 'without a `GROUP BY`: an aggregate would have to be `selectRaw`, which '
+            . 'BuilderRawQueryVisibilityTest records as invisible to this very census.',
+
+        "DB::table('failed_jobs') ->where('queue', \$queue)" =>
+            'The failure count for one queue, keyed on a name that came from the distinct list '
+            . 'immediately above and never from a caller. A handful of queries on any deployment, '
+            . 'and each one a count.',
+
+        "DB::table('cache')->count()" =>
+            'Rows in the database-backed cache table. It has no store_id column, and the figure is '
+            . 'on this screen because those rows share the disk and the connections with the '
+            . 'orders. The table NAME is compared against a literal rather than taken from '
+            . 'configuration, so a renamed table is a stated refusal instead of a count from '
+            . 'somewhere else.',
+
+        "DB::table('sessions')->count()" =>
+            'Rows in the database-backed session table — not a count of people signed in. It is '
+            . 'worth a row because a sessions table that stops growing is a session store that '
+            . 'stopped accepting writes, which signs every principal on the platform out. Same '
+            . 'literal-name comparison as the cache table.',
+
+        "DB::table('settings') ->whereIn('name', array_keys(\$enableNames)) ->whereNotNull('value') ->whereNotIn('value', ['on', 'off'])" =>
+            'THE ONLY ONE OF THE THIRTEEN ON A TABLE THAT REALLY HAS A `store_id`, and it is '
+            . 'platform-wide on purpose: it counts gateway on/off rows holding a value that is '
+            . 'neither `on` nor `off`, which is a disagreement between the settings WRITER (which '
+            . 'stores only those two literals) and most of the product\'s READERS (which test the '
+            . 'row for emptiness and therefore read anything else as switched ON). The figure is '
+            . 'that disagreement existing in the data across the platform; per-store it would say '
+            . 'nothing. It selects NO value column — `on`, `off` and the emptiness test are '
+            . 'literals in the predicate — so no credential is read, which '
+            . 'PlatformOperationsMeasurementTest asserts against the SQL actually issued rather '
+            . 'than against the source.',
+
+        "DB::table('otp_integrations')->count()" =>
+            'How many stores have configured an SMS or WhatsApp provider, platform-wide. The table '
+            . 'has a store_id and this count deliberately spans every one of them: the screen\'s '
+            . 'subject is what the platform\'s integrations are, not one merchant\'s. Raw rather '
+            . 'than Eloquent because `OtpIntegration::$casts` makes `api_secret` `encrypted`, so a '
+            . 'model read would decrypt every merchant\'s provider secret to answer a count.',
+
+        "DB::table('otp_integrations')->where('is_active', true)->count()" =>
+            'The same population, narrowed to the ones switched on. The difference between the two '
+            . 'figures is a provider a merchant set up and then turned off. Same reason for raw, '
+            . 'same gate, and still no secret read.',
     ];
 
     /**
@@ -479,8 +594,25 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            so it lands in `$scoped` (31 -> 32) and `$storeLess` is UNCHANGED at 38. That split is the
            evidence this added no cross-tenant exposure: the totals would have moved either way, and
            the store-less count is the one that would have risen if the predicate were missing. */
+        /* 70 -> 85 on 2026-11-26 [OPS-001]: `app/Services/SaasOperationsProbe.php` adds FIFTEEN,
+           and -- unlike most deltas in this file -- THIRTEEN of them land in `$storeLess`
+           (38 -> 51). That is the design and not an oversight, and the full argument is beside the
+           thirteen declarations in STORE_LESS_BY_DESIGN above: the subject of that class is the
+           SHARED INFRASTRUCTURE, so a `store_id` predicate would not narrow an exposure, it would
+           produce a figure that is wrong by however much belongs to everybody else. A queue depth
+           of one store's jobs is not a queue depth.
+
+           THE OTHER TWO LAND IN `$scoped` (32 -> 34) AND THAT NEEDS SAYING PLAINLY, because the
+           census's rule and the statements' behaviour differ here. Both are
+           `DB::table('settings')->select('name', 'store_id')...`, and they are counted as scoped
+           because the string `store_id` appears in them -- but they SELECT the column, they do not
+           PREDICATE on it. They are as platform-wide as the other thirteen. Nothing is being
+           smuggled through: the column is selected precisely so the figures can be computed PER
+           STORE in PHP ("how many stores have this gateway switched on, and how many of those have
+           every required credential"), which is what the screen shows. Recorded here so that
+           nobody later reads a `$scoped` count as a tenant guarantee it is not. */
         $this->assertSame(
-            70,
+            85,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -499,8 +631,8 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            `plan_purchase_intents`, which has no `store_id` and could not have one, and every one
            addresses its row by primary key or the server-minted reference rather than by anything a
            caller supplied. */
-        $this->assertSame(32, $scoped, 'statements naming store_id');
-        $this->assertCount(38, $storeLess, 'statements naming store_id nowhere');
+        $this->assertSame(34, $scoped, 'statements naming store_id');
+        $this->assertCount(51, $storeLess, 'statements naming store_id nowhere');
     }
 
     public function test_every_store_less_service_statement_is_declared_with_its_reason(): void

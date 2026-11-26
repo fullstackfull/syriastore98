@@ -54,6 +54,12 @@ final class OperatorDashboardPlatformLinksTest extends SecurityTestCase
          * tells them apart, exactly as for the two money screens above.
          */
         'platform.operations' => 'queues',
+        /*
+         * OPS-003. The only one of these that is WRITTEN rather than measured, and the word that
+         * has to be in the sentence is the one that says so — an operator who read "Platform
+         * incidents" beside four measurement screens would reasonably assume something fills it in.
+         */
+        'platform.incidents.index' => 'nothing opens an incident by itself',
     ];
 
     private User $operator;

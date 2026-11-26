@@ -30,7 +30,7 @@ use Tests\TestCase;
  *
  * THE INSTRUMENT IS VALIDATED AGAINST THE LIVE CENSUS IN BOTH DIRECTIONS, which is the only reason
  * the blind-spot figures below can be trusted: counting the same pattern over the same enumeration
- * reproduces `['app' => 232, 'packages' => 45]` EXACTLY -- the figures that test asserts. (Its
+ * reproduces `['app' => 247, 'packages' => 45]` EXACTLY -- the figures that test asserts. (Its
  * 2026-11-26 NOTE: this pair was 229/45 until the integration checkpoint, and it moved because the
  * sibling census legitimately moved, not because this instrument drifted. FOUR raw sites arrived
  * across two branches and each is named in that file's own chain of notes: `RefundPolicy::allows()`
@@ -177,7 +177,15 @@ class BuilderRawQueryVisibilityTest extends TestCase
         $census = $this->census();
 
         $this->assertSame(
-            ['app' => 232, 'packages' => 45],
+            /* 232 -> 247 in app/ on 2026-11-26 [OPS-001]: the fifteen `DB::table()` statements of
+               `app/Services/SaasOperationsProbe.php`. The figure here only has to follow the live
+               census's, which is this test's whole job — and the probe is relevant to this file's
+               own subject for a second reason: an earlier draft of it had THREE builder-raw
+               statements (two `GROUP BY` aggregates over `settings` and one over `failed_jobs`),
+               which would have landed in the blind spot this file measures. All three were
+               rewritten in the builder's own vocabulary, so the invisible-site count below does
+               not move. */
+            ['app' => 247, 'packages' => 45],
             ['app' => $census['app']['visible'], 'packages' => $census['packages']['visible']],
             'This file counts `DB::` entry points with the same pattern and the same enumeration as '
             . 'RawQueryTenancyInventoryTest::test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight, '

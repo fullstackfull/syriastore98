@@ -240,7 +240,7 @@ final class SaasPlatformOperations
                 $jobs === null ? null : number_format($jobs['pending']),
                 __('now'),
                 __('Jobs handed over and not yet taken by a worker. A delayed job is included: it is waiting, it is simply not due.'),
-                $probe->queueTable() . ' where reserved_at is null',
+                SaasOperationsProbe::JOBS_TABLE . ' where reserved_at is null',
                 $jobs === null ? $depthRefused : null,
             ),
             self::row(
@@ -249,7 +249,7 @@ final class SaasPlatformOperations
                 $jobs === null ? null : number_format($jobs['reserved']),
                 __('now'),
                 __('Jobs a worker has taken and not finished. Counted apart from the waiting jobs because the two fail differently: waiting is throughput, while held-and-not-shrinking is a worker that died holding work — the commonest queue outage, and invisible inside a single total.'),
-                $probe->queueTable() . ' where reserved_at is not null',
+                SaasOperationsProbe::JOBS_TABLE . ' where reserved_at is not null',
                 $jobs === null ? $depthRefused : null,
             ),
             self::row(
@@ -258,7 +258,7 @@ final class SaasPlatformOperations
                 $oldest === null ? null : $oldest->toDateTimeString(),
                 __('now'),
                 __('When the oldest job still waiting was dispatched — not when it becomes due. A delayed job has a due time in the future and has not been waiting at all, so the dispatch time is the age an operator means. Nothing judges this: whether an hour is a backlog depends on what the job is.'),
-                $probe->queueTable() . ' min(created_at)',
+                SaasOperationsProbe::JOBS_TABLE . ' min(created_at)',
                 $oldest === null
                     ? ($jobs === null ? $depthRefused : __('No job is waiting, so there is no oldest one.'))
                     : null,
@@ -275,7 +275,7 @@ final class SaasPlatformOperations
             $failed === null ? null : number_format($failed['since']),
             __('the last :hours hours', ['hours' => $failureWindowHours]),
             __('Jobs that exhausted their attempts and were recorded as failed. This is the only failure history this product keeps anywhere, and it covers queued work only.'),
-            ($probe->failedJobsTable() ?? 'failed_jobs') . ' where failed_at >= now - ' . $failureWindowHours . 'h',
+            SaasOperationsProbe::FAILED_JOBS_TABLE . ' where failed_at >= now - ' . $failureWindowHours . 'h',
             $failed === null ? $failureRefused : null,
         );
 
@@ -285,7 +285,7 @@ final class SaasPlatformOperations
             $failed === null ? null : number_format($failed['total']),
             __('since the failure table was last cleared'),
             __('Every failure still in the table. The period is deliberately not "all time": the table is cleared by an operator command, so its oldest row is whenever that last happened and this figure cannot claim to reach further back.'),
-            ($probe->failedJobsTable() ?? 'failed_jobs') . ' count(*)',
+            SaasOperationsProbe::FAILED_JOBS_TABLE . ' count(*)',
             $failed === null ? $failureRefused : null,
         );
 
@@ -295,7 +295,7 @@ final class SaasPlatformOperations
             $failed === null ? null : $failed['newest_failed_at'],
             __('now'),
             __('When the newest recorded failure happened.'),
-            ($probe->failedJobsTable() ?? 'failed_jobs') . ' max(failed_at)',
+            SaasOperationsProbe::FAILED_JOBS_TABLE . ' max(failed_at)',
             $failed === null
                 ? $failureRefused
                 : ($failed['newest_failed_at'] === null ? __('No failure is recorded.') : null),
@@ -320,11 +320,23 @@ final class SaasPlatformOperations
         $cacheDriver = $probe->cacheDriver();
         $sessionDriver = $probe->sessionDriver();
 
-        $cacheTable = (string) (config('cache.stores.' . $probe->cacheStoreName() . '.table') ?: 'cache');
-        $sessionTable = (string) (config('session.table') ?: 'sessions');
+        $cacheRows = $probe->cacheRowCount();
+        $sessionRows = $probe->sessionRowCount();
 
-        $cacheRows = $cacheDriver === 'database' ? $probe->tableRowCount($cacheTable) : null;
-        $sessionRows = $sessionDriver === 'database' ? $probe->tableRowCount($sessionTable) : null;
+        /*
+         * FOUR REASONS, NOT ONE, AND THE FOURTH IS AN OUTAGE. "This driver keeps nothing in a
+         * table" is the right sentence for a per-process cache and the WRONG one for a store that
+         * is configured to use the database and whose table is not there — which is the shipped
+         * state of the session store in this repository: `SESSION_DRIVER=database` with no
+         * migration that creates `sessions`. See `SaasOperationsProbe::cacheState()`.
+         */
+        $whyNoRows = static fn (string $state, ?string $driver, string $table): ?string => match ($state) {
+            SaasOperationsProbe::STORE_MEASURED => null,
+            SaasOperationsProbe::STORE_NOT_DATABASE => __('This driver (:driver) keeps nothing in a database table, so there is no row count to take.', ['driver' => $driver ?? __('unknown')]),
+            SaasOperationsProbe::STORE_TABLE_RENAMED => __('This deployment keeps this store in a differently named table, which this screen does not read. The figure is withheld rather than taken from the wrong table.'),
+            SaasOperationsProbe::STORE_TABLE_ABSENT => __('This store is configured to use the database and the :table table does not exist. That is not a measurement this screen cannot take — it is a store that cannot work.', ['table' => $table]),
+            default => __('The state of this store could not be determined.'),
+        };
 
         return [
             self::row(
@@ -342,10 +354,8 @@ final class SaasPlatformOperations
                 $cacheRows === null ? null : number_format($cacheRows),
                 __('now'),
                 __('Rows in the cache table, including entries that have expired and have not yet been overwritten. Nothing here judges the figure: a large cache table is ordinary.'),
-                $cacheTable . ' count(*)',
-                $cacheRows === null
-                    ? __('This cache driver (:driver) keeps nothing in a database table, so there is no row count to take.', ['driver' => $cacheDriver ?? __('unknown')])
-                    : null,
+                SaasOperationsProbe::CACHE_TABLE . ' count(*)',
+                $whyNoRows($probe->cacheState(), $cacheDriver, SaasOperationsProbe::CACHE_TABLE),
             ),
             self::row(
                 'session_driver',
@@ -362,10 +372,8 @@ final class SaasPlatformOperations
                 $sessionRows === null ? null : number_format($sessionRows),
                 __('now'),
                 __('Rows in the session table. This is not a count of people signed in: a row survives until the framework\'s own sweep removes it, and one person using two browsers has two rows.'),
-                $sessionTable . ' count(*)',
-                $sessionRows === null
-                    ? __('This session driver (:driver) keeps nothing in a database table, so there is no row count to take.', ['driver' => $sessionDriver ?? __('unknown')])
-                    : null,
+                SaasOperationsProbe::SESSIONS_TABLE . ' count(*)',
+                $whyNoRows($probe->sessionState(), $sessionDriver, SaasOperationsProbe::SESSIONS_TABLE),
             ),
         ];
     }
@@ -445,7 +453,7 @@ final class SaasPlatformOperations
             ))),
             __('since the failure table was last cleared'),
             __('Which queues hold failed jobs, and how many each holds. This is the whole of the integration failure history this product keeps: no gateway, transport or provider writes a failure of its own, so an integration that fails outside a queued job leaves nothing here to see.'),
-            ($probe->failedJobsTable() ?? 'failed_jobs') . ' group by queue',
+            SaasOperationsProbe::FAILED_JOBS_TABLE . ' group by queue',
             $failed === null
                 ? __('This deployment does not record failed jobs in the database, so no failure history can be read here.')
                 : null,
@@ -478,7 +486,10 @@ final class SaasPlatformOperations
     private static function gateways(SaasOperationsProbe $probe): array
     {
         $registry = (new PaymentSettingController())->getPaymentGateways();
-        $measured = $probe->paymentGatewayEnablement($registry);
+        $probed = $probe->paymentGatewayEnablement($registry);
+
+        $measured = $probed === null ? null : $probed['gateways'];
+        $ambiguousRows = $probed === null ? null : $probed['ambiguous_rows'];
 
         $refused = __('The settings table could not be read, so gateway enablement is unknown. It is the table that holds both the on/off rows and the credentials, and this screen reads only the on/off rows.');
 
@@ -486,7 +497,6 @@ final class SaasPlatformOperations
         $enabledGateways = 0;
         $incompleteGateways = 0;
         $retiredStillOn = 0;
-        $ambiguousRows = 0;
 
         if ($measured !== null) {
             foreach ($registry as $gateway) {
@@ -496,8 +506,6 @@ final class SaasPlatformOperations
                 if ($figures === null) {
                     continue;
                 }
-
-                $ambiguousRows += $figures['ambiguous_rows'];
 
                 if ($figures['enabled_stores'] === 0) {
                     continue;
@@ -570,7 +578,7 @@ final class SaasPlatformOperations
             self::row(
                 'ambiguous',
                 __('On/off rows holding neither value'),
-                $measured === null ? null : number_format($ambiguousRows),
+                $ambiguousRows === null ? null : number_format($ambiguousRows),
                 __('now'),
                 __('The settings writer stores the literal on or off and nothing else, and this screen reads it that way. But most of the product\'s own readers test the row for emptiness instead, so a row holding anything else is read as switched ON there and as off here. Any figure above zero is that disagreement existing in the data, which is why it is counted rather than smoothed over.'),
                 'settings where value not in (\'on\', \'off\')',

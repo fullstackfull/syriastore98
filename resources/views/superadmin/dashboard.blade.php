@@ -95,11 +95,15 @@
                     <h2 class="h5 mb-1">{{ __('Across the whole platform') }}</h2>
 
                     <p class="ss-muted mb-3">
-                        {{-- "Three" became wrong the moment OPS-001 added a fourth cross-tenant
-                             screen. A counted noun in prose beside a list is a figure, and a
-                             figure that disagrees with the list beneath it is the smallest and
-                             commonest kind of thing this product says that is not true. --}}
-                        {{ __('Four screens that read every tenant at once. Each is for the platform operator only.') }}
+                        {{-- THE COUNT IS GONE RATHER THAN CORRECTED, and that is the point of this
+                             note. It read "Three screens" and OPS-001 made it four; OPS-003 then
+                             made it five, and the fifth is not a cross-tenant READ at all — the
+                             incident log is about the platform itself. A counted noun in prose
+                             beside a list is a figure, a figure that disagrees with the list
+                             beneath it is the smallest and commonest kind of thing this product
+                             says that is not true, and the third slice to have to correct it is
+                             evidence that the count should not have been there. --}}
+                        {{ __('Screens that read every tenant at once, or the platform itself. Each is for the platform operator only.') }}
                     </p>
 
                     <ul class="list-unstyled mb-0">
@@ -132,6 +136,16 @@
                             <a class="ss-link" href="{{ route('platform.operations') }}">{{ __('Platform operations') }}</a>
                             <span class="ss-field__hint d-block">
                                 {{ __('The shared database, the queues and which integrations are configured, switched on or failing.') }}
+                            </span>
+                        </li>
+                        {{-- OPS-003. The only one of these that is WRITTEN rather than measured,
+                             and the only operational history the platform has. Linked here for the
+                             same reason as its neighbours: a screen nothing links to is a screen
+                             only somebody who already knows the URL can reach. --}}
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.incidents.index') }}">{{ __('Platform incidents') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('What went wrong with the platform, what was done about it, and by whom. Written by hand: nothing opens an incident by itself.') }}
                             </span>
                         </li>
                         {{-- GAP-104. Linked here for the reason the note at the top of this file

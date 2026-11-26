@@ -748,6 +748,154 @@ final class PlatformOperationsMeasurementTest extends TestCase
     }
 
     /**
+     * A DEPLOYMENT THAT HAS RENAMED ONE OF THESE TABLES GETS THE FIGURE WITHHELD, NOT A COUNT FROM
+     * THE WRONG TABLE.
+     *
+     * The table names are also configuration keys, and this class compares them rather than using
+     * them — a table identifier is interpolated into the SQL rather than bound, so reading whatever
+     * the environment names is both a trust decision nobody made and a site this repository's
+     * by-table raw-query census cannot classify. The honest consequence is a refusal, and that
+     * refusal is the thing asserted here.
+     *
+     * THE ROWS ARE IN THE TABLE FIRST, so a reader that ignored the configured name would answer
+     * `2` and fail rather than being saved by an empty table.
+     */
+    public function test_a_renamed_operational_table_withholds_the_figure_instead_of_counting_the_wrong_one(): void
+    {
+        $this->onDatabaseQueue();
+
+        $this->queueJob('default');
+        $this->queueJob('default');
+        $this->failJob('default', now());
+
+        config([
+            'queue.connections.database.table' => 'jobs_renamed_by_this_deployment',
+            'queue.failed.table' => 'failed_jobs_renamed_by_this_deployment',
+        ]);
+
+        $rows = $this->group('queue');
+
+        foreach (['pending', 'reserved', 'oldest_pending', 'failed_total', 'failed_window'] as $key) {
+            $this->assertNull($rows[$key]['value'],
+                $key . ' was counted from the table this class knows about while the deployment '
+                . 'has the queue in a differently named one');
+            $this->assertNotNull($rows[$key]['reason'], $key . ' was withheld without saying why');
+        }
+    }
+
+    /** The same contract for the cache and session stores, which are configured the same way. */
+    public function test_a_renamed_cache_or_session_table_withholds_the_row_count(): void
+    {
+        config([
+            'cache.default' => 'database',
+            'cache.stores.database.driver' => 'database',
+            'cache.stores.database.table' => 'cache_renamed_by_this_deployment',
+            'session.driver' => 'database',
+            'session.table' => 'sessions_renamed_by_this_deployment',
+        ]);
+
+        DB::table('cache')->insert(['key' => 'ops-probe', 'value' => 'x', 'expiration' => time() + 600]);
+
+        $rows = $this->group('stores');
+
+        $this->assertNull($rows['cache_rows']['value']);
+        $this->assertNotNull($rows['cache_rows']['reason']);
+        $this->assertNull($rows['session_rows']['value']);
+        $this->assertNotNull($rows['session_rows']['reason']);
+    }
+
+    /**
+     * A STORE CONFIGURED TO USE THE DATABASE WHOSE TABLE IS NOT THERE SAYS SO, AND DOES NOT SAY
+     * "THIS DRIVER KEEPS NOTHING IN A TABLE".
+     *
+     * THIS IS THE SHIPPED STATE OF THE SESSION STORE IN THIS REPOSITORY, measured 2026-11-26 and
+     * not hypothetical: `.env.example` ships `SESSION_DRIVER=database`, `config/session.php`
+     * defaults to `database`, and `database/migrations/` contains NO migration that creates a
+     * `sessions` table — while `cache` and `jobs` both have one (`0001_01_01_000001`,
+     * `0001_01_01_000002`). A deployment taking the shipped defaults therefore has a session store
+     * pointed at a table that does not exist, and the sentence an operator must not be given for
+     * that is the one meant for a per-process driver.
+     *
+     * The two sentences are asserted to DIFFER, which is the whole point: a single `null` with one
+     * reason would make an outage indistinguishable from a configuration nothing is wrong with.
+     */
+    public function test_a_database_backed_store_whose_table_is_absent_says_that_rather_than_blaming_the_driver(): void
+    {
+        config(['session.driver' => 'database', 'session.table' => 'sessions']);
+
+        $this->assertFalse(Schema::hasTable('sessions'),
+            'premise: this repository now creates a sessions table, so this case no longer '
+            . 'exercises the absent-table branch. Re-point it at a table that really is absent.');
+
+        $absent = $this->group('stores')['session_rows'];
+
+        $this->assertNull($absent['value']);
+        $this->assertStringContainsString('sessions', (string) $absent['reason']);
+        $this->assertStringContainsString('cannot work', (string) $absent['reason'],
+            'the screen blames the driver for a missing table, which is the opposite of what is wrong');
+
+        config(['session.driver' => 'array']);
+
+        $notDatabase = $this->group('stores')['session_rows'];
+
+        $this->assertNull($notDatabase['value']);
+        $this->assertNotSame($absent['reason'], $notDatabase['reason'],
+            'a store that cannot work and a store that keeps nothing in a table are given the same '
+            . 'sentence, so an operator cannot tell an outage from a configuration');
+    }
+
+    /**
+     * EVERY RAW QUERY IN THE PROBE NAMES ITS TABLE AS A LITERAL, AND NONE OF THEM IS BUILDER-RAW.
+     *
+     * Two properties, both of them about this repository's own censuses rather than about style,
+     * and both asserted as the SAFE SET rather than as a list of bad spellings — `CLAUDE.md`
+     * section 3, after a dangerous-spelling census in this very file was walked through by a
+     * mutant.
+     *
+     *   1. `RawQueryTenancyInventoryTest` classifies raw queries BY TABLE, keyed on a quoted
+     *      literal in the source. `DB::table($variable)` is a site it cannot classify at all, and
+     *      an unclassifiable raw site in a shared-database multi-tenant product is precisely what
+     *      that census exists to prevent. So every `DB::table(` here must be followed by a quote.
+     *
+     *   2. `BuilderRawQueryVisibilityTest` measures the blind spot of the main census:
+     *      `selectRaw`, `whereRaw`, `DB::raw` and their siblings are INVISIBLE to it. An earlier
+     *      draft of this probe had three such statements — two `GROUP BY` aggregates over
+     *      `settings` and one over `failed_jobs` — and all three were replaced with queries that
+     *      ask the same questions in the builder's own vocabulary.
+     */
+    public function test_every_raw_query_in_the_probe_names_a_literal_table_and_none_is_builder_raw(): void
+    {
+        $code = $this->sourceWithoutComments(self::PROBE);
+
+        preg_match_all('/DB::table\(\s*(.)/', $code, $matches, PREG_OFFSET_CAPTURE);
+
+        $this->assertNotEmpty($matches[1], 'premise: no DB::table() call was found in the probe at all');
+
+        foreach ($matches[1] as $match) {
+            $this->assertContains($match[0], ["'", '"'], sprintf(
+                'a DB::table() call in %s takes a table name that is not a quoted literal (it '
+                . "starts with `%s`). This repository's raw-query census classifies every raw "
+                . 'query by table, keyed on a literal, so such a site cannot be classified at all '
+                . '-- and a table identifier is interpolated into the SQL rather than bound.',
+                self::PROBE,
+                $match[0]
+            ));
+        }
+
+        foreach ([
+            'selectRaw', 'whereRaw', 'orWhereRaw', 'havingRaw', 'orHavingRaw', 'orderByRaw',
+            'groupByRaw', 'fromRaw', 'joinRaw', 'whereIntegerInRaw', 'DB::raw',
+        ] as $builderRaw) {
+            $this->assertStringNotContainsString($builderRaw, $code, sprintf(
+                '%s contains `%s`, which is invisible to this repository\'s main raw-query census '
+                . 'by construction. Every question this probe asks has a builder form.',
+                self::PROBE,
+                $builderRaw
+            ));
+        }
+    }
+
+    /**
      * NO INTEGRATION READING EVER SELECTS A `settings` VALUE — ASSERTED AGAINST THE SQL THAT WAS
      * REALLY ISSUED, NOT AGAINST THE SOURCE THAT WOULD ISSUE IT.
      *

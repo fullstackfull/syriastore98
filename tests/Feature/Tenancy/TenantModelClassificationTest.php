@@ -310,7 +310,15 @@ class TenantModelClassificationTest extends TestCase
         // the page's). A scope there would blank the page for the person it exists for, and a predicate
         // built from the caller's own store buys no confidentiality: the token already names the store.
         // They are not `Cachable` either, because a cached answer to "may I send this" is a stale one.
-        $this->assertSame(106, $total, 'The model count changed. Re-run the classification and '
+        // 108, UP FROM 106. OPS-003 added `App\Models\PlatformIncident` and
+        // `App\Models\PlatformIncidentEvent` -- the platform's own incident record and its
+        // append-only audit trail. Both tables exist and NEITHER carries `store_id`, so both land
+        // in the platform-global partition; the argument for that absence is written beside the
+        // count in `test_platform_global_models_are_the_measured_twenty_eight` and amounts to: the
+        // subject is the shared infrastructure, which has no tenant, and whether a merchant ever
+        // sees a platform incident is an owner decision that has not been taken. Neither is
+        // `Cachable`, for the reason `AuditLog` is not.
+        $this->assertSame(108, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -382,8 +390,24 @@ class TenantModelClassificationTest extends TestCase
         // handler filtering by that driver. Measured, docs/GATE-F-VERIFIED-SCHEMA.md section 2:
         // all three foreign-key to `delivery_boys` (and `orders`) with ON DELETE CASCADE and
         // none to `stores`.
+        /* 28 -> 30 on 2026-11-26 [OPS-003]: `App\Models\PlatformIncident` and
+           `App\Models\PlatformIncidentEvent`. Both tables exist and NEITHER has a `store_id`
+           column, and the absence is the design rather than an omission: an incident is something
+           that went wrong with the SHARED INFRASTRUCTURE — the database, the queue, an integration,
+           a host — which has no tenant.
+
+           A `store_id` here would invite a merchant-visible incident list, and whether a merchant
+           ever sees a platform incident is an owner decision that has not been taken
+           (`PlatformIncidentPolicy::openDecisions()['merchant_visibility']`: publishing an incident
+           is the platform telling its customers it is broken, in its own words, permanently). So
+           the record is operator-only, every route carries `PlatformOperatorOnly` AND the handler
+           repeats the test, and the column is deliberately not there to be scoped.
+
+           Neither is `Cachable` either, for the reason `AuditLog` is not: an operations log is read
+           by two people at once while something is going wrong, and one of them must not be served
+           the row as it was before the other acknowledged it. */
         $this->assertCount(
-            28,
+            30,
             $this->platformGlobal,
             "The set of models whose table has NO `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->platformGlobal)
