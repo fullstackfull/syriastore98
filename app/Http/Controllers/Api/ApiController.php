@@ -5842,15 +5842,40 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             return $this->error(['message' => __('Store not found.')], __("Store not found."));
         }
         
+        /*
+         * CUST-003 — «بحث ذكي ومرادفات وفلاتر ديناميكية». BOTH BRANCHES NOW CARRY
+         * `where('status', 1)`, so a storefront search does not offer a product the merchant has
+         * unpublished.
+         *
+         * THE PRECEDENT IS FIRST-PARTY AND IN THIS REQUIREMENT'S OWN SURFACE:
+         * `HomeController::product_page_filter`, the web twin of the `product_filter` branch below,
+         * is already `Product::where('product_type', null)->where('store_id', …)->where('status', 1)`.
+         * So this applies an existing rule to the doors that skipped it rather than inventing one.
+         *
+         * IT IS NOT A PLATFORM-WIDE CHANGE AND MUST NOT BE READ AS ONE. A comment-stripped,
+         * brace-matched-per-method census of this controller and `HomeController` found 26 methods
+         * reading `products` with no `status` predicate, `place_order`, `apply_coupon`,
+         * `confirm_order`, `ordersave`, `product_detail` and `wishlist` among them. Several of those
+         * MUST NOT filter it — whether a product deactivated mid-checkout can still be paid for,
+         * whether it vanishes from a cart that already holds it, and whether a direct link to it
+         * 404s are three different product rules — so they are an owner question, carried by
+         * `SearchDoesNotOfferUnpublishedProductsTest::test_the_census_of_unfiltered_storefront_readers_is_recorded`.
+         *
+         * NO CLIENT COMPATIBILITY RISK: `routes/api.php`'s storefront group (`api/{slug}/…`) is
+         * called by no client in either repository (`CLAUDE.md` §1); the shipped Flutter app is the
+         * ADMIN app on `api/admin/…`. And no response field changes shape — only which rows are in
+         * the page.
+         */
+
         // Category Search
         if ($request->type == 'product_search' && !empty($request->name)) {
-            $product_query = Product::where('store_id', $store->id)->Where('name', 'like',  '%' . $request->name . '%');
+            $product_query = Product::where('store_id', $store->id)->where('status', 1)->Where('name', 'like',  '%' . $request->name . '%');
             $Data = $product_query->paginate(10);
         }
 
         // Product Search
         if ($request->type == 'product_filter') {
-            $product_query = Product::where('store_id', $store->id);
+            $product_query = Product::where('store_id', $store->id)->where('status', 1);
 
             if (!empty($request->name)) {
                 $product_query->Where('name', 'like',  '%' . $request->name . '%');
