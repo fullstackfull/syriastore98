@@ -257,9 +257,16 @@ class TelegramOrderPaymentStatusTest extends SecurityTestCase
      */
     public function test_the_two_relays_credit_the_store_wallet_differently(): void
     {
-        if (! \Illuminate\Support\Facades\Schema::hasTable('store_wallets')) {
-            $this->markTestSkipped('store_wallets is absent from the test schema');
-        }
+        /*
+         * ASSERTED, NOT BRANCHED ON. `GateFCoverageLedgerTest` caught the first draft of this,
+         * which skipped when `store_wallets` was absent: GATE F closed on 2026-11-02, so the
+         * condition can no longer be false, and a branch on absence reads as coverage deliberately
+         * skipped. It is also a conditional skip, which would break the suite's declared outcome
+         * set.
+         */
+        $this->assertTrue(\Illuminate\Support\Facades\Schema::hasTable('store_wallets'),
+            'store_wallets is absent, so this case would measure nothing. It is created by '
+            . 'database/migrations/2026_11_02_000100_create_store_wallets_table.php.');
 
         $whatsapp = $this->placeOrder('whatsapp', 'whatsapp');
         $telegram = $this->placeOrder('telegram', 'telegram');

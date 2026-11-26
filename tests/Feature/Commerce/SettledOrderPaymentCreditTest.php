@@ -66,11 +66,21 @@ class SettledOrderPaymentCreditTest extends SecurityTestCase
     {
         parent::setUp();
 
-        foreach (['store_wallets', 'store_order_financials', 'store_wallet_transactions'] as $table) {
-            if (! Schema::hasTable($table)) {
-                $this->markTestSkipped($table . ' is absent from the test schema, so every '
-                    . 'assertion in this file would be vacuous');
-            }
+        /*
+         * ASSERTED, NOT BRANCHED ON, and deliberately NOT the `markTestSkipped` shape the older
+         * ledger tests in this directory use. GATE F closed on 2026-11-02, so an absent money
+         * table is no longer a condition that can be true -- `GateFCoverageLedgerTest` rules that
+         * a branch on it is dead code reading as coverage skipped, and a conditional skip would
+         * additionally break the suite's declared outcome set.
+         */
+        foreach ([
+            'store_wallets' => '2026_11_02_000100_create_store_wallets_table.php',
+            'store_order_financials' => '2026_11_02_000400_create_store_order_financials_table.php',
+            'store_wallet_transactions' => '2026_11_02_000200_create_store_wallet_transactions_table.php',
+        ] as $table => $migration) {
+            $this->assertTrue(Schema::hasTable($table),
+                $table . ' is absent, so every assertion in this file would be vacuous. It is '
+                . 'created by database/migrations/' . $migration . '.');
         }
     }
 
