@@ -13,7 +13,132 @@ branch name does not narrow it.
 > That was stale from 2026-11-22. The Phase 05 work it described is preserved below and in
 > `docs/development/phase-5/`; nothing has been removed.
 
-> ### NEXT EXECUTABLE ACTION (read this first — account transfer of 2026-11-25)
+> ### NEXT EXECUTABLE ACTION (read this first — account transfer of 2026-11-26)
+>
+> **HEAD of `feature/phase-06-saas-super-admin` = `5be3602b`, pushed and CI-green.** CI #676 and
+> #677 both returned **success on all seven jobs**, merge-base regression gate included. Nothing of
+> this session's verified work is unpushed.
+>
+> **WHY THIS TRANSFER HAPPENED: the account hit its weekly API limit (resets 1 Dec, 21:00 UTC).**
+> Two agents were killed mid-task by HTTP 429. Their work is preserved as below. Do not restart
+> them; resume by message once the limit resets, or take the work over directly.
+>
+> #### 1. What landed this session (all CI-green on the development branch)
+>
+> `GAP-100` closed (its row had recorded its own completion and the status was never moved) ·
+> `GAP-125` VERIFIED COMPLETE (row stale; defect already fixed by `bc0d48cc`) · `GAP-135`
+> shopper-driven order transitions guarded · `GAP-143` shipping/tax clause exercised on a stored
+> order and `CURRENCY: null` fixed · `GAP-156` a fifth money surface · `GAP-164` the AR/EN x
+> light/dark acceptance gate · `GAP-179` slices 1 and 2 plus LynomiaChat · `GAP-276` the Phase 02
+> ledger's `F114` shipping-ownership defect (nine writers, not the one the ledger named) ·
+> `GAP-277` roleless staff could cancel and return any order in their tenant · `GAP-060`'s three
+> deferred surfaces · Flutter wave 3 on `StoreSyria_app98` (`5b3c6bb`, golden surfaces 5 to 16).
+>
+> **Raised and NOT fixed:** `GAP-278` (a neighbour tenant's currency symbol reaches this store's
+> checkout) and `GAP-279` (a NULL-`store_id` role counts for every store; within-tenant only —
+> **measure before fixing**, and the remedy belongs at the writer, not the reader).
+>
+> #### 2. UNFINISHED WORK, preserved separately — `claude/gap-140-refund-policy-wip`
+>
+> **Branch `claude/gap-140-refund-policy-wip`, commit `9d57021d`. UNREVIEWED. DO NOT MERGE.** Off
+> the development branch on purpose: the agent hit the limit before any safety review. 958 lines in
+> 4 files (`app/Services/RefundPolicy.php` new, `OrderRefundController` +157/-7,
+> `AccountProfileController` +43/-2, `RefundPolicyEnforcementTest` new).
+>
+> **Its exact state, in the agent's own last words:** *"The census asked the wrong question — it
+> grepped for a literal that now lives behind a constant. Let me fix it to key on the decision."* So
+> that census is **known-broken and mid-rewrite**; its green or red means nothing yet. `9d57021d`'s
+> message carries the full six-item remainder. The substance is real: `refund_order.blade.php`
+> renders the attachment input only when the store's `attachment` setting is on, and **no writer
+> consulted the setting** — files were accepted and stored for a merchant who had it switched off.
+>
+> #### 3. EXACT NEXT EXECUTABLE ACTIONS, in order
+>
+> 1. **Finish `GAP-140`** on its WIP branch: fix the census to key on the decision and comment-strip
+>    it; re-run fail-first and revert-and-confirm; measure which of `manage_stock`, `attachment` and
+>    `shiping_deduct` any writer consults (only `attachment` looks addressed); then `P4-F087` actor
+>    attribution and the operator's lockout from the refund list. **State the behaviour change per
+>    setting** — enforcing one that currently does nothing changes behaviour for every merchant who
+>    had it off. If one would move a refund AMOUNT rather than a permission or stock movement, stop
+>    and ask the owner. Get a `tenant-authz-reviewer` pass.
+> 2. **`GAP-279`** — measure first (can a staff row reach `getCurrentStore() === null` while holding
+>    `Create Role`?), then fix at the writer.
+> 3. **`GAP-278`** — named remedy is a `configuredSymbolFor()` on `OrderCurrencyStamp` mirroring its
+>    existing `configuredCodeFor()`; leave `symbolFor()` untouched so order stamps do not move.
+> 4. **`GAP-060`'s settings remainder: 26 declared items**, countable now because the census exists.
+>    21 single selects + 5 switch groups; four sit behind decisions already in flight.
+> 5. `GAP-179` leftovers: the **22 `D-25`** findings need the **owner's scope decision** and must not
+>    be taken by a Phase 06 slice; 2 await the Phase 2.5 white-dialog decision.
+>
+> #### 4. ACTIVE AGENTS AT TRANSFER — both dead by rate limit, work saved
+>
+> `GAP-140` refund policy (on the WIP branch) and `GAP-179` Super Admin UX (its last slice **landed**
+> in `5be3602b`; nothing lost). No agent running, no monitor armed.
+>
+> #### 5. PENDING OWNER DECISIONS — engineering cannot close these
+>
+> - **The double-applied tax band.** Measured through the shipped COD checkout: the band is applied
+>   twice, so a 2x100.00 basket with 25.00 carriage is charged **267.00 where 245.00 is correct** —
+>   22.00 of tax the merchant never configured, collected by the COD driver. Pinned by a test that
+>   fails with the *corrected* total, so a fix cannot pass unnoticed. Work-queue S21.4.
+> - **`D-25`** — the general theme change reaching every merchant screen and all 70 modules.
+> - **`GAP-006`/`GAP-024`** — unifying the totals derivation seam and promoting warn-only
+>   reconciliation to refusal; `GAP-024` depends on `GAP-006`. Not engineering's to take.
+> - **`GAP-119`, `GAP-134`, `GAP-141`, `GAP-145`, `GAP-153`, `GAP-177`, `GAP-180`** — blocked by their
+>   own text on owner decisions or unrecoverable content.
+> - **`GAP-030`** — the P01-SEC-13 migration is prepared and proven on real MySQL (31 checks, 0
+>   failures); **applying it is the owner's.**
+> - Five legal documents and contact details in both languages; 20 Flutter baselines awaiting human
+>   review; decisions I12-I19.
+> - **`plans/index` distinguishes an included plan feature from an excluded one BY COLOUR ALONE**
+>   (WCAG 1.4.1) — the fix is a different glyph, a visual decision.
+>
+> #### 6. CONFIDENTIAL — MUST NOT BE PUBLISHED, AND CANNOT TRANSFER THROUGH GITHUB
+>
+> - **`GAP-260` and security incident #120 stay private.** The owner's standing instruction is that
+>   the finding, reproduction details, sensitive tests and remediation are **not** published to the
+>   public repository without explicit authorisation. Nothing of either was pushed this session and
+>   nothing may be.
+> - **The exposed `webhook.site` bin still needs rotating** — owner action, and the bin identifier is
+>   not to be restated in any public artefact.
+> - **The production database dump remains in `main`'s tree** (P1-SEC-40 / #120); PR #122, which
+>   would remove it, is deliberately unmerged. No UI work remediates it.
+> - **What physically cannot cross:** this container's dev fixture (`database/p2dev.sqlite`, two
+>   stores, operator role granted by hand), a dev server on 127.0.0.1:8899, the scratchpad scripts,
+>   the 20 un-reviewed Flutter baselines (gitignored at `.gitignore:97`, uploaded by CI rather than
+>   committed), and the eight wave-1 baseline candidates in the Flutter repo which are
+>   **pre-framing-fix and must be re-exported before review** — approving them as they stand would
+>   freeze a defect that is already repaired.
+>
+> #### 7. THE PLAN AND THE DIRECTIVE ARE PRESERVED, UNREDUCED
+>
+> The owner-approved **six-phase Master Product Plan** is in the repository at
+> `docs/development/master-plan/` (base, +amendments, `DECISION-ID-REGISTER.md` with all 181 decision
+> ids and the 12 `EX-*` exclusions), with traceability in
+> `MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`. **Three texts remain
+> missing (1 GOV, 2 ARCH) and must not be invented.** Phase 02's scope is
+> `PHASE-02-MASTER-EXECUTION-PROMPT.md`, verbatim and not to be edited.
+>
+> **The accelerated parallel-execution directive stands:** run the maximum safe number of concurrent
+> workstreams, keep both repositories active, assign the next task the moment one finishes, do **not**
+> give overlapping shared files to independent agents, implement first and run the expensive suites at
+> integration milestones rather than after every task, accumulate coherent commits rather than pushing
+> each one, and never weaken a gate or manufacture a green result. **Preserve every recorded owner
+> disposition exactly; a recorded question or recommendation is not an approval, and an engineering
+> report deferring something is not an owner deferral.**
+>
+> **Current figures (gate-enforced): 370 known requirements, 181 verified complete, 189 not.** The
+> register holds 279 rows. Remaining: NOT IMPLEMENTED 12, PARTIALLY IMPLEMENTED 99.
+>
+> #### 8. TWO PRACTICAL WARNINGS THAT COST REAL TIME HERE
+>
+> `ci.yml` sets `concurrency: ci-${{ github.ref }}` with **`cancel-in-progress: true`**, so pushing
+> to this branch **cancels an in-flight run**. And a fixture rebuild writes ~150 untracked JPEGs under
+> `uploads/2/` and `uploads/uploads/2/` which the store-1-pinned `.gitignore` rules do not catch —
+> **delete them, never add a blanket `/uploads/2/` rule**, because store 2 is a real store with 272
+> tracked files. `fc46bb9f` records this.
+
+> ### HISTORICAL — the NEXT EXECUTABLE ACTION of the 2026-11-25 account transfer
 >
 > **MODE: EXECUTE THE VERIFIED BACKLOG. DO NOT START ANOTHER SURVEY.** The owner directive of
 > 2026-11-22 remains in force and was restated at the transfer. Long multi-agent investigations are
