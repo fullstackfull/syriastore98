@@ -548,6 +548,19 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **If you withdraw** | The names must be kept: 12 of 45 are referenced by name, three of them first-party, and a merchant on the module's own existing section screens has buttons that 500 today. |
 | **Blocked** | Nothing ships on this. The surface is already unusable; the question is which way to make it safe. |
 
+### J23 — `GAP-285`: should a Benefit/Tap return be refused when the charged amount does not match?
+
+| | |
+|---|---|
+| **The choice** | Compare the captured charge against what this server actually sent the gateway, and refuse on a mismatch — or keep accepting whatever comes back? |
+| **Why it is yours** | It would start **refusing returns that are accepted today**, on a path where the shopper has already been charged. |
+| **The diagnosis is not what we first thought** | The comparison is fine at three decimals — `amountsMatch('10.123','10.123')` is true. **The loss is `serverPayableAmount()` rounding the server's own figure to two decimals before any comparison happens** (`round(10.123, 2) = 10.12`, driven through the real method). So a genuine 3-decimal charge is refused by the rounding, not by the comparison's scale. |
+| **Live, not hypothetical** | `processBenefit()` sends `"currency" => $CURRENCY_NAME ?: 'BHD'`, so **BHD — three decimals — is the default for any store that has not set `CURRENCY_NAME`**, and BHD, KWD, OMR and JOD are all on this platform's own supported list for that rail. |
+| **Engineering recommendation, and why it was not taken** | Do **not** change `serverPayableAmount()`'s rounding: `AuthorizeNetPaymnetController` uses that same figure as **the amount actually captured from the card**, so changing it changes what a card is charged on a different rail. Instead compare against `$state['cartlist_final_price']` — what `processBenefit()` passes to Tap verbatim as `"amount"` — so both sides are the same scale and no currency-exponent table is needed. That is the shape this codebase already uses one rail along. |
+| **A hard limit on what engineering can establish** | Tap's charge-object field names cannot be confirmed from this environment without a credential, and the capture check itself is unreachable in tests (a live cURL constructed with `new` inside the handler). The sibling rail's own comment already records the same boundary: *"no amount-mismatch refusal is added, because the unit Tap posts back cannot be established from this environment."* |
+| **Already closed without you** | The replay half: one charge id used to write **two** orders, and now claims. That needed no decision. |
+| **Blocked** | Only the amount refusal. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to
