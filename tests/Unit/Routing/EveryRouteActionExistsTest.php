@@ -49,7 +49,59 @@ class EveryRouteActionExistsTest extends TestCase
 {
 
     /**
-     * THE MEASURED BACKLOG. 73 at the first run of this test; 10 now.
+     * THE MEASURED BACKLOG. 73 at the first run of this test; 9 now, and the remaining 9 are not
+     * "the ones nobody got to" -- each is here for a stated reason that a test asserts.
+     *
+     * 64 WERE WITHDRAWN, in four batches, every one measured before it was touched:
+     *
+     *   -4   the MyFatoorah payment package. Declared by a VENDORED provider's `register()`, not
+     *        by `routes/`, so they are replaced rather than removed; they answer 404, which is the
+     *        package's own answer while `webhook_secret_key` is empty, as it ships. No capture is
+     *        recorded and no payment record changes -- `MyFatoorahPackageRoutesWithdrawnTest`.
+     *   -55  `Route::resource()` actions the controller never implemented. Laravel declares all
+     *        seven whatever the class defines. Route-table diff: 1504 -> 1448, 56 rows removed,
+     *        0 added, and all 55 actions verified missing by `method_exists()`, so no working
+     *        route was removed. One of the 55 needed a SECOND route deleted too
+     *        (`support_ticket.view`, which routed `@show` a second time).
+     *   -4   dead hand-written routes -- `DeadControllerRoutesWithdrawnTest`. `order/all` was not
+     *        merely dead but UNREACHABLE: `order/{order}` is declared above it.
+     *   -1   `GAP-267`'s web `place.order` -- `WebPlaceOrderRouteWithdrawnTest`.
+     *
+     * THE 9 THAT REMAIN, AND WHY EACH IS NOT A DELETION:
+     *
+     *   `AppSettingController@image_delete` (1) -- THE ONLY ONE BROKEN IN USE rather than
+     *   orphaned. `resources/views/AppSetting/mobile_content.blade.php` calls
+     *   `route('product.image.delete')` inside a rendered view, so deleting the route throws
+     *   `RouteNotFoundException` at render time and 500s the whole Mobile Screen Content page --
+     *   worse than the defect. It needs the METHOD implemented, and an unlink keyed on
+     *   `$request->image` is the P1-SEC-71 shape (see `WebSettingsSecretsTest`), so it is not a
+     *   routing fix. All three halves of that reasoning are asserted by
+     *   `DeadControllerRoutesWithdrawnTest::test_the_product_image_delete_route_is_deliberately_kept`,
+     *   so the entry can be retired only by actually fixing it.
+     *
+     *   `Workdo\LandingPage\...` (8) -- declared in `packages/workdo/LandingPage/src/Routes/web.php`,
+     *   which is VENDORED and must not be edited (CLAUDE.md; enforced by
+     *   `guard-no-workdo-changes.sh` in CI). Five are `MarketPlaceController@pricing_plan_*`; the
+     *   other three are `Route::resource()` `store` actions whose controllers define
+     *   `dedicated_store` / `buildtech_store` / `packagedetails_store` and are separately routed at
+     *   `POST dedicated/store` etc. -- so the module itself already serves the intent, and the
+     *   resource's `store` slot is upstream's leftover. A host route declaration cannot withdraw
+     *   them either, and the usual reason given for that is the wrong one here: `LandingPage` is
+     *   loaded STATICALLY by `PackageServiceProvider::register()`, not from the `app->booted()`
+     *   path that `loadDynamicAddons()` uses. It makes no difference, because `loadRoutesFrom`
+     *   runs in the module provider's `boot()`. MEASURED by registration index in the booted
+     *   collection: `routes/web.php`'s last declaration is #1129, `dedicated.store` is #1274 and
+     *   `pricing_plan_create` is #1316 -- so the module's declaration lands LAST and, since
+     *   `RouteCollection` keys on method+domain+uri, would replace a host declaration of the same
+     *   URI rather than be replaced by it. (That is the same mechanism the MyFatoorah withdrawal
+     *   USES, in the one direction where it helps: that package declares its routes in
+     *   `register()`, at index #4, so `routes/web.php` is later and wins.) The fix for these eight
+     *   belongs upstream or in a patch record.
+     *
+     * Note that these 9 are measured against the HOST route table, which is what this file can
+     * see. The LandingPage eight are visible because that module's provider is reachable without
+     * an `add_on_managers` row; the other 69 WorkDo modules are not, and their route files are not
+     * covered here -- see WHAT THIS DELIBERATELY DOES NOT COVER above.
      *
      * Every one of these is an HTTP 500 for any request that reaches it, and they are PRE-EXISTING:
      * the original list was what the first run found, not breakage it allows. It is asserted in
@@ -77,7 +129,6 @@ class EveryRouteActionExistsTest extends TestCase
      */
     private const KNOWN_BROKEN = [
         'App\Http\Controllers\AppSettingController@image_delete',
-        'App\Http\Controllers\OrderController@place_order',
         'Workdo\LandingPage\Http\Controllers\BuiltTechSectionController@store',
         'Workdo\LandingPage\Http\Controllers\DedicatedSectionController@store',
         'Workdo\LandingPage\Http\Controllers\MarketPlaceController@pricing_plan_create',
