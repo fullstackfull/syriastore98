@@ -59,6 +59,8 @@ echo
 
 declare -a FAILED=()
 declare -a PASSED=()
+declare -a INVOKED=()
+declare -a SKIPPED=()
 
 # THE EXIT CODE ALONE IS NOT ENOUGH, and this runner reported nine passes while one of the scripts
 # was dying halfway through. Found by reading the log of a script this runner had just called
@@ -84,9 +86,44 @@ run_one() {
   local log="/tmp/mysqlverify-${label}.log"
   echo "---------------------------------------------------------------------------"
   echo ">>> ${label}"
+  INVOKED+=("${label}")
+
+  # Env assignments first, then `--`, then the script's own CLI arguments. About a third of these
+  # scripts take `--socket=` / `--user=` / `--pass=` flags and read NO environment at all, so
+  # before this they could not be placed on the roster without being handed a connection they
+  # would silently ignore -- part of why fourteen of them sat off it.
+  local envs=() args=()
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--" ]; then shift; args=("$@"); break; fi
+    envs+=("$1"); shift
+  done
 
   local status=0
-  env "$@" php "tests/Support/Security/bin/${label}.php" >"${log}" 2>&1 || status=$?
+  env "${envs[@]}" php "tests/Support/Security/bin/${label}.php" "${args[@]}" >"${log}" 2>&1 || status=$?
+
+  # A SCRIPT THAT MEASURED NOTHING MUST NOT READ AS EVIDENCE. Several of these print their own
+  # "SKIP" / "PRECONDITION NOT MET" banner and then exit 0 -- correct of them, and this roster
+  # counted it as PASS. Measured: verify-reserved-role-name-collation-on-mysql reported PASS while
+  # printing "SKIP: no MySQL reachable at 127.0.0.1 -- Access denied", i.e. asserting nothing at
+  # all. A skip is now its own verdict, counted apart from the passes.
+  #
+  # TWO CONDITIONS, NOT ONE, AND THE SECOND WAS ADDED AFTER THE FIRST DRAFT GOT IT WRONG. Matching
+  # the banner alone marked verify-empty-variant-name-wipe-on-mysql (13 checks, 0 failures) and
+  # verify-setting-name-writer-on-mysql ("every check held") as having measured nothing, because
+  # somewhere in their output sits the PROSE "skipped because its covered set was empty (C)" --
+  # a sentence ABOUT a sub-case, not a verdict on the run. That is the census trap CLAUDE.md
+  # records in three other syntaxes, reproduced here in a fourth: a scan satisfied or broken by
+  # prose about the thing it measures. So a run counts as a skip only if it ALSO recorded no
+  # check at all, and the banner must start the line rather than sit inside a sentence.
+  if [ "${status}" -eq 0 ] \
+     && grep -qE '^(SKIP|SKIPPED)\b|PRECONDITION (NOT MET|FAILED)' "${log}" \
+     && ! grep -qiE '^[[:space:]]*(ok\b|\[ *OK *\]|\[PASS\]|PASS\b)|checks?[^0-9]{0,12}[1-9]' "${log}"; then
+    echo "    SKIPPED  -- the script declined to measure (see ${log})"
+    grep -iE '^[[:space:]]*(SKIP|SKIPPED|PRECONDITION (NOT MET|FAILED))' "${log}" | head -2 | sed 's/^/    /'
+    SKIPPED+=("${label}")
+    echo
+    return 0
+  fi
 
   local reason=""
   if [ "${status}" -ne 0 ]; then
@@ -611,10 +648,117 @@ run_one verify-store-inventory-valuation-on-mysql \
   "INVMETRIC_MYSQL_SOCKET=${SOCK}" "INVMETRIC_MYSQL_HOST=${HOST}" "INVMETRIC_MYSQL_PORT=${PORT}" \
   "INVMETRIC_MYSQL_DATABASE=inv_metric_verify" "INVMETRIC_MYSQL_USERNAME=${USER_NAME}" "INVMETRIC_MYSQL_PASSWORD=${PASS}"
 
+# ===========================================================================================
+# THE FOURTEEN THAT WERE OFF THIS ROSTER UNTIL 2026-11-26, and the two that still are.
+#
+# Measured: 64 `*-on-mysql.php` scripts exist under this directory and this roster invoked 52.
+# The twelve-plus-two difference was not a decision -- every one of them was written, committed
+# and then never run by the only thing that runs them. The roster reported
+# "every MySQL verification script reported all assertions held", which was true of the roster
+# and false of the directory. The completeness check at the bottom of this file now makes that
+# divergence fail instead of read as success.
+#
+# Most of these take CLI FLAGS rather than environment variables, which is why they could not
+# simply be appended before `run_one` learned to pass script arguments after `--`.
+#
+# ONE OF THEM WAS ALSO MEASURING THE WRONG MIGRATION. verify-theme-order-theme-id-migration
+# rolled back with `migrate:rollback --step=1`, i.e. "the most recent migration" -- correct only
+# while 2026_11_15_000100 WAS the most recent. Ten migrations have landed since, so it reverted
+# `add_acknowledgement_to_plan_purchase_intents_table` instead and reported 3 FAILs that read as
+# "this migration's down() leaves its column behind". It does not: by path, 20 checks, 0 failed,
+# 0 inconclusive on 10.11.14-MariaDB.
+if [ -n "${SOCK}" ]; then
+  CLI_CONN=(--socket="${SOCK}" --user="${USER_NAME}" --pass="${PASS}")
+else
+  CLI_CONN=(--host="${HOST}" --port="${PORT}" --user="${USER_NAME}" --pass="${PASS}")
+fi
+
+for label in \
+  verify-gate-f-migrations-on-mysql \
+  verify-interrupted-theme-migration-on-mysql \
+  verify-theme-cache-flush-after-commit-on-mysql \
+  verify-theme-order-theme-id-migration-on-mysql \
+  verify-theme-publish-concurrency-on-mysql \
+  verify-theme-version-concurrency-on-mysql \
+  verify-theme-version-integrity-on-mysql \
+  verify-pos-sale-claim-concurrency-on-mysql \
+  verify-store-wallet-provisioning-on-mysql \
+  verify-dashboard-top-sales-scope-on-mysql
+do
+  run_one "${label}" "SESSION_DRIVER=array" -- "${CLI_CONN[@]}"
+done
+
+# Its own CEU_* convention, and it DOES speak unix socket.
+run_one verify-customer-email-uniqueness-on-mysql \
+  "CEU_MYSQL_SOCKET=${SOCK}" "CEU_MYSQL_HOST=${HOST}" "CEU_MYSQL_PORT=${PORT}" \
+  "CEU_MYSQL_USERNAME=${USER_NAME}" "CEU_MYSQL_PASSWORD=${PASS}"
+
+# THESE TWO ARE TCP-ONLY AND WILL REPORT **SKIPPED**, NOT PASSED, AGAINST A DEFAULT MariaDB.
+# Neither accepts a socket, and MariaDB's root authenticates through `unix_socket`, which PDO
+# cannot use over TCP -- verify-dashboard-rankings' own docblock says so and asks for a dedicated
+# account. To make them measure something, create one on the throwaway server and point them at it:
+#
+#   mysql -u root -e "CREATE USER 'ssprobe'@'127.0.0.1' IDENTIFIED BY 'ssprobe'; \
+#                     GRANT ALL PRIVILEGES ON *.* TO 'ssprobe'@'127.0.0.1'; FLUSH PRIVILEGES;"
+#   SS_PROBE_USER=ssprobe SS_PROBE_PASS=ssprobe MYSQL_USER_NAME=ssprobe MYSQL_PASS=ssprobe \
+#     tests/Support/Security/bin/run-mysql-verifications.sh
+#
+# Verified that way on 10.11.14-MariaDB: rankings 13 checks 0 failed; reserved-role-name all
+# checks passed. Left as a documented SKIP by default rather than creating an account as a side
+# effect of running the suite.
+run_one verify-dashboard-rankings-on-mysql \
+  "SS_PROBE_USER=${SS_PROBE_USER:-ssprobe}" "SS_PROBE_PASS=${SS_PROBE_PASS:-ssprobe}"
+
+# NOTE: verify-reserved-role-name-collation-on-mysql is NOT added here -- it was already on the
+# roster further up, and adding it again ran it twice and listed it twice in the summary. Its
+# collation fix (it asked for MySQL 8's `utf8mb4_0900_ai_ci`, which MariaDB does not implement,
+# instead of the `utf8mb4_unicode_ci` this application actually configures) is in the script.
+# To make it MEASURE rather than skip on MariaDB, give the run the probe account described above.
+
 echo "==========================================================================="
-echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
+echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}   skipped: ${#SKIPPED[@]}"
+if [ "${#SKIPPED[@]}" -gt 0 ]; then
+  printf '  SKIPPED (measured nothing): %s\n' "${SKIPPED[@]}"
+fi
+
+# ===========================================================================================
+# COMPLETENESS. EVERY SCRIPT ON DISK IS EITHER INVOKED ABOVE OR NAMED HERE WITH A REASON.
+#
+# Without this, a script could be written, committed and never run, while this roster went on
+# printing "every MySQL verification script reported all assertions held" -- which is what
+# happened to fourteen of them. The roster is hand-written on purpose (each script has its own
+# env prefix and its own prose explaining why it exists), so the guard against drift has to be a
+# check rather than a convention.
+#
+# The two exemptions need a RESTORED PRODUCTION DATABASE, which this container must not contain:
+# incident #120 is an exposed database dump, and committing or restoring one here is forbidden.
+# They are not skippable-by-connection like the TCP pair above -- they have no input at all.
+declare -a NOT_RUNNABLE_WITHOUT_A_PRODUCTION_RESTORE=(
+  verify-gate-f-schema-on-mysql          # takes a restored database NAME to inspect; no name, no subject
+  verify-p1sec44-reconciliation-on-mysql # wants a production-shaped dump at storesyria_ecommercego.sql
+)
+
+declare -a UNACCOUNTED=()
+for f in tests/Support/Security/bin/*-on-mysql.php; do
+  base="$(basename "${f}" .php)"
+  seen=0
+  for inv in "${INVOKED[@]}"; do [ "${inv}" = "${base}" ] && seen=1 && break; done
+  for ex in "${NOT_RUNNABLE_WITHOUT_A_PRODUCTION_RESTORE[@]}"; do [ "${ex}" = "${base}" ] && seen=1 && break; done
+  [ "${seen}" -eq 0 ] && UNACCOUNTED+=("${base}")
+done
+
+if [ "${#UNACCOUNTED[@]}" -gt 0 ]; then
+  echo
+  echo "INCOMPLETE ROSTER: these scripts exist and this runner never invokes them."
+  printf '  %s\n' "${UNACCOUNTED[@]}"
+  echo "Add a run_one call for each, or name it in NOT_RUNNABLE_WITHOUT_A_PRODUCTION_RESTORE with"
+  echo "a reason. A script nobody runs is not evidence."
+  exit 1
+fi
+
 if [ "${#FAILED[@]}" -gt 0 ]; then
   printf '  FAILED: %s\n' "${FAILED[@]}"
   exit 1
 fi
-echo "every MySQL verification script reported all assertions held."
+echo "every MySQL verification script on disk is accounted for, and every script that measured"
+echo "anything reported all assertions held."
