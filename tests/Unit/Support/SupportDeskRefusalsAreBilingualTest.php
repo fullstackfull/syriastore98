@@ -36,6 +36,21 @@ class SupportDeskRefusalsAreBilingualTest extends TestCase
         'Reply added successfully' => 'الإجابة تم إضافتها بنجاح',
         'Ticket successfully created.' => 'تم إنشاء التذكرة بنجاح',
         'Order not found.' => 'طلب غير موجود',
+
+        /*
+         * THE ONE NEW SENTENCE IN THIS FAMILY, and the reason it is a new sentence rather than a
+         * reuse. `SUPPORT-004`'s enforced refusal at `StoreController::LoginWithAdmin` must tell
+         * the operator what to DO -- ask the merchant for consent -- and none of the five above
+         * says that. "Permission denied." would have been a reuse and a lie: the operator HAS the
+         * permission; what is missing is the merchant's consent, and an operator who reads
+         * "permission denied" will go looking for a role to grant themselves.
+         *
+         * It is an OPERATOR-facing string on a platform-admin screen, and it is translated anyway:
+         * the platform operator's own locale can be Arabic, and CLAUDE.md requires any UI change to
+         * be checked in both directions.
+         */
+        'Support access to that merchant needs their consent. Request access first.'
+            => 'يتطلب وصول الدعم إلى بيانات هذا التاجر موافقته. اطلب الوصول أولاً.',
     ];
 
     public function test_every_sentence_the_changed_support_doors_say_renders_in_arabic(): void

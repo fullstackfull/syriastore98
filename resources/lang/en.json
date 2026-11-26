@@ -4736,5 +4736,6 @@
     "This order has no line items to pick.": "This order has no line items to pick.",
     "Items to pick and pack for this order, with quantities. No prices.": "Items to pick and pack for this order, with quantities. No prices.",
     "Picked": "Picked",
-    "Total units to pack": "Total units to pack"
+    "Total units to pack": "Total units to pack",
+    "Support access to that merchant needs their consent. Request access first.": "Support access to that merchant needs their consent. Request access first."
 }

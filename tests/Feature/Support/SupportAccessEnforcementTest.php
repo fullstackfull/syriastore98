@@ -390,6 +390,58 @@ class SupportAccessEnforcementTest extends SecurityTestCase
         );
     }
 
+    /**
+     * A FAILED IMPERSONATION WRITES NO UNGRANTED ROW — THE GAP COUNT MUST NOT COUNT ATTEMPTS.
+     *
+     * ADDED AFTER AN EXISTING TEST CAUGHT THE OPPOSITE. The ungranted row was first written BEFORE
+     * `Impersonate::take()`, which broke
+     * `ImpersonationIsAuditedTest::test_an_impersonation_that_fails_is_reported_rather_than_redirected_as_success`
+     * (it asserts the trail is empty after a failed take). That test was right: `take()` swallows
+     * every exception and returns false, so a row written before it claims support reached a
+     * merchant's data when it did not.
+     *
+     * IT MATTERS MORE HERE THAN ANYWHERE, because this row's purpose is to be COUNTED by the owner
+     * deciding whether to enforce. A count inflated by failed attempts overstates the gap and
+     * corrupts the one number that decision needs. Pinned in this file as well as in the
+     * neighbour's, so the property belongs to the feature that depends on it.
+     *
+     * The manager is replaced in the container, as the neighbouring test does it, so this drives
+     * the real controller against a real refusal rather than asserting on source text.
+     */
+    public function test_a_failed_impersonation_writes_no_ungranted_row(): void
+    {
+        config()->set('support_access.enforce', false);
+
+        $this->app->instance(
+            \Lab404\Impersonate\Services\ImpersonateManager::class,
+            new class($this->app) extends \Lab404\Impersonate\Services\ImpersonateManager
+            {
+                public function take($from, $to, $guardName = null)
+                {
+                    return false;
+                }
+            }
+        );
+
+        $this->actingAs($this->operator)->get($this->takeRoute($this->merchant));
+
+        $this->assertSame(
+            (int) $this->operator->id,
+            (int) auth('web')->id(),
+            'PREMISE: the guard changed anyway, so the fake did not model a real failure'
+        );
+
+        $this->assertNotContains(
+            SupportAccessAudit::UNGRANTED,
+            $this->actions(),
+            'a failed impersonation was counted as an ungranted support access. The gap count the '
+            . 'owner will read to decide whether to enforce would be inflated by attempts that '
+            . 'never reached any merchant data.'
+        );
+        $this->assertSame([], $this->actions(),
+            'a failed impersonation left rows in the trail at all');
+    }
+
     // =============================================================================================
     //  THE EXISTING CONTROLS ARE UNCHANGED
     // =============================================================================================

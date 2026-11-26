@@ -1174,28 +1174,31 @@ foreach ($defaultCurrencies as $currency) {
             $user
         );
 
-        if (! $supportAccess['allowed']) {
-            $actor = $request->user() instanceof \App\Models\User ? $request->user() : null;
+        /*
+         * THE ACTOR IS CAPTURED BEFORE `take()`, and every audit call below uses it.
+         *
+         * `take()` calls `quietLogin($to)`, so after it the session guard holds the IMPERSONATED
+         * MERCHANT -- `RecordImpersonation`'s docblock measured this in the vendor source. A row
+         * built from `$request->user()` after that point reads as the merchant having acted on
+         * themselves. `AuditLog::record()` takes an explicit actor for exactly this hazard.
+         */
+        $actingOperator = $request->user() instanceof \App\Models\User ? $request->user() : null;
 
-            if (\App\Support\SupportAccess\SupportAccessGate::isEnforced()) {
-                \App\Support\SupportAccess\SupportAccessAudit::recordUngranted(
-                    \App\Support\SupportAccess\SupportAccessAudit::REFUSED,
-                    $user,
-                    $actor,
-                    ['stores' => $supportAccess['stores'], 'scope' => 'full']
-                );
-
-                return redirect()->back()->with(
-                    'error',
-                    __('Support access to that merchant needs their consent. Request access first.')
-                );
-            }
-
+        /*
+         * THE ENFORCED REFUSAL. `take()` never runs, so this row IS the fact: an access was asked
+         * for and refused for want of consent.
+         */
+        if (! $supportAccess['allowed'] && \App\Support\SupportAccess\SupportAccessGate::isEnforced()) {
             \App\Support\SupportAccess\SupportAccessAudit::recordUngranted(
-                \App\Support\SupportAccess\SupportAccessAudit::UNGRANTED,
+                \App\Support\SupportAccess\SupportAccessAudit::REFUSED,
                 $user,
-                $actor,
-                ['stores' => $supportAccess['stores'], 'scope' => 'full', 'door' => 'impersonation']
+                $actingOperator,
+                ['stores' => $supportAccess['stores'], 'scope' => 'full']
+            );
+
+            return redirect()->back()->with(
+                'error',
+                __('Support access to that merchant needs their consent. Request access first.')
             );
         }
 
@@ -1211,10 +1214,37 @@ foreach ($defaultCurrencies as $currency) {
          * disagree: `App\Listeners\RecordImpersonation` writes only on the event, which only fires
          * when `take()` succeeded.
          */
-        $actingOperator = $request->user() instanceof \App\Models\User ? $request->user() : null;
-
         if (Impersonate::take($request->user(), $user) !== true) {
             return redirect()->back()->with('error', __('Could not sign in as that merchant.'));
+        }
+
+        /*
+         * THE UNGRANTED ROW IS WRITTEN HERE, AFTER THE TAKE SUCCEEDED, AND AN EXISTING TEST IS WHY.
+         *
+         * It was written above, before `take()`, and that broke
+         * `ImpersonationIsAuditedTest::test_an_impersonation_that_fails_is_reported_rather_than_redirected_as_success`,
+         * which asserts that a FAILED impersonation leaves the trail empty. That test is right and
+         * the placement was wrong: `take()` swallows every exception and returns false, so a row
+         * written before it claims support reached a merchant's data when it did not.
+         *
+         * It is also this controller's own stated principle, three methods down in `switchStore()`:
+         * "AFTER THE WRITE, DELIBERATELY. A row written before it would claim a tenant was entered
+         * when the switch was refused, and a trail that over-reports is worse than one that is
+         * silent, because it will be believed." The same applies to the gap counter -- and it
+         * applies with more force here, because this row's whole purpose is to be COUNTED by the
+         * owner when they decide whether to switch enforcement on. A count inflated by failed
+         * attempts would overstate the gap and corrupt the one number that decision needs.
+         *
+         * The enforced REFUSED row above is the opposite case and belongs where it is: there
+         * `take()` never runs, and the refusal is itself the fact being recorded.
+         */
+        if (! $supportAccess['allowed']) {
+            \App\Support\SupportAccess\SupportAccessAudit::recordUngranted(
+                \App\Support\SupportAccess\SupportAccessAudit::UNGRANTED,
+                $user,
+                $actingOperator,
+                ['stores' => $supportAccess['stores'], 'scope' => 'full', 'door' => 'impersonation']
+            );
         }
 
         /*

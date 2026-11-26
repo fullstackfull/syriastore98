@@ -216,7 +216,41 @@ class SupportTicketController extends Controller
                         $result = Utility::updateStorageLimit(auth()->user()->creatorId(), $file_size);
                         if($result==1)
                         {
-                            $imageName = $file->getClientOriginalName();
+                            /*
+                             * P1-SEC-71, MERCHANT SIDE — THE HALF THAT FIX DID NOT REACH.
+                             *
+                             * This was `$file->getClientOriginalName()`, passed straight to the
+                             * uploader. P1-SEC-71 replaced exactly that on the STOREFRONT paths and
+                             * scoped itself there: `AccountProfileController` calls `storedName()`
+                             * at six upload sites and this door, the merchant's reply, kept the
+                             * client's name.
+                             *
+                             * THE COLLISION IS INSIDE ONE STORE, AND IT WAS REPRODUCED. The sibling
+                             * change that made the folder `uploads/<TICKET's store>/reply_tickets`
+                             * closed the cross-TENANT case; what remained is two replies on two
+                             * different shoppers' tickets, each attaching `invoice.pdf`. Measured
+                             * by driving this route twice: ONE file on disk. The second write lands
+                             * on the first one's path, and shopper A's reply row -- which stores
+                             * the path -- then serves shopper B's document to shopper A. Both are
+                             * customers of the same store, so `StoreScope` cannot help: it is a
+                             * customer-to-customer disclosure within a tenant, read through the
+                             * shopper's own ticket thread.
+                             *
+                             * `storedName()` appends the time and eight random hex digits, so the
+                             * name can be neither collided with nor guessed in advance. The
+                             * fallback is `attachment`, matching the six storefront sites, for a
+                             * name of which nothing survives the reduction (`ملف.png`).
+                             *
+                             * WHY THE UPLOADER'S OWN GUARD DOES NOT COVER THIS. The uploader calls
+                             * `PlatformUploadPolicy::nonReplacingName()`, but that applies only to
+                             * SHOPPER requests by design -- a merchant replacing their own gallery
+                             * image under its own name is the product -- and a merchant reply is a
+                             * panel request. So the generated NAME is the control here, as it is on
+                             * the storefront doors.
+                             *
+                             * FILES ALREADY ON THE SERVER DO NOT MOVE, as with P1-SEC-71.
+                             */
+                            $imageName = \App\Services\PlatformUploadPolicy::storedName($file, 'attachment');
                             // The ticket's store, never the actor's: see this method's docblock.
                             $dir        = 'uploads/' . $ticket->store_id . '/reply_tickets';
                             $path = Utility::keyWiseUpload_file($request,'reply_attachments',$imageName,$dir,$filekey,[]);
