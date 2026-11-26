@@ -450,6 +450,17 @@ class TestimonialController extends Controller
      * the scope adds NO predicate for any principal and these explicit `where('store_id', ...)`
      * clauses are the whole control -- not defence in depth.
      *
+     * WHO ELSE THIS NARROWS, NAMED RATHER THAN LEFT OUT. `store()` has no row to own, so before
+     * this guard NOTHING scoped the PLATFORM OPERATOR there: they could name any store's product
+     * and the row was stamped `store_id = getCurrentStore()`, the hardcoded literal **1** for an
+     * operator with an empty `current_store`. A store-1 review of a store-7 product IS the defect
+     * above, so narrowing it is the fix -- but it is a narrowing, and
+     * `test_the_operator_is_scoped_to_store_one_here_as_on_every_sibling_method` drives it BOTH
+     * ways (admitted for store 1's own product, refused across stores) rather than leaving the
+     * claim in this comment. It also makes `store()` agree with its four siblings, whose shared
+     * `callerOwnsTestimonial()` already records that *"an operator is scoped to store 1 here rather
+     * than refused"*.
+     *
      * @return string|null the message to flash, or null when every named row is this store's
      */
     private function foreignRowRefusal(Request $request): ?string

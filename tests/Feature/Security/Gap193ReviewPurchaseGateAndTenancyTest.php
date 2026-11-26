@@ -569,6 +569,62 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
     }
 
     /**
+     * WHO ELSE THE GUARD NARROWS, MEASURED RATHER THAN REASONED ABOUT.
+     *
+     * `store()` has no row to own yet, so before this change nothing scoped the PLATFORM OPERATOR
+     * there at all: they could create a testimonial naming any store's product, and it was stamped
+     * `store_id = getCurrentStore()`, which for an operator with an empty `current_store` is the
+     * hardcoded literal **1** (`app/Helper/helper.php`). That row -- store 1's review, of store 7's
+     * product -- is the defect this change closes, so narrowing it is correct rather than a
+     * regression. But it IS a narrowing, and this project treats an undisclosed one as a defect in
+     * itself, so it is driven both ways here instead of asserted in a comment.
+     *
+     * It is also the behaviour `callerOwnsTestimonial()`'s own docblock already records for the
+     * other four methods -- *"an operator is scoped to store 1 here rather than refused"* -- so
+     * `store()` now agrees with its siblings instead of being the one door with no store notion.
+     */
+    public function test_the_operator_is_scoped_to_store_one_here_as_on_every_sibling_method(): void
+    {
+        /* Store 1 first, so the literal getCurrentStore() hands the operator is a real store. */
+        [, $storeOne, $categoryOne, $productOne] = $this->tenantWithAProduct('g193-op1');
+        [, , , $otherProduct] = $this->tenantWithAProduct('g193-op2');
+
+        $this->assertSame(1, (int) $storeOne->id,
+            'premise: the first store created takes id 1, which is what getCurrentStore() hands '
+            . 'an operator with no chosen store.');
+
+        $operator = $this->makePlatformAdmin(['current_store' => null]);
+        $this->permit($operator, ['Create Testimonial']);
+
+        $this->assertSame(1, (int) getCurrentStore($operator->id),
+            'premise: and it really answers 1 for this principal.');
+
+        /* ADMITTED for store 1's own product -- the guard is not an operator lockout. */
+        $this->actingAs($operator)->post('/testimonial', [
+            'category_id' => $categoryOne->id, 'product_id' => $productOne->id,
+            'rating_no' => 4, 'title' => 'Operator on store one', 'description' => 'x', 'status' => 1,
+        ]);
+
+        $this->assertNotNull(
+            Testimonial::withoutGlobalScopes()->where('title', 'Operator on store one')->first(),
+            sprintf('the operator can no longer write a testimonial for store 1\'s own product. '
+                . 'That is a lockout, not a tightening. Flashed: %s', var_export(session('error'), true))
+        );
+
+        /* REFUSED for another store's product -- which is the row that was the defect. */
+        $this->actingAs($operator)->post('/testimonial', [
+            'category_id' => $categoryOne->id, 'product_id' => $otherProduct->id,
+            'rating_no' => 1, 'title' => 'Operator across stores', 'description' => 'x', 'status' => 1,
+        ]);
+
+        $this->assertNull(
+            Testimonial::withoutGlobalScopes()->where('title', 'Operator across stores')->first(),
+            'the operator wrote a store-1 review naming another store\'s product -- the exact row '
+            . '`ApiController::product_detail()` would serve on that other store\'s page.'
+        );
+    }
+
+    /**
      * THE SIBLING DOOR: `update()` writes `product_id` too.
      *
      * `update()` has an ownership guard on the ROW (`callerOwnsTestimonial`), so a merchant can only
