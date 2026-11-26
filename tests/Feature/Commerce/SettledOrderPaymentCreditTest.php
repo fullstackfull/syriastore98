@@ -257,7 +257,7 @@ class SettledOrderPaymentCreditTest extends SecurityTestCase
         $this->postPaidThroughThePanel($merchant, $order);
 
         $this->assertEquals(100.00, $this->walletBalance($store),
-            'GAP-257 case C changed behaviour. If the owner has taken the money half of I-257, '
+            'GAP-257 case C changed behaviour. If the owner has taken the money half of J20, '
             . 'this expectation must be INVERTED to 0.00, not relaxed.');
         $this->assertSame(1, $this->creditCount($order));
     }
@@ -324,7 +324,7 @@ class SettledOrderPaymentCreditTest extends SecurityTestCase
         $this->postPaidThroughThePanel($merchant, $order);
 
         $this->assertEquals(100.00, $this->walletBalance($store),
-            'GAP-257 case D changed behaviour. If the owner has taken the money half of I-257, '
+            'GAP-257 case D changed behaviour. If the owner has taken the money half of J20, '
             . 'this expectation must be INVERTED to 0.00, not relaxed.');
         $this->assertSame(2, $this->creditCount($order),
             'the ledger should hold two order_paid credits for one order here — that is the '
@@ -348,7 +348,7 @@ class SettledOrderPaymentCreditTest extends SecurityTestCase
      * `orders.return_price` 90.00 — and the `Paid` that follows credits the wallet **100.00** while
      * the order says **10.00** is owed. The merchant is credited 90.00 for goods they have back.
      *
-     * THIS IS THE SAME OWNER DECISION, not a new one, and it is named on `J16` so it is not
+     * THIS IS THE SAME OWNER DECISION, not a new one, and it is named on `J20` so it is not
      * discovered separately: whichever way the credit-on-a-settled-order rule goes, the figure
      * question (original total or current total) has to be answered with it.
      */
@@ -410,7 +410,7 @@ class SettledOrderPaymentCreditTest extends SecurityTestCase
          * doors' traces, while being exactly the shape that credits the wrong figure. Widening it
          * (the platform's own wider definition of returned is
          * `delivered_status = 3 OR return_price > 0`, `Api\ApiController:8240`) would mean editing
-         * both copies, so it is recorded on `J16` with this figure rather than taken here.
+         * both copies, so it is recorded on `J20` with this figure rather than taken here.
          */
         $this->assertSame(HomeController::ORDER_STATUS_DELIVERED, (int) $raw->delivered_status,
             'product_return() now moves the order out of Delivered. If it sets 3, the audit-line '
@@ -427,14 +427,14 @@ class SettledOrderPaymentCreditTest extends SecurityTestCase
 
         $this->assertEquals(100.00, $this->walletBalance($store),
             'GAP-257 changed behaviour. The merchant is credited the PRE-RETURN 100.00 while the '
-            . 'order says 10.00 is owed. If the owner has taken J16, INVERT this to whichever '
+            . 'order says 10.00 is owed. If the owner has taken J20, INVERT this to whichever '
             . 'figure the decision names — 0.00 if a returned order may not be credited, or 10.00 '
             . 'if it may be credited at its current worth — and do not relax it.');
 
         $this->assertCount(0, $lines,
             'RESIDUAL, asserted so it is not read as covered: a LINE-level return leaves '
             . 'delivered_status at 1, so neither door\'s audit line fires for the shape that '
-            . 'credits the wrong figure. Recorded on J16. If the predicate is widened, INVERT '
+            . 'credits the wrong figure. Recorded on J20. If the predicate is widened, INVERT '
             . 'this to 1 and say which change did it.');
     }
 

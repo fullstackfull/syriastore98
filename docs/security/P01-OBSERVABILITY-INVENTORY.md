@@ -562,7 +562,7 @@ reading of the chain. They are now driven through this route and read off the ra
 row: a RETURNED order moves the wallet **0.00 → 100.00**, and a cancellation whose financial row is
 non-terminal ends with **two `order_paid` credits and one `order_cancelled` debit for one order**,
 the wallet keeping **100.00**. The rule question is unchanged and is now asked as
-`OWNER-DECISION-PACKAGE.md` **J16**, which `GAP-257` had named as an owner decision without ever
+`OWNER-DECISION-PACKAGE.md` **J20**, which `GAP-257` had named as an owner decision without ever
 being put into that file.
 
 **Destination.** The default channel, as every other row in this inventory.

@@ -481,12 +481,16 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **The closing condition is executable** | The pinning test fails the moment the focus layer declares a `box-shadow`, so whichever remedy you choose announces itself rather than needing to be noticed. |
 | **Blocked** | Nothing. The measurement, the fix to the menu, and the declarations all ship without you. |
 
-### J16 — `GAP-257`: may a `Paid` on a CANCELLED or RETURNED order credit the merchant's wallet?
+### J20 — `GAP-257`: may a `Paid` on a CANCELLED or RETURNED order credit the merchant's wallet?
 
 **This entry exists because the decision was named and never asked.** `GAP-257`'s disposition has
 said "both are a change to a money rule and belong with an owner decision" since it was raised, and
 it was not in this file — so the one place the owner reads did not contain it. Added 2026-11-26 by
 the workstream sent to fix it, which found the money half reserved and the cases unmeasured.
+**Numbered `J20`, not `J16`:** it was drafted as `J16` against the branch as it stood that
+morning, and the branch gained its own `J16`–`J19` from other workstreams while this one ran, so
+it was renumbered before the merge. The commit messages behind it still say `J16`; that is the
+same entry.
 
 | | |
 |---|---|
