@@ -144,8 +144,8 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **179** |
-| PARTIALLY IMPLEMENTED | **100** |
-| NOT IMPLEMENTED | **13** |
+| PARTIALLY IMPLEMENTED | **101** |
+| NOT IMPLEMENTED | **12** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -3815,7 +3815,19 @@ against a pre-reorganization original.
 
 ### `P03-C-05` — 03-C Official website (OWNER-SUSPECTED GAP B — content management)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** The capability exists — an operator-only editor makes 51 fields
+> across the seven official-site pages editable without a deploy, stored in the EXISTING
+> `settings` table with no migration. The CONTENT is not: five legal documents and four contact
+> details remain owed by the owner in both languages, and nine fields deliberately ship with no
+> wording so the pages say so rather than showing a placeholder.
+>
+> **The independent review of this change found a live defect it made reachable** — a storeless
+> merchant could overwrite the published text through two host settings routes — now closed and
+> carried as `GAP-275`. Three owner decisions remain: content outside git with no audit trail,
+> delegation to a non-operator, and whether an audit trail is required before the legal
+> documents land. The original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** Implied by "Build on the existing WorkDo LandingPage foundation": the LandingPage module is an operator-editable content builder, so the official site was to be manageable without a code change. No requirement anywhere formally excludes content management.
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Workstreams / 03-C; PHASE-03-M5-OFFICIAL-WEBSITE.md §2 (the trade-off is described but never excluded)`
