@@ -541,6 +541,109 @@ final class ShippingAndTaxReconciliationTest extends SecurityTestCase
     }
 
     /**
+     * GAP-262, THE PART THE ROW DID NOT KNOW: THE TWO DOORS ALREADY DISAGREE ABOUT THE SAME ROW.
+     * =============================================================================================
+     *
+     * `GAP-262` names one handler — `CartController::get_shipping_method`, whose `else` arm sets
+     * the cost to **0**. There is a SECOND copy of the same name-based decision in
+     * `Api\ApiController::delivery_charge`, and MEASURED (not read) it does the opposite: its
+     * `else` arm charges the method's own `cost`. It also knows only two of the three names, so
+     * `Delivery Syria` — the weight-based arm on the web — falls to that same `else` here.
+     *
+     * So for ONE `shipping_methods` row with an unrecognised name:
+     *
+     *     POST {slug}/shipping-method        (web checkout)  ->  0.00
+     *     POST api/{slug}/delivery-charge    (storefront API) ->  the configured cost
+     *
+     * WHY THIS MATTERS TO THE DECISION AND NOT ONLY TO THE CODE. I13 asks whether to decide the
+     * arm from `calculation_type`/`shipping_requires` instead of the name, and its stated cost is
+     * "merchants currently shipping free would start charging". This measurement says the platform
+     * is ALREADY charging that cost on one of its two doors, so the outcome I13 would produce is
+     * not new behaviour the platform has never had — it is the API door's present answer. That is
+     * evidence for the decision, not a reason to take it.
+     *
+     * AND IT CHANGES NOTHING. Both answers are asserted exactly as they are. When I13 lands, the
+     * web expectation below becomes the configured cost and this case becomes an equality; do not
+     * relax it in the meantime.
+     *
+     * The API door is reached with a real Sanctum token, because `custom.auth` refuses a missing
+     * bearer token before the handler runs — a `-guest`-less storefront route is not public.
+     */
+    public function test_the_two_shipping_doors_disagree_about_an_unrecognised_method_name(): void
+    {
+        $this->method->method_name = 'استلام من المتجر';
+        $this->method->save();
+        (new ShippingMethod)->flushCache();
+
+        /* The API door reads the signed-in customer's OWN cart, so there has to be a line in it. */
+        Cart::forceCreate([
+            'customer_id' => $this->shopper->id,
+            'product_id' => $this->product->id,
+            'variant_id' => 0,
+            'qty' => self::QTY,
+            'price' => self::UNIT_PRICE,
+            'store_id' => $this->store->id,
+        ]);
+        (new Cart)->flushCache();
+
+        $web = $this->moneyIn($this->shippingPayload(), ['shipping_final_price']);
+
+        $apiResponse = $this->withHeader(
+            'Authorization',
+            'Bearer ' . $this->shopper->createToken('p48-api')->plainTextToken
+        )->postJson('/api/' . $this->store->slug . '/delivery-charge', [
+            'method_id' => $this->method->id,
+            'country_id' => $this->country,
+            'state_id' => $this->state,
+        ]);
+
+        $this->assertSame(200, $apiResponse->status(),
+            'premise: the API delivery-charge door answered. On a 401 or a 500 the comparison '
+            . 'below is between a price and an error envelope.');
+
+        $apiBody = $apiResponse->json();
+        $apiShipping = $this->apiShippingCostIn(is_array($apiBody) ? $apiBody : []);
+
+        $this->assertNotNull($apiShipping,
+            'the API payload no longer carries a shipping figure under any of the keys this case '
+            . 'knows, so it is measuring nothing. Re-read delivery_charge() rather than relaxing '
+            . 'this.');
+
+        $this->assertSame(0.0, $web,
+            'the WEB door no longer ships an unrecognised name free. If decision I13 was taken, '
+            . 'invert this and the GAP-262 case above together.');
+
+        $this->assertSame(self::SHIPPING_COST, $apiShipping,
+            'the API door no longer charges the configured cost for an unrecognised name. The '
+            . 'divergence recorded on GAP-262 has changed and the row must be re-measured.');
+
+        $this->assertNotSame($web, $apiShipping,
+            'the two doors now agree, which would mean GAP-262 moved in one of them — say which, '
+            . 'and do not simply delete this case');
+    }
+
+    /**
+     * The shipping figure in `delivery_charge()`'s payload, under whichever key it uses.
+     *
+     * Named keys rather than "any numeric field": the payload also carries the product's own
+     * price, and a search for "a number equal to 25" would be satisfied by the goods.
+     */
+    private function apiShippingCostIn(array $payload): ?float
+    {
+        $pool = isset($payload['data']) && is_array($payload['data'])
+            ? array_merge($payload, $payload['data'])
+            : $payload;
+
+        foreach (['charge_price', 'shipping_price', 'total_shipping_price', 'shipping_final_price'] as $key) {
+            if (isset($pool[$key]) && is_numeric(preg_replace('/[^0-9.\-]/', '', (string) $pool[$key]))) {
+                return (float) preg_replace('/[^0-9.\-]/', '', (string) $pool[$key]);
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * The payload as an array, whether the endpoint answers JSON or a rendered view.
      *
      * `StorefrontShippingMethodAddressTenancyTest` records that this endpoint returns a rendered
