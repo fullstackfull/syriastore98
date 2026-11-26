@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Cache;
 use Tests\Feature\Security\SecurityTestCase;
 
 /**
- * THE PLATFORM SCREENS ARE REACHABLE FROM THE OPERATOR'S DASHBOARD.
+ * THE THREE PLATFORM SCREENS ARE REACHABLE FROM THE OPERATOR'S DASHBOARD.
  * =================================================================================================
  *
  * A BUILT SCREEN NOBODY CAN FIND IS NOT DELIVERED, and all three of these were in that state:
@@ -17,16 +17,11 @@ use Tests\Feature\Security\SecurityTestCase;
  * has been reachable only by typing its URL since it shipped, and the two screens this workstream
  * added for GAP-195 and GAP-192 would have shipped the same way.
  *
- * WHY THE DASHBOARD AND NOT THE SIDEBAR -- AND THAT DEPENDENCY IS NOW PAID. The operator's
- * navigation is built by `app/Listeners/SuperAdminMenuListener.php` and
- * `app/Services/MerchantPageDirectory.php`, neither of which belonged to this workstream in the
- * phase this file was written in, so a sidebar entry was recorded as a cross-agent dependency
- * rather than smuggled into somebody else's file. `ADM-001` / `GAP-231` is the recovered
- * requirement it was deferred against: the `Across the platform` group now exists in that
- * listener, and `OperatorPlatformNavigationTest` computes the set it must contain from the booted
- * route table. This file still asserts the dashboard panel, which is a second, deliberate route to
- * the same screens and not a duplicate -- the panel carries the SENTENCE that tells each screen
- * from its neighbour, which a sidebar label cannot.
+ * WHY THE DASHBOARD AND NOT THE SIDEBAR. The operator's navigation is built by
+ * `app/Listeners/SuperAdminMenuListener.php` and `app/Services/MerchantPageDirectory.php`, neither
+ * of which belongs to this workstream in this phase. The operator dashboard view does, so the
+ * links go where they can be put correctly today; a sidebar entry is recorded as a cross-agent
+ * dependency rather than smuggled into somebody else's file.
  *
  * WHY NOT THREE MORE `<x-dashboard-card>`s, which is what the screen above them uses:
  *
@@ -47,25 +42,24 @@ final class OperatorDashboardPlatformLinksTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    /**
-     * route name => a word that must appear in its description, so the links cannot be swapped.
-     *
-     * GREW FROM THREE TO FIVE WITH ADM-001 / ADM-002 (GAP-231 / GAP-232). `Official website
-     * content` was already in the panel and NOT in this list, which is how a fourth link went
-     * unasserted; Store 360 and the Documentation Center are added here rather than only to the
-     * view so that the same cannot happen again.
-     *
-     * The discriminating word for `platform.stores.index` is `its own systems` — the clause the
-     * recovered decision turns on (`من أنظمته الأصلية`), and the one thing that tells Store 360
-     * from the four screens that read every tenant at once.
-     */
+    /** route name => a word that must appear in its description, so the links cannot be swapped. */
     private const LINKS = [
         'platform.revenue' => 'merchants pay',
         'platform.analytics' => 'shoppers',
         'platform.resources' => 'machine',
-        'platform.site_content.index' => 'official Store Syria website',
-        'platform.stores.index' => 'its own systems',
-        'platform.documentation.index' => 'help articles',
+        /*
+         * OPS-001. "Platform resources" and "Platform operations" are one word apart and measure
+         * different things — one host's load and disk against the shared database, the shared
+         * queue and the integrations — so the word that has to be in the sentence is the one that
+         * tells them apart, exactly as for the two money screens above.
+         */
+        'platform.operations' => 'queues',
+        /*
+         * OPS-003. The only one of these that is WRITTEN rather than measured, and the word that
+         * has to be in the sentence is the one that says so — an operator who read "Platform
+         * incidents" beside four measurement screens would reasonably assume something fills it in.
+         */
+        'platform.incidents.index' => 'nothing opens an incident by itself',
     ];
 
     private User $operator;
@@ -119,7 +113,7 @@ final class OperatorDashboardPlatformLinksTest extends SecurityTestCase
         return substr($body, $from, $to - $from);
     }
 
-    public function test_the_operator_dashboard_links_to_every_platform_screen(): void
+    public function test_the_operator_dashboard_links_to_all_three_platform_screens(): void
     {
         $panel = $this->panel();
 

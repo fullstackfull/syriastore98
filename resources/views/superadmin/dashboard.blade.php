@@ -64,33 +64,6 @@
             </div>
 
             {{--
-                GAP-231 — WHAT THESE THREE CARDS COUNT, SAID OUT LOUD.
-
-                THE TWO RANKINGS WERE FIXED AND THE COUNT WAS NOT, and the difference is the whole
-                reason this paragraph exists rather than a third predicate. `Popular Plan` and
-                `Popular Coupon` could be led by rows representing NO MONEY — a plan whose every
-                purchase failed could win — which is a defect, so they now count settled purchases
-                only. `Total Plan Orders` counting every attempt is a DEFENSIBLE operational
-                number: "how many purchase attempts exist" is a real question an operator asks.
-                Changing it would have silently redefined a figure the owner reads, to answer a
-                question they did not ask.
-
-                That is this view's own precedent. `Total Orders` was relabelled to
-                `Total Plan Orders` rather than having its figure changed, because the figure was
-                right and the WORD was wrong. Here the figure is right and the SILENCE was wrong.
-
-                NOT A `:hint` ON A CARD. `<x-dashboard-card>`'s shape is a label and a count and it
-                has no hint slot, and `DashboardCardIconLinkHasANameTest` asserts this dashboard
-                renders EXACTLY SIX of them — so a disclosure cannot be a seventh card, and
-                `<x-ss.stat>` is not what these are. A standalone `ss-stat__hint` beside the row is
-                the shape the analytics screens already use for a disclosure that belongs to a
-                table rather than to one tile.
-            --}}
-            <p class="ss-stat__hint mb-4">
-                {{ __('Total Plan Orders counts every purchase attempt, whether or not it was ever paid. Popular Plan and Popular Coupon count only purchases the platform was actually paid for, and Popular Coupon counts only redemptions whose order can be found.') }}
-            </p>
-
-            {{--
                 THE THREE CROSS-TENANT SCREENS, REACHABLE. Until this panel existed, none of them
                 was linked from anywhere: `grep -rn 'platform.analytics' resources/views/` found
                 exactly one hit, the export button INSIDE the analytics screen, so P5-7's screen
@@ -122,13 +95,15 @@
                     <h2 class="h5 mb-1">{{ __('Across the whole platform') }}</h2>
 
                     <p class="ss-muted mb-3">
-                        {{-- NOT "Three". ADM-001 / GAP-231 put Store 360 and the Documentation
-                             Center in this panel, so a count in prose would now be wrong — and a
-                             count in prose is exactly what CLAUDE.md records going stale. The
-                             sentence says what the panel IS instead of how long it is, and the
-                             group in the sidebar is computed from the route table by
-                             `OperatorPlatformNavigationTest` rather than typed anywhere. --}}
-                        {{ __('The screens that read every tenant at once. Each is for the platform operator only.') }}
+                        {{-- THE COUNT IS GONE RATHER THAN CORRECTED, and that is the point of this
+                             note. It read "Three screens" and OPS-001 made it four; OPS-003 then
+                             made it five, and the fifth is not a cross-tenant READ at all — the
+                             incident log is about the platform itself. A counted noun in prose
+                             beside a list is a figure, a figure that disagrees with the list
+                             beneath it is the smallest and commonest kind of thing this product
+                             says that is not true, and the third slice to have to correct it is
+                             evidence that the count should not have been there. --}}
+                        {{ __('Screens that read every tenant at once, or the platform itself. Each is for the platform operator only.') }}
                     </p>
 
                     <ul class="list-unstyled mb-0">
@@ -150,32 +125,36 @@
                                 {{ __('What the machine reports about itself: load, memory and disk.') }}
                             </span>
                         </li>
+                        {{-- OPS-001. The other three subjects of the recovered monitoring
+                             requirement whose SERVERS half is the link above, and linked here for
+                             the reason the note at the top of this file records: a screen nothing
+                             links to is a screen only somebody who already knows the URL can
+                             reach. The sentence names QUEUES, because "Platform resources" and
+                             "Platform operations" are one word apart and measure different
+                             things — one host's load against the shared database and queue. --}}
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.operations') }}">{{ __('Platform operations') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('The shared database, the queues and which integrations are configured, switched on or failing.') }}
+                            </span>
+                        </li>
+                        {{-- OPS-003. The only one of these that is WRITTEN rather than measured,
+                             and the only operational history the platform has. Linked here for the
+                             same reason as its neighbours: a screen nothing links to is a screen
+                             only somebody who already knows the URL can reach. --}}
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.incidents.index') }}">{{ __('Platform incidents') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('What went wrong with the platform, what was done about it, and by whom. Written by hand: nothing opens an incident by itself.') }}
+                            </span>
+                        </li>
                         {{-- GAP-104. Linked here for the reason the note at the top of this file
                              records about `platform.analytics`: a screen nothing links to is a
                              screen only somebody who already knows the URL can reach. --}}
-                        <li class="mb-3">
+                        <li>
                             <a class="ss-link" href="{{ route('platform.site_content.index') }}">{{ __('Official website content') }}</a>
                             <span class="ss-field__hint d-block">
                                 {{ __('The text on the official Store Syria website, changed here rather than in a release. Plan prices and limits are not editable: they are read from the plans the subscription flow charges against.') }}
-                            </span>
-                        </li>
-                        {{-- GAP-232 / ADM-002. The one screen in this panel that is NOT platform-wide:
-                             it asks which store, and every figure on it names that store. It is here
-                             because the operator's question usually starts with a store rather than
-                             with a total, and because a screen nothing links to is a screen only
-                             somebody who already knows the URL can reach. --}}
-                        <li class="mb-3">
-                            <a class="ss-link" href="{{ route('platform.stores.index') }}">{{ __('Store 360') }}</a>
-                            <span class="ss-field__hint d-block">
-                                {{ __('One store at a time: its subscription, catalogue, orders, shoppers and support, and the way into its own systems.') }}
-                            </span>
-                        </li>
-                        {{-- GAP-107. Reachable from the dashboard as well as from the sidebar group,
-                             for the reason the note at the top of this file records: it had neither. --}}
-                        <li>
-                            <a class="ss-link" href="{{ route('platform.documentation.index') }}">{{ __('Documentation Center') }}</a>
-                            <span class="ss-field__hint d-block">
-                                {{ __('The bilingual help articles merchants and shoppers read, and which of them are stale.') }}
                             </span>
                         </li>
                     </ul>

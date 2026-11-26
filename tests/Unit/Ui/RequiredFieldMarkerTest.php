@@ -87,13 +87,6 @@ class RequiredFieldMarkerTest extends TestCase
      * removed being `AppSetting/index.blade.php` (pre-existing, a note rather than a control) and
      * `setting/recaptcha_setting.blade.php` (GAP-060 WS5's instruction). See `isRequired()`.
      *
-     * **166 since 2026-11-26**, raised by ONE block: `kyc/index.blade.php`'s upload form
-     * (GAP-194 / KYC-002). The block carries four required controls — subject type, authority,
-     * document type and the file — and the census counts the WRAPPER, not the controls, so one
-     * `col-12` is one row however many fields are inside it. All four labels carry the marker; the
-     * count moved by one because the form is one block. Raised here, in the commit that added the
-     * form, which is what the paragraph above asks for.
-     *
      * IF THIS FAILS LEGITIMATELY — somebody added or removed a required merchant field — the fix
      * is to change the number here in the same commit, so the change is visible in a diff rather
      * than absorbed. A DROP is the one to look at hard: it means either a field lost its
@@ -103,9 +96,13 @@ class RequiredFieldMarkerTest extends TestCase
     {
         [, $withMarker, $without] = $this->census();
 
-        $this->assertSame(166, $withMarker + count($without), sprintf(
-            'The detector now finds %d required merchant fields; it measured 166 after '
-            . 'kyc/index.blade.php\'s upload form landed (165 when the '
+        /* 165 -> 169 on 2026-11-26 [OPS-003]: three controls on the platform incident log --
+           `title` and `severity` on the "record an incident" form, and `note` on the add-a-note
+           form. A RISE, which this docblock names as the benign direction, and all three arrive
+           MARKED: the first version of those views had the `required` attribute and no marker
+           beside the label, and this ratchet is what said so. */
+        $this->assertSame(169, $withMarker + count($without), sprintf(
+            'The detector now finds %d required merchant fields; it measured 169 when the '
             . 'translated-copy redaction was added to isRequired(). A RISE means a required field '
             . 'was added (fine — update this number). A DROP means one lost its attribute, or the '
             . 'detector stopped matching a shape, which is the direction that turns this whole '

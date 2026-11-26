@@ -1357,6 +1357,80 @@ Route::get(
         ->name('platform.resources');
 
     /*
+     * OPS-001 — THE DATABASE, QUEUE AND INTEGRATION MEASUREMENTS, for the platform operator only.
+     *
+     * The other three subjects of the recovered requirement whose SERVERS half is the route above:
+     * "مراقبة الخوادم وقواعد البيانات والطوابير والتكاملات". A SEPARATE SCREEN rather than four
+     * more tables on `platform/resources`, because the two answer different questions and fail
+     * differently — `/platform/resources` is about the machine this request is running on, which is
+     * one host of however many, while this one is about the shared database, the shared queue and
+     * the integrations every tenant's checkout depends on. The resources screen's own closing
+     * sentence named these three as unmeasured and now links here instead.
+     *
+     * Same gate as its neighbours and for the same reason: `PlatformOperatorOnly`, not a permission
+     * name, because a merchant creates their own roles through the product and a permission is
+     * therefore substantially self-assignable. AND THE SUBJECT MAKES IT STRICTER THAN THE MACHINE
+     * SCREEN, NOT LOOSER: this page discloses, per payment gateway, how many stores have it
+     * switched on and how many of those are misconfigured. That is commercial information about
+     * third parties and an attacker's shopping list, so identity is the gate.
+     *
+     * NO PARAMETER, ON PURPOSE. The handler reads nothing from the request. A `store_id` in the
+     * query string on a screen whose figures span every tenant would be a cross-tenant selector
+     * wearing a filter's clothes, which `CLAUDE.md` records as having produced four separate
+     * defects here. `PlatformOperationsScreenTest::test_a_query_string_changes_nothing` asserts it.
+     */
+    Route::get('platform/operations', [\App\Http\Controllers\SuperAdminOperationsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.operations');
+
+    /*
+     * OPS-003 — THE PLATFORM'S OWN INCIDENT LOG, for the platform operator only.
+     *
+     * "إدارة الحوادث والتنبيهات والتشخيص" — incident, alert and diagnostics management. The RECORD
+     * half: what went wrong with the shared infrastructure, the states it passed through, and who
+     * moved it. The ALERT half is not here and is not coming by accident:
+     * `App\Support\Operations\PlatformIncidentPolicy` records the five decisions that would be
+     * needed first, and a test asserts that nothing on this platform alerts anybody.
+     *
+     * THE FIRST WRITING SURFACE IN THIS GROUP, and that changes what the gate is protecting. Its
+     * three read-only neighbours disclose; these three routes let a caller WRITE the platform's
+     * operational history, which is the one record that must not be forgeable. Same gate for the
+     * same reason — `PlatformOperatorOnly` and not a permission name, because a merchant creates
+     * their own roles through the product and `isAbleTo()` alone would refuse the operator — and
+     * `SuperAdminIncidentsController` repeats the test in all five actions, because a later
+     * declaration of the same verb and URI REPLACES the earlier one and silently drops its
+     * middleware (`GAP-268` found a real duplicate in this file).
+     *
+     * `{incident}` IS NOT A ROUTE-MODEL BINDING, deliberately. The handler calls `find()` and
+     * answers its own redirect for a missing row, so a bad id is an error message on the index and
+     * not a 404 page — and nothing about it is implicitly resolved before the operator check runs.
+     * There is no tenant dimension to get wrong here: the table has no `store_id` at all.
+     *
+     * Inside the same `auth` group as its neighbours, so an anonymous caller is redirected to sign
+     * in by `auth` — which runs first — rather than told 403; and 403 and never 401 for a signed-in
+     * non-operator, because repo B maps any 401 to a forced logout.
+     */
+    Route::get('platform/incidents', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.index');
+
+    Route::post('platform/incidents', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'store'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.store');
+
+    Route::get('platform/incidents/{incident}', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'show'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.show');
+
+    Route::post('platform/incidents/{incident}/transition', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'transition'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.transition');
+
+    Route::post('platform/incidents/{incident}/note', [\App\Http\Controllers\SuperAdminIncidentsController::class, 'note'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.incidents.note');
+
+    /*
      * GAP-192 / SAAS-007 — THE PLATFORM'S OWN REVENUE (MRR/ARR), SEPARATE FROM MERCHANT SALES.
      *
      * A SEPARATE SCREEN FROM `platform/analytics` ON PURPOSE, because the separation IS the

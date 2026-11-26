@@ -17,7 +17,7 @@ use PHPUnit\Framework\Attributes\Test;
  * the gate carries — handlers whose own docblocks say they rely on this middleware.
  *
  * THAT COUNT WAS 14 IN THIS FILE AND IN THE MIDDLEWARE UNTIL 2026-11-26, WHEN IT WAS MEASURED AT
- * 37. IT IS NOW 45, AND HOW IT GOT THERE IS THE LESSON. THREE workstreams added to this
+ * 37. IT IS NOW 51, AND HOW IT GOT THERE IS THE LESSON. FOUR workstreams added to this
  * gate independently from that same base of 37. Two of them conflicted in git and each had
  * correctly updated this table to its own total -- `ADM-002` added Store 360's `platform/stores`
  * and `platform/stores/{store}` and wrote 39; `IAM-003` added three `platform/approvals` routes
@@ -27,23 +27,27 @@ use PHPUnit\Framework\Attributes\Test;
  * WRONG -- reconciling the conflicting sides answers only the question git asked. THIS TEST
  * MEASURED 45 AND REFUSED IT. A pinned total is the right instrument precisely because it is not
  * merge-safe: a three-way addition to one gate cannot be resolved by reading two diffs, only by
- * measuring the booted table. Measured from the booted route table, and the partition is
+ * measuring the booted table. A FOURTH then arrived the same way: `OPS-001`/`OPS-003` added
+ * `platform/operations` and five `platform/incidents` routes and wrote 43, from the same base of
+ * 37 again. The integrator predicted 42, measured 45, and would have predicted 51 wrongly too --
+ * each round the only reliable step was running this test and reading its number. Measured from the booted route table, and the partition is
  * written out so the arithmetic is checkable from the file rather than trusted:
  *
  *     LynomiaChat super-admin group   15
- *     platform/* operator screens     17   (the file said "three", then 9, then 11/12/14)
+ *     platform/* operator screens     23   (the file said "three", then 9, then 11/12/14/17)
  *     plan-coupon                      7
  *     plan.order.refund, plan.disable,
  *       order.approve, order.reject    4
  *     zid/{storeId}/*                  2
  *                                     --
- *                                     45
+ *                                     51
  *
  * The figure grew with the Lynomia group and with the `platform/*` screens that `GAP-192`,
  * `GAP-195`, `GAP-107`, `GAP-232` (Store 360's two), `IAM-003` (three `platform/approvals`)
- * and `KYC-002` (three `platform/verification`) added. Nothing behaved wrongly at 14; a reader's
- * threat model was understated by 31 routes, which is why
- * `test_premise_the_measured_blast_radius_is_still_45`
+ * `KYC-002` (three `platform/verification`) and `OPS-001`/`OPS-003` (`platform/operations` plus five
+ * `platform/incidents`) added. Nothing behaved wrongly at 14; a reader's threat model was
+ * understated by 37 routes, which is why
+ * `test_premise_the_measured_blast_radius_is_still_51`
  * asserts the partition instead of leaving the number in prose where it went stale once already.
  *
  * LATENT RATHER THAN LIVE, measured on both links before the fix was called hardening: nothing in
@@ -104,9 +108,10 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
     private const GROUP_SIZES = [
         'super-admin/lynomia' => 15,
         // 9, then +2 Store 360 (`ADM-002`), +3 `platform/approvals` (`IAM-003`),
-        // +3 `platform/verification` (`KYC-002`) -- three branches off one base of 9, so the
-        // merged value is the union of all three. Only the first two conflicted in git.
-        'platform/' => 17,
+        // +3 `platform/verification` (`KYC-002`), +6 operations/incidents (`OPS-001`/`OPS-003`)
+        // -- four branches off one base of 9, so the merged value is the union of all four.
+        // MEASURED each time, never computed: the integrator's arithmetic was wrong twice.
+        'platform/' => 23,
         'plan-coupon' => 7,
         'plan/order actions' => 4,
         'zid/' => 2,
@@ -158,7 +163,7 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
      * table in `PlatformOperatorOnly`'s docblock -- they are the same claim in two files.
      */
     #[Test]
-    public function test_premise_the_measured_blast_radius_is_still_45(): void
+    public function test_premise_the_measured_blast_radius_is_still_51(): void
     {
         $measured = $this->measuredGroups();
 
@@ -174,9 +179,9 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
         );
 
         $this->assertSame(
-            45,
+            51,
             array_sum($measured),
-            'the group counts no longer sum to the 45 this file documents.'
+            'the group counts no longer sum to the 51 this file documents.'
         );
     }
 

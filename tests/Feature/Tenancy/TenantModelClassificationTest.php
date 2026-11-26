@@ -310,22 +310,32 @@ class TenantModelClassificationTest extends TestCase
         // the page's). A scope there would blank the page for the person it exists for, and a predicate
         // built from the caller's own store buys no confidentiality: the token already names the store.
         // They are not `Cachable` either, because a cached answer to "may I send this" is a stale one.
-        // 107, UP FROM 106. `IAM-003` added `App\Models\OperatorActionApproval` -- one request for a
-        // dangerous PLATFORM operator action, and its approval. It lands in the platformGlobal
-        // partition, and that is a decision rather than an omission: every action the two-person
-        // mechanism governs is a platform action (a plan, a module, another tenant's money), so the
-        // table carries NO `store_id` and the model carries neither `BelongsToStore` nor an
-        // enforcement allowlist entry. A `store_id` here would be the `getCurrentStore()`
-        // fabrication `App\Support\Audit\AuditAttribution` exists to undo -- that helper returns the
-        // hardcoded literal 1 for a `super admin`, so every operator action would be filed under
-        // store 1 whoever it was taken against. Its isolation is `PlatformOperatorOnly` on the three
-        // `platform/approvals` routes PLUS `OperatorApprovalController::refuseAnyoneButTheOperator()`
-        // in every handler, and `App\Support\Iam\TwoPersonApproval`'s own operator test on every
-        // decision -- never a scope. It is also deliberately NOT `Cachable`: the gate writes a
-        // pending row and the next request reads it back, which is the shape CLAUDE.md records as
-        // three measured false readings, and a stale answer here costs a SECOND execution of a
+        // 114, UP FROM 106 -- and the +8 is FIVE workstreams, not one. A git merge that took one
+        // side of this comment kept that side's arithmetic ("OPS-003 added two") against a total
+        // that had moved by eight, so the account below is the union, reconstructed by measuring:
+        //
+        //   SUPPORT-004/005  +2  SupportAccessGrant, SupportAccessApproval
+        //   KYC-002          +2  KycDocument, KycVerification
+        //   MARKET-004       +1  ModuleReviewRecord
+        //   IAM-003          +1  OperatorActionApproval
+        //   OPS-003          +2  PlatformIncident, PlatformIncidentEvent
+        //
+        // EVERY ONE lands in the platform-global partition, and in each case that is a decision
+        // rather than an omission. `OperatorActionApproval`: every action the two-person mechanism
+        // governs is a platform action (a plan, a module, another tenant's money), and a `store_id`
+        // here would be the `getCurrentStore()` fabrication `App\Support\Audit\AuditAttribution`
+        // exists to undo -- that helper returns the hardcoded literal 1 for a `super admin`, so
+        // every operator action would be filed under store 1 whoever it was taken against. Its
+        // isolation is `PlatformOperatorOnly` plus an operator test in every handler, never a
+        // scope. `PlatformIncident`/`PlatformIncidentEvent`: the subject is the shared
+        // infrastructure, which has no tenant, and whether a merchant ever sees a platform
+        // incident is an owner decision nobody has taken.
+        //
+        // None of the eight is `Cachable`, for the reason `AuditLog` is not: each is written and
+        // then read back in a later request, the shape CLAUDE.md records as three measured false
+        // readings -- and for the approval model a stale answer costs a SECOND execution of a
         // dangerous action.
-        $this->assertSame(107, $total, 'The model count changed. Re-run the classification and '
+        $this->assertSame(114, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -364,7 +374,7 @@ class TenantModelClassificationTest extends TestCase
         // 68, UP FROM 65: theme_versions, theme_published_versions and theme_publication_events all
         // carry `store_id` (P3-M3-C). The column is real and the rows are tenant-owned; what
         // changed is the count, not the classification rule.
-        // 76, UP FROM 75: `marketing_recovery_candidates` carries `store_id` (MKT-007). The column is real and the rows are
+        // 79, UP FROM 75: `marketing_recovery_candidates` carries `store_id` (MKT-007). The column is real and the rows are
         // tenant-owned; what changed is the count, not the classification rule.
         // 75, UP FROM 73: `customer_segments` and `customer_segment_members` both carry `store_id` (MKT-004). The column is real on
         // both and the rows are tenant-owned; what changed is the count, not the classification rule. `customer_segment_members`
@@ -379,14 +389,14 @@ class TenantModelClassificationTest extends TestCase
         // rows are tenant-owned; what changed is the count, not the classification rule. The reason none
         // is scope-enforced is recorded beside the model count above.
         $this->assertCount(
-            76,
+            79,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)
         );
     }
 
-    public function test_platform_global_models_are_the_measured_twenty_nine(): void
+    public function test_platform_global_models_are_the_measured_twenty_eight(): void
     {
         // 28, UP FROM 25 -- GATE F CLOSED ON 2026-11-02. Three models' tables now exist and have
         // NO `store_id` column, which is a finding rather than a bookkeeping change:
@@ -397,14 +407,24 @@ class TenantModelClassificationTest extends TestCase
         // handler filtering by that driver. Measured, docs/GATE-F-VERIFIED-SCHEMA.md section 2:
         // all three foreign-key to `delivery_boys` (and `orders`) with ON DELETE CASCADE and
         // none to `stores`.
-        // 29, UP FROM 28 -- `IAM-003` added `App\Models\OperatorActionApproval`. Its table has no
-        // `store_id` BY DESIGN, not by oversight: every governed action is a platform action, and a
-        // `store_id` would make `getCurrentStore()`'s hardcoded literal 1 for a `super admin` into
-        // the attribution of every operator request. The full reasoning is beside the model count
-        // above; the control is `PlatformOperatorOnly` plus a handler-level operator test on every
-        // method, never a scope.
+        /* 28 -> 33 on 2026-11-26 [OPS-003]: `App\Models\PlatformIncident` and
+           `App\Models\PlatformIncidentEvent`. Both tables exist and NEITHER has a `store_id`
+           column, and the absence is the design rather than an omission: an incident is something
+           that went wrong with the SHARED INFRASTRUCTURE — the database, the queue, an integration,
+           a host — which has no tenant.
+
+           A `store_id` here would invite a merchant-visible incident list, and whether a merchant
+           ever sees a platform incident is an owner decision that has not been taken
+           (`PlatformIncidentPolicy::openDecisions()['merchant_visibility']`: publishing an incident
+           is the platform telling its customers it is broken, in its own words, permanently). So
+           the record is operator-only, every route carries `PlatformOperatorOnly` AND the handler
+           repeats the test, and the column is deliberately not there to be scoped.
+
+           Neither is `Cachable` either, for the reason `AuditLog` is not: an operations log is read
+           by two people at once while something is going wrong, and one of them must not be served
+           the row as it was before the other acknowledged it. */
         $this->assertCount(
-            29,
+            33,
             $this->platformGlobal,
             "The set of models whose table has NO `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->platformGlobal)

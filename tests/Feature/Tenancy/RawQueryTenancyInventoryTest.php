@@ -752,24 +752,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            be a regression. The unscoped halves of every table below are therefore unchanged, which
            is the assertion that matters; `product_variants` arrives with an unscoped half of 0, and
            it arrives scoped BECAUSE THIS CENSUS REFUSED the first version of that read. */
-        /* 232 -> 235 [2026-11-26, RET-002]: `App\Services\ReturnInspection`'s three statements over
-           its own `order_return_inspections` table -- the record of a returned item's inspected
-           condition, which the plan's 04-F clause ("فحص حالة المنتج قبل إعادته للبيع") asks for and
-           which no code in this platform had. Raw and not Eloquent for two measured reasons, both
-           stated in the service's header: the table is ABSENT from `config/tenancy.php`'s
-           `scoped_models`, so a `BelongsToStore` model would register a scope that adds NO
-           predicate while `getGlobalScopes()` reported one -- the `Product`/`Category` trap -- and
-           the table is read by a GATE ON STOCK, which must never be served a verdict from before
-           the merchant's own save by one of the 79 `Cachable` models. ALL THREE CARRY AN EXPLICIT
-           `store_id` PREDICATE, and against the ORDER's store rather than the viewer's, because the
-           platform operator legitimately records a condition on another store's order
-           (`ReturnConditionInspectionDoorTest::test_the_verdict_is_filed_under_the_orders_store_and_not_the_actors`
-           pins exactly that). The unscoped halves of every table below are unchanged, which is the
-           assertion that matters; `order_return_inspections` arrives with an unscoped half of 0,
-           and `record()`'s predicate is spelled out column by column in the statement BECAUSE
-           `ServiceLayerRawQueryInventoryTest` REFUSED the first version, which hid it in a
-           variable. */
-        $this->assertSame(['app' => 235, 'packages' => 45], $perDir,
+        /* 232 -> 247 in app/ [2026-11-26, OPS-001]: the fifteen raw statements of
+           `app/Services/SaasOperationsProbe.php`. `packages` is untouched. Every one names its
+           table as a quoted LITERAL, so all fifteen are attributable in the per-table map below
+           rather than joining the unattributable remainder -- which is half of why the probe is
+           written that way, the other half being that a table identifier is interpolated into the
+           SQL rather than bound and so must not come from configuration. The argument for why
+           thirteen of them carry no `store_id` is beside the unscoped total further down. */
+        $this->assertSame(['app' => 247, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -909,14 +899,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            symbol reader (229 + 45). Its `store_id` predicate was read at the method rather than
            assumed, and the `settings` row below holds its unscoped half at 5.
            275 -> 277 [2026-11-26, ORD-008 / GAP-185]: `PackingSlip`'s two reads (232 + 45); the
-           note above the per-directory assertion carries the reasoning and the predicates.
-           277 -> 280 [2026-11-26, RET-002]: `ReturnInspection`'s three statements (235 + 45); same
-           note. They do NOT appear in the per-table map below, and that is the convention this file
-           already records rather than an escape: all three address the table through `self::TABLE`,
-           so the table has exactly ONE class that queries it -- the invariant the
-           `plan_purchase_intents` note keeps, which is why a stray literal was MOVED into that
-           service rather than declared in the map. The entry-point count above is what holds them. */
-        $this->assertSame(280, array_sum($perDir));
+           note above the per-directory assertion carries the reasoning and the predicates. */
+        /* 277 -> 292 [2026-11-26, OPS-001]: the same fifteen counted above (247 + 45). */
+        $this->assertSame(292, array_sum($perDir));
     }
 
     /**
@@ -943,6 +928,34 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // would refuse a bid the page invited. `product_id` is globally unique, since `Product`
             // carries no scope at all, so keying on it does identify one store's product.
             'auction_product_bids' => [1, 1],
+            /* ---------------------------------------------------------------------------------
+               OPS-001 (2026-11-26): FOUR NEW TABLES, every one of the framework's own, and every
+               one unscoped BECAUSE IT HAS NO `store_id` COLUMN TO SCOPE BY.
+
+               `jobs`, `failed_jobs` (`0001_01_01_000002_create_jobs_table.php` and
+               `2019_08_19_000000_create_failed_jobs_table.php`), `cache` and `sessions` are
+               Laravel's own tables. There is no predicate available here to omit, and there could
+               not be: the queue is ONE shared queue, and a depth counted per store would not be a
+               queue depth. `SaasOperationsProbe` is the only reader, through
+               `SaasPlatformOperations` and `SuperAdminOperationsController`, gated by
+               `PlatformOperatorOnly` on the route and by the same test again inside the handler.
+
+               EVERY SITE IS A COUNT, A MIN, A MAX OR A DISTINCT LIST OF QUEUE NAMES. None returns
+               a row of anybody's data, and the handler reads nothing from the request at all --
+               `PlatformOperationsScreenTest::test_a_query_string_changes_nothing` asserts the
+               absence rather than leaving it to be read off the code. Each of the thirteen
+               store-less statements is declared with its own reason in
+               `ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN`.
+
+               THE TABLE NAMES ARE LITERALS ON PURPOSE AND THIS CENSUS IS HALF THE REASON. All four
+               are also configuration keys (`DB_QUEUE_TABLE`, `queue.failed.table`,
+               `DB_CACHE_TABLE`, `SESSION_TABLE`), and the obvious reader is
+               `DB::table(config(...))` -- which this map cannot key on at all, so an unscoped site
+               written that way would raise nothing here. The probe compares the configured name
+               against the literal instead and WITHHOLDS the figure on a deployment that has
+               renamed the table, which is also the honest answer.
+               --------------------------------------------------------------------------------- */
+            'cache' => [1, 1],
             'campaigns' => [1, 1],
             // NEW WITH THE D13 REVIEW FOLLOW-UP, and store-AWARE: the child-category guard added to
             // Api\DashboardController::DeleteCategory, which the web twin has had since P1-INV-08. Raw because the
@@ -1004,7 +1017,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // unique -- and the only `store_id` the listener could add to the predicate is the one
             // on the model being written, i.e. the untrusted side. The question it asks is "what
             // does THAT lottery charge", and the primary key answers it exactly.
+            'failed_jobs' => [5, 5],   // OPS-001, see the note above 'cache'.
             'helpdesk_tickets' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsTicket
+            'jobs' => [3, 3],   // OPS-001, see the note above 'cache'.
             'lottery_settings' => [1, 1],
             'migrations' => [1, 1],
             // `notify_users` USED TO BE LISTED HERE AT [2, 1] AND HAS LEFT THIS POPULATION
@@ -1081,6 +1096,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // UNSCOPED half does not move -- it writes `orders.store_id` at the call site -- and
             // that is the column this row exists to ratchet.
             'orders' => [11, 1],
+            /* OPS-001: `otp_integrations` DOES carry a `store_id`, and both sites are deliberately
+               platform-wide: the figures are how many stores have configured an SMS or WhatsApp
+               provider and how many of those have it switched on, which is a statement about the
+               platform's integrations rather than about one merchant's. Both are counts. Raw and
+               not Eloquent for a reason worth keeping: `OtpIntegration::$casts` makes `api_secret`
+               `encrypted`, so a model read would decrypt every merchant's provider secret into the
+               request's memory to answer a count. */
+            'otp_integrations' => [2, 2],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -1117,7 +1140,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
             'product_variants' => [1, 0],   // NEW [2026-11-26, ORD-008 / GAP-185]: `PackingSlip::variantSkus()` reads the SKU of every variant the order's own lines name, for the picking and packing list. THE UNSCOPED HALF IS 0 AND THAT IS THIS CENSUS'S DOING: the first version of that method carried no store predicate and argued for it (`product_variants.store_id` is nullable, so a plain filter blanks a legacy row's SKU), and this file put the table in the rawly-unscoped set. The argument was wrong, because `product_json` is written at checkout from the cart and S19 established a cart can carry a FOREIGN product id -- so an order's own recorded `variant_id` is not proof of ownership. The predicate is now `store_id = the ORDER's store OR store_id IS NULL`, the shape five other readers of a nullable store_id already use (`Cart`, `Tax`, `ShippingClassOwnership` and two gateway controllers), which refuses another tenant's variant and keeps the legacy rows. Pinned both ways by `PackingSlipTest::test_the_variant_sku_read_does_not_cross_tenants`.
             'products' => [12, 3],    // 11 -> 12 [2026-11-26, ORD-008 / GAP-185]: `PackingSlip::productCodes()` reads `products.product_code` (the ProductBarCode module's column, behind `Schema::hasColumn`) for the order's own line items, WITH a `store_id` predicate against the ORDER's store, so THE UNSCOPED HALF STAYS AT 3 -- which is the assertion that matters. 10 -> 11 [2026-11-25, GAP-221 / ANA-002]: `TopSellersByOrderCount:136`'s dimension-by-product lookup, WITH a `store_id` predicate at :137, so THE UNSCOPED HALF STAYS AT 3 -- which is the assertion that matters. Only ONE of that class's two statements lands here: the other names its table through a `$table` VARIABLE (`categories` or `product_brands`), so it is not a literal this per-table map can key on, and it is counted in the per-directory total above instead. It too carries a `store_id` predicate. 9 -> 10 [2026-11-23, ANA-TOP part 4]: `DimensionPeriodRevenue::forOrders()` resolves every product the orders name in ONE query WITH a store_id predicate, replacing a `Product::find()` per ORDER LINE in eight report branches. That `find()` is why a line naming another tenant's product was attributed by the FOREIGN catalogue's category_id/brand_id -- `Product` registers no StoreScope and is absent from scoped_models. THE UNSCOPED HALF STAYS AT 3. 10 -> 9 [2026-11-22, P1-SEC-69 c after review]: the guard's two ownership limbs became one `exists()` when the product rule became "one canonical id" -- see the per-directory note above. The unscoped half is unchanged at 3, as it was when they arrived. 8 -> 10 total [2026-11-22, P1-SEC-69 c] with CampaignIntentOwnershipGuard's two ownership limbs over the product ids a campaign names. BOTH carry a `store_id` comparison -- built from the store the caller was just authorised for, never from request input -- so THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters. 7 -> 8 total [2026-11-11, P1-SEC-61] with AuctionBidIdentityGuard::logSlugCollision()'s twin lookup, WITH a store_id predicate -- it asks whether the ROUTED store holds its own product under the colliding slug, so THE UNSCOPED HALF STAYS AT 3, which is again the assertion that matters. 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
-            'settings' => [19, 5],   // 18 -> 19 [GAP-278 / P01-B2]: `OrderCurrencyStamp::configuredSymbolFor()` -- the SYMBOL twin of `configuredCodeFor()` below, same shape and same reason. It reads a NAMED store's `defult_currancy_symbol` then `currency_symbol` with an explicit `store_id` predicate and `orderByDesc('id')` (readers serve the newest duplicate; `settings` has no unique index). Raw and not `GetValueByName` because that helper falls through on a miss to `Utility::Setting()`, which ignores its store id when Auth::check() is true and reads the VIEWER's store -- measured at the checkout: a store with no symbol row served the NEIGHBOUR merchant's symbol to a viewer holding that neighbour's panel session. `symbolFor()` is deliberately NOT routed through it, because five ORDER writers stamp `orders.currency_symbol` from that method. The UNSCOPED half holds at 5. 17 -> 18 [ANA-TOP part 3 AFTER REVIEW]: `OrderCurrencyStamp::configuredCodeFor()` reads a NAMED store's `defult_currancy` then `currency` with an explicit store_id predicate and `orderByDesc('id')` (readers serve the newest duplicate). Raw and not `GetValueByName` for the measured reason the DocumentDirection::ownRow entry below gives -- that helper falls through to `Utility::Setting()`, which ignores its store id when Auth::check() is true and reads the VIEWER's store. The UNSCOPED half holds at 5. 18 -> 17 [ANA-TOP part 3]: the earlier site REMOVED -- `primaryCurrency()` reads through `OrderCurrencyStamp::configuredCodeFor($storeId)`, whose own `Utility::GetValueByName()` carries the `store_id` predicate, so the scoping moved rather than went away and the unscoped half still holds at 5. 17 -> 18 [ANA-TOP]: TopSellersByRevenue::primaryCurrency() read this store's `defult_currancy` with a raw query, WITH a store_id predicate. Its note said the alternative was "a helper that resolves `getCurrentStore()` -- the bug GAP-156 fixed on the customer timeline"; that is only true of a helper called WITHOUT a store id, and passing the reported store's id is the difference. 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
+            /* OPS-001: `sessions`, the row count of the database-backed session store. Not a count
+               of people signed in -- a row survives until the framework's own sweep removes it. It
+               is here because a sessions table that stops growing is a session store that stopped
+               accepting writes, which signs every principal on the platform out. */
+            'sessions' => [1, 1],
+            'settings' => [22, 6],   /* 19 -> 22 AND THE UNSCOPED HALF 5 -> 6 [2026-11-26, OPS-001]: the platform-wide gateway-enablement reader on `/platform/operations`. THREE statements, and the split is the thing to read: TWO carry `store_id` (they `select('name', 'store_id')`, so the string is present and this census counts them as aware -- but they SELECT the column, they do not PREDICATE on it, and they are as platform-wide as the third; the column is selected precisely so the per-store figures can be computed in PHP, which is what the screen shows). The THIRD names it nowhere and is the +1: it counts on/off rows holding a value that is neither `on` nor `off`, a disagreement between the settings WRITER (which stores only those two literals) and most of the product's READERS (which test the row for emptiness and read anything else as switched ON). NONE of the three selects a `value` -- `on`, `off` and the emptiness test are literals in the PREDICATE -- so no credential is read to produce any of it, and `PlatformOperationsMeasurementTest` asserts that against the SQL actually issued rather than against the source. Declared with their reasons in ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN. */
+            // 18 -> 19 [GAP-278 / P01-B2]: `OrderCurrencyStamp::configuredSymbolFor()` -- the SYMBOL twin of `configuredCodeFor()` below, same shape and same reason. It reads a NAMED store's `defult_currancy_symbol` then `currency_symbol` with an explicit `store_id` predicate and `orderByDesc('id')` (readers serve the newest duplicate; `settings` has no unique index). Raw and not `GetValueByName` because that helper falls through on a miss to `Utility::Setting()`, which ignores its store id when Auth::check() is true and reads the VIEWER's store -- measured at the checkout: a store with no symbol row served the NEIGHBOUR merchant's symbol to a viewer holding that neighbour's panel session. `symbolFor()` is deliberately NOT routed through it, because five ORDER writers stamp `orders.currency_symbol` from that method. The UNSCOPED half holds at 5. 17 -> 18 [ANA-TOP part 3 AFTER REVIEW]: `OrderCurrencyStamp::configuredCodeFor()` reads a NAMED store's `defult_currancy` then `currency` with an explicit store_id predicate and `orderByDesc('id')` (readers serve the newest duplicate). Raw and not `GetValueByName` for the measured reason the DocumentDirection::ownRow entry below gives -- that helper falls through to `Utility::Setting()`, which ignores its store id when Auth::check() is true and reads the VIEWER's store. The UNSCOPED half holds at 5. 18 -> 17 [ANA-TOP part 3]: the earlier site REMOVED -- `primaryCurrency()` reads through `OrderCurrencyStamp::configuredCodeFor($storeId)`, whose own `Utility::GetValueByName()` carries the `store_id` predicate, so the scoping moved rather than went away and the unscoped half still holds at 5. 17 -> 18 [ANA-TOP]: TopSellersByRevenue::primaryCurrency() read this store's `defult_currancy` with a raw query, WITH a store_id predicate. Its note said the alternative was "a helper that resolves `getCurrentStore()` -- the bug GAP-156 fixed on the customer timeline"; that is only true of a helper called WITHOUT a store id, and passing the reported store's id is the difference. 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [15, 0],   // 16 -> 15 [P05-19]: the operator dashboard's whole-table read is gone (see the entry-point note). It was counted "aware" here while filtering nothing -- LIMIT 1, in the flesh.
             'side_menus_option' => [28, 0],
             'store_devices' => [2, 1],
@@ -1366,7 +1395,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // store, so the UNSCOPED sum below again does not move. `product_variants` is a new table
         // in this map and arrives with an unscoped half of 0 -- see its per-table note, which
         // records that it arrives scoped because this census refused the first version of the read.
-        $this->assertSame(201, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 201 -> 216 [2026-11-26, OPS-001]: the fifteen raw statements of
+        // `app/Services/SaasOperationsProbe.php`, all fifteen of them attributable because every
+        // table is named as a quoted LITERAL -- which is half of why they are written that way, and
+        // is recorded in the probe's own docblock. Four of the tables are new to this map (`jobs`,
+        // `failed_jobs`, `cache`, `sessions`) and have no `store_id` column to scope by; `settings`
+        // and `otp_integrations` already had rows and gained three and two. Their notes above carry
+        // the argument.
+        $this->assertSame(216, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
@@ -1451,7 +1487,32 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `created_by` comparison the count feeds, against UserPolicy::merchantTenantRoot() and
         // never against request input. Classified per-site as 'comparison' in
         // OwnedPathRawQueryInventoryTest, which is where its controls are pinned.
-        $this->assertSame(86, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        /* 86 -> 99 [2026-11-26, OPS-001], AND THIS IS THE UNSCOPED TOTAL, so the argument is
+           written rather than assumed -- the biggest single rise this number has had, and the
+           reason is the same for all thirteen.
+
+           `app/Services/SaasOperationsProbe.php` measures the SHARED INFRASTRUCTURE: the queue, the
+           failure history, the cache and session stores, and what the platform's integrations are
+           configured as. A `store_id` predicate on any of it would not narrow an exposure -- it
+           would produce a figure that is wrong by however much belongs to everybody else. A queue
+           depth of one store's jobs is not a queue depth, and the queue is one queue.
+
+           ELEVEN OF THE THIRTEEN ARE ON TABLES WITH NO `store_id` COLUMN AT ALL (`jobs`,
+           `failed_jobs`, `cache`, `sessions` -- the framework's own), so a predicate is not
+           expressible, let alone omitted. The other two are on `otp_integrations`, which does have
+           one, and they are counts of how many stores have configured an SMS provider and how many
+           of those have it switched on: platform-wide on purpose, because that is the question.
+           `settings` contributes the thirteenth +1 for the same kind of reason, recorded beside its
+           own row.
+
+           NONE OF THE THIRTEEN RETURNS A ROW OF ANYBODY'S DATA. Every one is a `count()`, a
+           `min()`, a `max()` or a `distinct()->pluck()` of queue NAMES. Their only reader is
+           `SaasPlatformOperations`, whose only reader is `SuperAdminOperationsController`, gated by
+           `PlatformOperatorOnly` on the route AND by the same test again inside the handler; the
+           handler reads nothing at all from the request, which its own test asserts rather than
+           leaves to be read off the code. Each statement is declared with its reason in
+           `ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN`. */
+        $this->assertSame(99, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -1568,6 +1629,16 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
                predicate is absent, and why adding one would weaken the probe rather than
                strengthen it, is written where the per-table count lives. */
             'orders' => 'integer',
+            /* OPS-001 (2026-11-26): `otp_integrations` joins this list because
+               `SaasOperationsProbe` reads it rawly with no `store_id` predicate -- deliberately,
+               because the two figures are how many stores across the PLATFORM have configured an
+               SMS or WhatsApp provider and how many of those have it switched on. The column is
+               an `unsignedBigInteger`, so the premise this map asserts holds for it: it can hold
+               `stores.id` and is not one of the three textual Zid discriminators. Both statements
+               are counts, behind `PlatformOperatorOnly`, and raw rather than Eloquent because
+               `OtpIntegration::$casts` makes `api_secret` `encrypted` -- a model read would
+               decrypt every merchant's provider secret to answer a count. */
+            'otp_integrations' => 'integer',
             'products' => 'integer',
             'settings' => 'integer',
             'store_devices' => 'integer',
@@ -1637,6 +1708,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // to produce a refusal. The refusal bodies carry no identifiers -- the category ids go to Log::warning
             // only -- and on the bulk path the tenant-side caller passes the ownership-narrowed `$owned` list, so the
             // only principal whose raw input reaches an unnarrowed count is the platform operator.
+            /* OPS-001 (2026-11-26): `otp_integrations`, two sites, both counts and both
+               deliberately platform-wide -- see this table's entry in the per-table map above and
+               the two declarations in ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN. */
+            'otp_integrations' => 2,
             'products' => 3,
             // `notify_users` => 1 WAS HERE AND IS NOT ANY MORE, and it is not reclassified: it
             // has left the population this list describes, because P01-SEC-14 Work Package C
@@ -1680,7 +1755,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             //     app/Http/Controllers/AITemplateController.php:52
             //     packages/workdo/Donation/.../DonationController.php:187
             //     packages/workdo/PartialPayments/.../PartialPaymentsController.php:459, :470
-            'settings' => 5,
+            /* OPS-001 (2026-11-26): a SIXTH, and it is not one of the five above.
+               `SaasOperationsProbe` counts the gateway on/off rows holding a value that is neither
+               `on` nor `off` -- the disagreement between the settings WRITER (which stores only
+               those two literals) and most of the product's READERS (which test the row for
+               emptiness and therefore read anything else as switched ON). The figure is that
+               disagreement existing in the data ACROSS the platform, which per-store would say
+               nothing at all. It selects no `value` column, so it reads no credential, and its
+               only reader is the operator-only operations screen. */
+            'settings' => 6,
             // `order_refunds` => 1 (P1-ORD-12): OrderDocumentAccessGuard::handle() maps a refund id to its order id so that the ORDER's ownership is
             // what gets judged; it returns no refund data to anyone.
             // `store_devices` -- app/Services/StoreNotificationService.php:195. Push-notification
@@ -1871,6 +1954,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // ChatwootOrderNotificationService in 1bd56358 (see the per-table breakdown above).
             // It still has no `store_id` column, so if a new unscoped statement on it ever
             // appears it belongs back here -- and the per-table ratchet will say so first.
+            /* OPS-001 (2026-11-26): `cache`, `failed_jobs` and `jobs` -- THE FRAMEWORK'S OWN
+               TABLES, and NOT tenancy findings for the most basic reason available: none of them
+               declares a `store_id`, so a predicate is not expressible rather than omitted.
+               `jobs` and `failed_jobs` come from `0001_01_01_000002_create_jobs_table.php` and
+               `2019_08_19_000000_create_failed_jobs_table.php`, `cache` and `sessions` from
+               Laravel's own skeleton migration. They are read by `SaasOperationsProbe` for the
+               `/platform/operations` screen, which is the queue depth, the failure history and the
+               row counts of the two database-backed stores -- a question about the machine every
+               tenant shares rather than about any one of them. Every statement is a count, a min,
+               a max or a distinct list of queue NAMES; none returns a row of anybody's data.
+               `sessions` is listed with them below, in alphabetical order. */
+            'cache',
             'currency',
             // NEW WITH P1-INV-20, AND NOT A TENANCY FINDING -- measured, not inferred from the
             // name. `email_templates` genuinely has no `store_id` column: it discriminates on
@@ -1894,7 +1989,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // App\Models\EmailTemplate, would reach every module's template reads and the
             // operator's own management screens). Recorded as an upstream item on #67 rather than
             // left for the next reader to rediscover from this row.
-            'email_templates',         // owner-discriminated, like owner_menus below
+            'email_templates',
+            'failed_jobs',   // OPS-001, see the note above 'cache'.
+            'jobs',          // OPS-001, see the note above 'cache'.         // owner-discriminated, like owner_menus below
             'migrations',              // platform
             // THE LANDINGPAGE owner_menu* TABLES, MOVED HERE FROM THE UNDECLARED-SCHEMA LIST
             // BELOW because they now EXIST. They were absent only because of
@@ -1989,6 +2086,29 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // correcting, i.e. the untrusted side. Classified per-site as 'derivation' in
             // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, where its controls are pinned.
             'lottery_settings',
+            /* OPS-001 (2026-11-26) — AND THIS ENTRY IS A FINDING RATHER THAN BOOKKEEPING.
+
+               `sessions` is in THIS list (tables the suite's database does not have) and not in
+               the no-`store_id` list above, because the table genuinely does not exist. Measured:
+               `grep -rln "create('sessions'" database/migrations/` is EMPTY, while `cache` and
+               `jobs` each have a migration (`0001_01_01_000001`, `0001_01_01_000002`). And this is
+               not a test-environment artefact — `.env.example` ships `SESSION_DRIVER=database` and
+               `config/session.php` defaults to `database`, so a deployment taking the shipped
+               defaults points its session store at a table nothing creates.
+
+               `SaasOperationsProbe` reads it for the `/platform/operations` row count and
+               distinguishes that case BY NAME: `sessionState()` answers `table_absent` rather than
+               `not_database`, and the screen says "this store is configured to use the database
+               and the sessions table does not exist" instead of blaming the driver. Pinned by
+               `PlatformOperationsMeasurementTest::test_a_database_backed_store_whose_table_is_
+               absent_says_that_rather_than_blaming_the_driver`, whose first assertion is the
+               premise that the table really is absent — so the day a migration for it lands, that
+               test says so rather than silently passing.
+
+               NOT A TENANCY FINDING either way: `sessions` has no `store_id` column in any
+               Laravel schema, the one statement is a `count()`, and its only reader is the
+               operator-only operations screen. */
+            'sessions',
             // `owner_menu_items`, `owner_menu_settings` and `owner_menus` USED TO BE LISTED
             // HERE. They are not absent any more: PackageServiceProvider registers each addon's
             // real on-disk migration directory, which fixes NEW-ADDON-SCHEMA-02, so the six

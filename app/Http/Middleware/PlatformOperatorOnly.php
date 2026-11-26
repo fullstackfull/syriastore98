@@ -96,32 +96,32 @@ class PlatformOperatorOnly
          * (`app/Policies/UserPolicy.php:239`) -- and `customers` HAS a `type` column, with
          * `'type'` in `Customer::$fillable` (`app/Models/Customer.php:35`). So a `Customer` row
          * whose `type` read `super admin` passed this middleware, which is the ONLY check on
-         * 45 routes. THIS SAID "14 ... AND THE THREE `platform/*` SCREENS" UNTIL 2026-11-26, when
-         * it was measured at 37. THREE WORKSTREAMS THEN ADDED TO THIS GATE INDEPENDENTLY, FROM
+         * 51 routes. THIS SAID "14 ... AND THE THREE `platform/*` SCREENS" UNTIL 2026-11-26, when
+         * it was measured at 37. FOUR WORKSTREAMS THEN ADDED TO THIS GATE INDEPENDENTLY, FROM
          * THAT SAME BASE, AND EACH CORRECTLY UPDATED THIS TABLE TO ITS OWN TOTAL: `ADM-002` added
          * Store 360's `platform/stores` and `platform/stores/{store}` and wrote 39; `IAM-003`
          * added three `platform/approvals` routes (the two-person approval queue) and wrote 40;
          * `KYC-002` added three `platform/verification` routes and did not touch this table.
-         * None was wrong and none was the answer -- the merged total is the UNION, 45, and taking
+         * None was wrong and none was the answer -- the merged total is the UNION, 51, and taking
          * any one side would have dropped the others' routes out of a partition whose purpose is
          * to account for every one. THE INTEGRATOR'S OWN ARITHMETIC SAID 42, because it reconciled
          * the two conflicting sides and never asked whether a THIRD branch had added routes without
          * conflicting. The ratchet measured 45 and refused it. The number is written out as a partition
          * because a count living only in prose is exactly what went stale here -- measured from
          * the booted route table, and asserted in both directions by
-         * `PlatformOperatorOnlyPrincipalTest::test_premise_the_measured_blast_radius_is_still_45`,
+         * `PlatformOperatorOnlyPrincipalTest::test_premise_the_measured_blast_radius_is_still_51`,
          * so the next route that joins the
          * gate reddens a test instead of quietly making this comment wrong again:
          *
          *     LynomiaChat super-admin group                                      15
          *     platform/* operator screens (NOT three: analytics x2, documentation
          *       x2, resources, revenue, site-content x3, stores x2,
-         *       approvals x3, verification x3)                                   17
+         *       approvals x3, verification x3, operations, incidents x5)         23
          *     plan-coupon                                                         7
          *     plan.order.refund, plan.disable, order.approve, order.reject        4
          *     zid/{storeId}/*                                                     2
          *                                                                       ---
-         *                                                                        45
+         *                                                                        51
          *
          * It grew with the Lynomia group and with the screens `GAP-192`, `GAP-195`, `GAP-107` and
          * `GAP-232` (Store 360: `platform/stores` and `platform/stores/{store}`)
