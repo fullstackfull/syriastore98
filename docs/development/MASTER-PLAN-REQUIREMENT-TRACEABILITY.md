@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 177 VERIFIED COMPLETE. 173 are not.**
+**350 requirements recovered. 178 VERIFIED COMPLETE. 172 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 177 verified complete, 193 not.** It read 368/198
+project-wide figure is **370 known requirements, 178 verified complete, 192 not.** It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -143,9 +143,9 @@ against a pre-reorganization original.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **177** |
+| VERIFIED COMPLETE | **178** |
 | PARTIALLY IMPLEMENTED | **94** |
-| NOT IMPLEMENTED | **21** |
+| NOT IMPLEMENTED | **20** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -159,7 +159,7 @@ against a pre-reorganization original.
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
 | 03 Storefront, Themes, Official Website and Documentation (M | 36 | 13 | **23** |
 | 04 Commerce (P4-0 .. P4-9) | 43 | 17 | **26** |
-| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 1 | **34** |
+| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 2 | **33** |
 
 ---
 
@@ -5273,7 +5273,14 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P06-08` — Phase 06 — numbering hazard
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **CLOSED 2026-11-26.** The next action -- "State the three-way collision wherever Phase 06
+> is discussed" -- is done, in `CLAUDE.md` §4 directly under the six-phase table and in a new
+> `docs/development/phase-6/README.md`. All three are quoted from their own documents. A
+> fourth fact was found while verifying and is recorded with them: the Lynomia numbering
+> continues to a Phase 7 that has no Master Plan counterpart, so a document citing "Phase 7"
+> is never the product plan.
 
 - **Requirement (original wording / faithful reference):** Verification of the task's own premise: the PHASE-6-* files under docs/development/lynomia-integration/ are a different project, not the Master Plan's Phase 06.
 - **Source:** `docs/development/lynomia-integration/PHASE-6-SCOPE-PROPOSAL.md; docs/development/MASTER-PLAN-SOURCE-VERIFICATION.md §3.4`

@@ -196,10 +196,40 @@ Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as 
 | 01 Foundation | security, CI, regression gates, design-system foundation | engineering complete (2026-10-24), **NOT release-ready or accepted** |
 | 02 Merchant Experience | merchant dashboard, product/order UX, preferences, search, notifications, onboarding, web and Flutter parity | **owner authorised isolated engineering (2026-10-25); not authorised to merge/release** |
 | 02.5 Premium Merchant UI/UX | a separately approved FUTURE polish stage over Phase 02's surfaces | **not started — must not be merged into Phase 02** |
-| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO, **plus a separately scoped Official Website and a bilingual Documentation Center** | not started |
-| 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | not started |
-| 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | not started |
-| 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin, **plus premium Super Admin UX** | not started |
+| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO, **plus a separately scoped Official Website and a bilingual Documentation Center** | engineering under way on the branch; **13 of 36** requirements verified. Not authorised to merge or release |
+| 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | engineering under way on the branch; **17 of 43** requirements verified. Not authorised to merge or release |
+| 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | engineering under way on the branch; counted with 06 below. Not authorised to merge or release |
+| 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin, **plus premium Super Admin UX** | engineering under way on the branch (14 documents under `docs/development/phase-6/`); **05 and 06 together: 1 of 35** requirements verified. Not authorised to merge or release |
+
+**THIS TABLE SAID "not started" FOR 03, 04, 05 AND 06 UNTIL 2026-11-26, AND IT WAS THE FILE EVERY
+SESSION READS FIRST.** 48 requirements had been verified against 03 and 04 alone by then. The
+single "State" column is what did it: one label cannot carry the four states §4.1 says must never
+be collapsed, so "engineering has not been authorised for release" and "no work exists" were
+written the same way. Figures above are the per-phase rows of
+`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`, which `MasterPlanTraceabilityCountsTest` holds to the
+sections they summarise — read them there rather than copying them onward. **Nothing here changes
+an authorisation:** no phase after 02 has owner authorisation to merge or release, and engineering
+progress is not acceptance.
+
+> ### "PHASE 6" NAMES THREE DIFFERENT THINGS IN THIS REPOSITORY (`GAP-181` / `P06-08`)
+>
+> Verified from the documents themselves, not inferred. A completion report for either of the
+> other two must never be read as Phase 06 delivery:
+>
+> 1. **Master Plan Phase 06 — SaaS & Super Admin.** The owner-approved phase in the table above.
+>    Its work lives in `docs/development/phase-6/`.
+> 2. **`docs/discovery/09-DEVELOPMENT-ROADMAP.md` §9's Phase 6 — "Arabic & Storefront Experience".**
+>    Part of an older platform roadmap numbered 0–9. The owner's master prompt addresses this one
+>    directly: *"Do not reinterpret an older technical roadmap as permission to change this
+>    approved six-phase product plan."* Its subject matter is Phase 03's, not Phase 06's.
+> 3. **The Lynomia integration project's Phase 6** — `docs/development/lynomia-integration/PHASE-6-*`,
+>    "Integration Administration, Partner Operations & Platform Communication Operations", spanning
+>    two repositories, status CONDITIONAL GO. That document says so itself: *"This is NOT the Store
+>    Syria platform roadmap's Phase 6."*
+>
+> The collision is live rather than historical: all three are present in this tree now, and the
+> Lynomia numbering continues to a Phase 7 ("Mobile App Release Readiness & the Integration
+> Contract") that has no Master Plan counterpart at all.
 
 Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production.
 
@@ -238,7 +268,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
-| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **177 verified complete, 173 not, +20 recovered and untracked = 193 open** |
+| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **178 verified complete, 172 not, +20 recovered and untracked = 192 open** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |
