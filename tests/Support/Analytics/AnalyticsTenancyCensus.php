@@ -54,9 +54,24 @@ namespace Tests\Support\Analytics;
  * non-principal columns are a LOWER BOUND on the exposure, never an upper one.
  *
  * LIMIT 2. THE STATEMENT IS A TEXT WINDOW: the matched line plus following lines to the first `;`,
- * capped at 40. A predicate applied to the same builder in a LATER statement -- `$q = Order::query();
- * ... $q->where('store_id', ...)` -- is outside the window and reads as `none`. Those are
+ * capped at 40 -- AND, when the matched line assigns a builder to a variable, the following lines
+ * that call a method on that same variable, with their continuations, up to a reassignment of it
+ * from something other than itself. That widening is not a convenience: `ReportController` writes
+ * `$orders = Order::selectRaw(...);` and adds `->where('store_id', ...)` in a LATER statement
+ * twenty times, and without it twenty sites read as carrying no predicate while carrying a
+ * principal-derived one.
+ *
+ * What is still outside the window, and still reads as `none`: a predicate applied to the builder
+ * further away than that, in another method, or after a `;` that sits INSIDE a closure (which ends
+ * the first loop early -- `StoreInventoryValuation`'s join is exactly that shape). Those are
  * dispositioned by hand in the test's own table rather than guessed at.
+ *
+ * AND THE WIDENING ITSELF HAS BEEN WRONG TWICE, both times found by the same mutation and both
+ * times in the dangerous direction -- CREDITING a site with a predicate that belongs to a
+ * different query. It took any line CONTAINING the variable, so a line that merely mentions it
+ * (`$returning = $buyers === [] ? 0 : Order::query()`) handed over its own predicate; and the
+ * first repair matched the variable followed by `->` or `=`, which `$buyers === []` satisfies.
+ * It is now a method call on the variable, or an assignment to it at the start of a line.
  *
  * LIMIT 3. VARIABLE TRACING IS LEXICAL AND PER FILE. A variable is `principal` when every
  * assignment to it in the file is principal-derived, `request` when any assignment is
