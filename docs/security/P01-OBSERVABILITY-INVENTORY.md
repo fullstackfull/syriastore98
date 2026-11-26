@@ -398,9 +398,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StockMovement.php:257` | stock movement not attributed |
 | `app/Services/StoreNotificationService.php:311` | No active Firebase devices found for store. |
 | `app/Services/StoreNotificationService.php:493` | Metric threshold alert could not be recorded |
-| `app/Services/StoredUpload.php:90` | a stored upload path points outside the uploads directory and was not touched |
-| `app/Services/StoredUpload.php:99` | a stored upload path names a platform default and was not touched |
-| `app/Services/StoredUpload.php:117` | a stored upload path names another tenant |
+| `app/Services/StoredUpload.php:99` | a stored upload path points outside the uploads directory and was not touched |
+| `app/Services/StoredUpload.php:113` | a stored upload path resolved outside the folder its caller confined it to and was not touched |
+| `app/Services/StoredUpload.php:126` | a stored upload path names a platform default and was not touched |
+| `app/Services/StoredUpload.php:144` | a stored upload path names another tenant |
 | `app/Support/StoreBoundFilesystem.php:170` | a delete outside the current store was refused |
 | `app/Support/Security/ObjectFreeEncrypter.php:59` | a decrypted payload was not plain data and was refused |
 | `app/Support/Modules/ModuleAvailability.php:99` | ModuleAvailability could not read the enable flag; treating the module as available. |

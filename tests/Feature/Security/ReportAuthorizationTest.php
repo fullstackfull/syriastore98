@@ -124,19 +124,75 @@ class ReportAuthorizationTest extends SecurityTestCase
     /** An action the map does not name is held to `Manage Reports`, not left open and not held to nothing. */
     public function test_an_unmapped_action_falls_back_to_manage_reports(): void
     {
+        /*
+         * REWRITTEN 2026-11-26, AND THE REASON IS THE POINT OF THE CASE.
+         *
+         * This drove `GET /reports/1` -- the `show` stub of `Route::resource('reports', ...)`.
+         * `ReportController` defines no `show`, so that stub was one of the dead resource actions
+         * that answered HTTP 500, and the route is now `->only(['index'])`. `/reports/1` is
+         * therefore a 404, `refused()` accepts only a 403 or a redirect carrying the gate's
+         * message, and this case failed -- against a change that made the product STRICTLY BETTER.
+         *
+         * So the old shape measured the fallback THROUGH A DEAD ROUTE, and the route was the only
+         * way in. `ACTIONS`'s fallback still exists and is still fail-closed; what no longer exists
+         * is a routed action that reaches it. Driving the middleware DIRECTLY is the only way to
+         * see a property the route table cannot express -- the same reason the operator-gate tests
+         * had to call their handlers directly, because the middleware answers 403 first and the
+         * handler is never reached.
+         *
+         * Both properties are asserted here, so neither can be lost: the stub is GONE, and if it
+         * ever comes back the fallback will hold it to `Manage Reports`.
+         */
         [$merchant] = $this->makeTenant();
 
-        $none = $this->makeStaff($merchant);
-        $this->assertTrue($this->refused($this->actingAs($none->fresh())->get('/reports/1')), 'A resource stub with no mapping was open.');
+        /* PREMISE 1: `show` really is unmapped. If someone maps it, this case stops measuring the
+           fallback and must say so rather than passing for a new reason. */
+        $actions = (new \ReflectionClass(\App\Http\Middleware\ReportPermission::class))->getConstant('ACTIONS');
+        $this->assertArrayNotHasKey('show', $actions,
+            'Premise: `show` is no longer unmapped, so this case is not measuring the fallback.');
+
+        /* PREMISE 2: the dead stub really is withdrawn. This is the stronger property the route
+           change created, and it is asserted rather than assumed. */
+        $this->assertNull(\Illuminate\Support\Facades\Route::getRoutes()->getByName('reports.show'),
+            'The `reports.show` stub is routed again. It names a method ReportController does not '
+            . 'define, so it answers HTTP 500 -- re-withdraw it rather than mapping it.');
+
+        $drive = function ($user) {
+            $request = \Illuminate\Http\Request::create('/reports/1', 'GET');
+            $route = new \Illuminate\Routing\Route('GET', 'reports/{report}', [
+                'uses' => \App\Http\Controllers\ReportController::class . '@show',
+            ]);
+            $request->setRouteResolver(fn () => $route);
+
+            $this->actingAs($user->fresh());
+
+            $reached = false;
+            $response = (new \App\Http\Middleware\ReportPermission())->handle(
+                $request,
+                function () use (&$reached) {
+                    $reached = true;
+
+                    return new \Illuminate\Http\Response('reached', 200);
+                }
+            );
+
+            return [$reached, $response];
+        };
+
+        [$reached] = $drive($this->makeStaff($merchant));
+        $this->assertFalse($reached, 'An unmapped action was open to a staff member with no report permission.');
 
         $stock = $this->makeStaff($merchant);
         $this->grantPermission($stock, 'Manage Stock Reports');
-        $this->assertTrue($this->refused($this->actingAs($stock->fresh())->get('/reports/1')), 'An unrelated report permission opened an unmapped action.');
+        [$reached] = $drive($stock);
+        $this->assertFalse($reached, 'An unrelated report permission opened an unmapped action.');
 
         $holder = $this->makeStaff($merchant);
         $this->grantPermission($holder, 'Manage Reports');
-        $response = $this->actingAs($holder->fresh())->get('/reports/1');
-        $this->assertFalse($this->refused($response), 'Manage Reports did not open the fallback (the gate answered ' . $response->status() . ').');
+        [$reached, $response] = $drive($holder);
+        $this->assertTrue($reached,
+            'Manage Reports did not open the fallback (the gate answered ' . $response->getStatusCode() . '), '
+            . 'so the fallback is now fail-closed against EVERYBODY rather than held to Manage Reports.');
     }
 
     public function test_a_json_caller_is_answered_403_not_401(): void
