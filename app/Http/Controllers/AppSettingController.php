@@ -16,6 +16,29 @@ use App\Services\WebuzoDomainService;
 class AppSettingController extends Controller
 {
     /**
+     * The feature-flag checkboxes that `@stack('appSettingEnableBtn')` renders, and the panel whose
+     * form renders it. GAP-289: see the loop in ThemeSettings() for why an absent field may only be
+     * written as `'off'` when the save came from that panel.
+     *
+     * PUBLIC so a test can read them instead of repeating them -- the same reason
+     * `StoreSettingsAccess::DOMAIN_ROUTING` is public. `StoreSettingPanelCrossWriteTest` also pins
+     * the marker against `AppSetting/index.blade.php`, because a string shared between a Blade file
+     * and a controller drifts silently otherwise.
+     *
+     * @var list<string>
+     */
+    public const PANEL_OWNED_FEATURE_FLAGS = [
+        'cart_quantity_control_enable',
+        'enable_product_compare',
+        'enable_product_enquiry',
+        'enable_product_barcode',
+        'enable_spin_to_win',
+    ];
+
+    /** The `app_setting_tab` marker of the form that carries those checkboxes. */
+    public const FEATURE_FLAG_PANEL = 'pills-home-tab';
+
+    /**
      * Display a listing of the resource.
      */
     public function index()
@@ -1102,30 +1125,44 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
             $post['products_pdf_enable'] = $request->products_pdf_enable;
         }
 
-        if ($request->cart_quantity_control_enable) {
-            $post['cart_quantity_control_enable'] = $request->cart_quantity_control_enable ?? 'off';
-        } else {
-            $post['cart_quantity_control_enable'] = 'off';
-        }
-        if ($request->enable_product_compare) {
-            $post['enable_product_compare'] = $request->enable_product_compare ?? 'off';
-        } else {
-            $post['enable_product_compare'] = 'off';
-        }
-        if ($request->enable_product_enquiry) {
-            $post['enable_product_enquiry'] = $request->enable_product_enquiry ?? 'off';
-        } else {
-            $post['enable_product_enquiry'] = 'off';
-        }
-        if ($request->enable_product_barcode) {
-            $post['enable_product_barcode'] = $request->enable_product_barcode ?? 'off';
-        } else {
-            $post['enable_product_barcode'] = 'off';
-        }
-        if ($request->enable_spin_to_win) {
-            $post['enable_spin_to_win'] = $request->enable_spin_to_win ?? 'off';
-        } else {
-            $post['enable_spin_to_win'] = 'off';
+        /*
+         * GAP-289 -- AN `else` THAT WRITES 'off' BELONGS TO THE PANEL THAT OWNS THE CHECKBOX, AND TO
+         * NO OTHER PANEL.
+         *
+         * These five were the only names in this handler whose absence from the request was written
+         * as `'off'` rather than left alone -- the ~30 others are all guarded with `if ($request->x)`.
+         * And THREE forms post to this one handler: `GET /app-setting` renders `pills-home-tab`,
+         * `pills-custom-tab` (storecss/storejs) and `pills-checkout-tab`, while the checkboxes for
+         * these five are rendered by `@stack('appSettingEnableBtn')` inside the HOME form only (five
+         * vendored modules push into that stack from their own ViewComposers).
+         *
+         * MEASURED before this change: saving the Style tab, or the Checkout tab, wrote `'off'` to
+         * ALL FIVE -- a merchant pasting CSS silently lost product compare, product enquiry, product
+         * barcode, spin-to-win and cart quantity control, with a success message and nothing to say
+         * anything else had changed. `StoreSettingPanelCrossWriteTest` drives both panels.
+         *
+         * WHY THE `else` IS NOT SIMPLY DELETED: an unchecked HTML checkbox posts nothing, so for the
+         * owning panel this is the ONLY way the merchant turns one of these off. Deleting it would
+         * remove the off switch, which `test_control_the_owning_panel_can_still_switch_a_feature_flag_off`
+         * fails on. The request cannot tell "unticked here" from "a different form was saved" --
+         * that information is absent from it -- so the panel marker every one of these forms already
+         * posts is what separates them.
+         *
+         * THE SAME HAZARD, THE SAME SHAPE AS THE FIX ABOVE. This handler already neutralises the
+         * domain-routing family for exactly this reason, and its docblock says so: a save "includes
+         * the Home and Checkout tabs, whose forms post no routing field at all"
+         * (`StoreSettingsAccess::DOMAIN_ROUTING`). These five are that hazard, left standing.
+         *
+         * A REQUEST THAT NAMES NO PANEL LEAVES THEM ALONE, deliberately: silent data loss is the
+         * failure being fixed, so the absent-marker case fails towards preserving what is stored. A
+         * flag can still be switched off from its own panel, which is where its control is.
+         */
+        foreach (self::PANEL_OWNED_FEATURE_FLAGS as $featureFlag) {
+            if ($request->input($featureFlag)) {
+                $post[$featureFlag] = $request->input($featureFlag);
+            } elseif ($request->input('app_setting_tab') === self::FEATURE_FLAG_PANEL) {
+                $post[$featureFlag] = 'off';
+            }
         }
         if ($request->enable_additional_field) {
             $post['enable_additional_field'] = $request->enable_additional_field ?? 'off';
