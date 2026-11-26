@@ -4293,3 +4293,101 @@ if (! function_exists('storefront_image')) {
         return asset($fallback);
     }
 }
+
+/*
+|--------------------------------------------------------------------------
+| GAP-274 — responsive, modern-format delivery of a stored storefront image
+|--------------------------------------------------------------------------
+|
+| APPENDED AT THE END OF THIS FILE ON PURPOSE. CLAUDE.md §6b: four inventories are keyed on
+| `file:line` and `docs/security/P01-OBSERVABILITY-INVENTORY.md` names this file twice
+| (`helper.php:444` and `helper.php:687`). An insertion anywhere above those lines moves them and
+| turns a required CI job red for a change that has nothing to do with them; an append moves
+| nothing.
+|
+*/
+
+if (! function_exists('storefront_webp_source')) {
+    /**
+     * THE `<source>` ELEMENT THAT OFFERS A BROWSER NARROWER WEBP COPIES OF A STORED IMAGE.
+     * =============================================================================================
+     *
+     * Returns `''` when the image has no variants, so a `<picture>` built around it collapses to
+     * the `<img>` it already contained and the page renders EXACTLY as it does today. That is the
+     * common case on an installation that has not re-uploaded anything, and it is the contract:
+     * variants are additive and nothing about the existing `src` changes.
+     *
+     * WHY `<picture>` AND A `<source>`, RATHER THAN `srcset` ON THE `<img>`.
+     * `srcset` candidates carry no format negotiation -- a browser that cannot decode WebP would
+     * still pick one and show nothing. A `<source type="image/webp">` is skipped by exactly those
+     * browsers, so the `<img>`'s own `src` stays the fallback: the ORIGINAL, in its original
+     * format, which is what a browser gets today. One mechanism therefore delivers both the modern
+     * format and the responsive widths, and only one extra file per rung is stored.
+     *
+     * The `<img>` is not modified by this. Its `loading`, `decoding` and `fetchpriority` -- the
+     * markup half of GAP-274, landed in `71559a9ca` -- still govern the fetch, because inside a
+     * `<picture>` the `<img>` is still the element that loads.
+     *
+     * EVERY URL IS ESCAPED, and that is not defensive habit. A stored path reaches here from the
+     * database, `StoredPathPolicy` deliberately refuses neither `"` nor `<` (real upload names
+     * contain odd characters, and refusing them broke a product save after its file was written),
+     * and the skill records that a cover image path ends in the CLIENT's file name. The variant's
+     * own FILE name is built from a reduced `[A-Za-z0-9_-]` stem, but the DIRECTORY it sits in is
+     * the original's and is not reduced, so an unescaped interpolation here would be an attribute
+     * injection on every storefront page.
+     *
+     * @param  string|null  $path     the stored path, as held on the model
+     * @param  string       $sizes    how wide the box will be; see App\Support\Storefront\StorefrontImageSizes
+     * @param  int|null     $storeId  the owning store, when the caller knows it: a variant outside
+     *                                its folder is then not offered at all
+     */
+    function storefront_webp_source($path, string $sizes, $storeId = null): string
+    {
+        $variants = \App\Services\ImageVariants::existing(
+            is_string($path) ? $path : null,
+            is_numeric($storeId) && (int) $storeId > 0 ? (int) $storeId : null
+        );
+
+        if ($variants === []) {
+            return '';
+        }
+
+        $candidates = [];
+
+        foreach ($variants as $width => $relative) {
+            /*
+             * PERCENT-ENCODED PER SEGMENT, BEFORE the URL is built.
+             *
+             * `srcset` is a comma-separated list whose entries are separated from their width
+             * descriptor by WHITESPACE, so a URL containing a space or a comma does not merely look
+             * odd -- it splits one candidate into two and the attribute stops parsing as intended.
+             * The variant's own file name is a reduced `[A-Za-z0-9_-]` stem and cannot contain
+             * either, but the DIRECTORY it sits in is the original's: uploads land in
+             * `uploads/<store id>/` under names a client chose, `StoredPathPolicy` refuses neither a
+             * space nor a quote (real upload names carry them, and refusing them broke a product
+             * save after its file had been written), and `get_file()` does no encoding at all --
+             * it answers `url($path)`.
+             *
+             * `rawurlencode` leaves every character a well-formed variant path is made of
+             * untouched (letters, digits, `-`, `_`, `.`), so an ordinary URL is byte-identical to
+             * the one `get_file()` would have produced. It is applied per SEGMENT so the slashes
+             * survive as slashes.
+             */
+            $url = (string) get_file(implode('/', array_map('rawurlencode', explode('/', $relative))));
+
+            // get_file() answers '' from its own catch as well as for an empty argument; a candidate
+            // with an empty URL would be a srcset entry pointing at the current page.
+            if (trim($url) === '') {
+                continue;
+            }
+
+            $candidates[] = e($url) . ' ' . $width . 'w';
+        }
+
+        if ($candidates === []) {
+            return '';
+        }
+
+        return '<source type="image/webp" srcset="' . implode(', ', $candidates) . '" sizes="' . e($sizes) . '">';
+    }
+}

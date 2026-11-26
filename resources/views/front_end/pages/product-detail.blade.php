@@ -20,18 +20,27 @@
                                     @foreach ($product->Sub_image($product->id)['data'] as $item)
                                     <div class="swiper-slide">
                                         <div class="relative pt-[65%] border bg-gray-100 rounded-lg overflow-hidden">
+                                        {{-- GAP-274: the <img> below is UNCHANGED. The <source> offers narrower WebP
+                                             copies when they exist and is an empty string when they do not, so a store
+                                             whose images predate the variant pipeline renders exactly as before. --}}
+                                        <picture>
+                                        {!! storefront_webp_source($item->image_path, \App\Support\Storefront\StorefrontImageSizes::PRODUCT_MAIN, $product->store_id) !!}
                                         <img src="{{ get_file($item->image_path) }}" alt="{{ $product->name }}"
                                             @if ($loop->first) loading="eager" fetchpriority="high" @else loading="lazy" decoding="async" @endif
                                             class="w-full h-full absolute top-0 left-0 object-contain" />
+                                        </picture>
                                         </div>
                                     </div>
                                     @endforeach
                                 @else
                                     <div class="swiper-slide">
                                         <div class="relative pt-[65%] border bg-gray-100 rounded-lg overflow-hidden">
+                                        <picture>
+                                        {!! storefront_webp_source($product->cover_image_path, \App\Support\Storefront\StorefrontImageSizes::PRODUCT_MAIN, $product->store_id) !!}
                                         <img src="{{ storefront_image($product->cover_image_path) }}" alt="{{ $product->name }}"
                                             loading="eager" fetchpriority="high"
                                             class="w-full h-full absolute top-0 left-0 object-contain" />
+                                        </picture>
                                         </div>
                                     </div>
                                 @endif
@@ -52,18 +61,24 @@
                                     <div class="swiper-slide">
                                         <div
                                         class="relative pt-[90%] thumb-image rounded-lg overflow-hidden border bg-gray-100 cursor-pointer">
+                                        <picture>
+                                        {!! storefront_webp_source($item->image_path, \App\Support\Storefront\StorefrontImageSizes::PRODUCT_THUMBNAIL, $product->store_id) !!}
                                         <img src="{{ get_file($item->image_path) }}" alt="{{ $product->name }}"
                                             loading="lazy" decoding="async"
                                             class="absolute top-0 left-0 w-full h-full object-contain" />
+                                        </picture>
                                         </div>
                                     </div>
                                     @endforeach
                                 @else
                                 <div class="swiper-slide">
                                     <div class="relative pt-[90%] thumb-image rounded-lg overflow-hidden border bg-gray-100 cursor-pointer">
+                                    <picture>
+                                    {!! storefront_webp_source($product->cover_image_path, \App\Support\Storefront\StorefrontImageSizes::PRODUCT_THUMBNAIL, $product->store_id) !!}
                                     <img src="{{ storefront_image($product->cover_image_path) }}" alt="{{ $product->name }}"
                                         loading="lazy" decoding="async"
                                         class="absolute top-0 left-0 w-full h-full object-contain" />
+                                    </picture>
                                     </div>
                                 </div>
                                 @endif

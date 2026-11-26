@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 278 lines
+### `warning` — 280 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -207,6 +207,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/BulkDeleteTenantGuard.php:677` | bulk category delete refused: products would be cascade-deleted with the categories |
 | `app/Models/Order.php:1405` | order return refused: the order carries no store_id |
 | `app/Services/PlatformUploadPolicy.php:314` | a platform upload was refused |
+| `app/Services/ImageVariants.php:383` | an image variant could not be generated |
+| `app/Services/ImageVariants.php:418` | an image variant directory does not resolve to the folder beside its original and was not used |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
 | `app/Http/Controllers/ThemeVersionController.php:341` | Theme publication refused. |

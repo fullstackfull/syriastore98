@@ -3,7 +3,8 @@
 <div class="card h-full flex flex-col">
     <a href="{{ route('page.article', [$store->slug, $blog->slug]) }}">
         <img src="{{ storefront_image($blog->cover_image_path) }}"
-            alt="Seasonal Eating: Why It Matters for Your Health and the Planet" class="w-full h-60 object-cover"
+            {{-- GAP-274: the alt named ONE article for every article the card renders. --}}
+            alt="{{ $blog->title ?? '' }}" class="w-full h-60 object-cover"
             loading="lazy" />
     </a>
     <div class="p-4 flex flex-col flex-grow justify-between">

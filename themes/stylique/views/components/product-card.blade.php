@@ -4,11 +4,16 @@
         {!! \App\Models\Product::productSalesPage( $store->slug, $product->id, false) !!}
         <div class="relative">
             <a href="{{ url($store->slug . '/product/' . $product->slug) }}">
+                {{-- GAP-274: the <img> is UNCHANGED; the <source> offers narrower WebP copies when
+                     they exist and is an empty string when they do not. --}}
+                <picture>
+                {!! storefront_webp_source($product->cover_image_path, \App\Support\Storefront\StorefrontImageSizes::PRODUCT_CARD, $product->store_id) !!}
                 <img src="{{ storefront_image($product->cover_image_path)}}"
                 width="400" height="400"
                 alt="{{ $product->name }}"
-                loading="lazy"
+                loading="lazy" decoding="async"
                 class="w-full h-80 object-cover object-top product-image" />
+                </picture>
             </a>
         
             {{-- GAP-220 RTL: `end-4`, the LOGICAL inset, not the physical one. This container holds

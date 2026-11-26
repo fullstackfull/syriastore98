@@ -9,7 +9,10 @@ use Illuminate\Support\Facades\File;
 use App\Listeners\EnforceLotteryTicketPrice;
 use App\Listeners\NormaliseRewardRedemptionFlag;
 use App\Models\Order;
+use App\Models\Product;
+use App\Models\ProductImage;
 use App\Observers\OrderObserver;
+use App\Observers\ProductImageVariantObserver;
 
 
 class AppServiceProvider extends ServiceProvider
@@ -100,6 +103,25 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Order::observe(OrderObserver::class);
+
+        /*
+         | GAP-274 -- RESPONSIVE/WEBP VARIANTS ARE GENERATED WHERE THE PATH IS PERSISTED.
+         |
+         | Registered here rather than in the models' own `booted()` for two reasons. The generation
+         | point is one decision and it reads as one decision in one place; and `app/Models/Product.php`
+         | is named by `ResidualTenancyExposureTest`'s raw-query inventory at a FILE:LINE (CLAUDE.md
+         | §6b), so adding lines inside its `booted()` would move an unrelated inventory row for a
+         | change that has nothing to do with it.
+         |
+         | NOT in `app/Listeners`: event discovery is on and registers everything there with a typed
+         | `handle()` automatically, under a `Class@handle` key, which CLAUDE.md records as a source of
+         | double registration and of tests that cannot see what is registered.
+         |
+         | See App\Observers\ProductImageVariantObserver for what was rejected (on-demand resizing,
+         | and hooking the four uploader functions) and why the model is the right hook.
+         */
+        Product::observe(ProductImageVariantObserver::class);
+        ProductImage::observe(ProductImageVariantObserver::class);
 
         /*
          | ANA — A STOREFRONT VISIT NOW SAYS WHICH STORE IT WAS. Measured 2026-11-20: it said nobody's.

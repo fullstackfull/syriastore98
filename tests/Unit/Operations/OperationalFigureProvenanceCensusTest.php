@@ -85,18 +85,44 @@ final class OperationalFigureProvenanceCensusTest extends TestCase
      */
     private const MACHINE_READERS = [
         /*
-         * TWO FILES, AND `SuperAdminResourcesController` IS DELIBERATELY NOT ONE OF THEM -- which
+         * TWO FILES PRODUCE THE OPERATOR'S FIGURES (a third reader, which publishes none, is listed
+         * below), AND `SuperAdminResourcesController` IS DELIBERATELY NOT ONE OF THEM -- which
          * the first version of this census got wrong, and which is a fact worth having rather than
          * a detail. That controller NAMES `disk_free_space()` in its docblock, explaining why its
          * screen takes no `path` parameter, and the census strips comments, so it is not a reader.
          * It really does take no reading of its own: it hands the producer's result to a view and
          * composes nothing, which `PlatformResourceMessagesAreDeclaredTest` separately pins by
-         * declaring it a silent surface. So the product's machine figures come from exactly two
-         * files, and the controller being absent from this list is evidence of the layering rather
-         * than an omission.
+         * declaring it a silent surface. So the product's machine FIGURES come from exactly these
+         * two files, and the controller being absent from this list is evidence of the layering
+         * rather than an omission.
          */
         'app/Services/SaasPlatformResources.php',
         'app/Services/SaasResourceProbe.php',
+        /*
+         * A THIRD READER, AND IT IS NOT AN OPERATIONAL FIGURE -- GAP-274.
+         *
+         * `ImageVariants` calls `memory_get_usage(true)` and reads `memory_limit` for ONE purpose:
+         * to decide whether decoding a merchant's uploaded photograph would fit in what is left of
+         * this process's memory. It is not a figure, it is a refusal. Nothing is stored, nothing is
+         * returned to a caller, nothing reaches a view or an API, and no operator screen can see
+         * it; the only consequence of the reading is that a picture gets no WebP variants and a
+         * line is written to the log.
+         *
+         * It is listed rather than reworded because the reading is REAL -- CLAUDE.md §3's rule is
+         * about prose satisfying a census, and this is a call. What this census guards against is a
+         * SECOND PLACE THAT DECIDES WHAT A LOAD AVERAGE MEANS, arriving without the period, the
+         * source and the host-refused sentence `SaasPlatformResources` produces with every figure;
+         * this file publishes no figure at all, so that statement stays true. Its own docblock
+         * contemplates exactly this case ("a fourth file taking a reading is not necessarily
+         * wrong").
+         *
+         * WHY THE READING CANNOT SIMPLY BE DROPPED. Exceeding `memory_limit` is a FATAL error, not
+         * an exception, so without the budget a large enough upload takes the whole product save
+         * down rather than skipping the resize -- and a static pixel cap cannot replace it: one low
+         * enough to be safe under a 128M limit that is already half consumed excludes an ordinary
+         * phone photograph.
+         */
+        'app/Services/ImageVariants.php',
     ];
 
     /** The measurement blocks on the two operator screens, by the markers the views emit. */

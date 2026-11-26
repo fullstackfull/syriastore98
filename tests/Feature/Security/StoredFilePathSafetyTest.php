@@ -492,6 +492,16 @@ class StoredFilePathSafetyTest extends SecurityTestCase
             // link, so the second also clears a dangling one) -- plus the two loops that unlink
             // ONLY what StoredUpload::resolveAll() returned.
             'app/Models/Utility.php' => 4,
+            // GAP-274: ONE removal, and it never takes a path from the database. It removes the
+            // TEMPORARY file the variant writer just created in the variants directory it just
+            // resolved -- `$directory . '/.' . bin2hex(random_bytes(6)) . '.webp.part'` -- when
+            // `imagewebp()` fails, so a half-written candidate is not left where a reader's
+            // `is_file()` would advertise it. The variant and the ORIGINAL are never removed: the
+            // original is the fallback a browser without WebP support gets, and a variant that
+            // exists is simply reused. `ImageVariants` writes only after
+            // `StoredUpload::resolve()` has resolved the original and the variants directory's own
+            // realpath has been required to be that original's directory plus `/variants`.
+            'app/Services/ImageVariants.php' => 1,
             'app/Services/StoredUpload.php' => 1,                      // THE deleter
             'app/Support/StoreBoundFilesystem.php' => 2,               // the containment (P1-SEC-70): delegates to the real Filesystem only AFTER judging the path
         ], $found, 'A filesystem removal was added or removed in app/. A path that came from the database must go through StoredUpload::delete().');
