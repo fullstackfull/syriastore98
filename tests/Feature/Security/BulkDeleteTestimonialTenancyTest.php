@@ -337,6 +337,7 @@ class BulkDeleteTestimonialTenancyTest extends SecurityTestCase
             'the map shrank; re-derive this census rather than trusting its numbers');
 
         $unaccounted = [];
+        $absentFromThisSchema = [];
 
         foreach ($map as $type => $class) {
             if (in_array($type, $global, true)
@@ -352,7 +353,33 @@ class BulkDeleteTestimonialTenancyTest extends SecurityTestCase
 
             $table = (new $class)->getTable();
 
-            if (Schema::hasTable($table) && Schema::hasColumn($table, 'store_id')) {
+            /*
+             * WHETHER THE TABLE IS IN THE SCHEMA IS A FACT ABOUT THIS PROCESS, NOT ABOUT THE
+             * PRODUCT -- AND READING IT AS THE LATTER GAVE THIS CENSUS A FALSE READING IN BOTH
+             * DIRECTIONS (first full-directory run, 2026-11-26).
+             *
+             * `class_exists()` above turns TRUE the moment ANY sibling test loads the module,
+             * because `loadAddons()` leaves its namespaces in the process-global Composer
+             * ClassLoader; the module's MIGRATIONS are not in this test's `RefreshDatabase`
+             * schema either way. So run alone, this loop skipped every module entry and the
+             * census passed WITHOUT EXAMINING THEM; run after AuctionBidForgeryTest, the same
+             * two entries arrived here and were reported as having no tenant basis -- when both
+             * tables carry `store_id` in the product (`AuctionProductSetting::$fillable` names
+             * it, and `AuctionProductOrder::order_detail()` reads `$order->store_id`).
+             *
+             * A table absent HERE is one `hasStoreColumn()` answers false for, which is
+             * `ownedIds()`'s "no discriminator and no stated derivation: FAIL CLOSED" branch:
+             * `null`, which `handle()` turns into a refusal. Refused is the safe side, so such an
+             * entry is not unaccounted -- but it is NOT EXAMINED, and the assertion below is what
+             * stops that from quietly becoming the answer for a first-party model.
+             */
+            if (! Schema::hasTable($table)) {
+                $absentFromThisSchema[] = $type . ' (' . $class . ')';
+
+                continue;
+            }
+
+            if (Schema::hasColumn($table, 'store_id')) {
                 continue;
             }
 
@@ -364,6 +391,26 @@ class BulkDeleteTestimonialTenancyTest extends SecurityTestCase
             . 'the guard can only refuse them — which is safe, but if any of them is expected to '
             . 'WORK for a merchant it is silently broken, and if the guard ever stops being '
             . 'fail-closed they become the next GAP-336: ' . implode(', ', $unaccounted));
+
+        /*
+         * AND WHAT THIS ENVIRONMENT COULD NOT EXAMINE IS ONLY EVER A MODULE'S TABLE.
+         *
+         * A first-party `App\Models\*` table is created by an application migration, so it is in
+         * every `RefreshDatabase` schema; a module's is not. If a first-party entry ever reaches
+         * the skip above, this census has gone SILENT about it rather than measured it -- which is
+         * the false green that the order-dependence described there produced for the module
+         * entries, and the one direction a passing census cannot otherwise reveal.
+         */
+        $firstPartyUnexamined = array_values(array_filter(
+            $absentFromThisSchema,
+            fn ($entry) => str_contains($entry, '(App\\Models\\')
+        ));
+
+        $this->assertSame([], $firstPartyUnexamined,
+            'These first-party bulk-delete types were skipped because their table is not in this '
+            . 'schema, so the census above says NOTHING about them. A first-party table missing '
+            . 'under RefreshDatabase means the migration moved, not that the type is safe -- '
+            . 'measure it before deleting this assertion: ' . implode(', ', $firstPartyUnexamined));
     }
 
     /**
