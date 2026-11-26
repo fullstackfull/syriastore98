@@ -848,7 +848,7 @@ foreach ($response->data->product_list as $item) {
         $Product = Product::find($Products);
 
         $store = getStore($slug);
-        $CURRENCY = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $store->id);
+        $CURRENCY = \App\Support\Money\OrderCurrencyStamp::symbolFor($store->id); // GAP-143: the name this used to read has no default in Utility::Setting, so this field was null for every store StoreController did not create. P5-R14's chain decides a store's symbol in one place. Kept to ONE line: P01-OBSERVABILITY-INVENTORY.md anchors this file at :1581 and :1784. Full reasoning in Gap143ShippingTaxOrderTotalsTest.
         $code = trim($request->coupon_code);
         // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
         $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
@@ -1081,7 +1081,7 @@ foreach ($response->data->product_list as $item) {
         $code = trim($request->coupon_code);
         // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
         $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
-        $CURRENCY = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $store->id);
+        $CURRENCY = \App\Support\Money\OrderCurrencyStamp::symbolFor($store->id); // GAP-143: the name this used to read has no default in Utility::Setting, so this field was null for every store StoreController did not create. P5-R14's chain decides a store's symbol in one place. Kept to ONE line: P01-OBSERVABILITY-INVENTORY.md anchors this file at :1581 and :1784. Full reasoning in Gap143ShippingTaxOrderTotalsTest.
         $tax_option = TaxOption::where('store_id', $store->id)
             ->pluck('value', 'name')->toArray();
         if ($Product == null) {

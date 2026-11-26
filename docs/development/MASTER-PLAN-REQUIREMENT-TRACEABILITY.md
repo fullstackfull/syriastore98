@@ -144,8 +144,8 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **180** |
-| PARTIALLY IMPLEMENTED | **101** |
-| NOT IMPLEMENTED | **11** |
+| PARTIALLY IMPLEMENTED | **102** |
+| NOT IMPLEMENTED | **10** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -4714,13 +4714,13 @@ against a pre-reorganization original.
 
 ### `P04-P8-02` — P4-8 Shipping, tax and totals — fixture and reconciliation
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
 
 - **Requirement (original wording / faithful reference):** P4-8 acceptance, verbatim: 'seed shipping methods and tax, resolve "CURRENCY": null. Acceptance: totals reconcile against OrderTotalReconciler with shipping and tax present.'
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6 P4-8, built on the measured fixture gaps in §4`
 - **Expected behaviour:** A fixture with a real shipping method and a real tax, and a reconciliation of order totals with both present.
 - **Actual behaviour:** Not done. The register's whole P4-8 section is P4-F070 and nothing else. The §4 gaps are unchanged: POST /shipping-method still has nothing to return in the fixture, no tax seed was added, and 'CURRENCY': null was never resolved or classified (the plan said P4-4 'must determine which' — product defect or fixture gap — and no document answers it). OrderTotalReconciler exists and is called from PaymentVerificationService/OrderTaxResolver/PaymentService, but no Phase 04 test reconciles a total with shipping AND tax present.
-- **Gap:** Shipping selection, zones and costs, and tax derivation, are still not exercised end to end; the CURRENCY question is unanswered.
+- **Gap:** The clause is exercised end to end on a stored order and the `CURRENCY` question is resolved as a code defect and fixed, but **the derivation it exercises applies the merchant tax band TWICE to what the shopper is charged** (measured: 267.00 against a correct 245.00 on a 2 x 100.00 basket with 25.00 carriage and one 10% band), so this is not verified. That arithmetic is work-queue S21.4 and changing it alters what every taxed order is charged, which is an owner decision. Three specifics of the previous text were wrong and are withdrawn: `POST /shipping-method` does have something to return, a tax seed does exist, and `"CURRENCY": null` is resolved. Reconciled for the shared web cod/bank-transfer writer only; the ~20 gateway-return writers and the two API writers belong to `P04-P8-03`. Evidence: `tests/Feature/Commerce/Gap143ShippingTaxOrderTotalsTest.php`, 15 tests / 110 assertions, 13 of 13 mutations caught.
 - **Responsible:** Phase 04 engineering
 - **Next action:** Seed the fixture and write the reconciliation test the acceptance clause names; answer the CURRENCY question as defect or fixture.
 

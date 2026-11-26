@@ -41,8 +41,25 @@ use Tests\Feature\Security\SecurityTestCase;
  *
  * ---------------------------------------------------------------------------------------------
  * AND THE THIRD ITEM — `"CURRENCY": null` in both payloads — WAS LEFT OPEN FOR P4-4 AS "a real
- * defect or a fixture gap". IT IS A FIXTURE GAP, and this file settles it by measurement rather
- * than by reading, because the reading is what makes it look like a defect.
+ * defect or a fixture gap". THIS FILE CONCLUDED "FIXTURE GAP" AND THAT DISPOSITION WAS WRONG; IT IS
+ * WITHDRAWN (GAP-143, 2026-11-26). The assertions below are correct and stay — only the conclusion
+ * drawn from them was. Two things made it wrong, and the second explains the first:
+ *
+ *   1. THE HANDLERS DO NOT READ `CURRENCY`. `get_shipping_data` and `get_tax_data` read
+ *      `defult_currancy_symbol`, a name `Utility::Setting()`'s defaults array does NOT carry and
+ *      `defaultSetting()` does not seed. So the fallback reasoned about below never applied to the
+ *      value that was null, and of the four store-creation paths only `StoreController` seeds that
+ *      name — meaning every store created by merchant self-registration or by the admin app served
+ *      `CURRENCY: null` from both endpoints for its whole life. A code defect, now fixed.
+ *   2. THIS FILE DRIVES `shipping-method`, WHICH CARRIES NO `CURRENCY` KEY AT ALL. The two endpoints
+ *      that emit one are `get-shipping-data` and `get-tax-data`. The case below iterates a
+ *      single-element array and its own `taxPayload()` helper is never reached by it, so it was
+ *      measuring one payload that has no such key rather than the two that do.
+ *
+ * `Gap143ShippingTaxOrderTotalsTest` drives the right two endpoints and pins the repair. The
+ * reasoning kept below is left standing because it is still true OF `CURRENCY` — the name it
+ * describes — and because a withdrawn disposition is more useful with its argument visible than
+ * deleted.
  *
  * `Utility::GetValueByName('CURRENCY', $storeId)` does NOT simply read the `settings` row. When the
  * row is absent it falls back to `Utility::Setting($storeId)`, whose defaults array carries
