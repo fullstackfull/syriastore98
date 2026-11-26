@@ -50,7 +50,34 @@ class PackageServiceProvider extends ServiceProvider
                 $dbAddons[] = 'LandingPage';
             }
 
-            $this->loadAddons($dbAddons);
+            /*
+             * MARKET-004 / EX-010. AN UPLOADED PACKAGE DOES NOT EXECUTE UNTIL SOMEBODY HAS REVIEWED
+             * IT, and this line is the only thing in the application that enforces that.
+             *
+             * `ModuleController::install()` writes an `add_on_managers` row for an uploaded zip --
+             * with `is_enable = 0`, which looks like a safety and is not one. The pluck above has no
+             * `is_enable` predicate (deliberately: see PHASE-06-DISABLED-APPLICATION-BOUNDARY.md §3
+             * for why filtering the loader on that flag is the wrong fix), so the uploaded package's
+             * service providers reached `$this->app->register()` on the very next request and its
+             * migrations were registered, before anybody enabled it and with nothing having read a
+             * line of it.
+             *
+             * `ModuleTrust::executable()` removes only packages that have an `uploaded` provenance
+             * row with no `approved` decision. A module with NO row is untouched -- the 70 vendored
+             * modules and `LandingPage` have none -- so this filter changes nothing for code that
+             * shipped with the product. That is asserted in both directions by
+             * `tests/Unit/Modules/ModuleTrustTest` and
+             * `tests/Feature/Marketplace/UploadedModuleDoesNotExecuteUntilReviewedTest`.
+             *
+             * IT IS HERE AND NOT INSIDE `loadAddons()` FOR TWO REASONS, both measurable. (1) The
+             * static pass in `register()` runs before the database connection is treated as ready --
+             * the `app->booted()` wrapper below exists for exactly that -- so a DB read inside
+             * `loadAddons()` would put a query in `register()`. (2) `$staticAddons` is a hardcoded
+             * first-party pair, so an uploaded package can only ever arrive in THIS list.
+             * `tests/Unit/Modules/StaticAddonsStayFirstPartyTest` ratchets that pair so a third name
+             * fails CI and somebody reads this comment.
+             */
+            $this->loadAddons(\App\Support\Modules\ModuleTrust::executable($dbAddons));
         } catch (\Throwable $e) {
             /*
              * P1-PLT-04 (#36). THIS CATCH USED TO READ `// Handle silently`, AND SILENTLY IS

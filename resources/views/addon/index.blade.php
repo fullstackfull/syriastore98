@@ -114,7 +114,10 @@
         <h4 class="mb-3"> {{ __('Buy More Themes') }}</h4>
     </div>
     <div class="event-cards row px-0">
-        @foreach ($theme['theme'] as $key => $value)
+        {{-- MARKET-001: the vendor catalogue is a remote fetch and may be absent; an unguarded
+             read of it answered HTTP 500 on this screen. Utility::BuyMoreTheme() also guarantees
+             the key now -- this is the second of the two, kept because a reader looks here. --}}
+        @foreach ($theme['theme'] ?? [] as $key => $value)
             @if (!in_array($value[0],$theme_array))
                 <div class="col-lg-3 col-md-4 col-sm-6 card-wrapper">
                     <div class="product-card ">

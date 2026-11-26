@@ -35,6 +35,15 @@
                             </select>
                         </div>
 
+                        {{-- MARKET-002 / MARKET-004. The register an upload lands in, linked from the
+                             screen that creates the upload, because an uploaded add-on or theme does
+                             not run until a decision is recorded there and an operator needs to be
+                             able to find it. --}}
+                        <div class="alert alert-info" role="status">
+                            {{ __('An uploaded add-on or theme does not run until it has been reviewed.') }}
+                            <a class="alert-link" href="{{ route('module.review.index') }}">{{ __('Open the review register') }}</a>
+                        </div>
+
                         <div id="dropzone">
                             <form class="dropzone needsclick" id="demo-upload">
                                 <div class="dz-message needsclick">

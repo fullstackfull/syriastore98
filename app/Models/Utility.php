@@ -1235,15 +1235,71 @@ class Utility extends Model
         }
     }
 
-    public static function BuyMoreTheme()
+    /**
+     * THE VENDOR'S ADD-ON CATALOGUE, AND IT MUST NOT BE ABLE TO TAKE A SCREEN DOWN. MARKET-001.
+     *
+     * WHAT THIS RETURNED BEFORE, AND WHAT THAT COST. The body was
+     * `json_decode(file_get_contents('https://ecom-demo.workdo.io/cronjob/addon.json'), true)`
+     * inside a `try`, with `return []` in the catch and **no return statement on the fall-through**:
+     *
+     *   - the fetch fails -> Laravel's `HandleExceptions::handleError` turns the warning into an
+     *     `ErrorException`, which IS an `Exception`, so the catch fires -> `[]`;
+     *   - the fetch succeeds but the payload is empty -> falls off the end -> **null**.
+     *
+     * Both values go straight into a view. `resources/views/module/index.blade.php` guards every
+     * use; `addon/index.blade.php` does `@foreach ($theme['theme'] ...)` and `addon/apps.blade.php`
+     * does `@foreach ($apps['apps'] ...)`, neither guarded. MEASURED by rendering those two views
+     * with each value: **"Undefined array key"**, which Laravel raises as an `ErrorException` and
+     * the operator sees as **HTTP 500**. So `GET /addon` and `GET /addon-apps` were down for any
+     * installation whose egress does not reach that host -- which is the normal state of a
+     * restricted production network, and is not an edge case.
+     *
+     * THREE THINGS CHANGE AND NOTHING ELSE:
+     *
+     *  1. THE SHAPE IS GUARANTEED. The three keys every view reads -- `theme`, `apps`, `add_ons` --
+     *     are always present and always arrays, whatever the remote said. The views are guarded as
+     *     well (belt and braces, since either alone would do and neither is where a reader looks).
+     *  2. `\Throwable`, NOT `\Exception`. A PHP `Error` -- `json_decode` on a resource, a TypeError
+     *     from a changed payload -- is not an `Exception` and was not caught at all. The same
+     *     correction `PackageServiceProvider`'s addon loader needed, for the same reason.
+     *  3. A TIMEOUT. `file_get_contents` on a URL uses `default_socket_timeout`, which is **60
+     *     seconds** by default, so a hanging vendor host held the operator's screen for a minute
+     *     before failing. Six seconds is enough for a catalogue nobody is waiting on.
+     *
+     * WHAT DELIBERATELY DOES NOT CHANGE: the call is still made, to the same host. Whether a
+     * first-party catalogue should replace the vendor's is `MARKET-001`'s question and is coupled to
+     * `MARKET-003`'s unapproved commercial model -- an owner decision, not a bug fix. And the result
+     * is still not cached: `Cache::remember` here would need a TTL nobody has chosen, and the
+     * failure mode this closes was a 500, not a slow page.
+     */
+    public static function BuyMoreTheme(): array
     {
+        $empty = ['theme' => [], 'apps' => [], 'add_ons' => []];
+
         try {
-            $json = json_decode(file_get_contents('https://ecom-demo.workdo.io/cronjob/addon.json'), true);
-            if (!empty($json)) {
-                return $json;
+            $raw = @file_get_contents(
+                'https://ecom-demo.workdo.io/cronjob/addon.json',
+                false,
+                stream_context_create(['http' => ['timeout' => 6]])
+            );
+
+            if (! is_string($raw) || $raw === '') {
+                return $empty;
             }
-        } catch (\Exception $e) {
-            return [];
+
+            $json = json_decode($raw, true);
+
+            if (! is_array($json)) {
+                return $empty;
+            }
+
+            foreach (array_keys($empty) as $key) {
+                $json[$key] = isset($json[$key]) && is_array($json[$key]) ? $json[$key] : [];
+            }
+
+            return $json;
+        } catch (\Throwable $e) {
+            return $empty;
         }
     }
 

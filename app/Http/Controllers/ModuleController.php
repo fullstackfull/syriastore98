@@ -15,7 +15,10 @@ use Illuminate\Support\Facades\File;
 use ZipArchive;
 use App\Models\Addon;
 use App\Models\Utility;
+use App\Models\ModuleReviewRecord;
 use App\Support\Modules\ModuleNotRemovable;
+use App\Support\Modules\ModuleTrust;
+use App\Support\Modules\PackageDeclaration;
 use App\Support\Modules\RemovableModule;
 use Illuminate\Support\Facades\DB;
 
@@ -400,9 +403,54 @@ class ModuleController extends Controller
             }
             // Define final target directory
             $extractPath = base_path('packages/workdo/' . $fileName);
-            
-            // Remove existing directory if it exists
+
+            /*
+             * AN UPLOAD MUST NOT SILENTLY REPLACE A DIFFERENT MODULE. MARKET-002.
+             *
+             * THE DEFECT, MEASURED. `$fileName` comes from the uploaded FILENAME, and the next lines
+             * recursively deleted whatever was at that path. So `LandingPage.zip` deleted the shipped
+             * LandingPage module -- the CMS that owns `/` and more routes than any other module -- and
+             * put the archive's contents there instead, with one HTTP request, no confirmation and no
+             * record of what had been there.
+             *
+             * THIS IS THE DEFECT THE THEME DOOR WAS ALREADY FIXED FOR, and only the theme door was.
+             * `PHASE-06-THEME-INSTALL-TARGET.md` and `ThemeInstallDoesNotOverwriteAnotherThemeTest`
+             * record "an archive whose entries read `greentic/...` replaced the installed greentic
+             * theme's files in place, and every store on that theme then rendered the replacement".
+             * The module door is the same shape by a different route: there the ARCHIVE picked the
+             * target, here the FILENAME does.
+             *
+             * IT INTERACTS WITH THE MARKET-004 BOUNDARY, which is why it is closed here rather than
+             * left. `ModuleTrust::recordUpload()` below writes a `pending` record for whatever name
+             * this install lands under, and `loadDynamicAddons()` then refuses to load it. So without
+             * this guard, an upload named after a shipped module would both REPLACE it and make it
+             * UNLOADABLE until somebody approved the replacement.
+             *
+             * WHAT IS STILL ALLOWED: updating a module with an archive that IS that module. The
+             * manifest is read from the extracted TEMP copy -- before anything is deleted -- and the
+             * install proceeds when the names agree, or when either side declares no name (a module
+             * with no manifest cannot be told apart from any other, and refusing there would block
+             * re-installing one).
+             *
+             * SEVERITY, STATED HONESTLY: operator-reachable only. Both the route group and
+             * `install()` itself assert `manage-platform-addons`, which is a `users.type` check, so
+             * this is self-inflicted rather than an escalation -- the same disposition the theme door
+             * and the module-removal door carry. It is worth closing because one operator action
+             * should add a module, not silently destroy a different one.
+             */
             if (is_dir($extractPath)) {
+                $installedName = PackageDeclaration::manifest($extractPath)['name'] ?? null;
+                $incomingName = PackageDeclaration::manifest($sourcePath)['name'] ?? null;
+
+                if (is_string($installedName) && is_string($incomingName) && $installedName !== $incomingName) {
+                    $this->deleteDirectory($tempPath);
+
+                    $return['status'] = 'error';
+                    $return['message'] = __('A different add-on is already installed under that name. Rename the file, or remove the installed add-on first.');
+
+                    return response()->json($return);
+                }
+
                 $this->deleteDirectory($extractPath);
             }
             
@@ -425,10 +473,35 @@ class ModuleController extends Controller
                 $jsonContent = file_get_contents($filePath);
                 $data = json_decode($jsonContent, true) ?? [];
             }
+            /*
+             * A NAME THE REVIEW REGISTER CANNOT KEY IS REFUSED BEFORE THE ROW IS WRITTEN.
+             *
+             * `add_on_managers.module` is VARCHAR(255) and takes `$data['name'] ?? $fileName` -- the
+             * archive's OWN manifest. `module_review_records.subject` is VARCHAR(191). So a name
+             * between 192 and 255 characters installed fine and failed the register's insert, and
+             * `ModuleTrust::recordUpload()` cannot undo an install whose files are already on disk:
+             * **no record means trusted**, which would have been a bypass of the whole MARKET-004
+             * boundary by nothing more than a long filename. Found by review of this change.
+             *
+             * REFUSING HERE IS SAFE, and that is why this is the chosen place: the loader plucks
+             * `add_on_managers.module`, so files on disk with no row are never loaded. The extracted
+             * directory is removed anyway rather than left for somebody to wonder about.
+             */
+            $moduleName = (string) ($data['name'] ?? $fileName);
+
+            if (! ModuleTrust::nameFitsTheRegister($moduleName)) {
+                $this->deleteDirectory($extractPath);
+
+                $return['status'] = 'error';
+                $return['message'] = __('The add-on name is too long to be reviewed. Rename the file and try again.');
+
+                return response()->json($return);
+            }
+
             $addon = AddOnManager::where('module', $fileName)->first();
             if (empty($addon)) {
                 $addon = new AddOnManager;
-                $addon->module = $data['name'] ?? $fileName;
+                $addon->module = $moduleName;
                 $addon->name = $data['alias'] ?? $fileName;
                 $addon->monthly_price = 0;
                 $addon->yearly_price = 0;
@@ -437,6 +510,32 @@ class ModuleController extends Controller
                 $addon->package_name = $data['package_name'] ?? $fileName;
                 $addon->save();
             }
+
+            /*
+             * MARKET-004 / EX-010. THE PACKAGE IS ON DISK AND ITS ROW EXISTS, SO THE NEXT REQUEST
+             * WOULD RUN IT. This records that it arrived by upload and has not been reviewed, which
+             * is what `PackageServiceProvider::loadDynamicAddons()` reads before registering a
+             * provider. Without this row the loader trusts the package, because an absent row means
+             * "shipped with the product" -- see `ModuleTrust`'s docblock for why it must.
+             *
+             * THE SUBJECT IS `$addon->module`, NOT `$fileName`, and the difference is real: the row
+             * is written as `$data['name'] ?? $fileName`, so an archive whose `module.json` declares
+             * a different `name` than its filename produces a row the loader keys on and a directory
+             * it does not. `add_on_managers.module` is what the loader plucks, so it is what the
+             * trust register must be keyed on. The DIRECTORY is still `$fileName`, because that is
+             * where the bytes went, and that is where the declarations are read from.
+             *
+             * MARKET-002's review inputs -- declared version, declared dependencies, declared
+             * permission names -- are captured here, by STATIC READ of the package's own files.
+             * Nothing in the package is executed to obtain them; that is the whole prohibition.
+             */
+            ModuleTrust::recordUpload(
+                (string) $addon->module,
+                ModuleReviewRecord::TYPE_MODULE,
+                base_path('packages/workdo/' . $fileName),
+                auth()->id()
+            );
+
             Module::moduleCacheForget($addon->module);
             $return['status'] = 'success';
             $return['message'] = __('Install successfully');

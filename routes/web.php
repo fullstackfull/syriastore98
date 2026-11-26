@@ -97,6 +97,7 @@ use App\Http\Controllers\ContactController;
 use App\Http\Controllers\TagController;
 use App\Http\Controllers\NepalstePaymnetController;
 use App\Http\Controllers\ModuleController;
+use App\Http\Controllers\ModuleReviewController;
 use App\Http\Controllers\KhaltiPaymnetController;
 use App\Http\Controllers\PayHerePaymnetController;
 use App\Http\Controllers\ProductBrandController;
@@ -1228,6 +1229,25 @@ Route::get(
         Route::get('addon-apps', [AddonController::class, 'AddonApps'])->name('addon.apps');
         Route::post('theme-addon', [AddonController::class, 'ThemeInstall'])->name('addon.theme');
         Route::post('theme-enable', [AddonController::class, 'ThemeEnable'])->name('theme.enable');
+
+        /*
+         * MARKET-002 / MARKET-004. THE ADD-ON REVIEW REGISTER.
+         *
+         * Declared inside this group, beside install and theme-enable, because it decides the same
+         * question they do: whether code that arrived by upload may run. `ModuleTrust` refuses an
+         * uploaded package until a decision is recorded here, so without these three routes the
+         * install door would be a dead end — and removing the ability to install is not what
+         * MARKET-004 asks for; it asks for untrusted code not to EXECUTE.
+         *
+         * `can:manage-platform-addons` is the Gate (AuthServiceProvider::boot()), a `users.type`
+         * string comparison. NOT an `isAbleTo()` permission name: CLAUDE.md §1 records that
+         * Laratrust has no operator bypass, so a permission check would refuse the platform
+         * operator on any database where the name was not seeded for their role. Every method
+         * asserts the Gate again itself, for the reason the comment above this group gives.
+         */
+        Route::get('module-review', [ModuleReviewController::class, 'index'])->name('module.review.index');
+        Route::get('module-review/{subject_type}/{subject}', [ModuleReviewController::class, 'show'])->name('module.review.show');
+        Route::post('module-review-decision', [ModuleReviewController::class, 'decide'])->name('module.review.decide');
     });
 
     /*
