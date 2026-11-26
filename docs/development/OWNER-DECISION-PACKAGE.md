@@ -619,3 +619,15 @@ fix, and are assigned or queued as such.
 
 **What is already decided and must not be re-asked:** `H1`–`H5` above, and everything in sections
 A–G. Section `J` is new on 2026-11-26 and nothing in it has been decided. A recommendation in this file is a recommendation; only a dated `DECIDED` line is an answer.
+
+### J26 — `GAP-342`: a field your Flutter app receives is permanently null, and its column does not exist
+
+| | |
+|---|---|
+| **The choice** | Create `orders.return_status_message`, remove the key from the order payload, or leave it exactly as it is? |
+| **Why it is yours** | All three readings are reserved to you by your standing instructions. Creating it is a **persistent migration**. Removing it is a **public-API compatibility change** on a path the shipped app parses. Leaving it is a decision to ship a field that can never carry a value. |
+| **Measured** | `Order::order_detail()` writes `$order->return_status_message` into the order payload and `Api\DashboardController` reads it again — but no migration anywhere creates that column, and `Schema::hasColumn('orders', 'return_status_message')` is false. Eloquent returns null for an unknown attribute instead of throwing, so the field has always been null in every response. Your own committed contract fixtures record exactly that: `packages/workdo/Api/src/documentation/admin.json` shows it null. |
+| **How it stayed hidden** | A TEST was the only thing in the repository suggesting the column exists. `OrderCancelRestockTest` built its own `orders` table and declared `return_status_message` in it, commented "Read by `Order::order_detail()`" — so the suite rendered a field the product cannot populate, and the suite agreed with itself. The invented column is now dropped and its absence asserted, which is how this surfaced. |
+| **What each choice costs** | **Create it:** the feature presumably becomes buildable, but nothing today writes it, so the migration alone changes nothing a merchant sees — it is only worth doing if the return-message feature is wanted. **Remove the key:** the payload loses a field; your app parses this response, so if any screen reads the key without a null guard it would need checking first. **Leave it:** no change and no risk, but the next person to read the handler will believe the feature exists. |
+| **Engineering recommendation** | **Decide what the feature is first, then pick.** We cannot tell from the repository whether the return message was planned and dropped or never built, and guessing produces either a migration nobody wanted or the removal of a key you intended to fill. If you tell us it was never a feature, removing the key is three lines and we will check the Flutter side for a null-unsafe read before touching it. |
+| **Blocked** | Everything. No engineering action is correct until the intent is known, and none has been taken: the payload's shape is exactly what your app already receives. |
