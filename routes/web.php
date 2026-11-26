@@ -2115,6 +2115,24 @@ Route::get(
   Route::get('order-packing-list/{id}', [OrderController::class, 'order_packing_list'])->name('order.packing_list')->middleware('themelanguage');
   Route::post('order-return-request', [OrderController::class, 'order_return_request'])->name('order.return.request')->middleware('themelanguage');
 
+  /*
+   * RET-002 (the plan's 04-F: "فحص حالة المنتج قبل إعادته للبيع") — the door that records the
+   * inspected condition of ONE returned line. `App\Services\ReturnInspection::blocksRestock()` is
+   * what reads it, from all three restock doors.
+   *
+   * Declared beside `order.return.request` on purpose: same group, same `themelanguage`
+   * middleware, same handler shape, and the SAME ability — `OrderPolicy::updateStatus`, checked
+   * inside the handler, operator-first. It invents no permission.
+   *
+   * ITS OWNERSHIP RULE IS NOT IMPLIED BY THE RESEMBLANCE, which is the property the
+   * `order.packing_list` note above this block exists to preserve. The handler resolves the order
+   * with `Order::find()`, authorises it, and then takes the store from `$order->store_id` — never
+   * from request input, which would only compare the caller's own two values.
+   * `ReturnConditionInspectionDoorTest` drives the owning merchant, another store's merchant, an
+   * unrecognised verdict, a product that is not on the order, and a missing order.
+   */
+  Route::post('order-return-inspection', [OrderController::class, 'order_return_inspection'])->name('order.return.inspection')->middleware('themelanguage');
+
   Route::post('update-refund-status', [OrderRefundController::class, 'updateRefundStatus'])->name('update-refund-status')->middleware('themelanguage');
   Route::post('cancel-refund-status', [OrderRefundController::class, 'CancelRefundStatus'])->name('cancel.refund.status')->middleware('themelanguage');
   Route::post('refund-stock', [OrderRefundController::class, 'RefundStock'])->name('refund.stock')->middleware('themelanguage');

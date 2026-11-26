@@ -4736,5 +4736,17 @@
     "This order has no line items to pick.": "This order has no line items to pick.",
     "Items to pick and pack for this order, with quantities. No prices.": "Items to pick and pack for this order, with quantities. No prices.",
     "Picked": "Picked",
-    "Total units to pack": "Total units to pack"
+    "Total units to pack": "Total units to pack",
+    "Condition of the returned item": "Condition of the returned item",
+    "Not inspected yet": "Not inspected yet",
+    "Inspected - can go back on sale": "Inspected - can go back on sale",
+    "Inspected - damaged, not for sale": "Inspected - damaged, not for sale",
+    "Held for inspection - not for sale": "Held for inspection - not for sale",
+    "Only an item inspected and marked as able to go back on sale is returned to stock. Choose a condition, then save it.": "Only an item inspected and marked as able to go back on sale is returned to stock. Choose a condition, then save it.",
+    "Save Condition": "Save Condition",
+    "Choose a condition for the returned item.": "Choose a condition for the returned item.",
+    "That item is not on this order.": "That item is not on this order.",
+    "The condition could not be recorded. Nothing was changed.": "The condition could not be recorded. Nothing was changed.",
+    "Condition recorded. This item can go back on sale.": "Condition recorded. This item can go back on sale.",
+    "Condition recorded. This item will not be returned to sale.": "Condition recorded. This item will not be returned to sale."
 }

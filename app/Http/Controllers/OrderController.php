@@ -1535,6 +1535,151 @@ public function store(Request $request)
         }
     }
 
+    /**
+     * RET-002 — RECORD THE INSPECTED CONDITION OF ONE RETURNED LINE.
+     *
+     * The plan's 04-F clause is *"فحص حالة المنتج قبل إعادته للبيع"*. The gate that reads this is
+     * `App\Services\ReturnInspection::blocksRestock()`, consulted by all three restock doors; this
+     * is the door that writes the verdict, and without it the gate would be the F237 shape this
+     * repository keeps re-finding — a mechanism recorded as DONE whose production callers never
+     * existed, so a guard that read as working was inert for every real order.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * THE STORE COMES FROM THE ORDER, NOT FROM THE REQUEST
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `$order->store_id` is the tenancy predicate the verdict is filed under. A `store_id` taken
+     * from request input would not be a tenant check at all — it would only compare the caller's
+     * own two values, which CLAUDE.md records as having produced four separate defects — and
+     * `getCurrentStore()` would be wrong for the platform operator, who legitimately acts on
+     * another store's order and whose own `current_store` names a different one (the P1-SEC-71
+     * shape: edits stored in a folder no store's id is part of).
+     *
+     * **AUTHORISED EXACTLY AS THE SIBLING RETURN DOOR IS**, by `OrderPolicy::updateStatus`, which
+     * tests `isPlatformAdmin` FIRST and only then `isAbleTo('Manage Order')` and store ownership —
+     * the operator-first ordering CLAUDE.md requires, since `isAbleTo()` alone REFUSES the platform
+     * operator. Recording the condition of a returned line is part of changing that order's return
+     * state, so this is the existing ability for it and **no new permission is invented**.
+     *
+     * **THE LINE MUST BE ON THE ORDER.** A verdict against a product the order does not carry
+     * would be inert (the gate is keyed on order + product + variant) but it would be junk filed
+     * under a tenant, so it is refused and the reason is named. This is also what stops a verdict
+     * being filed against another store's product id.
+     *
+     * It changes no stock, no money and no order total. It writes one row and one audit entry.
+     */
+    public function order_return_inspection(Request $request)
+    {
+        $order = Order::find($request->id);
+
+        if (empty($order)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => __('Something was wrong.'),
+            ], 404);
+        }
+
+        $this->authorize('updateStatus', $order);
+
+        $verdict = (string) $request->verdict;
+
+        if (! array_key_exists($verdict, \App\Services\ReturnInspection::VERDICTS)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => __('Choose a condition for the returned item.'),
+            ], 422);
+        }
+
+        $productId = $request->product_id;
+        $variantId = is_numeric($request->variant_id) && (int) $request->variant_id > 0
+            ? (int) $request->variant_id
+            : 0;
+
+        if (! $this->orderCarriesLine($order, $productId, $variantId)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => __('That item is not on this order.'),
+            ], 422);
+        }
+
+        $recorded = app(\App\Services\ReturnInspection::class)->record(
+            $order->store_id,
+            $order->id,
+            $productId,
+            $variantId,
+            $verdict,
+            auth()->id(),
+            $request->units,
+            $request->notes
+        );
+
+        if (! $recorded) {
+            /* `record()` has already logged why. The merchant is told nothing was stored rather
+               than being shown a verdict that does not exist — telling them their inspection was
+               recorded when it was not is how damaged goods reach a shopper. */
+            return response()->json([
+                'status' => 'error',
+                'message' => __('The condition could not be recorded. Nothing was changed.'),
+            ], 500);
+        }
+
+        try {
+            \App\Models\AuditLog::record('order.return_inspection', $order, [], [
+                'order_id' => (int) $order->id,
+                'product_id' => $productId,
+                'variant_id' => $variantId,
+                'verdict' => $verdict,
+                'resellable' => \App\Services\ReturnInspection::VERDICTS[$verdict],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('A return inspection could not be attributed; the verdict itself stands', [
+                'order_id' => $order->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'verdict' => $verdict,
+            'resellable' => \App\Services\ReturnInspection::VERDICTS[$verdict],
+            'message' => \App\Services\ReturnInspection::VERDICTS[$verdict]
+                ? __('Condition recorded. This item can go back on sale.')
+                : __('Condition recorded. This item will not be returned to sale.'),
+        ]);
+    }
+
+    /**
+     * Is `(product_id, variant_id)` really a line of this order?
+     *
+     * Read from the order's own `product_json`, the same place every return door resolves lines
+     * from, with `variant_id` collapsed to 0 for a simple product — the spelling
+     * `restoreReturnedStock()` and `Order::performProductReturn()` already use.
+     */
+    private function orderCarriesLine(Order $order, $productId, int $variantId): bool
+    {
+        if (! is_numeric($productId) || (int) $productId <= 0) {
+            return false;
+        }
+
+        $lines = json_decode((string) $order->product_json, true);
+
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (! is_array($line) || ! isset($line['product_id'])) {
+                continue;
+            }
+
+            $lineVariant = isset($line['variant_id']) && is_numeric($line['variant_id'])
+                ? (int) $line['variant_id']
+                : 0;
+
+            if ((int) $line['product_id'] === (int) $productId && $lineVariant === $variantId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function order_return_request(Request $request)
     {
         $id = $request->id;
@@ -1629,6 +1774,44 @@ public function store(Request $request)
      * The CALLER owns both the transaction and the replay guard; this method
      * only does the arithmetic, so it must not be called without them.
      */
+    /**
+     * RET-002 — has a merchant inspected these goods and recorded that they cannot be sold again?
+     *
+     * The plan's 04-F clause is *"فحص حالة المنتج قبل إعادته للبيع"* — inspect the product's
+     * condition before returning it to sale. Before `App\Services\ReturnInspection` existed this
+     * door credited a damaged return to sellable stock on exactly the same evidence as a pristine
+     * one: nothing on it, nor on the two sibling restock doors, asked what state the goods came
+     * back in.
+     *
+     * TRUE ONLY WHEN A VERDICT EXISTS AND SAYS NOT RESELLABLE. No verdict means no block, so this
+     * changes nothing for a store that has recorded none — which is every store on the platform
+     * today. The gate can only ever credit LESS stock, never more.
+     *
+     * THE CALLER SKIPS THE LINE RATHER THAN STAMPING IT. `restoreReturnedStock()` collects
+     * `$restored` indexes and writes `Order::LINE_STOCK_RESTORED` onto each; stamping a line whose
+     * stock was withheld would be the false "the goods are back" claim `OrderReturnMarkerHonestyTest`
+     * exists to prevent, and it would suppress a legitimate later restock once the item is
+     * re-inspected. So a blocked line is left unmarked and the approval itself still stands: the
+     * return is RECORDED (RET-007), only the shelf is withheld.
+     */
+    private function returnedGoodsAreNotSellable(Order $order, $storeId, $productId, $variantId): bool
+    {
+        if (! app(\App\Services\ReturnInspection::class)
+            ->blocksRestock($storeId, $order->id, $productId, $variantId)) {
+            return false;
+        }
+
+        Log::warning('Return approval withheld a line from sale: its recorded condition is not resellable', [
+            'order_id' => $order->id,
+            'store_id' => $storeId,
+            'product_id' => $productId,
+            'variant_id' => $variantId,
+            'decision' => 'RET-002',
+        ]);
+
+        return true;
+    }
+
     private function restoreReturnedStock(Order $order): void
     {
         $lines = json_decode((string) $order->product_json, true);
@@ -1734,6 +1917,10 @@ public function store(Request $request)
                 /* E13-C residual: RECORDED, not merely performed. Without a context
                    `recordMovement()` writes nothing, so this restore was invisible to the
                    record and `movedOutFor()` could not net it against the placement. */
+                if ($this->returnedGoodsAreNotSellable($order, $storeId, $product->id, 0)) {
+                    continue;
+                }
+
                 $this->stockService()->restoreProductStock($product->id, $qty, [
                     'store_id' => $storeId,
                     'order_id' => $order->id,
@@ -1761,6 +1948,10 @@ public function store(Request $request)
                     'variant_id' => $variantId,
                 ]);
 
+                continue;
+            }
+
+            if ($this->returnedGoodsAreNotSellable($order, $storeId, $product->id, $variant->id)) {
                 continue;
             }
 

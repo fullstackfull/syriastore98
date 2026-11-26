@@ -318,6 +318,46 @@ class OrderRefundController extends Controller
     }
 
     /**
+     * RET-002 — has a merchant inspected these goods and recorded that they cannot be sold again?
+     *
+     * The plan's 04-F clause is *"فحص حالة المنتج قبل إعادته للبيع"* — inspect the product's
+     * condition before returning it to sale. Every control already on this door is about HOW MANY
+     * units (`unitsLostByProduct()`'s clamp) or WHETHER TWICE (`stockAlreadyRestored()`, the cache
+     * lock, the note marker). None of them asked what state the goods came back in, so a damaged
+     * return became sellable inventory on the same evidence as a pristine one.
+     *
+     * TRUE ONLY WHEN A VERDICT EXISTS AND SAYS NOT RESELLABLE, so a store that has recorded none
+     * — every store on the platform today — sees no change at all. The gate can only ever credit
+     * LESS stock, never more.
+     *
+     * THE CALLER SKIPS WITHOUT TOUCHING `$creditedProducts`, which is what
+     * `markRefundedLinesRestored()` stamps `Order::LINE_STOCK_RESTORED` from. Stamping a line whose
+     * stock was withheld would be the false "the goods are back" claim this door's own
+     * `unitsLostByProduct()` then reads as evidence — it would suppress the legitimate restock once
+     * the item is re-inspected as resellable. The units the clamp already took off `$lostLeft` are
+     * not lost either: `$lostLeft` is rebuilt from the order's lines on every call, and the line
+     * stays unstamped, so the bound is whole again next time.
+     */
+    protected function returnedGoodsAreNotSellable(OrderRefund $refund, $storeId, $productId, $variantId): bool
+    {
+        if (! app(\App\Services\ReturnInspection::class)
+            ->blocksRestock($storeId, $refund->order_id, $productId, $variantId)) {
+            return false;
+        }
+
+        \Log::warning('Refund restock withheld a line from sale: its recorded condition is not resellable', [
+            'refund_id' => $refund->id,
+            'order_id' => $refund->order_id,
+            'store_id' => $storeId,
+            'product_id' => $productId,
+            'variant_id' => $variantId,
+            'decision' => 'RET-002',
+        ]);
+
+        return true;
+    }
+
+    /**
      * Display a listing of the resource.
      *
      * @return \Illuminate\Http\Response
@@ -394,11 +434,64 @@ class OrderRefundController extends Controller
                 }
             }
 
+            /*
+             * RET-002 — THE CONDITION COLUMN'S DATA, and the one thing about it that matters.
+             *
+             * THE VARIANT IS RESOLVED THE SAME WAY THE GATE RESOLVES IT. `App\Services\
+             * ReturnInspection` keys a verdict on (store, order, product, variant), and
+             * `RefundStock()` asks it with the variant it took from
+             * `resolveVariantIdsFromOrder()` — the ORDER's own `product_json`, because the refund
+             * payload records no variant id. A screen that posted `variant_id = 0` for a variant
+             * line would file the verdict under a key the gate never reads: the merchant would see
+             * "damaged" recorded and the goods would still go back on sale. So the same resolver is
+             * called here, and the control posts what it returns.
+             *
+             * (The display name above has the OPPOSITE bug and it is NOT fixed here, because it is
+             * pre-existing, cosmetic, and outside this slice:
+             * `ProductVariant::where('id', $product->id)` looks a variant up by a PRODUCT id —
+             * different key spaces, the same wrong-row read `RefundStock()` was corrected for. It
+             * mislabels a variant line or throws on a missing row; it decides nothing. Reported.)
+             *
+             * Both reads are store-scoped and both fail SOFT: a cross-tenant or missing order
+             * yields no variants and no verdicts, so the column renders as "not recorded" rather
+             * than taking the screen down.
+             *
+             * ONE EDGE WHERE A VERDICT RECORDED FROM THIS SCREEN IS INERT, said rather than left to
+             * be found: `resolveVariantIdsFromOrder()` answers `null` for a product whose lines
+             * carry DIFFERENT variant ids, because the choice is undecidable and must not be
+             * guessed. The control then posts `variant_id = 0` and the verdict is filed under a key
+             * the gate will not read for that line. It costs nothing, because `RefundStock()`
+             * SKIPS exactly those lines anyway — *"Refund restock could not resolve which variant
+             * was returned; line skipped"* — so no stock is credited for them with or without a
+             * verdict. The day that skip is replaced by a real per-line choice, this control needs
+             * the same choice.
+             */
+            $orderModel = $this->findOrderInCurrentStore($order['id']);
+            $returnVariantIds = $orderModel === null ? [] : $this->resolveVariantIdsFromOrder($orderModel);
+            $returnInspections = app(\App\Services\ReturnInspection::class)
+                ->forOrder(getCurrentStore(), $order['id']);
+
+            foreach ($productRefundData as $pid => $row) {
+                $variantId = (int) ($returnVariantIds[(string) $pid] ?? 0);
+                $productRefundData[$pid]['variant_id'] = $variantId;
+                $productRefundData[$pid]['inspection'] =
+                    $returnInspections[(int) $pid . ':' . $variantId] ?? null;
+            }
+
+            $returnVerdicts = \App\Services\ReturnInspection::VERDICTS;
+
             $plan = Plan::find(Auth::user()->plan_id);
             $store = Store::find(getCurrentStore());
             $RefundStatus = OrderRefundSetting::where('store_id',$store->id)
                     ->pluck('is_active', 'name')->toArray();
-            return view('order.refund_details', compact('order', 'refund_requests', 'RefundStatus', 'plan', 'productRefundData'));
+            return view('order.refund_details', compact(
+                'order',
+                'refund_requests',
+                'RefundStatus',
+                'plan',
+                'productRefundData',
+                'returnVerdicts'
+            ));
         } catch (\Throwable $th) {
             return redirect()->back()->with('error', __('Something Went wrong.'));
         }
@@ -1049,6 +1142,10 @@ class OrderRefundController extends Controller
                         // returned goods vanished from inventory.
                         /* E13-C residual: recorded, so the refund's give-back nets against
                            the placement instead of being invisible to `movedOutFor()`. */
+                        if ($this->returnedGoodsAreNotSellable($order_refund, $storeId, $product->id, 0)) {
+                            continue;
+                        }
+
                         $this->stockService()->restoreProductStock($product->id, $quantity, [
                             'store_id' => $storeId,
                             'order_id' => $order->id ?? null,
@@ -1117,6 +1214,10 @@ class OrderRefundController extends Controller
                             'variant_id' => $variantId,
                         ]);
 
+                        continue;
+                    }
+
+                    if ($this->returnedGoodsAreNotSellable($order_refund, $storeId, $product->id, $variantProduct->id)) {
                         continue;
                     }
 
