@@ -261,6 +261,33 @@ class KycRenewalTest extends TestCase
         $this->assertCount(0, KycRenewal::dueForRenewal(-1));
     }
 
+    /**
+     * `php artisan kyc:expire` IS REGISTERED AND DOES THE WORK.
+     *
+     * Driven rather than assumed: Laravel 11 discovers commands in `app/Console/Commands`, and a
+     * class that is not discovered, or whose signature collides, is invisible until somebody runs
+     * it on a server. The output figure is asserted too, so a command that ran and swept nothing
+     * cannot report success.
+     */
+    public function test_the_console_command_runs_the_sweep(): void
+    {
+        $this->approvedDocument(Carbon::now()->subDays(3)->toDateString());
+
+        $this->artisan('kyc:expire')
+            ->expectsOutputToContain('1 document(s) and 1 verification record(s) marked expired.')
+            ->assertExitCode(0);
+
+        $this->assertSame(
+            KycDocument::EXPIRED,
+            DB::table('kyc_documents')->value('status')
+        );
+
+        // A second run reports nothing, because the sweep is idempotent.
+        $this->artisan('kyc:expire')
+            ->expectsOutputToContain('0 document(s) and 0 verification record(s) marked expired.')
+            ->assertExitCode(0);
+    }
+
     /** The grace period is configuration and is honoured in both directions. */
     public function test_the_grace_period_is_honoured(): void
     {
