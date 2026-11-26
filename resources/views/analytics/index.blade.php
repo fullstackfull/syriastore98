@@ -350,41 +350,34 @@
 <div class="row mb-4">
     <div class="col-12">
         <x-ss.stats :label="__('Store activity')">
-            <x-ss.stat :label="__('Orders')"
-                       :value="$figures['orders']['value']"
-                       :period="$figures['orders']['period']"
-                       :hint="$figures['orders']['hint']"
-                       :comparison="$figures['orders']['comparison']" />
+            {{-- GAP-152: the carrier, not three strings -- see components/ss/figure.blade.php.
+                 The trend is a SEPARATE prop because a carrier's wire form is value/period/hint/
+                 caveats/authoritative and nothing else; the figures class returns it under
+                 `comparisons`, keyed by the figure it qualifies, and a null entry is the
+                 deliberate suppression the figure's own hint explains. --}}
+            <x-ss.figure :label="__('Orders')"
+                         :figure="$figures['orders']"
+                         :comparison="$figures['comparisons']['orders']" />
 
-            <x-ss.stat :label="__('Page views')"
-                       :value="$figures['visits']['value']"
-                       :period="$figures['visits']['period']"
-                       :hint="$figures['visits']['hint']"
-                       :comparison="$figures['visits']['comparison']" />
+            <x-ss.figure :label="__('Page views')"
+                         :figure="$figures['visits']"
+                         :comparison="$figures['comparisons']['visits']" />
 
             {{-- `:comparison` was MISSING here while the two tiles above it carried one, so the
                  rate baseline GAP-227(a) added was computed and shown to nobody. Found by an
                  independent review after that slice's CI was green; every test asserted the
                  array rather than the page, so none of them could see it. --}}
-            <x-ss.stat :label="__('Conversion')"
-                       :value="$figures['conversion']['value']"
-                       :period="$figures['conversion']['period']"
-                       :hint="$figures['conversion']['hint']"
-                       :comparison="$figures['conversion']['comparison'] ?? null" />
+            <x-ss.figure :label="__('Conversion')"
+                         :figure="$figures['conversion']"
+                         :comparison="$figures['comparisons']['conversion'] ?? null" />
 
-            <x-ss.stat :label="__('Buyers')"
-                       :value="$figures['customers']['value']"
-                       :period="$figures['customers']['period']"
-                       :hint="$figures['customers']['hint']" />
+            <x-ss.figure :label="__('Buyers')" :figure="$figures['customers']" />
 
             {{-- P5-6. Its PERIOD differs from its neighbours' thirty days on purpose: a repeat
                  purchase needs two orders, so a thirty-day window would report every store as less
                  loyal than it is. The tile states the period it really covers, which is the span the
                  financial record can vouch for (owner decision D1). --}}
-            <x-ss.stat :label="__('Repeat purchase')"
-                       :value="$figures['retention']['value']"
-                       :period="$figures['retention']['period']"
-                       :hint="$figures['retention']['hint']" />
+            <x-ss.figure :label="__('Repeat purchase')" :figure="$figures['retention']" />
         </x-ss.stats>
     </div>
 </div>
@@ -481,10 +474,7 @@
             {{-- P5-5 / section 9. Shown only for a period whose redemption records are complete; for
                  any earlier period the figures class returns a null value and says why, because a
                  number with "this cannot be trusted" under it gets read as a number. --}}
-            <x-ss.stat :label="__('Coupon discounts given')"
-                       :value="$figures['redemptions']['value']"
-                       :period="$figures['redemptions']['period']"
-                       :hint="$figures['redemptions']['hint']" />
+            <x-ss.figure :label="__('Coupon discounts given')" :figure="$figures['redemptions']" />
         </x-ss.stats>
     </div>
 </div>

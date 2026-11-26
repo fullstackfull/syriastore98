@@ -108,12 +108,16 @@ class ConversionBaselineTest extends SecurityTestCase
 
     private function comparison($store): array
     {
-        $conversion = MerchantAnalyticsFigures::forStore($store->id, $store->currency ?? 'USD')['conversion'];
+        /* GAP-152: the trend comes back in the `comparisons` map rather than inside the tile,
+           because a `CaveatedFigure`'s wire form is value/period/hint/caveats/authoritative and
+           nothing else. An array read for `comparison` on a carrier answers null, so this helper
+           asserts the trend is really there instead of handing back a silent null. */
+        $figures = MerchantAnalyticsFigures::forStore($store->id, $store->currency ?? 'USD');
 
-        $this->assertArrayHasKey('comparison', $conversion,
+        $this->assertNotNull($figures['comparisons']['conversion'] ?? null,
             'The conversion tile carries no baseline at all, although both of its inputs do.');
 
-        return $conversion['comparison'];
+        return $figures['comparisons']['conversion'];
     }
 
     private static function plain(?string $value): string
@@ -217,12 +221,12 @@ class ConversionBaselineTest extends SecurityTestCase
 
         $figures = MerchantAnalyticsFigures::forStore($store->id, $store->currency ?? 'USD');
 
-        $this->assertSame('1', self::plain($figures['orders']['comparison']['baseline']),
+        $this->assertSame('1', self::plain($figures['comparisons']['orders']['baseline']),
             'Premise: the orders tile does not see the earlier order, so the rate baseline below proves nothing.');
-        $this->assertSame('20', self::plain($figures['visits']['comparison']['baseline']));
+        $this->assertSame('20', self::plain($figures['comparisons']['visits']['baseline']));
 
         // 1 order / 20 visits = 5.00% earlier; 0 / 20 = 0.00% now.
-        $this->assertSame('5.00%', self::plain($figures['conversion']['comparison']['baseline']),
+        $this->assertSame('5.00%', self::plain($figures['comparisons']['conversion']['baseline']),
             'The rate baseline was computed from a different pair of counts than the two tiles above it display.');
     }
 }

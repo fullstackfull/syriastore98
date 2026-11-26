@@ -478,10 +478,36 @@ class StatHintIsVisibleTest extends TestCase
         // The thirteenth file is the component itself, and it is the one entry here that is not a
         // screen: every future carrier-rendered figure adds disclosure WITHOUT moving this count,
         // so a reader comparing figures shipped against hints added should start from that file.
-        $this->assertCount(33, $hits,
+        // 33 -> 21 and 13 -> 10 files [GAP-152 / P05-04, the adoption half]. THE COUNT WENT DOWN
+        // AND THE DISCLOSURE WENT UP AGAIN, for exactly the reason recorded in the entry above, and
+        // this time on TWELVE tiles rather than six. Every `:hint=` removed here moved to a
+        // `<x-ss.figure>` whose figure is a `App\Support\Metrics\CaveatedFigure`:
+        //
+        //   analytics/index.blade.php      6  Orders, Page views, Conversion, Buyers,
+        //                                     Repeat purchase, Coupon discounts given
+        //   platform/analytics.blade.php   5  Stores, Orders, Page views, Buyers, Repeat purchase
+        //   dashboard/overview.blade.php   1  Order value -- the merchant's headline money figure,
+        //                                     whose hint was composed in a thirty-line raw-PHP
+        //                                     block in the view itself
+        //
+        // The three files leave this census entirely, which is why the file count moves by three.
+        //
+        // WHAT WAS ACTUALLY MISSING FROM THOSE TILES, measured from source before the change rather
+        // than assumed: `CouponRedemption.php:152` attaches `MetricCaveat::FLOAT_PRECISION`
+        // unconditionally -- `order_coupon_details.coupon_discount_amount` is FLOAT -- and the
+        // coupon-discount tile's hand-composed hint never stated it, on `/analytics`, in
+        // `/analytics/export` and in the scheduled-report mail. `GrossMerchandiseValue.php:55`
+        // attaches the same caveat and the dashboard's Order value tile never stated it either.
+        // Both now arrive because `<x-ss.figure>` has no `hint` prop to forget and the carrier's
+        // `hint()` is computed from `caveats()`.
+        //
+        // Pinned by `AnalyticsTilesCarryTheirCaveatsTest` (which enumerates each tile's caveats at
+        // run time rather than listing sentences) and
+        // `DashboardOrderValueStatesItsPrecisionTest`.
+        $this->assertCount(21, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
-        $this->assertCount(13, array_unique($hits),
-            'x-ss.stat hints should span thirteen files: ' . implode(', ', array_unique($hits)));
+        $this->assertCount(10, array_unique($hits),
+            'x-ss.stat hints should span ten files: ' . implode(', ', array_unique($hits)));
     }
 }

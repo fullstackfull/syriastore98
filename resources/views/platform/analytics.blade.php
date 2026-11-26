@@ -42,15 +42,10 @@
 <div class="row mb-4">
     <div class="col-12">
         <x-ss.stats :label="__('Across all stores')">
-            <x-ss.stat :label="__('Stores')"
-                       :value="$figures['stores']['value']"
-                       :period="$figures['stores']['period']"
-                       :hint="$figures['stores']['hint']" />
+            {{-- GAP-152: the carrier, not three strings -- see components/ss/figure.blade.php. --}}
+            <x-ss.figure :label="__('Stores')" :figure="$figures['stores']" />
 
-            <x-ss.stat :label="__('Orders')"
-                       :value="$figures['orders']['value']"
-                       :period="$figures['orders']['period']"
-                       :hint="$figures['orders']['hint']" />
+            <x-ss.figure :label="__('Orders')" :figure="$figures['orders']" />
 
             {{-- GAP-162 / P05-14, the third counterpart. It sits beside Orders because the two
                  share this screen's 30-day window and are the pair conversion would divide --
@@ -58,25 +53,16 @@
                  states its own coverage: page views were not attributed to stores at all until
                  2026-11-20 and nothing backfills them, so the hint names the latest start among
                  the stores that have logged one and counts the stores that never have. --}}
-            <x-ss.stat :label="__('Page views')"
-                       :value="$figures['visits']['value']"
-                       :period="$figures['visits']['period']"
-                       :hint="$figures['visits']['hint']" />
+            <x-ss.figure :label="__('Page views')" :figure="$figures['visits']" />
 
-            <x-ss.stat :label="__('Buyers')"
-                       :value="$figures['buyers']['value']"
-                       :period="$figures['buyers']['period']"
-                       :hint="$figures['buyers']['hint']" />
+            <x-ss.figure :label="__('Buyers')" :figure="$figures['buyers']" />
 
             {{-- P5-R13. The first of the nine figures the merchant screen had and this one did not.
                  It sits beside Buyers because it is the same population seen twice -- how many can
                  be recognised again, and how many of those came back -- and its period is the
                  LEDGER's intersection rather than the recent window the two tiles above use, which
                  is why the tile states its own. --}}
-            <x-ss.stat :label="__('Repeat purchase')"
-                       :value="$figures['retention']['value']"
-                       :period="$figures['retention']['period']"
-                       :hint="$figures['retention']['hint']" />
+            <x-ss.figure :label="__('Repeat purchase')" :figure="$figures['retention']" />
         </x-ss.stats>
     </div>
 </div>

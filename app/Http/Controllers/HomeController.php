@@ -513,6 +513,26 @@ class HomeController extends Controller
                 : $totalRevenueResult->totalIn($storeCurrencyCode);
         }
 
+        /*
+         * GAP-152 / P05-04 — THE TILE IS A `CaveatedFigure`, COMPOSED HERE AND NOT IN THE VIEW.
+         *
+         * `dashboard/overview.blade.php` built this hint inside a thirty-line `@php` block from the
+         * result above, consulting its `currencies()` and `totalIn()` and never its `caveats()`.
+         * `GrossMerchandiseValue` attaches `MetricCaveat::FLOAT_PRECISION` unconditionally -- GMV is
+         * the one money metric that cannot read `store_order_financials`' DECIMAL and must come off
+         * `orders.final_price`, which is FLOAT -- so the busiest money figure in the product stated
+         * no precision limit on any screen. The row named this omission rather than leaving it to be
+         * rediscovered; this is the fix.
+         *
+         * The sentences are the view's own, moved byte for byte, owner-decision text included.
+         */
+        $ssRevenueFigure = \App\Support\Metrics\DashboardOrderValueFigure::make(
+            $totalRevenueResult,
+            $storeCurrencyCode,
+            $total_revenues === null ? null : currency_format_with_sym($total_revenues, $ssStoreId),
+            __('all time, gross, excluding cancelled'),
+        );
+
         $topSellingProductIds = (clone $orderQuery)->pluck('product_id')
             ->flatMap(function ($productIds) {
                 return explode(',', $productIds);
@@ -723,8 +743,11 @@ class HomeController extends Controller
             'topSellingProducts',
             'total_revenues',
             /* P5-R7-C: the view needs the result, not only the one-currency total, so it can say
-               what it cannot state and list what it did not add. */
+               what it cannot state and list what it did not add. GAP-152 moved the COMPOSITION out
+               of the view -- `ssRevenueFigure` is the carrier the tile renders -- and both are kept
+               because other blocks on this screen still read the raw total. */
             'totalRevenueResult',
+            'ssRevenueFigure',
             'storeCurrencyCode',
             'totle_cancel_order',
             'out_of_stock_threshold',

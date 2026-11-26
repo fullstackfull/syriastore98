@@ -337,18 +337,20 @@ final class AnalyticsPeriodFilterTest extends SecurityTestCase
                 ->assertStatus(200)
                 ->viewData('figures');
 
+            /* GAP-152: the trends come back in their own map, keyed by the figure they qualify,
+               because a `CaveatedFigure`'s wire form carries no `comparison` key. */
             foreach (['orders', 'visits'] as $tile) {
-                $this->assertNotNull($figures[$tile]['comparison'] ?? null, sprintf(
+                $this->assertNotNull($figures['comparisons'][$tile] ?? null, sprintf(
                     'The %s tile lost its comparison under preset %s.', $tile, $preset
                 ));
 
-                $this->assertSame($expected, $figures[$tile]['comparison']['period'], sprintf(
+                $this->assertSame($expected, $figures['comparisons'][$tile]['period'], sprintf(
                     'Under preset "%s" the %s tile describes its baseline as "%s". The delta is '
                     . 'computed over the chosen period\'s own length, so any other sentence names a '
                     . 'window the comparison does not use.',
                     $preset,
                     $tile,
-                    $figures[$tile]['comparison']['period']
+                    $figures['comparisons'][$tile]['period']
                 ));
             }
         }
