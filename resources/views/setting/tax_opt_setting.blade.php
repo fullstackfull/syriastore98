@@ -72,11 +72,33 @@
         <div class="row">
             <div class="col-lg-4 col-sm-6">
                 <div class="ss-field">
+                    {{-- GAP-060 WS5. THE CHOICE IS STORED AND NOTHING CHARGES TAX FROM IT.
+
+                         `tax_options.tax_id` is written by `TaxOptionController::taxSettings()`
+                         (lines 92-97, falling back to the store's first Tax row) and read back by
+                         exactly one thing: this select, to repopulate itself. Grepped for the array
+                         read across `app/`, `packages/workdo/` and every view -- the only hit is the
+                         `Form::select` default below.
+
+                         WHAT REALLY DECIDES THE TAX is the tax on the PRODUCT:
+                         `Tax::TaxCount()` takes `$data['product_tax_id']` and calls
+                         `Tax::find($product_tax_id)` (app/Models/Tax.php:48), `Product::ProductPrice`
+                         uses `Tax::find($product->tax_id)` (app/Models/Product.php:330) and
+                         `ProductController` the same at :4997. So a merchant can change this class
+                         all day and no cart total moves.
+
+                         The sentence says that rather than naming the product screen's own control,
+                         because that control is labelled "Taxs" (product/create.blade.php:102) and
+                         an instruction that quotes a label the merchant has to squint at is worse
+                         than one that describes the thing. --}}
                     <label class="ss-label" for="tax_id">{{ __('Tax Class') }}</label>
                     {!! Form::select('tax_id', $taxes, $tax_option['tax_id'] ?? null, [
                         'class' => 'ss-input',
                         'id' => 'tax_id',
+                        'aria-describedby' => 'tax_id-help',
                     ]) !!}
+
+                    <x-ss.field-help for="tax_id">{{ __('This is stored but nothing charges tax from it. The tax on a cart or an order is taken from the tax set on each individual product, so changing the class here does not change what any order is taxed.') }}</x-ss.field-help>
                 </div>
             </div>
 
@@ -113,11 +135,33 @@
 
             <div class="col-lg-4 col-sm-6">
                 <div class="ss-field">
+                    {{-- GAP-060 WS5. THIS CONTROL CANNOT BE SET ON ITS OWN, AND NOTHING SAID SO.
+
+                         `TaxOptionController::taxSettings()` lines 101-111 do not store what this
+                         select posts unless all three agree. When `price_type` is `inclusive` and
+                         EITHER `shop_price` or `checkout_price` disagrees, BOTH are overwritten with
+                         `including`; the `exclusive` limb is the mirror image. The success message is
+                         replaced too -- "Consistent tax settings: Prices should be uniform with or
+                         without taxes to prevent rounding errors."
+
+                         MEASURED, not read off the branch: posting price_type=inclusive with
+                         shop_price=exclusive and checkout_price=exclusive stored
+                         shop_price=including and checkout_price=including, with that message. So
+                         the merchant does not get what they chose and the confirmation does not
+                         look like a refusal either.
+
+                         `x-ss.field-help` AND NOT `x-ss.choice-group`: one select is one control in
+                         the accessibility tree, so a fieldset round it would be the wrong
+                         association rather than a stricter one. Same reasoning as `shop_price`
+                         above, and the component's own docblock carries it. --}}
                     <label class="ss-label" for="checkout_price">{{ __('Display prices during cart and checkout') }}</label>
-                    <select class="ss-input" id="checkout_price" name="checkout_price">
+                    <select class="ss-input" id="checkout_price" name="checkout_price"
+                            aria-describedby="checkout_price-help">
                         <option value="including" @selected(($tax_option['checkout_price'] ?? '') === 'including')>{{ __('Including Tax') }}</option>
                         <option value="exclusive" @selected(($tax_option['checkout_price'] ?? '') === 'exclusive')>{{ __('Exclusive Tax') }}</option>
                     </select>
+
+                    <x-ss.field-help for="checkout_price">{{ __('You cannot set this on its own. When you save, it is forced to match the Prices entered with tax choice above: inclusive stores Including Tax both here and in Display prices in the shop, whatever you picked, and the message afterwards is a note about keeping prices uniform rather than a confirmation that your choice was saved.') }}</x-ss.field-help>
                 </div>
             </div>
 

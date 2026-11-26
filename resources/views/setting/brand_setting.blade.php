@@ -280,9 +280,37 @@
                 </fieldset>
             </div>
 
+            {{-- GAP-060 WS5 — the two switch groups on this card, each described on its FIELDSET.
+
+                 `aria-describedby` on the fieldset and not on the switch, and the id convention is
+                 `x-ss.choice-group`'s own (`<name>-group-help`) so the two surfaces cannot drift
+                 into two conventions. The fieldsets stay INLINE rather than swapping in the
+                 component, exactly as the colour group above them does -- and here that is load
+                 bearing rather than cosmetic: `DeferredChoiceGuidanceTest`'s census finds a switch
+                 group by the `<legend>` in THIS FILE's source, so moving the legend into a
+                 component would take the census's count of switch groups from 5 to 0 and the
+                 premise test would start reporting a settings tree that has none.
+
+                 BOTH VALUES ARE STORED PER STORE, not per user: `SettingController` writes them
+                 with `['name' => $key, 'store_id' => getCurrentStore()]` (around line 536) and
+                 supplies 'off' itself when the box posts nothing (:518-523), which is why the dark
+                 sentence says everyone who signs in sees the same choice. --}}
             <div class="col-md-4 col-12">
-                <fieldset class="ss-field">
+                {{-- Transparent layout: `partision/sidebar.blade.php:64` adds `transprent-bg` to
+                     the nav when this is 'on', and the rule that acts on it --
+                     `.dash-sidebar.light-sidebar.transprent-bg { background: transparent }` at
+                     `public/assets/css/style.css:16359` -- sits inside
+                     `@media (min-width: 1025px)`. Below that width the switch changes nothing
+                     visible, which is the fact the sentence carries. `partision/header.blade.php:32`
+                     has the class unconditionally, so the header is not what this controls. Nothing
+                     under `resources/views/front_end/` reads the name. --}}
+                <fieldset class="ss-field" aria-describedby="cust_theme_bg-group-help">
                     <legend class="ss-label">{{ __('Sidebar Settings') }}</legend>
+
+                    <p class="ss-field__hint" id="cust_theme_bg-group-help">
+                        {{ __('Transparent layout removes the background from the sidebar of this admin panel only, and only on screens 1025 pixels and wider; below that width the sidebar keeps its solid background whatever this is set to. It does not change your storefront.') }}
+                    </p>
+
                     <x-ss.switch name="cust_theme_bg" id="cust_theme_bg" value="on"
                                  :label="__('Transparent layout')"
                                  :checked="isset($setting['cust_theme_bg']) && $setting['cust_theme_bg'] == 'on'" />
@@ -290,8 +318,21 @@
             </div>
 
             <div class="col-md-4 col-12">
-                <fieldset class="ss-field">
+                {{-- Dark Layout: `layouts/app.blade.php:86` puts `data-ss-theme="dark"` on the body
+                     when this is 'on' and :189/:193 swap in `rtl-style-dark.css` or
+                     `style-dark.css` -- the admin's dark mode is a STYLESHEET SWAP, not
+                     `prefers-color-scheme`, which is why it is a saved setting at all. It ALSO
+                     changes which logo the chrome prints: `Utility.php:2828` and
+                     `helper.php:2189` (`sidebar_logo()`) return `logo_light` instead of
+                     `logo_dark` when it is on, and the sentence names that because a merchant who
+                     has only uploaded a dark logo will otherwise wonder where it went. --}}
+                <fieldset class="ss-field" aria-describedby="cust_darklayout-group-help">
                     <legend class="ss-label">{{ __('Layout Settings') }}</legend>
+
+                    <p class="ss-field__hint" id="cust_darklayout-group-help">
+                        {{ __('Dark Layout switches this admin panel to its dark stylesheet and makes the sidebar show your light logo in place of your dark one. It is stored for the whole store, so everyone who signs in sees the same choice, and it does not change your storefront.') }}
+                    </p>
+
                     <x-ss.switch name="cust_darklayout" id="cust-darklayout" value="on"
                                  :label="__('Dark Layout')"
                                  :checked="isset($setting['cust_darklayout']) && $setting['cust_darklayout'] == 'on'" />

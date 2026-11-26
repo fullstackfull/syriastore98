@@ -48,8 +48,36 @@
                 </div>
 
                 <div class="col-md-6">
-                    <fieldset class="ss-field">
+                    {{-- GAP-060 WS5. CLEARING BOTH BOXES DOES NOT TURN THE ALERTS OFF -- IT BREAKS
+                         THE SAVE, and it takes the two threshold figures down with it.
+
+                         `SettingController::StockSettings()` line 1323 validates
+                         `'notification' => 'required'`. Unchecked checkboxes post nothing, so with
+                         both boxes clear the name is absent, the validator fails, and the handler
+                         returns `redirect()->back()->with('error', ...)` BEFORE writing anything --
+                         so `low_stock_threshold` and `out_of_stock_threshold` are not stored either.
+
+                         MEASURED through the real endpoint: posting the two thresholds with no box
+                         ticked answered the error "The notification field is required." and left
+                         `low_stock_threshold` unset in `settings`.
+
+                         AND TICKING A BOX IS NOT ENOUGH ON ITS OWN. Every send site gates on Twilio
+                         first: `PaymentService.php:2817-2823` and `:2898-2904` reach
+                         `Utility::low_stock_threshold()` / `::out_of_stock()` only when
+                         `$settings['twilio_setting_enabled'] == 'on'`, and the check itself runs
+                         inside the checkout's stock decrement. So the sentence names the Twilio
+                         toggle by its real label, "Enable Twilio", and the panel it lives on,
+                         "Twilio Settings".
+
+                         The description is on the FIELDSET because the pair is what is being
+                         described, and the fieldset stays inline so the settings census keeps
+                         finding this group by its legend. --}}
+                    <fieldset class="ss-field" aria-describedby="stock_notification-group-help">
                         <legend class="ss-label">{{ __('Notifications') }}</legend>
+
+                        <p class="ss-field__hint" id="stock_notification-group-help">
+                            {{ __('At least one box must be ticked or the whole panel refuses to save, and the two threshold figures on this panel are not stored either. A message is only sent while Enable Twilio is switched on in the Twilio Settings panel, and the check runs when an order reduces the stock of a product.') }}
+                        </p>
 
                         <div class="ss-choice">
                             <input type="checkbox" class="ss-choice__input" id="low_stock"
