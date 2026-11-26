@@ -220,7 +220,11 @@
         </p>
 
         <p class="ss-stat__hint mb-0">
-            {{ __('No threshold is applied to any figure here and nothing on this platform sends an alert: what counts as too full a disk, and who should be told, are decisions that have not been taken.') }}
+            {{-- The MACHINE variant, read from `PlatformIncidentPolicy` for the reason the
+                 operations screen's note gives. It names only the disk because that is what this
+                 screen measures: naming queues or failures here would send an operator looking on
+                 this page for figures it does not have. --}}
+            {{ \App\Support\Operations\PlatformIncidentPolicy::noAlertingNoticeForTheMachine() }}
         </p>
     </div>
 </div>

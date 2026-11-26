@@ -82,7 +82,7 @@ $dsnFor = static function (?string $db) use ($opt): string {
 };
 
 try {
-    $server = new PDO($dsnFor(null), $opt['user'], $opt['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $server = new PDO($dsnFor(null), $opt['user'], $opt['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true]);
 } catch (Throwable $e) {
     fwrite(STDERR, "PRECONDITION NOT MET: cannot reach the server -- {$e->getMessage()}\n");
     fwrite(STDERR, "Start one, or pass --socket=/run/mysqld/mysqld.sock.\n");
@@ -117,7 +117,23 @@ $say();
 $server->exec("DROP DATABASE IF EXISTS `{$database}`");
 $server->exec("CREATE DATABASE `{$database}` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 
-$pdo = new PDO($dsnFor($database), $opt['user'], $opt['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$pdo = new PDO($dsnFor($database), $opt['user'], $opt['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true]);
+
+/*
+ * `closeCursor()` AFTER EVERY SCALAR READ, and it is not tidiness: without it MariaDB answers the
+ * NEXT query with "Cannot execute queries while other unbuffered queries are active", which is how
+ * the first run of this script died halfway through section B. Buffered queries are switched on
+ * above as well; both are needed, because a prepared statement holds its cursor either way.
+ */
+$scalar = static function (PDO $pdo, string $sql, array $bindings = []) {
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($bindings);
+    $value = $stmt->fetchColumn();
+    $stmt->closeCursor();
+
+    return $value;
+};
+
 
 // ------------------------------------------------------------------ the app, pointed at it
 
@@ -256,7 +272,7 @@ $pdo->exec("insert into platform_incidents (reference, title, severity, status, 
 
 [$code, $out] = $artisan('migrate:rollback --step=1 --force --no-interaction');
 
-$survived = (int) $pdo->query('select count(*) from platform_incidents')->fetchColumn();
+$survived = (int) $scalar($pdo, 'select count(*) from platform_incidents');
 
 $is($code === 0 && $survived === 1,
     'rolling the migration back destroys nothing: the table and its row survive (exit ' . $code . ', rows ' . $survived . ')');
@@ -275,23 +291,20 @@ $say('B. the three readings SQLite can only refuse, each asserted by changing wh
  * answer rather than with a second reading through a framework. The SQL below is the probe's,
  * character for character; `verifyProbeSqlMatchesTheSource()` at the end asserts that it still is.
  */
-$tableCount = static function (PDO $pdo) use ($database): int {
-    $stmt = $pdo->prepare('select count(*) as c from information_schema.tables where table_schema = ?');
-    $stmt->execute([$database]);
-
-    return (int) $stmt->fetchColumn();
+$tableCount = static function (PDO $pdo) use ($database, $scalar): int {
+    return (int) $scalar($pdo, 'select count(*) as c from information_schema.tables where table_schema = ?', [$database]);
 };
 
-$sizeBytes = static function (PDO $pdo) use ($database): ?int {
-    $stmt = $pdo->prepare('select sum(data_length + index_length) as b from information_schema.tables where table_schema = ?');
-    $stmt->execute([$database]);
-    $value = $stmt->fetchColumn();
+$sizeBytes = static function (PDO $pdo) use ($database, $scalar): ?int {
+    $value = $scalar($pdo, 'select sum(data_length + index_length) as b from information_schema.tables where table_schema = ?', [$database]);
 
     return $value === null || $value === false ? null : (int) $value;
 };
 
 $threadsConnected = static function (PDO $pdo): ?int {
-    $row = $pdo->query("show status like 'Threads_connected'")->fetch(PDO::FETCH_NUM);
+    $stmt = $pdo->query("show status like 'Threads_connected'");
+    $row = $stmt->fetch(PDO::FETCH_NUM);
+    $stmt->closeCursor();
 
     return isset($row[1]) && is_numeric($row[1]) ? (int) $row[1] : null;
 };
@@ -329,7 +342,16 @@ for ($i = 0; $i < 400; $i++) {
  * figure is the engine's own estimate and is approximate for InnoDB. That sentence is being
  * verified here, not worked around.
  */
-$pdo->exec('analyze table ops_probe_bulk');
+/*
+ * `query()` AND `fetchAll()`, NOT `exec()`. `ANALYZE TABLE` RETURNS A RESULT SET in MariaDB -- one
+ * row saying Table/Op/Msg_type/Msg_text -- and `exec()` leaves it unconsumed, so the very next
+ * prepared statement dies with "Cannot execute queries while other unbuffered queries are active".
+ * That is how the second run of this script died, two lines after the first one did, and the
+ * buffered-query attribute on the connection does not save it.
+ */
+$analyze = $pdo->query('analyze table ops_probe_bulk');
+$analyze->fetchAll();
+$analyze->closeCursor();
 
 $sizeAfter = $sizeBytes($pdo);
 
@@ -345,7 +367,7 @@ $threadsBefore = $threadsConnected($pdo);
 $is($threadsBefore !== null && $threadsBefore >= 1,
     'B3 premise: the server publishes Threads_connected (' . var_export($threadsBefore, true) . ')');
 
-$second = new PDO($dsnFor($database), $opt['user'], $opt['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$second = new PDO($dsnFor($database), $opt['user'], $opt['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true]);
 $second->query('select 1');
 
 $threadsAfter = $threadsConnected($pdo);
@@ -384,7 +406,7 @@ $is($duplicateRefused,
  * a move without a `type` column. Asserted on MySQL because a NOT NULL that SQLite tolerated would
  * refuse it here.
  */
-$incidentId = (int) $pdo->query("select id from platform_incidents where reference = 'INC-00000000-AAAA'")->fetchColumn();
+$incidentId = (int) $scalar($pdo, "select id from platform_incidents where reference = 'INC-00000000-AAAA'");
 
 $noteAccepted = false;
 

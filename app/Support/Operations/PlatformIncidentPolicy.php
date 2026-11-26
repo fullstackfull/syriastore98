@@ -99,7 +99,14 @@ final class PlatformIncidentPolicy
     }
 
     /**
-     * THE SENTENCE BOTH OPERATOR SCREENS PRINT, in one place so the two cannot drift apart.
+     * THE SENTENCE THE OPERATOR SCREENS PRINT, in one place so they cannot drift apart.
+     *
+     * AND THE DOCBLOCK HERE USED TO BE WRONG, which is worth recording rather than quietly
+     * correcting: it said "the sentence BOTH operator screens print", while in fact only
+     * `platform_incidents/index` read this method and `platform_operations` printed its own copy of
+     * the same words. Two copies of one sentence is exactly the drift the method was written to
+     * prevent, and the claim that it had prevented it was false. All three screens now read from
+     * here.
      *
      * Not a disclaimer. An operator who reads a page full of real figures and no alerts will
      * reasonably assume something somewhere is watching them, and nothing is.
@@ -107,5 +114,18 @@ final class PlatformIncidentPolicy
     public static function noAlertingNotice(): string
     {
         return __('No threshold is applied to any figure here and nothing on this platform sends an alert: what counts as too deep a queue, too full a disk or too many failures, and who should be told, are decisions that have not been taken.');
+    }
+
+    /**
+     * THE SAME STATEMENT, NARROWED TO WHAT THE MACHINE SCREEN ACTUALLY MEASURES.
+     *
+     * `/platform/resources` reports load, memory and disk and says nothing about queues or
+     * failures, so naming them there would invite an operator to go looking on that page for
+     * figures it does not have. A separate method and not a parameter, because the two are two
+     * sentences a translator has to be given whole.
+     */
+    public static function noAlertingNoticeForTheMachine(): string
+    {
+        return __('No threshold is applied to any figure here and nothing on this platform sends an alert: what counts as too full a disk, and who should be told, are decisions that have not been taken.');
     }
 }

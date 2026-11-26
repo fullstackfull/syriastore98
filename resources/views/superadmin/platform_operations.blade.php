@@ -224,7 +224,13 @@
 <div class="row">
     <div class="col-12">
         <p class="ss-stat__hint">
-            {{ __('No threshold is applied to any figure here and nothing on this platform sends an alert: what counts as too deep a queue, too full a disk or too many failures, and who should be told, are decisions that have not been taken.') }}
+            {{-- READ FROM `PlatformIncidentPolicy` AND NOT WRITTEN OUT HERE. The sentence is
+                 printed on three screens, and this file held its own copy of it until that was
+                 noticed -- two copies of one statement about what the platform does not do is
+                 exactly how one of them comes to be out of date after alerting is built. The
+                 policy class is also where the five decisions behind it are named, so an engineer
+                 following the sentence lands on the questions. --}}
+            {{ \App\Support\Operations\PlatformIncidentPolicy::noAlertingNotice() }}
         </p>
 
         <p class="ss-stat__hint">
