@@ -695,7 +695,7 @@ $order_array['tax_price_formatted']   = order_currency_format_with_sym($order->t
     public static function order_status_change($date = [])
     {
         $order_id = $date['order_id'];
-        $order_status = $date['order_status'];
+        $order_status = $date['order_status'] = \App\Support\Orders\FulfilmentStateMachine::wordOf($date['order_status']); // GAP-135, the `==` clause. The machine's `governs()` is STRICT while the arms below compare LOOSELY, and under PHP 8 `true == 'cancel'` is TRUE -- so a BOOLEAN ran the cancel arm on a value no transition rule had governed: `cancel_date` stamped, 0 -> 2, the entitlement reversed, while every caller's restock gate (`(string) $x === 'cancel'`) read `'1'` and left the goods off the shelf. Asked HERE, before refuseIllegalTransition(), so the value the machine judges is the value every arm acts on, and `$date` is reassigned too because the two module arms at the end of this method are handed the array rather than this local. The rule lives on the machine so the five doors sharing this writer -- the vendored LotteryPrizes one included, which cannot be given its own fix -- have ONE definition; a string is returned unchanged, so the six governed words and every already-refused value are untouched. Kept to ONE line so no line number in this file moves: four citations elsewhere name `:702`, `:709`, `:1064` and `:1453`. Account and measurement: FulfilmentStateMachine::wordOf(). Pinned by OrderStatusWordIsNotABooleanTest.
         $order = Order::find($order_id);
         if (!empty($order)) {
             /* THE FULFILMENT STATE MACHINE, ASKED ONCE, BEFORE ANY ARM WRITES. GAP-135. The

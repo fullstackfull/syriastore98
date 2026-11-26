@@ -455,6 +455,88 @@ class OrderFinancialService
                 return;
             }
 
+            /*
+             * A REVERSED ENTITLEMENT IS NOT RE-CREDITED. GAP-257, and the guard this one is a copy
+             * of lives one caller up.
+             * =====================================================================================
+             *
+             * P4-F124 put exactly this check in {@see self::syncFromOrder()}, whose docblock names
+             * the danger: *"A late `Paid` on a cancelled order would reach `markFinancialAsPaid()`
+             * and CREDIT the merchant a second time for an order that was cancelled and already
+             * reversed."* It was right about the destination and it was placed in the CALLER, and
+             * this function has two:
+             *
+             *     self::syncFromOrder():344                      -- had the check
+             *     StoreFinanceController:527                      -- calls this directly
+             *
+             * so the control was one caller deep and the other caller is the FINANCE SURFACE --
+             * the very door `syncFromOrder()`'s docblock nominates as the safe route for a
+             * deliberate correction. MEASURED through that real door, with a merchant holding
+             * `Edit Finance Payment Status` on a 250.00 cancelled order: wallet 0.00 -> **250.00**,
+             * the financial row `cancelled` -> **paid**, and the ledger
+             * `[credit:order_paid, debit:order_cancelled, credit:order_paid]` -- TWO credits
+             * against ONE debit, money held for goods that were never sold, and nothing left on the
+             * row saying the entitlement had ever been reversed. `refunded` behaves identically.
+             *
+             * IT IS LIVE RATHER THAN LATENT, and the screen renders the control for exactly these
+             * rows: `StoreFinanceController:572-577` records that *"the screen's select offers only
+             * unpaid/paid, so on a cancelled row NEITHER option carries `selected`"*. That
+             * paragraph then reasons -- correctly -- that the `unpaid` direction is a no-op on such
+             * a row, because {@see self::markFinancialAsUnpaid()} writes nothing unless the row is
+             * exactly `paid`. The `paid` direction is the one nobody checked, and the two were
+             * ASYMMETRIC in the dangerous direction.
+             *
+             * SO THIS IS SYMMETRY, NOT A NEW RULE, and that is the whole argument for taking it
+             * here rather than escalating it. `markFinancialAsUnpaid()` already declines on a
+             * terminal row and already does so silently, with the door's own audit entry recording
+             * the state that RESULTED rather than the one requested (P4-F128). This makes the credit
+             * decline the same way, so both directions answer a terminal row identically and the
+             * audit trail keeps telling the truth about both. The only behaviour removed is a
+             * second credit.
+             *
+             * NO CAPABILITY IS LOST, AND THAT IS WHY THIS IS TAKEN RATHER THAN ESCALATED. The
+             * deliberate route the docblock above describes ALREADY EXISTS and is a different door:
+             * `StoreFinanceController::addBalance()` (`:1169`), gated on its own permission
+             * `Add Finance Balance`, validating an explicit `amount` and REQUIRING a `description`.
+             * That is what "acts on the financial record deliberately and with its own
+             * authorization" means. What this guard removes is not that route -- it is a silent,
+             * full-`customer_total`, unamounted duplicate of it reached through a `<select>` that
+             * renders on terminal rows and whose own handler's comment believed the click was a
+             * no-op. A merchant who genuinely must restore a reversed entitlement still can, by
+             * naming the figure and the reason.
+             *
+             * WHAT IT DOES **NOT** DECIDE, so GAP-257's own two dispositions stay the owner's:
+             * nothing here reads `orders.delivered_status`, so a RETURNED-but-unrefunded order's
+             * `Paid` still credits -- measured as a RESTORED single credit rather than a double one
+             * (`TerminalEntitlementSecondCreditTest::test_measured_a_returned_order_*`), which is
+             * why it is a rule question and not this defect. And the "deliberate correction through
+             * the finance surface" that `syncFromOrder()` promises **does not exist**: this closes
+             * the accidental route, it does not build the deliberate one. Reported as an owner item
+             * rather than invented here.
+             *
+             * `syncFromOrder()`'s OWN GUARD STAYS. It is not redundant: it also stops that method's
+             * closing unconditional `update(['payment_status' => $orderStatus])` from overwriting a
+             * terminal row with `unpaid` or `pending`, which is a different loss and is not reached
+             * through this function at all.
+             *
+             * `Log::warning` rather than silence ALONE, so a merchant's refused correction is
+             * reconstructible: the door's audit row records the resulting state, and this records
+             * that a credit was attempted and on which row.
+             */
+            if (in_array((string) $financial->payment_status, [
+                OrderEntitlementReversal::REASON_CANCELLED,
+                OrderEntitlementReversal::REASON_REFUNDED,
+            ], true)) {
+                \Log::warning('Refused to credit a financial record whose entitlement was reversed.', [
+                    'financial_id' => (int) $financial->id,
+                    'order_id' => (int) $financial->order_id,
+                    'store_id' => (int) $financial->store_id,
+                    'entitlement_state' => (string) $financial->payment_status,
+                ]);
+
+                return;
+            }
+
             $wallet = StoreWallet::where(
                     'id',
                     $financial->wallet_id
