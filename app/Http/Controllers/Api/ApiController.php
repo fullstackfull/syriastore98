@@ -470,8 +470,10 @@ public function saveStoreFcmToken(Request $request)
                  * variant deleted -> this gate withholds only the name. That is PRE-EXISTING and
                  * wider than what is fixed here, it is reported for its own register row, and this
                  * comment must not be read as claiming it. Such a line cannot be ORDERED --
-                 * `basketHasForeignProduct()` guards `place_order:3800`, `payment_sheet:9295` and
-                 * `ordersave:10182` -- only read.
+                 * the guard runs in `place_order()`, `payment_sheet()` and `ordersave()` -- only
+                 * read. CITED BY METHOD AND NOT BY LINE, deliberately: these three citations went
+                 * stale FOUR times in this task alone, every time because of an edit I made myself
+                 * higher in the same file. A method name cannot drift.
                  *
                  * THE TEST IS A PROVABLE MISMATCH, NOT EQUALITY, which is this file's existing
                  * policy and not a new reading of the column: `products.store_id` is NULLABLE
@@ -3824,8 +3826,30 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
          * `$products ?? null` because the assignment above is inside a conditional and the loop
          * below guards with `empty()`; the helper treats a null basket as nothing to refuse.
          */
-        if ($this->basketHasForeignProduct($products ?? null, $store)) {
-            return $this->error(['message' => __('Product not found .')]);
+        /*
+         * GAP-280 (B). THE REFUSAL NAMES THE LINE. The guard and what it refuses are UNCHANGED --
+         * `foreignBasketLines()` is the same rule the boolean `basketHasForeignProduct()` now
+         * delegates to -- and only the message and an additive `unavailable_products` key are new.
+         * This site said `__(\'Product not found .\')`, which is what this codebase says when a product
+         * does NOT EXIST -- actively misleading about a product that does, and it named no line, so
+         * the shopper had no way to find the one at fault. It also kept no log, unlike
+         * `payment_sheet`.
+         */
+        $ssForeignLines = $this->foreignBasketLines($products ?? null, $store);
+
+        if ($ssForeignLines !== []) {
+            \Illuminate\Support\Facades\Log::warning('place_order refused: basket names a product this store does not sell', [
+                'store_id' => $store->id,
+                'customer_id' => $customer->id ?? null,
+                'lines' => count($ssForeignLines),
+            ]);
+
+            $ssForeignRefusal = $this->foreignBasketRefusal($ssForeignLines);
+
+            return $this->error(
+                ['message' => $ssForeignRefusal, 'unavailable_products' => $ssForeignLines],
+                $ssForeignRefusal
+            );
         }
 
         /*
@@ -9319,15 +9343,27 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
          * Placed before `StripeMoney::toMinorUnits()` and before any Stripe call, so a refused
          * basket never reaches the gateway at all.
          */
-        if ($this->basketHasForeignProduct($cartData['product_list'], $store)) {
-            \Illuminate\Support\Facades\Log::warning('payment_sheet refused: basket names a product from another store', [
+        /*
+         * GAP-280 (B). THE REFUSAL NAMES THE LINE. The guard and what it refuses are UNCHANGED --
+         * `foreignBasketLines()` is the same rule the boolean `basketHasForeignProduct()` now
+         * delegates to -- and only the message and an additive `unavailable_products` key are new.
+         * This site's wording was already honest and is the one the other two now share; what it lacked
+         * was WHICH line.
+         */
+        $ssForeignLines = $this->foreignBasketLines($cartData['product_list'], $store);
+
+        if ($ssForeignLines !== []) {
+            \Illuminate\Support\Facades\Log::warning('payment_sheet refused: basket names a product this store does not sell', [
                 'store_id' => $store->id,
                 'customer_id' => $customer->id ?? null,
+                'lines' => count($ssForeignLines),
             ]);
 
+            $ssForeignRefusal = $this->foreignBasketRefusal($ssForeignLines);
+
             return $this->error(
-                ['message' => __('Your cart contains an item this store does not sell.')],
-                __('Your cart contains an item this store does not sell.')
+                ['message' => $ssForeignRefusal, 'unavailable_products' => $ssForeignLines],
+                $ssForeignRefusal
             );
         }
 
@@ -10206,8 +10242,29 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
          * `$products ?? null` because the assignment above is inside a conditional and the loop
          * below guards with `empty()`; the helper treats a null basket as nothing to refuse.
          */
-        if ($this->basketHasForeignProduct($products ?? null, $store)) {
-            return $this->error(['message' => 'Product not found .']);
+        /*
+         * GAP-280 (B). THE REFUSAL NAMES THE LINE. The guard and what it refuses are UNCHANGED --
+         * `foreignBasketLines()` is the same rule the boolean `basketHasForeignProduct()` now
+         * delegates to -- and only the message and an additive `unavailable_products` key are new.
+         * This site was the worst of the three: the misleading wording AND a BARE ENGLISH LITERAL with no
+         * `__()` around it at all, on a bilingual storefront, so an Arabic shopper read English. Both
+         * fixed by going through the shared builder.
+         */
+        $ssForeignLines = $this->foreignBasketLines($products ?? null, $store);
+
+        if ($ssForeignLines !== []) {
+            \Illuminate\Support\Facades\Log::warning('ordersave refused: basket names a product this store does not sell', [
+                'store_id' => $store->id,
+                'customer_id' => $customer->id ?? null,
+                'lines' => count($ssForeignLines),
+            ]);
+
+            $ssForeignRefusal = $this->foreignBasketRefusal($ssForeignLines);
+
+            return $this->error(
+                ['message' => $ssForeignRefusal, 'unavailable_products' => $ssForeignLines],
+                $ssForeignRefusal
+            );
         }
 
         /*

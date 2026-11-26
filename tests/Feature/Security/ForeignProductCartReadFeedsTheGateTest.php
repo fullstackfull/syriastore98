@@ -89,8 +89,9 @@ class ForeignProductCartReadFeedsTheGateTest extends SecurityTestCase
     /**
      * THE READER'S OUTPUT IS THE CHECKOUT GATE'S INPUT, AND THAT COUPLING IS LOAD-BEARING.
      *
-     * `place_order:3800`, `payment_sheet:9295` and `ordersave:10182` all call
-     * `basketHasForeignProduct($products, $store)` where `$products` IS
+     * `place_order()`, `payment_sheet()` and `ordersave()` all run the guard -- through
+     * `foreignBasketLines($products, $store)` since ruling (B); the boolean
+     * `basketHasForeignProduct()` now delegates to it -- where `$products` IS
      * `$cartlist['product_list']`. So the gate can only refuse a foreign line while the reader
      * still PUTS one there. Nothing stated that anywhere, and the obvious remedy for GAP-280 —
      * scoping the reader — silently breaks it: measured, a mixed basket then completes and writes
@@ -133,7 +134,7 @@ class ForeignProductCartReadFeedsTheGateTest extends SecurityTestCase
         $this->assertContains((int) $foreign->id, $served,
             'The cart read no longer hands the foreign line to the checkout gate. That is the '
             . 'remedy GAP-280 proposes, and it is not a free one: `basketHasForeignProduct()` at '
-            . 'place_order:3800 / payment_sheet:9295 / ordersave:10182 takes `product_list` as its '
+            . 'place_order() / payment_sheet() / ordersave() takes `product_list` as its '
             . 'input, so with the line gone the gate cannot fire and a MIXED basket COMPLETES and '
             . 'writes an order where it is refused today (measured: own stock 50 -> 48 on the '
             . 'PaiementPro return). If that is now the intended behaviour, the owner has decided '

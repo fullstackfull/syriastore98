@@ -736,18 +736,73 @@ trait GuardsGatewayReturn
      */
     protected function basketHasForeignProduct($products, $store): bool
     {
+        return $this->foreignBasketLines($products, $store) !== [];
+    }
+
+    /**
+     * WHICH lines the guard above objects to, and why — GAP-280 (B).
+     *
+     * `basketHasForeignProduct()` answered only yes/no, so all three API refusals could say no more
+     * than "your cart contains an item this store does not sell", and two of them said the actively
+     * misleading "Product not found ." about a product that exists. A shopper was shown a total
+     * they could never pay with no way to find the line at fault — the dead end GAP-280's
+     * measurement recorded. This returns the offending lines so the refusal can name them.
+     *
+     * THE RULE IS NOT RESTATED HERE: this method IS the rule now, and the boolean guard above
+     * delegates to it, so there is one definition rather than two that can drift. Behaviour is
+     * byte-identical — `!== []` is exactly the old `return true` — and
+     * `ForeignProductCartReadFeedsTheGateTest::test_the_checkout_gate_holds_the_three_outcome_rule`
+     * drives the four-case matrix (own, foreign, NULL `store_id`, no row) across the change.
+     *
+     * THE ONE REAL DIFFERENCE IS THAT IT NO LONGER SHORT-CIRCUITS. The original returned on the
+     * first offending line; this one looks at every line, because naming only the first would send
+     * a shopper round the loop once per bad line. For a basket of n lines that is at most n extra
+     * key lookups on an already-refused request, and the seven checkout callers that only want the
+     * boolean are unaffected in behaviour.
+     *
+     * BOTH QUESTIONS ARE PRESERVED, and they are different findings: a line can be objectionable
+     * because its PRODUCT is provably another store's, or because its VARIANT provably belongs to
+     * another PRODUCT — the second being the half that scoping the product cannot catch, which is
+     * why the guard grew it. The `reason` distinguishes them for a client; the shopper-facing
+     * message does not, because `item this store does not sell` is matched as a substring by eight
+     * assertions in `ForeignProductCartChainTest`, including on the gateway arm.
+     *
+     * @return array<int, array{cart_id: int, product_id: int, variant_id: int, name: string, reason: string}>
+     */
+    protected function foreignBasketLines($products, $store): array
+    {
         if (empty($products) || empty($store) || empty($store->id)) {
-            return false;
+            return [];
         }
 
+        $offending = [];
+
+        /* The line as the cart reader published it, so a name can be echoed back without a query. */
+        $field = static function ($line, string $key) {
+            if (is_array($line)) {
+                return $line[$key] ?? null;
+            }
+
+            return is_object($line) ? ($line->$key ?? null) : null;
+        };
+
         foreach ($products as $line) {
-            $productId = is_array($line)
-                ? ($line['product_id'] ?? null)
-                : (is_object($line) ? ($line->product_id ?? null) : null);
+            $productId = $field($line, 'product_id');
 
             if (empty($productId) || ! is_numeric($productId)) {
                 continue;
             }
+
+            /* Echoed from the caller's own payload -- no extra query, and no new disclosure. */
+            $describe = static function (string $reason) use ($field, $line, $productId): array {
+                return [
+                    'cart_id' => (int) ($field($line, 'cart_id') ?? 0),
+                    'product_id' => (int) $productId,
+                    'variant_id' => (int) ($field($line, 'variant_id') ?? 0),
+                    'name' => trim((string) ($field($line, 'name') ?? '')),
+                    'reason' => $reason,
+                ];
+            };
 
             $owner = \App\Models\Product::withoutGlobalScopes()
                 ->whereKey($productId)
@@ -759,7 +814,9 @@ trait GuardsGatewayReturn
             }
 
             if ((int) $owner !== (int) $store->id) {
-                return true;
+                $offending[] = $describe('not_sold_by_this_store');
+
+                continue;
             }
 
             /*
@@ -787,9 +844,7 @@ trait GuardsGatewayReturn
              * product is: it is not a provable mismatch, and every one of these loops already has
              * a "Product not found" path for it.
              */
-            $variantId = is_array($line)
-                ? ($line['variant_id'] ?? null)
-                : (is_object($line) ? ($line->variant_id ?? null) : null);
+            $variantId = $field($line, 'variant_id');
 
             if (empty($variantId) || ! is_numeric($variantId) || (int) $variantId === 0) {
                 continue;
@@ -804,11 +859,47 @@ trait GuardsGatewayReturn
             }
 
             if ((int) $variantProductId !== (int) $productId) {
-                return true;
+                $offending[] = $describe('variant_belongs_to_another_product');
             }
         }
 
-        return false;
+        return $offending;
+    }
+
+    /**
+     * The shopper-facing refusal for a basket the guard objects to — GAP-280 (B).
+     *
+     * ONE WORDING FOR ALL THREE API REFUSALS, which they did not have: `payment_sheet` said
+     * "Your cart contains an item this store does not sell." while `place_order` and `ordersave`
+     * said "Product not found ." — the message this codebase uses when a product does NOT EXIST, so
+     * a shopper and a merchant reading a support ticket were both sent looking for a deletion that
+     * never happened. Unified here so the three cannot drift again, and placed on the trait rather
+     * than in the controller so the gateway arm can adopt it without a second copy.
+     *
+     * `item this store does not sell` IS PRESERVED VERBATIM as a substring: eight assertions in
+     * `ForeignProductCartChainTest` match on it, including on the gateway arm this workstream must
+     * not edit. The names are APPENDED rather than replacing it.
+     *
+     * A line with no usable name falls back to the nameless wording rather than printing an id:
+     * `carts` carries no name column, so a basket assembled by a writer that did not set one would
+     * otherwise print "item #412" at a shopper.
+     *
+     * @param  array<int, array{name: string}>  $lines
+     */
+    protected function foreignBasketRefusal(array $lines): string
+    {
+        $named = array_values(array_filter(array_map(
+            static fn ($line) => trim((string) ($line['name'] ?? '')),
+            $lines
+        ), static fn ($name) => $name !== ''));
+
+        if ($named === []) {
+            return __('Your cart contains an item this store does not sell.');
+        }
+
+        return __('Your cart contains an item this store does not sell: :products', [
+            'products' => implode(', ', array_unique($named)),
+        ]);
     }
 
     /**

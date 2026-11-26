@@ -36,8 +36,15 @@
  *
  *   1. AN INTEGRITY DEFECT, and the user-visible half: another store's price is added to this
  *      store's basket total, and the basket is a DEAD END — `basketHasForeignProduct()` refuses it
- *      at checkout with "Product not found ." naming no line, so the shopper is shown a total they
- *      can never pay and told nothing about which line is at fault.
+ *      at checkout.
+ *
+ *      THE "TOLD NOTHING" HALF OF THAT IS NOW CLOSED, by the owner's ruling (B): all three API
+ *      refusals NAME the offending line and carry an additive `unavailable_products` key, and the
+ *      two that said "Product not found ." — the message this codebase uses when a product does
+ *      not EXIST — now say what is actually true. `ForeignBasketRefusalNamesTheLineTest` pins it.
+ *      SECTION C BELOW STILL MEASURES THE REFUSAL ITSELF, which (B) deliberately did not touch:
+ *      the basket is still refused, no order is written, and the DISPLAYED TOTAL IS UNCHANGED, so
+ *      the figure in section A is still 87.00 rather than 10.00. The arithmetic is (A)'s to settle.
  *   2. AN OWNERSHIP ORACLE of small increment, since slug-naming already answers it.
  *
  * -------------------------------------------------------------------------------------------------
@@ -210,9 +217,11 @@ echo "      ownership oracle, not confidentiality.\n";
 echo "\nC. AND THE BASKET IS A DEAD END\n\n";
 
 $ordersBefore = (int) DB::table('orders')->count();
-printf("   basketHasForeignProduct() refuses it at place_order:3800, payment_sheet:9295 and\n");
-printf("   ordersave:10182, so the shopper is shown %s and can never pay it.\n", $data['total_final_price'] ?? '?');
-printf("   orders in the table ..... %d  (and the refusal names no line)\n", $ordersBefore);
+printf("   the guard refuses it in place_order(), payment_sheet() and ordersave() --\n");
+printf("   cited by method, not line, because those citations went stale four times -- so the\n");
+printf("   shopper is shown %s and\n", $data['total_final_price'] ?? '?');
+printf("   cannot pay it. orders in the table: %d. The refusal NOW NAMES THE LINE (ruling B);\n", $ordersBefore);
+printf("   the TOTAL is deliberately left alone, which is (A)'s to settle.\n");
 
 echo "\n";
 echo "SUMMARY\n";
@@ -220,5 +229,6 @@ echo str_repeat('-', 82), "\n";
 echo "  reader serves foreign name, image and price .............. CONFIRMED\n";
 echo "  those fields already public to the same principal ........ CONFIRMED (section B)\n";
 echo "  foreign stock moved / foreign product ordered ............ NO (ratcheted by a test)\n";
-echo "  scoping the readers closes it but completes a mixed\n";
-echo "    basket that is refused today ........................... OWNER DECISION (see header)\n";
+echo "  refusal now NAMES the offending line .................... DONE -- ruling (B)\n";
+echo "  scoping the readers closes the rest, but completes a mixed\n";
+echo "    basket that is refused today ......................... OWNER DECISION (A)\n";

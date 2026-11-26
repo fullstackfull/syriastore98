@@ -4713,5 +4713,6 @@
     "Only roles you created in the store you are working in are listed, so a role added in another store will not appear here. The role becomes this member's account type and decides which screens they can open, and the member is assigned to the store you are working in.": "Only roles you created in the store you are working in are listed, so a role added in another store will not appear here. The role becomes this member's account type and decides which screens they can open, and the member is assigned to the store you are working in.",
     "The payment status and delivery assignment below save immediately when you change them. There is no Save button for these two and no confirmation step.": "The payment status and delivery assignment below save immediately when you change them. There is no Save button for these two and no confirmation step.",
     "Some items are no longer available and have been removed from your cart.": "Some items are no longer available and have been removed from your cart.",
-    "Some items are no longer available and have been removed from your cart: :products": "Some items are no longer available and have been removed from your cart: :products"
+    "Some items are no longer available and have been removed from your cart: :products": "Some items are no longer available and have been removed from your cart: :products",
+    "Your cart contains an item this store does not sell: :products": "Your cart contains an item this store does not sell: :products"
 }
