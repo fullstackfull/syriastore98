@@ -29,7 +29,14 @@
                                             <div class="d-flex align-items-center justify-content-between gap-2">
                                                 <h2 class="h5 mb-0 text-break">{{ ucfirst($folder) }}</h2>
                                                  <div class="d-flex align-items-center justify-content-between gap-1">
-                                                    <a class="btn btn-sm btn-primary text-end" href="{{ route('theme.pages',$folder) }}">
+                                                    {{-- GAP-098. The host primary fill measured 2.58:1 in dark. NOT in the 16-cell capture's
+                                                         findings for /theme-customize, and the reason is worth recording:
+                                                         the index renders one card PER INSTALLED THEME and this control sits
+                                                         inside the ACTIVE theme's card only, which the fixture's single
+                                                         active theme reduces to one element the capture did reach -- it was
+                                                         counted under `button.btn.btn-primary` on the editor screens. The
+                                                         conversion is the same either way. --}}
+                                                    <a class="ss-btn ss-btn--primary ss-btn--sm text-end" href="{{ route('theme.pages',$folder) }}">
                                                     {{ __('Customize') }}
                                                     </a>
                                                     @if (APP_THEME() != $folder)

@@ -20,16 +20,32 @@
         <div class="d-flex align-items-center gap-2 flex-wrap">
             <h5 class="mb-0">{{ __('Version') }}</h5>
 
+            {{-- GAP-098/GAP-113. THE THREE BADGES MOVE AS ONE SET, KEEPING THE DISTINCTION.
+                 Measured as the merchant in all four combinations: only the amber chip FAILED --
+                 `span.badge.bg-warning.text-dark` painted rgb(244,180,26) on rgb(253,244,221) =
+                 1.68:1 against 4.5:1, in LIGHT, and passed in dark, which is the asymmetry that
+                 let it survive. `bg-success` and `bg-secondary` passed.
+
+                 CONVERTING ONE OF THREE WOULD BE A WORSE SCREEN than the one with the defect:
+                 two host badges beside one design-system badge in the same row. Same decision
+                 GAP-179 took for the Yes/No rows on the LynomiaChat operator page, where the
+                 identical chip measured the identical 1.68:1.
+
+                 THE HOST UTILITIES ARE REMOVED, NOT JOINED. `bg-warning` carries `!important`, so
+                 a design-system class beside it changes nothing on screen while reading as a
+                 finished repair. `text-dark` goes with it rather than staying behind: it existed
+                 to make the amber chip legible, and `.ss-badge--warning` sets ink and surface
+                 together from `--ss-warning-fg` / `--ss-warning-bg`, which answer in both themes. --}}
             @if ($liveVersion)
-                <span class="badge bg-success" data-ss-live-badge>
+                <span class="ss-badge ss-badge--success" data-ss-live-badge>
                     {{ __('Live') }}: #{{ $liveVersion->version_no }}
                 </span>
             @else
-                <span class="badge bg-secondary">{{ __('Nothing published yet') }}</span>
+                <span class="ss-badge">{{ __('Nothing published yet') }}</span>
             @endif
 
             @if ($latestDraft)
-                <span class="badge bg-warning text-dark" data-ss-draft-badge>
+                <span class="ss-badge ss-badge--warning" data-ss-draft-badge>
                     {{ __('Unpublished draft') }}: #{{ $latestDraft->version_no }}
                 </span>
             @endif
@@ -44,8 +60,11 @@
                 {{ __('Save as draft') }}
             </button>
 
+            {{-- Measured at 3.04:1 in dark (rgb(108,117,125) on rgb(41,42,51)) -- the host's
+                 muted outline ink on the dark card. `.ss-btn--secondary` takes `--ss-fg` on
+                 `--ss-surface`, which is solved for both themes. --}}
             @if ($latestDraft && $storeSlug)
-                <a class="btn btn-sm btn-outline-secondary"
+                <a class="ss-btn ss-btn--secondary ss-btn--sm"
                    href="{{ route('theme.draft.preview', [$storeSlug, $latestDraft->id]) }}"
                    target="_blank" rel="noopener"
                    data-ss-preview-draft>
@@ -64,7 +83,10 @@
                 {{-- The optimistic check: what the merchant SAW as live when this page rendered. --}}
                 <input type="hidden" name="expected_live_version_id"
                        value="{{ $liveVersion->id ?? '' }}">
-                <button type="submit" class="btn btn-sm btn-primary" data-ss-publish>
+                {{-- GAP-098. The host primary fill measured 2.58:1 in dark (rgb(4,34,42) on
+                     rgb(51,93,168)); `.ss-btn--primary` reads 7.92:1 dark / 6.42:1 light, measured
+                     on the same instrument. Following platform/content/edit.blade.php:124-128. --}}
+                <button type="submit" class="ss-btn ss-btn--primary ss-btn--sm" data-ss-publish>
                     {{ __('Publish draft') }} #{{ $latestDraft->version_no }}
                 </button>
                 <span class="text-muted small">

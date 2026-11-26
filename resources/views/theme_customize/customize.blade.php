@@ -10,10 +10,32 @@
 
 @push('css')
 <style>
+    /* GAP-098. FOUR LIGHT-ONLY LITERALS, IN A SERVER-SIDE DARK THEME.
+     *
+     * The admin's appearance is `[data-ss-theme]` on <html> plus the host's style-dark.css -- not
+     * `prefers-color-scheme` -- so `#f8f9fa` and `#e9ecef` stayed LIGHT in dark mode: a near-white
+     * hover surface under dark-theme ink, and two light hairlines on a dark card.
+     *
+     * NO MEASURED PROOF IS CLAIMED FOR THIS CHANGE, and that is the honest scope. The 16-cell
+     * four-combination capture found none of them, because `.icon-item:hover` is a hover state
+     * inside a dropdown closed on first paint and `[data-repeater-item]` needs a theme page that
+     * declares a repeater. The precedent runs both ways here: setting/index.blade.php:283 was
+     * converted and produced BYTE-IDENTICAL captures from a display:none block, and 23 of GAP-179
+     * slice 1's 30 conversions closed no measured failure either.
+     *
+     * WHAT IS CLAIMED IS ARITHMETIC. --ss-surface-hover is #f6f7f8 light / #2d323b dark, so the
+     * light screen does not move (one step off the #f8f9fa it replaces) and the dark one stops
+     * painting a white surface. --ss-border is #dddfe3 light / #363b44 dark. Both are declared on
+     * :root, so a var() in this view's OWN block resolves with no specificity contest -- which is
+     * why this conversion cannot be inert in the way three earlier ones were. */
+
     /* Icon picker improvements */
     .icon-dropdown {
         border-radius: 4px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        /* `--ss-shadow-md` is a COMPLETE box-shadow value with its own dark variant, so the
+         * whole declaration moves rather than only the colour: a shadow tuned for a white
+         * page is invisible on a dark one, which the literal `rgba(0,0,0,.1)` was. */
+        box-shadow: var(--ss-shadow-md);
         z-index: 1050;
     }
     
@@ -24,13 +46,13 @@
     }
     
     .icon-item:hover {
-        background-color: #f8f9fa;
+        background-color: var(--ss-surface-hover);
     }
     
     /* Image upload styling */
     .choose-files img {
         border-radius: 4px;
-        border: 1px solid #e9ecef;
+        border: 1px solid var(--ss-border);
         padding: 3px;
     }
     
@@ -38,7 +60,7 @@
     [data-repeater-item] {
         padding: 15px;
         margin-bottom: 10px;
-        border: 1px solid #e9ecef;
+        border: 1px solid var(--ss-border);
         border-radius: 4px;
     }
 </style>
@@ -97,7 +119,8 @@
                 <div class="card mb-0" id="settings-card">
                     <div class="card-header p-3 d-flex justify-content-between align-items-center">
                         <h4 class="mb-0">{{ __($theme_json['title']) }} {{ __('Settings') }}</h4>
-                        <button type="submit" class="btn btn-sm btn-primary">{{ __('Save') }}</button>
+                        {{-- GAP-098: 2.58:1 dark on the host fill; `.ss-btn--primary` 7.92:1. --}}
+                        <button type="submit" class="ss-btn ss-btn--primary ss-btn--sm">{{ __('Save') }}</button>
                     </div>
                     <div class="card-body p-3">
                         <p class="text-muted mb-4">{{ __($theme_json['detail']) }}</p>
@@ -638,7 +661,8 @@
                     </div>
                     <div class="card-footer p-3 d-flex justify-content-between">
                         <a href="{{ route('theme.pages', $theme) }}" class="btn btn-light">{{ __('Back') }}</a>
-                        {!! Form::button(__('Save'), ['type' => 'submit', 'class' => 'btn btn-primary']) !!}
+                        {{-- GAP-098: same conversion. `Form::button` renders the class verbatim. --}}
+                        {!! Form::button(__('Save'), ['type' => 'submit', 'class' => 'ss-btn ss-btn--primary']) !!}
                     </div>
                 </div>
                 {!! Form::close() !!}

@@ -81,6 +81,17 @@ const BASE = arg('base', 'http://127.0.0.1:8899');
 const SHOTS = arg('shots', null);
 
 /*
+ * GAP-113 requires a capture to assert "the landed path AND the `h1`", so both are options rather
+ * than prose. `--expect-h1` is a comma-separated list, positionally matched to `--surfaces`; a
+ * surface whose entry is `-` is only required to HAVE a heading, not a particular one (an Arabic
+ * page's heading is not the English one, so a single literal cannot serve all four combinations).
+ * `--forbid-h1` is the other half and the one that catches the real failure: the earlier evidence
+ * is four pictures of the dashboard, so "Dashboard" must never be the heading of a theme screen.
+ */
+const EXPECT_H1 = (arg('expect-h1', null) || '').split(',').map(s => s.trim());
+const FORBID_H1 = (arg('forbid-h1', null) || '').split(',').map(s => s.trim()).filter(Boolean);
+
+/*
  * THE SURFACE LIST IS THE MODULE'S OWN MERCHANT VIEWS, derived from the route table rather than
  * chosen by eye: every `GET` under the `lynomia` prefix that renders a `lynomia-chat::merchant.*`
  * view. `/lynomia/automation/commerce` is first because it is the one with the measured defect --
@@ -209,12 +220,20 @@ const SCAN = () => {
   }
 
   const body = getComputedStyle(document.body);
+  /* GAP-113. THE `h1` IS PART OF THE PREMISE, not of the report. Four
+     `_theme_customize__*.png` already exist in
+     docs/development/phase-2.5/evidence/web-blocked-2026-11-10/after/ and every one of them is a
+     picture of the DASHBOARD: the row carries `h1` "Dashboard" against a request for
+     /theme-customize. A landed-URL check alone does not catch that when the refusal is
+     `redirect()->back()` and the previous page IS the one asked for, so the heading is read too. */
+  const h1 = document.querySelector('h1, .h1, h2.h3');
   return {
     premise: {
       theme: document.documentElement.getAttribute('data-ss-theme'),
       bodyBg: body.backgroundColor,
       dir: document.documentElement.getAttribute('dir') || document.body.getAttribute('dir'),
       lang: document.documentElement.getAttribute('lang'),
+      h1: h1 ? h1.textContent.trim().replace(/\s+/g, ' ').slice(0, 60) : null,
     },
     scanned,
     debugbarSkipped,
@@ -288,8 +307,32 @@ const SCAN = () => {
         continue;
       }
 
+      const idx = SURFACES.indexOf(surface);
+      const wantH1 = EXPECT_H1[idx] && EXPECT_H1[idx] !== '-' ? EXPECT_H1[idx] : null;
+      const h1 = out.premise.h1;
+
+      if (h1 === null) {
+        console.log(`  ${surface.uri.padEnd(36)} PREMISE FAIL: the page has no heading at all, so `
+          + 'this capture cannot be shown to be of the screen it names');
+        premiseFailures++;
+        continue;
+      }
+      if (wantH1 && !h1.includes(wantH1)) {
+        console.log(`  ${surface.uri.padEnd(36)} PREMISE FAIL: h1 is "${h1}", expected to contain `
+          + `"${wantH1}"`);
+        premiseFailures++;
+        continue;
+      }
+      if (FORBID_H1.some(bad => h1.includes(bad))) {
+        console.log(`  ${surface.uri.padEnd(36)} PREMISE FAIL: h1 is "${h1}" -- this is the screen `
+          + 'the refusal lands on, not the one requested. See GAP-113.');
+        premiseFailures++;
+        continue;
+      }
+
       console.log(`  ${surface.uri.padEnd(36)} theme=${combo.theme} dir=${combo.dir} `
-        + `bg=${out.premise.bodyBg} | text nodes scanned=${out.scanned} | fail=${out.findings.length}`
+        + `bg=${out.premise.bodyBg} h1="${h1}" | text nodes scanned=${out.scanned} `
+        + `| fail=${out.findings.length}`
         + (out.debugbarSkipped ? ` | debugbar elements excluded=${out.debugbarSkipped}` : ''));
 
       for (const f of out.findings) {
