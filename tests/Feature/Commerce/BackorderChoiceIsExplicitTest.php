@@ -613,6 +613,18 @@ class BackorderChoiceIsExplicitTest extends SecurityTestCase
 
         $this->assertSame(BackorderPolicy::NOTIFY_CUSTOMER, (string) $stored['M']->stock_order_status,
             'the explicit choice on the other combination in the same request was not stored');
+
+        /*
+         * AND THE PARENT ROW ON THE SAME REQUEST. `update()`'s parent write sits AFTER the
+         * simple/variant `if` chain closes, so it is on the common path and a variant product's
+         * parent goes through it too -- read from the source rather than assumed, because a guard
+         * that only covered the simple branch would leave half the writes open. The fixture's
+         * parent starts at NULL (the state every admin-app product is in), and a save the merchant
+         * asked for resolves it.
+         */
+        $this->assertSame(BackorderPolicy::NOT_ALLOW, (string) $this->stored((int) $product->id),
+            'the parent row of a VARIANT product was left in the ambiguous state by an update, so '
+            . 'the parent write is not on the common path after all');
     }
 
     /**
