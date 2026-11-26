@@ -34,19 +34,65 @@
         <div class="row">
             <div class="col-md-6">
                 <div class="ss-field">
+                    {{-- GAP-060 WS5 — AND A DEFECT OF THE SAME CLASS AS D-42.3, TWO BOXES AWAY.
+
+                         `@selected(($setting['currency_format'] ?? '') === $ssValue)` CAN NEVER BE
+                         TRUE. PHP casts integer-like string array keys to integers, so `$ssValue` is
+                         `int 0`..`int 4` while the stored setting is the STRING '2' -- and `'2' ===
+                         2` is false. Verified both ways: `var_dump` of the literal's keys reports
+                         `integer`, and the rendered panel with `currency_format = '2'` stored came
+                         back with `selected` on NO option while `decimal_separator = 'comma'`, four
+                         lines below and compared with a string, came back correctly marked.
+
+                         WHAT THAT COSTS A MERCHANT. The browser falls back to the first option, so
+                         the screen reports zero decimal places whatever the store has saved -- and
+                         because `SettingController::currencySettings()` writes every posted name,
+                         pressing Save on this panel for any reason stores `currency_format = 0` and
+                         every price loses its minor units. This is the same shape as the separator
+                         defect this file's own comment records at the top: a form that reports the
+                         opposite of what the four money formatters are doing.
+
+                         `(string) $ssValue` on both sides is the whole fix, kept beside the
+                         instruction because the instruction would otherwise sit next to a control
+                         that misreports itself -- which is not guidance, it is a second trap.
+
+                         THE INSTRUCTION'S OWN CLAIM: the value is `number_format`'s SECOND argument
+                         in `currency_format_with_sym()` (app/Helper/helper.php:1773) and in its
+                         three siblings, so it is a display width and nothing rounds a stored
+                         amount. --}}
                     <label class="ss-label" for="currency_format">{{ __('Decimal Format') }}</label>
-                    <select class="ss-input currency_note" name="currency_format" id="currency_format">
+                    <select class="ss-input currency_note" name="currency_format" id="currency_format"
+                            aria-describedby="currency_format-help">
                         @foreach (['0' => '1', '1' => '1.0', '2' => '1.00', '3' => '1.000', '4' => '1.0000'] as $ssValue => $ssText)
-                            <option value="{{ $ssValue }}" @selected(($setting['currency_format'] ?? '') === $ssValue)>{{ $ssText }}</option>
+                            <option value="{{ $ssValue }}" @selected((string) ($setting['currency_format'] ?? '') === (string) $ssValue)>{{ $ssText }}</option>
                         @endforeach
                     </select>
+
+                    <x-ss.field-help for="currency_format">{{ __('How many decimal places every amount is printed with, here and on your storefront. It changes only how a price is written and never the amount that is stored: choosing 1 prints 10 for a price of 10.49.') }}</x-ss.field-help>
                 </div>
             </div>
 
             <div class="col-md-6">
                 <div class="ss-field">
+                    {{-- GAP-060 WS5. THE MOST CONSEQUENTIAL CONTROL ON THE SETTINGS SCREEN, and it
+                         presented itself as a symbol picker.
+
+                         Saving this reaches `StoreCurrencyChange::apply()` and then
+                         `StoreCurrencyConversionService::convertStoreCurrentValues()`, which inside
+                         one transaction REWRITES: every `products.price`, `sale_price` and
+                         `cost_price` for the store (lines 107-113), every `product_variants.price`
+                         and `variation_price` (116-123), the five money columns on the store's
+                         wallet plus its `currency_code` (126-135), and every `cod` order whose
+                         `delivered_status` is 0 (138-...). `SettingController::currencySettings()`
+                         carries the operator refusal for exactly this reason -- its own comment
+                         calls one POST here "a whole-catalogue price change".
+
+                         The sentence names the four things that are rewritten rather than saying
+                         "converts your prices", because a merchant who reads the short version will
+                         not think of the wallet or of an order already placed. --}}
                     <label class="ss-label" for="defult_currancy">{{ __('Default Currancy') }}</label>
-                    <select class="ss-input currency_note" name="defult_currancy" id="defult_currancy">
+                    <select class="ss-input currency_note" name="defult_currancy" id="defult_currancy"
+                            aria-describedby="defult_currancy-help">
                         @foreach ($currencyRates->where('is_active', 1) as $c)
                             <option value="{{ $c->symbol }}-{{ $c->currency_code }}"
                                     data-symbol="{{ $c->symbol }}"
@@ -55,6 +101,8 @@
                             </option>
                         @endforeach
                     </select>
+
+                    <x-ss.field-help for="defult_currancy">{{ __('Saving a different currency converts the money already in your store: every product price, sale price and cost price, every variant price, your wallet balances and every undelivered cash-on-delivery order are rewritten at the stored rate. It is not only a change of symbol.') }}</x-ss.field-help>
                 </div>
             </div>
 
@@ -70,23 +118,49 @@
                 $ssSeparators = \App\Support\Money\CurrencySeparators::tokensFromSettings($setting ?? []);
             @endphp
 
+            {{-- GAP-060 WS5 — TWO CONTROLS, TWO DIFFERENT SENTENCES, AND THE ASYMMETRY IS THE POINT.
+
+                 These two share a fact: comma+comma is a reachable SAVED state, and
+                 `CurrencySeparators::tokens()` resolves it by moving the THOUSANDS mark
+                 (`$t = $d === DOT ? COMMA : DOT`), never the decimal one. So the shared fact is not
+                 symmetric -- on one control the merchant's choice survives and on the other it does
+                 not -- and one shared sentence would have to say "one of these is overridden"
+                 without saying which. Two sentences each state the outcome for the control they are
+                 attached to, which is what makes them useful rather than merely shared.
+
+                 THE LAYOUT WAS CHECKED BEFORE THE SHAPE WAS CHOSEN, because that is what cost time
+                 on `order/view`. Each of these is a `col-md-6` holding a block-level
+                 `label`/`select` stack inside `.ss-field`, not a `d-flex` row, so a `<p>` beneath
+                 the select extends the column downward exactly as `shop_price`'s already does on
+                 the tax panel. No row height is shared with anything.
+
+                 Neither sentence quotes an option label, deliberately. The Arabic for `Comma` was
+                 `- إرفع`, which is not a word for a punctuation mark at all; it is corrected to
+                 `فاصلة` in the same change, and the sentences still speak of "the same character"
+                 so that they stay true of whatever the two options are called. --}}
             <div class="col-md-6">
                 <div class="ss-field">
                     <label class="ss-label" for="decimal_separator">{{ __('Decimal Separator') }}</label>
-                    <select name="decimal_separator" class="ss-input currency_note" id="decimal_separator">
+                    <select name="decimal_separator" class="ss-input currency_note" id="decimal_separator"
+                            aria-describedby="decimal_separator-help">
                         <option value="dot" @selected($ssSeparators['decimal'] === 'dot')>{{ __('Dot') }}</option>
                         <option value="comma" @selected($ssSeparators['decimal'] === 'comma')>{{ __('Comma') }}</option>
                     </select>
+
+                    <x-ss.field-help for="decimal_separator">{{ __('The character that separates the fractional part of every amount. If you choose the same character here as for the thousands separator, your choice is kept and the thousands separator is moved to the other character, so that an amount can still be read back.') }}</x-ss.field-help>
                 </div>
             </div>
 
             <div class="col-md-6">
                 <div class="ss-field">
                     <label class="ss-label" for="thousand_separator">{{ __('Thousands Separator') }}</label>
-                    <select name="thousand_separator" class="ss-input currency_note" id="thousand_separator">
+                    <select name="thousand_separator" class="ss-input currency_note" id="thousand_separator"
+                            aria-describedby="thousand_separator-help">
                         <option value="dot" @selected($ssSeparators['thousand'] === 'dot')>{{ __('Dot') }}</option>
                         <option value="comma" @selected($ssSeparators['thousand'] === 'comma')>{{ __('Comma') }}</option>
                     </select>
+
+                    <x-ss.field-help for="thousand_separator">{{ __('The character that groups the digits before the decimal point. If you choose the same character as the decimal separator, this one is moved to the other character instead, because the decimal choice wins, so that an amount can still be read back.') }}</x-ss.field-help>
                 </div>
             </div>
 

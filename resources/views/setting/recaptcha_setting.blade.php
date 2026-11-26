@@ -39,11 +39,34 @@
             <div class="row">
                 <div class="col-lg-6">
                     <div class="ss-field">
+                        {{-- GAP-060 WS5. The version is read ONLY inside the enable gate, and only
+                             on the panel's own authentication screens.
+
+                             Every reader tests `RECAPTCHA_MODULE == 'yes'` first --
+                             `AuthenticatedSessionController:46`, `RegisteredUserController:57`,
+                             `PasswordResetLinkController:41` -- so the toggle in this card's header
+                             decides whether this select matters at all, and the sentence names that
+                             toggle by its real label, "Enable reCAPTCHA".
+
+                             THE TWO VERSIONS BEHAVE DIFFERENTLY IN THE SAME HANDLER:
+                             `v2` adds `g-recaptcha-response => required` to the validation set,
+                             while `v3` fires `VerifyReCaptchaToken` and only falls back to requiring
+                             that field when the event reports a failure
+                             (AuthenticatedSessionController:47-57). The sentence says that rather
+                             than anything about scores or key types, which are Google's
+                             documentation and not this codebase's behaviour.
+
+                             The readers are `resources/views/auth/*` and `marketplace/pricing`;
+                             nothing under `front_end/` reads it, which is why the sentence scopes
+                             itself to the sign-in, registration and password screens. --}}
                         <label class="ss-label" for="google_recaptcha_version">{{ __('Google Recaptcha Version') }}</label>
-                        <select id="google_recaptcha_version" class="ss-input" name="google_recaptcha_version">
+                        <select id="google_recaptcha_version" class="ss-input" name="google_recaptcha_version"
+                                aria-describedby="google_recaptcha_version-help">
                             <option value="v2" @selected(($setting['NOCAPTCHA_VERSON'] ?? '') === 'v2')>{{ __('v2') }}</option>
                             <option value="v3" @selected(($setting['NOCAPTCHA_VERSON'] ?? '') === 'v3')>{{ __('v3') }}</option>
                         </select>
+
+                        <x-ss.field-help for="google_recaptcha_version">{{ __('Only read while Enable reCAPTCHA is switched on, and only on the sign in, registration and password screens. v2 makes the challenge box a required field; v3 checks a token in the background instead and asks for the box only when that check fails.') }}</x-ss.field-help>
                     </div>
                 </div>
 

@@ -20,8 +20,36 @@
     </div>
 
     <div class="ss-card__body">
-        <fieldset class="ss-field">
+        {{-- GAP-060 WS5. SAVING THIS PANEL IS A REPLACEMENT, NOT AN AMENDMENT, and the screen shows
+             a dozen independent-looking switches.
+
+             `EmailTemplateController::updateEmailNotificationStatus()` line 169 runs
+             `UserEmailTemplate::where('user_id', $user->id)->update(['is_active' => 0])` and THEN
+             re-enables only the ids that were posted. An unchecked checkbox posts nothing, so that
+             zeroing is how the handler learns a switch was turned off -- and the consequence is that
+             anything not ticked at the moment of saving is switched off, whether or not the merchant
+             touched it.
+
+             MEASURED through the real endpoint: with two templates both active, posting only the
+             first one's id left the first at `is_active = 1` and took the second to 0.
+
+             AND IT IS PER USER, NOT PER STORE: the predicate is `user_id`, and
+             `EmailTemplate::template()` (app/Models/EmailTemplate.php:17-20) constrains the relation
+             this view reads to `auth()->user()->id` as well. Two staff members of the same store
+             therefore keep separate answers, which the sentence says because nothing on the screen
+             suggests it.
+
+             The instruction is bound to the FIELDSET, not to a switch: the thing being described is
+             the whole list, and a description hung off one toggle out of a dozen would be announced
+             only by chance. The fieldset stays inline rather than becoming `x-ss.choice-group` so
+             that the settings census keeps finding this group by its own legend. --}}
+        <fieldset class="ss-field" aria-describedby="email_notify-group-help">
             <legend class="ss-label">{{ __('Send an email when') }}</legend>
+
+            <p class="ss-field__hint" id="email_notify-group-help">
+                {{ __('This is the complete list. Saving switches off every email that is not ticked here, not only the ones you just changed, and the choice is stored for your own account rather than for the whole store.') }}
+            </p>
+
             <div class="row">
                 @foreach ($emailTemplates as $EmailTemplate)
                     <div class="col-lg-4 col-md-6">

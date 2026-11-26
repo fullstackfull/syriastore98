@@ -31,11 +31,34 @@
             <div class="row">
                 <div class="col-sm-6 col-12">
                     <div class="ss-field">
+                        {{-- GAP-060 WS5. The select does two things a merchant cannot see: it
+                             rebuilds the form, and it decides which boxes they are allowed to fill.
+
+                             `setting/index.blade.php:423-426` binds `change` on this id to
+                             `getEmailSettingFields()`, which POSTs to `get.email.fields` and
+                             replaces `#getfields` with that provider's partial -- so the fields
+                             below change the moment the select changes, with nothing saved yet.
+
+                             AND `email_fields.blade.php`'s preset table decides editability:
+                             `$editable` is true only for `custom`, `smtp` and an unrecognised
+                             driver, so for the other eleven the Mail Host is a readonly preset
+                             (`smtp.gmail.com`, `smtp.office365.com`, ...) and Mail Port and Mail
+                             Encryption are a readonly `587`/`tls` pair. The option labels come from
+                             `EmailTemplate::$email_settings` through `Form::select` and are NOT run
+                             through the translator, so "Custom" and "SMTP" read the same on the
+                             Arabic page and the sentence may quote them in both languages.
+
+                             "Nothing is stored until you press Save Changes" is the third clause
+                             because the first two make the screen look as though something already
+                             happened. --}}
                         <label class="ss-label" for="email_setting">{{ __('Email Setting') }}</label>
                         {!! Form::select('email_setting', $email_setting ?? [], $setting['email_setting'] ?? $get_setting, [
                             'id' => 'email_setting',
                             'class' => 'ss-input',
+                            'aria-describedby' => 'email_setting-help',
                         ]) !!}
+
+                        <x-ss.field-help for="email_setting">{{ __('Choosing a provider replaces the fields on this screen straight away, and for every provider except Custom and SMTP the mail host, port and encryption are filled in for you and cannot be edited. Nothing is stored until you press Save Changes.') }}</x-ss.field-help>
                     </div>
                 </div>
             </div>

@@ -25,8 +25,26 @@
         <div class="row">
             <div class="col-lg-6">
                 <div class="ss-field">
+            {{-- GAP-060 WS5. THE MODEL NAME IS WRITTEN PER STORE AND READ WITHOUT A STORE FILTER.
+
+                 `SettingController::ChatgptSettings()` stores it with
+                 `['name' => $key, 'store_id' => getCurrentStore()]` (around line 954), but
+                 `AITemplateController:167` reads it as
+                 `DB::table('settings')->where('name', 'chat_gpt_model')->first()` -- no store
+                 predicate and no ordering, so whichever row the database hands back first serves
+                 every generation on the platform. The sentence says that, because an operator who
+                 has switched stores would otherwise assume this choice is the store's.
+
+                 AND THE CHOICE PICKS THE ENDPOINT, not just the model: `:230` sets
+                 `$isChatModel` from `== 'gpt-3.5-turbo-instruct'` and that one option goes to
+                 `$open_ai->completion()` while all four others go to `$open_ai->chat()` (:232-250).
+
+                 NOTHING IS CLAIMED ABOUT COST OR CAPABILITY. The old census reason worried about
+                 exactly that, and it was right to: those are OpenAI's facts, not this
+                 repository's, so they are not in the sentence. --}}
             <span class="ss-label-line"><label for="chat_gpt_model" class="ss-label">{{ __('Chat GPT Model Name') }}</label><span class="ss-label__required" aria-hidden="true">*</span></span>
-                <select name="chat_gpt_model" id="chat_gpt_model" class="ss-select" required>
+                <select name="chat_gpt_model" id="chat_gpt_model" class="ss-select" required
+                        aria-describedby="chat_gpt_model-help">
                     @foreach(getAiModelName() as $groupLabel => $options)
                         @if(is_array($options))
                             <optgroup label="{{ $groupLabel }}">
@@ -39,6 +57,8 @@
                         @endif
                     @endforeach
                 </select>
+
+                <x-ss.field-help for="chat_gpt_model">{{ __('The model the AI template generator calls with the keys on this screen. GPT-3.5-Turbo-Instruct is sent to the completions endpoint and every other option to the chat endpoint. The generator reads this name without a store filter, so one choice serves every store on the platform.') }}</x-ss.field-help>
                 </div>
             </div>
             <div class="col-12">

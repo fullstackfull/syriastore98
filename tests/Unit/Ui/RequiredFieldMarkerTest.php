@@ -79,6 +79,43 @@ class RequiredFieldMarkerTest extends TestCase
     }
 
     /**
+     * THE DETECTOR MUST READ MARKUP AND NOT THE PRODUCT'S OWN COPY — both directions, so the
+     * redaction cannot be loosened into "nothing is ever required" and cannot drift back either.
+     *
+     * Added when a merchant-facing instruction containing the word "required" broke the ratchet;
+     * `isRequired()`'s docblock has the measurement and names the pre-existing false positive the
+     * same change removed.
+     */
+    public function test_the_detector_reads_attributes_and_not_translated_prose(): void
+    {
+        /* NEGATIVE: the word in copy the screen prints is not a required field. */
+        $this->assertFalse($this->isRequired(
+            '<label for="x">{{ __(\'X\') }}</label>'
+            . '<select id="x" name="x"></select>'
+            . '<p>{{ __(\'v2 makes the challenge box a required field; v3 does not.\') }}</p>'
+        ), 'a sentence containing the word "required" is being read as a required control');
+
+        $this->assertFalse($this->isRequired(
+            '<p>{{ __("Use the Is Checkout Required feature to prevent guest checkout.") }}</p>'
+        ), 'the same, in double quotes');
+
+        /* POSITIVE CONTROLS: every shape that really is a required control still matches, including
+           one whose sibling label is a translated string — otherwise this redaction would be a way
+           of switching the ratchet off. */
+        $this->assertTrue($this->isRequired('<input type="text" name="x" required>'),
+            'a bare required attribute is no longer detected, so the ratchet is switched off');
+        $this->assertTrue($this->isRequired('<input type="text" name="x" required/>'));
+        $this->assertTrue($this->isRequired('<input type="text" name="x" required="required">'));
+        $this->assertTrue($this->isRequired("Form::text('x', null, ['required' => 'required'])"));
+        $this->assertTrue($this->isRequired(
+            '<label for="x">{{ __(\'Name\') }}</label><input id="x" name="x" required>'
+        ), 'a required control beside a translated label is no longer detected');
+        $this->assertTrue($this->isRequired(
+            "{{ Form::text('x', null, ['required' => 'required', 'placeholder' => __('Enter a name')]) }}"
+        ), 'a required attribute in the same array as a translated placeholder is no longer detected');
+    }
+
+    /**
      * Bite-tested: deleting the marker from resources/views/tag/create.blade.php fails this with
      * that file and the label named.
      */
@@ -209,6 +246,7 @@ class RequiredFieldMarkerTest extends TestCase
             $source = preg_replace('/\{\{--.*?--\}\}/s', '', $source);
             $source = preg_replace('/<!--.*?-->/s', '', $source);
 
+
             foreach ($this->blocks($source) as $block) {
                 if (! $this->isRequired($block) || ! $this->hasLabel($block)) {
                     continue;
@@ -244,12 +282,47 @@ class RequiredFieldMarkerTest extends TestCase
         return $out;
     }
 
+    /**
+     * TRANSLATED TEXT IS NOT MARKUP, and this detector could not tell the difference.
+     *
+     * The second limb matches a bare `required` followed by whitespace or `>`, which is how it
+     * finds `<input required>`. It matched the WORD "required" in a sentence the SCREEN PRINTS just
+     * as happily — so a merchant-facing instruction containing it turned its column into a
+     * "required field with no marker" and failed this test. CLAUDE.md §3 records this family eight
+     * times for COMMENTS, in three syntaxes; this is the same fault in a fourth, and the one a
+     * comment-stripping census does not cover, because the string is not a comment — it is the
+     * product's own copy.
+     *
+     * ONE OF THE TWO BLOCKS THIS STOPS MATCHING IS NOT NEW, which is what settles that this is a
+     * detector fix rather than an accommodation for the sentence that exposed it.
+     * `AppSetting/index.blade.php:720` prints
+     * `__('Use the Is Checkout Required feature to prevent guest checkout, …')` — a NOTE, not a
+     * control — and this detector has been counting it as a required field all along. It passed
+     * only because that block carries a marker for a different reason, so the ratchet was green
+     * for the wrong reason on that row and would have stayed that way. The other is
+     * `setting/recaptcha_setting.blade.php`, whose GAP-060 WS5 instruction says "v2 makes the
+     * challenge box a required field".
+     *
+     * MEASURED IN BOTH DIRECTIONS: 167 blocks detected before, 165 after, and the two that change
+     * are exactly those two files. Nothing real is lost — a genuine `'required' => 'required'` or a
+     * bare `required` attribute is never inside a `__()` call — and the premise above still holds
+     * 165 against its floor of 100.
+     *
+     * The REDACTION IS LOCAL TO THIS PREDICATE, not applied to the census's source, so the marker
+     * match and the `__('…')` label-name extraction in the failure message still see the real text.
+     */
     private function isRequired(string $block): bool
     {
+        $withoutCopy = preg_replace(
+            ['/__\(\s*\'(?:[^\'\\\\]|\\\\.)*\'/s', '/__\(\s*"(?:[^"\\\\]|\\\\.)*"/s'],
+            ["__('…'", '__("…"'],
+            $block
+        );
+
         return (bool) preg_match(
             '/[\'"]required[\'"]\s*=>\s*[\'"]required[\'"]'
             . '|(?<![\w-])required(?:\s*=\s*["\']required["\'])?\s*(?=[\/>\s])/i',
-            $block);
+            (string) $withoutCopy);
     }
 
     private function hasLabel(string $block): bool
