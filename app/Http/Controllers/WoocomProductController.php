@@ -133,10 +133,27 @@ class WoocomProductController extends Controller
                    $category = Category::find($category->id);
                     if ($category['parent'] == 0) {
                         $exitsCategory = (clone $woocommerceConectionQuery)->where('store_id',getCurrentStore())->where('module','=','category')->where('woocomerce_id' , $category['id'])->first();
-                        if($exitsCategory) {
+                        /*
+                         * P1-INV-13 / DATA-001. The mapping query above IS scoped to this store and
+                         * null-guarded, so this was the weakest member of the family -- but
+                         * `woocommerce_conections.original_id` is a bare integer with NO foreign key
+                         * (this controller's own `edit()` says so), and `Category` adds no predicate
+                         * for any principal, so a mapping row this store owns can still name another
+                         * store's category. Taking `original_id` on trust put that foreign
+                         * `category_id` on a product being created in THIS store: a cross-tenant
+                         * foreign key rather than a cross-tenant rewrite, which is why it survived
+                         * the round of fixes that corrected `edit()` twenty lines below.
+                         *
+                         * `owned()` returns null for a foreign or deleted category, `$parent` stays
+                         * false, and the handler takes its existing "Add Woocommerce Product Category."
+                         * refusal -- the correct answer to "import this product into a category you do
+                         * not own", and no new branch.
+                         */
+                        $ownedCategory = \App\Services\ImportMappingOwnership::owned($exitsCategory, \App\Models\Category::class, getCurrentStore());
+                        if($ownedCategory) {
                             $parent = true;
-                            $categoryId = $exitsCategory->original_id;
-                        }                            
+                            $categoryId = $ownedCategory->id;
+                        }                     
                     } 
                 }
                 if(!$parent) {
@@ -327,10 +344,27 @@ class WoocomProductController extends Controller
                    $category = Category::find($category->id);
                     if ($category['parent'] == 0) {
                         $exitsCategory = (clone $woocommerceConectionQuery)->where('store_id',getCurrentStore())->where('module','=','category')->where('woocomerce_id' , $category['id'])->first();
-                        if($exitsCategory) {
+                        /*
+                         * P1-INV-13 / DATA-001. The mapping query above IS scoped to this store and
+                         * null-guarded, so this was the weakest member of the family -- but
+                         * `woocommerce_conections.original_id` is a bare integer with NO foreign key
+                         * (this controller's own `edit()` says so), and `Category` adds no predicate
+                         * for any principal, so a mapping row this store owns can still name another
+                         * store's category. Taking `original_id` on trust put that foreign
+                         * `category_id` on a product being created in THIS store: a cross-tenant
+                         * foreign key rather than a cross-tenant rewrite, which is why it survived
+                         * the round of fixes that corrected `edit()` twenty lines below.
+                         *
+                         * `owned()` returns null for a foreign or deleted category, `$parent` stays
+                         * false, and the handler takes its existing "Add Woocommerce Product Category."
+                         * refusal -- the correct answer to "import this product into a category you do
+                         * not own", and no new branch.
+                         */
+                        $ownedCategory = \App\Services\ImportMappingOwnership::owned($exitsCategory, \App\Models\Category::class, getCurrentStore());
+                        if($ownedCategory) {
                             $parent = true;
-                            $categoryId = $exitsCategory->original_id;
-                        }                            
+                            $categoryId = $ownedCategory->id;
+                        }                     
                     }
                 }
                 if(!$parent) {
