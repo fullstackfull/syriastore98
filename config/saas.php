@@ -12,10 +12,14 @@ return [
     | `SAAS-002` lists "فترات السماح" (grace periods) among the approved subscription decisions and
     | `SAAS-004` makes the restriction of new selling conditional on one: "تقييد البيع الجديد بعد
     | انتهاء فترة السماح" — restrict new selling AFTER the grace period. Neither text states a
-    | length, and no grace period exists anywhere in this codebase: measured 2026-11-26, the string
-    | `grace` appears in `app/`, `database/`, `routes/`, `resources/views/` and `packages/workdo/`
-    | exactly zero times, and the only hit in the whole repository is `config/jwt.php`'s unrelated
-    | `blacklist_grace_period`.
+    | length, and no subscription grace period exists anywhere in this codebase.
+    |
+    | MEASURED PRECISELY, because the first draft of this comment overstated it. Searched as an
+    | IDENTIFIER (`grace_period`, `grace_days`, `graceDays`, `gracePeriod`) across `app/`,
+    | `database/`, `routes/`, `resources/`, `config/` and `packages/workdo/`: ONE hit, and it is
+    | `config/jwt.php`'s unrelated `blacklist_grace_period`. The bare word `grace` is the WRONG
+    | search and the draft's "zero times" was false -- the vendored WorkDo demo data contains
+    | people called Grace.
     |
     | So this ships as NULL and `App\Support\Saas\SubscriptionLifecycle::graceDays()` answers null.
     | With it null, a lapsed subscription is reported as `EXPIRED_GRACE_UNDEFINED` and

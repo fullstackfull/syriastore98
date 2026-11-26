@@ -700,8 +700,23 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
                three numbers were re-checked and are unmoved, and nothing was added to the
                known-outcome manifest. This gate caught the drift exactly as its own failure message
                says it will, for the fourth time. */
+            /* RE-MEASURED AGAIN 2026-11-26 (SAAS-001): 985 -> 1005, a +20 shift from the null-plan
+               guard and its docblock added to StoreController::store(), which sits above it --
+               `Plan::find($user->plan_id)` was dereferenced without a null check and the store
+               limit door answered HTTP 500 for a merchant with no plan or a deleted one. Confirmed
+               by the ENCLOSING METHOD NAME and its validator, not by adding the offset: it is still
+               the ONLY `$messages->first()` in the file (grep returns one hit), inside
+               storeResetPasswordUpdate() -- declared at :992 -- beside
+               `required|confirmed|same:password_confirmation` at :998. The +20 was also derived
+               independently from the diff (21 lines added, 1 replaced) and agrees, so the whole
+               shift is that one change and nothing else moved. The exclusion itself is unchanged,
+               UserController's three numbers were re-checked and are unmoved, and nothing was added
+               to the known-outcome manifest. THIS GATE HAS NOW CAUGHT THE DRIFT FIVE TIMES, which
+               is CLAUDE.md's case for citing the METHOD rather than the line: `985` cannot say what
+               it points at, while `storeResetPasswordUpdate()` cannot drift. Re-keying this array
+               is a change to another workstream's file and is left named rather than done. */
             'app/Http/Controllers/StoreController.php' => [
-                985 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
+                1005 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
                     . 'written twice, so the bag says the same thing twice',
             ],
             /* RE-MEASURED 2026-11-11 (P2.5-ACCEPTANCE): 460/503/567 -> 488/531/595, a pure

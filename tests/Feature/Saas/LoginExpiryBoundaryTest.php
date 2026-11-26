@@ -258,6 +258,60 @@ final class LoginExpiryBoundaryTest extends SecurityTestCase
         }
     }
 
+    // ------------------------------------------------- the shipped Flutter contract, unchanged
+
+    /**
+     * THE SIXTH SURFACE, AND IT WAS ALREADY RIGHT — so this pins the agreement rather than a fix.
+     *
+     * `GET api/admin/indexAllPlan` answers the admin app's plan screen with `is_expired`,
+     * `days_remaining`, `status` and `expire_message`; `StoreSyria_app98`'s
+     * `PlanStatus.fromJson` (lib/core/model/my_plan_model.dart) reads `is_expired` straight to the
+     * merchant's screen. Its comparison is `$today->greaterThan($expireDate)` — strictly after, so
+     * the expiry date is live, which is the boundary this slice adopted. The merchant's phone and
+     * the merchant's login now say the same thing on the same day, and NO API FIELD CHANGED:
+     * nothing in `Api\DashboardController` was touched. This case is what would fail if a later
+     * change moved either one.
+     */
+    #[Test]
+    public function test_the_flutter_plan_endpoint_and_the_web_login_agree_on_the_expiry_day(): void
+    {
+        $this->freePlan();
+        $paid = $this->paidMonthlyPlan();
+        $today = date('Y-m-d');
+
+        [$merchant, $store] = $this->makeTenant();
+        $merchant->plan_id = $paid->id;
+        $merchant->plan_expire_date = $today;
+        $merchant->save();
+        $merchant = $merchant->fresh();
+
+        $token = $merchant->createToken('auth_token')->plainTextToken;
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->getJson('/api/admin/indexAllPlan?store_id=' . $store->id);
+
+        $this->assertSame(200, $response->getStatusCode(), 'premise: the endpoint answers');
+
+        // `data.current_plan.plan_status`, NOT `data.plan_status`: the block is NESTED inside
+        // `current_plan`. The premise assertion below is what reported that, instead of the case
+        // passing on a null `is_expired` that casts to false -- which is the answer it asserts.
+        $status = $response->json('data.current_plan.plan_status');
+
+        $this->assertIsArray(
+            $status,
+            'premise: the response still carries the plan_status block the Flutter app reads. '
+            . 'Body: ' . substr((string) $response->getContent(), 0, 400)
+        );
+        $this->assertFalse(
+            (bool) $status['is_expired'],
+            'the Flutter contract must keep saying live on the expiry day'
+        );
+        $this->assertFalse(
+            SubscriptionLifecycle::recurringSubscriptionNeedsDowngrade($merchant),
+            'and the web login must now say the same'
+        );
+    }
+
     /**
      * A PREMISE, NOT A RESTATEMENT: that the predicate those sites now call really is the one this
      * file's boundary cases describe. Without it the census above could be satisfied by a call to

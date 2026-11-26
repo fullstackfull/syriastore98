@@ -17,12 +17,22 @@ use Carbon\CarbonImmutable;
  *   `Http\Middleware\SetLocate::handle()`            the same expression again
  *   `Services\SaasRevenueFigures::subscriptions()`   `users.plan_expire_date >= :today`  ->  'live'
  *   `resources/views/plans/index.blade.php`          `plan_expire_date < date('Y-m-d')`  ->  'Expired'
+ *   `Api\DashboardController::…` (the Flutter one)   `$today->greaterThan($expireDate)`  ->  expired
  *
  * ON THE EXPIRY DATE ITSELF the diff is 0, so `<= 0` is true: the three auth sites called
  * `assignPlan(1)` and flashed "Your Plan is expired." while `SaasRevenueFigures` counted the same
  * row as `live` and the merchant's own plan screen did not print `Expired`. Driven over HTTP before
  * the correction: a `Month`-plan merchant with `plan_expire_date = date('Y-m-d')` logged in and came
  * back with `plan_id` 1, `plan_expire_date` NULL and that flash — on a day they had paid for.
+ *
+ * AND THE SHIPPED FLUTTER CONTRACT ALREADY SAYS LIVE-ON-THE-EXPIRY-DAY. `Api\DashboardController`
+ * answers the admin app's plan screen with `is_expired`, `days_remaining`, `status` and
+ * `expire_message`, and its comparison is `$today->greaterThan($expireDate)` -- strictly after, so
+ * the expiry date is live. `StoreSyria_app98`'s `PlanStatus.fromJson` reads that `is_expired`
+ * straight through to the merchant's screen. So FIVE of the six surfaces agree and the three auth
+ * sites were the sole outliers; correcting them brings the web login into line with what the
+ * merchant's own phone has been telling them, and changes no API field. Nothing in
+ * `Api\DashboardController` is touched.
  *
  * THE BOUNDARY HERE IS THE PLATFORM'S OWN DOCUMENTED ONE, not a new choice. `SaasRevenueFigures`
  * states it: "`>=` AND NOT `>`: the expiry date is the last day of the subscription, so a plan

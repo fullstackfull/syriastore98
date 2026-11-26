@@ -38,9 +38,12 @@ use Tests\TestCase;
  * with a stated rule behind it. The auth sites are the outliers and are corrected to call this
  * class; `LoginExpiryBoundaryTest` drives that over HTTP.
  *
- * THE GRACE PERIOD IS AN OWNER DECISION AND THIS CLASS DOES NOT INVENT ONE. `grace` appears
- * nowhere in `app/`, `database/`, `routes/`, `resources/views/` or `packages/workdo/` -- the only
- * hit in the repository is `config/jwt.php`'s unrelated `blacklist_grace_period`. So
+ * THE GRACE PERIOD IS AN OWNER DECISION AND THIS CLASS DOES NOT INVENT ONE. Searched as an
+ * IDENTIFIER (`grace_period`, `grace_days`, `graceDays`, `gracePeriod`) across `app/`, `database/`,
+ * `routes/`, `resources/`, `config/` and `packages/workdo/`: ONE hit, `config/jwt.php`'s unrelated
+ * `blacklist_grace_period`. (The bare word `grace` is the WRONG search; an earlier draft of this
+ * docblock used it and its "zero times" was false -- the vendored WorkDo demo data contains people
+ * called Grace. The lesson is CLAUDE.md's: a census keyed on a word that also occurs in prose.) So
  * `config('saas.grace_period_days')` ships as NULL, `graceDays()` returns null, and a lapsed
  * subscription reports `EXPIRED_GRACE_UNDEFINED` rather than being placed on one side or the other
  * of a boundary nobody has set. `restrictsNewSelling()` is then FALSE, with a named reason -- the
