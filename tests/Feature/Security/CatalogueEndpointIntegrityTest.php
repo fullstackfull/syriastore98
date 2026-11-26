@@ -76,13 +76,22 @@ class CatalogueEndpointIntegrityTest extends SecurityTestCase
      *       `Api\ApiController::place_order`, which answers JSON through `ApiResponser` and would
      *       have been mounted on a route carrying no authentication.
      *
-     * THE ONE THAT REMAINS IS THE ONE THAT IS BROKEN IN USE, which is why it is not a deletion:
-     * `resources/views/AppSetting/mobile_content.blade.php` calls
-     * `route('product.image.delete')` inside a RENDERED view, so withdrawing the route throws
-     * `RouteNotFoundException` at render time and 500s the whole Mobile Screen Content page --
-     * worse than the defect. It needs the METHOD, and an unlink keyed on request input is the
-     * P1-SEC-71 shape, so it is not a routing change. `DeadControllerRoutesWithdrawnTest::
-     * test_the_product_image_delete_route_is_deliberately_kept` asserts all three halves of that.
+     * AND THEN THE LAST ONE WAS FIXED, SO THIS LIST IS NOW EMPTY -- 65, then 1, then 0 across two
+     * batches, and the empty set is the strongest form of this assertion rather than an absent one:
+     * NO host-app route points at a method that does not exist. Measured: 1,090 controller routes
+     * checked, 0 missing.
+     *
+     * The last entry was `AppSettingController@image_delete`, the only one of the 73 that was
+     * broken IN USE rather than orphaned -- `resources/views/AppSetting/mobile_content.blade.php`
+     * calls `route('product.image.delete')` inside a RENDERED view, so withdrawing the route
+     * throws `RouteNotFoundException` while the page renders. It needed the METHOD, which now
+     * exists: the unlink goes through `StoredUpload::delete($path, $user->creatorId())` behind an
+     * `instanceof User` check, an operator-first permission limb, a fail-closed store and a
+     * principal-derived path prefix. Five layers, each mutation-verified by
+     * `AppSettingImageDeleteDoorTest`.
+     *
+     * SO A NEW ENTRY HERE IS NOW UNAMBIGUOUS: it is a route somebody added that raises
+     * BadMethodCallException on every request. There is no backlog left to hide it in.
      *
      * Asserted in BOTH directions, which is how this list came to be corrected rather than left
      * to rot: the deletion above was not noticed by the census that withdrew the routes, because
@@ -91,7 +100,7 @@ class CatalogueEndpointIntegrityTest extends SecurityTestCase
      * @var list<string>
      */
     private const DEAD_ROUTE_ACTIONS = [
-        'App\\Http\\Controllers\\AppSettingController@image_delete',
+        // EMPTY, AND MEASURED EMPTY -- see the docblock. Do not park a new one here.
     ];
 
     // ------------------------------------------------------------------ (a) the premise

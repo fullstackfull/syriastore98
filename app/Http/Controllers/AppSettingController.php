@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use App\Models\User;
+use App\Policies\UserPolicy;
+use App\Services\StoredUpload;
 use App\Services\WebuzoDomainService;
 class AppSettingController extends Controller
 {
@@ -1411,5 +1414,103 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
         } else {
             return ["error" => true, "data" => __('Plan storage limit is over so please upgrade the plan.')];
         }
+    }
+
+    /**
+     * `POST product-image-delete` (name `product.image.delete`) -- unlink ONE image from the
+     * caller's own store folder.  GAP-268's last declared entry.
+     *
+     * WHY THIS EXISTS AS A METHOD RATHER THAN THE ROUTE BEING WITHDRAWN. It was the ninth and final
+     * entry in `EveryRouteActionExistsTest::KNOWN_BROKEN`, and the only one of the original 73 that
+     * was broken IN USE rather than orphaned: `resources/views/AppSetting/mobile_content.blade.php`
+     * calls `route('product.image.delete')` inside a RENDERED view, so withdrawing the route throws
+     * `RouteNotFoundException` at render time and 500s the whole Mobile Screen Content page -- worse
+     * than the defect it would close.
+     *
+     * AN UNLINK KEYED ON REQUEST INPUT IS THE P1-SEC-71 SHAPE, so the control is layered and each
+     * layer is named with what it alone would and would not stop:
+     *
+     *   1. `instanceof User` FIRST, before anything asks for an identity -- and on THIS handler that
+     *      is load-bearing, not ceremony. `getCurrentStore()` reads `auth()->user()` and returns the
+     *      HARD-CODED LITERAL 1 for any principal whose `type` is `super admin`
+     *      (`app/Helper/helper.php`). `customers` has a fillable `type` column, so a `Customer` row
+     *      typed `super admin` would be handed store 1's folder by that helper. The class check is
+     *      what stops the question being asked.
+     *   2. Operator FIRST, then `Manage Store Setting` -- the permission this controller's own
+     *      `index()` gates on. Operator-first because Laratrust here has
+     *      `permissions_as_gates => false` and no super-admin bypass, so `isAbleTo()` ALONE refuses
+     *      the platform operator.
+     *   3. FAIL CLOSED ON A STORE THAT IS NOT A POSITIVE INTEGER. `getCurrentStore()` answers `null`
+     *      for a merchant with no store and no `current_store`, and a null store would make layer
+     *      4's prefix the string `uploads/` -- the whole root. That is how P1-SEC-71 happened.
+     *   4. THE PREFIX COMES FROM THE PRINCIPAL; ONLY THE LEAF COMES FROM THE REQUEST. The path must
+     *      begin `uploads/<that store id>/`. This layer exists for the DEGENERATE STORED DATA, and
+     *      that is measured, not hypothetical: the uploader is `$dir = 'uploads/' .
+     *      getCurrentStore()` (this file, four sites), so a file uploaded while the store was null
+     *      sits at `uploads/<file>` with NO numeric segment -- and layer 5's tenant rule skips a
+     *      first segment that is not digits. Without layer 4 any merchant could delete those.
+     *   5. `StoredUpload::delete()` IS THE REAL CONTROL, reused rather than re-implemented: it is
+     *      what `Product`, `Category` and `Utility` already delete through. It `realpath()`s both
+     *      sides, so `..`, a symlink and a percent-decoded traversal all collapse BEFORE the
+     *      comparison; it requires the result to sit strictly under `base_path('uploads')`; it
+     *      refuses the platform defaults; and it re-reads the tenant segment FROM THE RESOLVED PATH,
+     *      so `uploads/A/../B/x.png` is judged as store B. Layer 4's `str_starts_with` would admit
+     *      that string -- layer 5 is why it still fails.
+     *
+     * THE OWNER ID IS `creatorId()`, not the store id: that is the argument
+     * `StoredUpload::mayTouchStoreFolder()` expects, and it is what lets a merchant who runs several
+     * stores reach their own folders while reaching nobody else's.
+     *
+     * WHAT THIS DELIBERATELY DOES NOT DO: it does not touch the stored `theme_json`. The view's own
+     * success callback re-submits the form, so the record is updated by that resubmission; a handler
+     * that also rewrote the JSON would be a second writer of the same document.
+     *
+     * AND ONE MEASURED FACT, so this does not read as a feature being restored: THE UI CANNOT REACH
+     * THIS ENDPOINT TODAY. `image_delete` appears exactly TWICE in the whole Blade tree, both times
+     * as the selector `$('body').on('click', '.image_delete', ...)`; NO element anywhere carries
+     * `class="image_delete"`. The visible affordance is `class="action-item deleteRecord"
+     * data-name="{{ $file_pathh }}"`, and `.deleteRecord` has no handler in that view either. Both
+     * halves of the wiring are broken, in opposite directions. This method removes a guaranteed 500
+     * and restores no capability a merchant currently has; which affordance is meant to win is a UI
+     * decision and is reported rather than guessed at here.
+     *
+     * Driven in all six directions by `Tests\Feature\Security\AppSettingImageDeleteDoorTest`.
+     */
+    public function image_delete(Request $request)
+    {
+        $user = auth()->user();
+
+        /* Layer 1 -- see the docblock: the class check must precede getCurrentStore(). */
+        if (! $user instanceof User) {
+            return response()->json(['status' => false, 'message' => __('Permission denied.')], 403);
+        }
+
+        /* Layer 2 -- operator first, because isAbleTo() alone refuses the operator. */
+        if (! UserPolicy::isOperator($user) && ! $user->isAbleTo('Manage Store Setting')) {
+            return response()->json(['status' => false, 'message' => __('Permission denied.')], 403);
+        }
+
+        /* Layer 3 -- a store that is not a positive integer fails closed. */
+        $storeId = filter_var(getCurrentStore(), FILTER_VALIDATE_INT);
+
+        if ($storeId === false || $storeId < 1) {
+            return response()->json(['status' => false, 'message' => __('Permission denied.')], 403);
+        }
+
+        /* Layer 4 -- the prefix is the principal's, the leaf is the caller's. */
+        $path = (string) $request->input('image');
+        $prefix = 'uploads/' . $storeId . '/';
+
+        if (! str_starts_with($path, $prefix)) {
+            return response()->json(['status' => false, 'message' => __('Permission denied.')], 403);
+        }
+
+        /* Layer 5 -- the real control. */
+        $deleted = StoredUpload::delete($path, $user->creatorId());
+
+        return response()->json([
+            'status' => $deleted,
+            'message' => $deleted ? __('Image successfully deleted.') : __('Permission denied.'),
+        ], $deleted ? 200 : 403);
     }
 }

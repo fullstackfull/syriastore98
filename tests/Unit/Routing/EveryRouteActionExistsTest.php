@@ -62,7 +62,7 @@ class EveryRouteActionExistsTest extends TestCase
 {
 
     /**
-     * THE MEASURED BACKLOG. 73 at the first run of this test; 9 now, and the remaining 9 are not
+     * THE MEASURED BACKLOG. 73 at the first run of this test; 8 now, and the remaining 8 are not
      * "the ones nobody got to" -- each is here for a stated reason that a test asserts.
      *
      * 64 WERE WITHDRAWN, in four batches, every one measured before it was touched:
@@ -79,18 +79,23 @@ class EveryRouteActionExistsTest extends TestCase
      *   -4   dead hand-written routes -- `DeadControllerRoutesWithdrawnTest`. `order/all` was not
      *        merely dead but UNREACHABLE: `order/{order}` is declared above it.
      *   -1   `GAP-267`'s web `place.order` -- `WebPlaceOrderRouteWithdrawnTest`.
+     *   -1   `AppSettingController@image_delete` -- IMPLEMENTED rather than withdrawn, the only
+     *        one of the 73 that was broken IN USE. See below.
      *
      * THE 9 THAT REMAIN, AND WHY EACH IS NOT A DELETION:
      *
-     *   `AppSettingController@image_delete` (1) -- THE ONLY ONE BROKEN IN USE rather than
-     *   orphaned. `resources/views/AppSetting/mobile_content.blade.php` calls
-     *   `route('product.image.delete')` inside a rendered view, so deleting the route throws
-     *   `RouteNotFoundException` at render time and 500s the whole Mobile Screen Content page --
-     *   worse than the defect. It needs the METHOD implemented, and an unlink keyed on
-     *   `$request->image` is the P1-SEC-71 shape (see `WebSettingsSecretsTest`), so it is not a
-     *   routing fix. All three halves of that reasoning are asserted by
-     *   `DeadControllerRoutesWithdrawnTest::test_the_product_image_delete_route_is_deliberately_kept`,
-     *   so the entry can be retired only by actually fixing it.
+     *   `AppSettingController@image_delete` IS GONE FROM THIS LIST BECAUSE IT WAS FIXED, not
+     *   withdrawn, and it is the only one of the 73 that went that way. It was the only entry
+     *   broken IN USE rather than orphaned -- `resources/views/AppSetting/mobile_content.blade.php`
+     *   calls `route('product.image.delete')` inside a RENDERED view, so withdrawing the route
+     *   throws `RouteNotFoundException` at render time and 500s the whole page. The method now
+     *   exists, with the unlink going through `StoredUpload::delete($path, $user->creatorId())` --
+     *   the predicate `Product`, `Category` and `Utility` already delete through -- behind an
+     *   `instanceof User` check, operator-first permission, a fail-closed store and a
+     *   principal-derived path prefix. `AppSettingImageDeleteDoorTest` drives all five layers and
+     *   each is mutation-verified. The entry could only be retired by fixing it, which is what
+     *   `DeadControllerRoutesWithdrawnTest::test_the_product_image_delete_route_is_deliberately_kept`
+     *   was written to require, and that case now asserts the method EXISTS.
      *
      *   `Workdo\LandingPage\...` (8) -- declared in `packages/workdo/LandingPage/src/Routes/web.php`,
      *   which is VENDORED and must not be edited (CLAUDE.md; enforced by
@@ -155,7 +160,6 @@ class EveryRouteActionExistsTest extends TestCase
      * @var list<string>
      */
     private const KNOWN_BROKEN = [
-        'App\Http\Controllers\AppSettingController@image_delete',
         'Workdo\LandingPage\Http\Controllers\BuiltTechSectionController@store',
         'Workdo\LandingPage\Http\Controllers\DedicatedSectionController@store',
         'Workdo\LandingPage\Http\Controllers\MarketPlaceController@pricing_plan_create',

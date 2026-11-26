@@ -133,12 +133,23 @@ class DeadControllerRoutesWithdrawnTest extends TestCase
     }
 
     /**
-     * THE ONE THAT STAYS, AND BOTH HALVES OF WHY.
+     * THE ONE THAT STAYED, AND ALL THREE HALVES OF WHY -- NOW WITH THE THIRD ONE INVERTED.
      *
-     * Half one: the route is still declared -- deleting it breaks a whole page at render time.
+     * This case was written to require that the entry could be retired only by FIXING it, and it
+     * has been: `AppSettingController::image_delete()` exists, so the third assertion flips from
+     * `assertFalse(method_exists(...))` to `assertTrue(...)`. That inversion is the test doing its
+     * job, not the test being edited to agree with the code -- the alternative it was guarding
+     * against was somebody deleting the route to clear the entry, which the first two assertions
+     * still forbid.
+     *
+     * Half one: the route is still declared -- deleting it breaks a whole page at render time,
+     * because `route()` on an undeclared name throws while the view is RENDERING.
      * Half two: a rendered view really does call `route()` on its name. Comment-stripped, because
      * the name is spelled out in this file's docblock and in the routes-file comment, and a census
      * that counted prose would keep passing after the real call was deleted.
+     * Half three: the method exists. The handler's own five layers are driven and mutated by
+     * `Tests\Feature\Security\AppSettingImageDeleteDoorTest`; this one only asserts that the
+     * route and the method still meet.
      */
     #[Test]
     public function test_the_product_image_delete_route_is_deliberately_kept(): void
@@ -163,10 +174,12 @@ class DeadControllerRoutesWithdrawnTest extends TestCase
             . 'the route can be withdrawn like the other three and its KNOWN_BROKEN entry deleted.'
         );
 
-        $this->assertFalse(
+        $this->assertTrue(
             method_exists(\App\Http\Controllers\AppSettingController::class, 'image_delete'),
-            'AppSettingController::image_delete() now EXISTS -- the defect is fixed. Delete its '
-            . 'entry from EveryRouteActionExistsTest::KNOWN_BROKEN and this case with it.'
+            'AppSettingController::image_delete() has GONE AGAIN, so `product.image.delete` is '
+            . 'back to raising BadMethodCallException on every request -- a guaranteed HTTP 500 '
+            . 'behind a button in a rendered view. Restore the method; do not delete the route to '
+            . 'make this green, which is what the two assertions above forbid.'
         );
     }
 }
