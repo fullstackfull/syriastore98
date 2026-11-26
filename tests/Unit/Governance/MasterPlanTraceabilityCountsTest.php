@@ -314,4 +314,42 @@ class MasterPlanTraceabilityCountsTest extends TestCase
             );
         }
     }
+
+    /**
+     * THE HANDOFF'S GAP-REGISTER ROW COUNT MUST BE THE REGISTER'S OWN.
+     *
+     * It read **279** while the register's header said **332** -- a third copy of a derived figure,
+     * read by nobody. That is the identical shape as the `NOT IMPLEMENTED 12 / PARTIALLY
+     * IMPLEMENTED 99` pair the case above guards, and it went stale for the same reason: the
+     * register's header IS asserted against its rows by `GapRegisterConsistencyTest`, and the
+     * matrix's table IS asserted here, but the handoff's copy of the row count had no consumer.
+     *
+     * THE REMEDY FOR A STALE DERIVED FIGURE IS NOT TO RE-DERIVE IT MORE CAREFULLY. It is to give it
+     * a consumer. This is that consumer.
+     */
+    public function test_the_handoff_document_quotes_the_gap_registers_own_row_count(): void
+    {
+        $register = (string) file_get_contents(base_path('docs/development/MASTER-PLAN-GAP-REGISTER.md'));
+        $handoff = (string) file_get_contents(base_path('docs/development/PROJECT-STATE.md'));
+
+        $this->assertSame(1, preg_match('/\*\*(\d+) rows in total\.\*\*/', $register, $m),
+            'The gap register no longer declares "**<n> rows in total.**". Either it was restructured '
+            . 'or this pattern has gone blind -- and a blind pattern passes this test for the wrong '
+            . 'reason, which is the failure this repository has recorded eight times.');
+
+        $declared = (int) $m[1];
+
+        $this->assertSame(1, preg_match('/register holds \*\*?(\d+)\*\*? rows/', $handoff, $h),
+            'PROJECT-STATE.md no longer states how many rows the gap register holds. If that sentence '
+            . 'was removed on purpose, delete this test with it; if it was reworded, re-point the '
+            . 'pattern. Do not leave the figure unasserted -- it was stale at 279 against a real 332 '
+            . 'precisely because nothing read it.');
+
+        $this->assertSame($declared, (int) $h[1], sprintf(
+            'PROJECT-STATE.md says the gap register holds %d rows and the register itself declares %d. '
+            . "The register's header is the measured one -- GapRegisterConsistencyTest asserts it "
+            . 'against the rows in both directions -- so correct the handoff, not the register.',
+            (int) $h[1], $declared
+        ));
+    }
 }

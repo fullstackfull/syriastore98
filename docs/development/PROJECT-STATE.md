@@ -128,7 +128,14 @@ branch name does not narrow it.
 > report deferring something is not an owner deferral.**
 >
 > **Current figures (gate-enforced): 370 known requirements, 181 verified complete, 189 not.** The
-> register holds 279 rows. Remaining: NOT IMPLEMENTED 10, PARTIALLY IMPLEMENTED 101.
+> register holds **334** rows. Remaining: NOT IMPLEMENTED 10, PARTIALLY IMPLEMENTED 101.
+>
+> > **THE ROW COUNT WAS STALE AT 279 AND NOTHING ASSERTED IT — corrected 2026-11-26, and now
+> > gate-enforced.** The register's own header carries the figure and `GapRegisterConsistencyTest`
+> > asserts that against its rows in both directions; **this was a third copy with no consumer**,
+> > which is the same shape as the `NOT IMPLEMENTED 12 / PARTIALLY IMPLEMENTED 99` pair corrected
+> > immediately above. A derived figure nobody asserts goes stale; the remedy is not to re-derive
+> > it more carefully but to make something read it. `MasterPlanTraceabilityCountsTest` now does.
 >
 > > **RECONCILED 2026-11-26.** This sentence read `NOT IMPLEMENTED 12, PARTIALLY IMPLEMENTED 99`
 > > while the matrix's summary table held **10** and **101**, and the account transfer handed the
