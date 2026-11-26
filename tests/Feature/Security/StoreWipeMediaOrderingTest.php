@@ -88,6 +88,15 @@ class StoreWipeMediaOrderingTest extends SecurityTestCase
      *
      * @return array{0: User, 1: Store, 2: Store}
      */
+    /**
+     * Unrelated prior usage seeded before any media, so a DOUBLE credit is distinguishable.
+     *
+     * Every figure in this file that depends on it derives from this constant. The first attempt
+     * hardcoded 10.0 in the assertions and left the two PREMISE assertions reading 3.00 and 6.00,
+     * which failed immediately -- the drift this constant exists to prevent.
+     */
+    private const PRIOR_USAGE = 10.00;
+
     private function merchantWithTwoStores(): array
     {
         [$merchant, $storeA] = $this->makeTenant();
@@ -99,7 +108,21 @@ class StoreWipeMediaOrderingTest extends SecurityTestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
         $merchant->plan_id = $planId;
-        $merchant->storage_limit = 0;
+        /*
+         * A POSITIVE FLOOR, AND IT IS LOAD-BEARING -- P06-STORAGE.
+         *
+         * This was 0, and the two assertions below documented their own failure signal as a
+         * NEGATIVE figure: "-3.00 means the two passes BOTH credited it". That signal no longer
+         * exists. `StorageUsage::minus()` clamps at zero -- correctly, because a negative recorded
+         * usage would hand the merchant free quota on top of a plan limit -- so a double credit now
+         * reads 0.00 and the assertions could not tell one credit from two.
+         *
+         * The remedy belongs in the fixture, not the clamp. Seeded at 10.00 MB of unrelated prior
+         * usage, one product's worth of media (3.00) leaves 10.00 and a double credit leaves 7.00,
+         * which is distinguishable again. Not hypothetical: `ProductMediaReclaimer.php:44-51`
+         * records that a failed unlink with a successful row delete debits the cover image twice.
+         */
+        $merchant->storage_limit = self::PRIOR_USAGE;
         $merchant->save();
 
         return [$merchant, $storeA, $storeB];
@@ -326,8 +349,9 @@ class StoreWipeMediaOrderingTest extends SecurityTestCase
         $merchant->save();
 
         $usedBefore = (float) DB::table('users')->where('id', $merchant->id)->value('storage_limit');
-        $this->assertSame(3.0, round($usedBefore, 2),
-            'The fixture did not record 3.00 MB of used storage, so the exact arithmetic below '
+        $this->assertSame(self::PRIOR_USAGE + 3.0, round($usedBefore, 2),
+            'The fixture did not record 10.00 MB of prior usage plus 3.00 MB of media, so the '
+            . 'exact arithmetic below '
             . 'means nothing. Found: ' . $usedBefore);
 
         $this->withHeader(
@@ -340,10 +364,11 @@ class StoreWipeMediaOrderingTest extends SecurityTestCase
 
         $after = round((float) DB::table('users')->where('id', $merchant->id)->value('storage_limit'), 2);
 
-        $this->assertSame(0.0, $after,
-            'The used-storage figure is not exactly one product\'s worth lower. 3.00 MB was '
-            . 'recorded and 0.00 is correct; -3.00 means the two passes BOTH credited it and the '
-            . 'merchant is now owed storage they never used. Found: ' . $after);
+        $this->assertSame(self::PRIOR_USAGE, $after,
+            'The used-storage figure is not exactly one product\'s worth lower. 10.00 of unrelated '
+            . 'usage plus 3.00 of media was recorded and 10.00 is correct; 7.00 means the two '
+            . 'passes BOTH credited it and the merchant is now owed storage they never used. '
+            . 'Found: ' . $after);
     }
 
     /**
@@ -363,8 +388,9 @@ class StoreWipeMediaOrderingTest extends SecurityTestCase
         $this->productWithMediaIn($storeA, $merchant);
 
         $usedBefore = round((float) DB::table('users')->where('id', $merchant->id)->value('storage_limit'), 2);
-        $this->assertSame(6.0, $usedBefore,
-            'Two products should have recorded 6.00 MB. Found: ' . $usedBefore);
+        $this->assertSame(self::PRIOR_USAGE + 6.0, $usedBefore,
+            'Two products should have recorded 10.00 MB of prior usage plus 6.00 MB of media. '
+            . 'Found: ' . $usedBefore);
 
         $this->withHeader(
             'Authorization',
@@ -375,9 +401,10 @@ class StoreWipeMediaOrderingTest extends SecurityTestCase
             'The wipe did not run.');
 
         $after = round((float) DB::table('users')->where('id', $merchant->id)->value('storage_limit'), 2);
-        $this->assertSame(0.0, $after,
+        $this->assertSame(self::PRIOR_USAGE, $after,
             'The loop credited only one of the two products, or the per-product save lost an '
-            . 'update. 6.00 MB was recorded; 3.00 means one product was missed. Found: ' . $after);
+            . 'update. 10.00 of unrelated usage plus 6.00 of media was recorded; 13.00 means one '
+            . 'product was missed and 4.00 means one was credited twice. Found: ' . $after);
     }
 
     /**
@@ -632,6 +659,11 @@ class StoreWipeMediaOrderingTest extends SecurityTestCase
     public function test_the_operator_wiping_a_merchants_store_charges_the_merchant_not_the_operator(): void
     {
         [$merchant, $merchantStore] = $this->makeTenant();
+        // The same positive floor as `merchantWithTwoStores()`, for the same reason: without it a
+        // double credit clamps to 0.00 and the assertion below cannot see it. This test builds its
+        // merchant with `makeTenant()`, so it seeds its own.
+        $merchant->storage_limit = self::PRIOR_USAGE;
+        $merchant->save();
         $this->productWithMediaIn($merchantStore, $merchant);
 
         $operator = $this->makePlatformAdmin();
@@ -643,8 +675,9 @@ class StoreWipeMediaOrderingTest extends SecurityTestCase
         $merchantUsedBefore = round((float) DB::table('users')->where('id', $merchant->id)->value('storage_limit'), 2);
         $operatorUsedBefore = round((float) DB::table('users')->where('id', $operator->id)->value('storage_limit'), 2);
 
-        $this->assertSame(3.0, $merchantUsedBefore,
-            'The merchant does not hold the 3.00 MB this test is about. Found: ' . $merchantUsedBefore);
+        $this->assertSame(self::PRIOR_USAGE + 3.0, $merchantUsedBefore,
+            'The merchant does not hold the 10.00 MB of prior usage plus the 3.00 MB of media this '
+            . 'test is about. Found: ' . $merchantUsedBefore);
 
         $operator->current_store = $merchantStore->id;
         $operator->save();
@@ -656,15 +689,17 @@ class StoreWipeMediaOrderingTest extends SecurityTestCase
             . 'accounting assertions below prove nothing. Answered HTTP '
             . $response->getStatusCode() . ' error=' . var_export(session('error'), true));
 
-        $this->assertSame(0.0, round((float) DB::table('users')->where('id', $merchant->id)->value('storage_limit'), 2),
+        $this->assertSame(self::PRIOR_USAGE, round((float) DB::table('users')->where('id', $merchant->id)->value('storage_limit'), 2),
             "The MERCHANT is still charged for the storage of the store that was just deleted. "
             . 'The correction must be charged to the store\'s owner, not to whoever ran the wipe.');
 
         $this->assertSame($operatorUsedBefore, round((float) DB::table('users')->where('id', $operator->id)->value('storage_limit'), 2),
             "The OPERATOR's own used-storage figure was debited for a merchant's files. "
             . '`changeproductStorageLimit()` debits whichever id it is handed, so passing the '
-            . "caller's id instead of \$store->created_by charges the wrong user — and can take "
-            . 'the operator negative.');
+            . "caller's id instead of \$store->created_by charges the wrong user. P06-STORAGE NOTE: "
+            . 'this assertion no longer detects that on its own, because the clamp means a wrongly '
+            . 'debited operator reads 0.00 rather than negative. The merchant assertion above is '
+            . "what still kills the \$store->created_by mutant; this one is now corroboration.");
     }
 
     /**

@@ -76,8 +76,18 @@ admin login places no restriction on `type`.
 Measured: a staff member holding **no permissions** gets **201**, and `Hash::check` confirms the
 password is the one that caller chose.
 
-**`updateCustomerInfo()` is NOT affected** — checked, not assumed: it restricts `type`, so staff
-get 401. A test asserts it.
+**`updateCustomerInfo()` WAS its own defect — P4-F114 / GAP-125 — and is now FIXED.** This line read
+*"it restricts `type`, so staff get 401. A test asserts it"*: true when written, and the 401 **was**
+the defect (`type` is `'staff'` for every staff member, and the app force-logs-out on any 401, so
+tapping save signed them out). It was also a type check standing in for a permission check, wrong in
+both directions — it admitted every `type='admin'` row whatever they held, and refused every staff
+member whatever they held. Fixed in `bc0d48cc`: the type limb is now
+`callerMayActInStore([…PERMISSION_CUSTOMERS], $store->id)` below the ownership 403, refusing **403**.
+The `!$adminUser` limb stays 401 deliberately (no panel principal at all; reachable because
+`custom.auth` logs a `Customer`/`DeliveryBoy` token into another guard). Evidence:
+`AdminApiCustomerUpdateLogoutTest`, `FlutterOrderJourneyContractTest` (journey step, driver and
+shopper tokens) and `Gap125LogoutStatusCensusTest`, which ratchets the sweep — **all 27 explicit 401
+sites in `DashboardController` are authentication branches, 0 authorization refusals** (2026-11-26).
 
 **Why it is not fixed.** The gate would make a **shipped Flutter endpoint start refusing a principal
 it accepts today**, and the owner's instruction is *"No silent payment behavior or authentication

@@ -5,7 +5,50 @@
 @endsection
 
 @section('content')
-    <main>
+
+    {{-- GAP-099 / P03-B-06 — THE SAVED SECTION ORDER, WHICH NOTHING ON THE STOREFRONT READ.
+
+         `ThemeCustomizeController::updateOrder()` has always stored `theme_customize_orders` for
+         (store, theme, page), and `ThemeCustomizeOrder::resolveFor()` had exactly ONE caller: the
+         editor screen redisplaying what it had just saved. So a merchant dragged sections, got
+         'Order change successfully.' and this page rendered its hard-coded sequence.
+
+         THE MARKUP DID NOT MOVE, AND THAT IS DELIBERATE. Each block below is wrapped where it
+         already stood and emitted from the loop at the foot of this file. Extracting the blocks
+         into partials was the first design and is wrong for this file: `StorefrontImageFallbackTest`
+         and `StorefrontAccessibleNamesTest` both read this template as TEXT and assert on markup
+         inside these sections, so moving it would have turned two passing tests red while changing
+         nothing a shopper sees.
+
+         `$ssBlocks` IS THE DEFAULT SEQUENCE AND LIVES HERE, beside the markup it names, so the two
+         cannot drift. `$ssOrderable` is the subset a merchant may permute; `product_list` is the
+         module hook anchor and is not a theme section, so it keeps its slot between bestseller and
+         testimonial whatever the merchant saves.
+
+         THE STORE COMES FROM THE ROUTE, NOT FROM auth(). `$store` is the row
+         `ViewServiceProvider` already resolved out of `request()->route('storeSlug')`;
+         `getCurrentStore()` reads the DEFAULT (`web`) guard, which is null for a shopper and
+         answers for the wrong merchant when the visitor also holds a panel session. --}}
+    @php
+        $ssBlocks = [
+            'slider', 'logo', 'collection', 'product', 'category',
+            'bestseller', 'product_list', 'testimonial', 'blog', 'service',
+        ];
+        $ssOrderable = [
+            'slider', 'logo', 'collection', 'product', 'category',
+            'bestseller', 'testimonial', 'blog', 'service',
+        ];
+        $ssSequence = \App\Support\Theme\StorefrontSectionOrder::sequence(
+            isset($store) ? (int) $store->id : null,
+            $currentTheme ?? '',
+            'home',
+            $ssBlocks,
+            $ssOrderable
+        );
+    @endphp
+    {{-- GAP-095: this element was a nested main landmark. A document may hold only one, and the one that exists on EVERY storefront page -- and that the skip link targets -- is the layout's, so this one is a div. Nothing in any theme stylesheet or script selects the element: measured zero `main` selectors across all three. --}}
+    <div class="ss-page">
+        @push('ss-home:slider')
         <!-- Hero Slider Section -->
         @if (isset($themeSettings['slider_status']) && $themeSettings['slider_status'] == 1)
             <section class="section-spacing pb-0">
@@ -63,7 +106,9 @@
                 </div>
             </section>
         @endif
+        @endpush
 
+        @push('ss-home:logo')
         <!-- logo Section -->
         @if (!empty($themeSettings['logo_status']) && $themeSettings['logo_status'] == 1)
         <section class="section-spacing">
@@ -97,7 +142,9 @@
             </div>
         </section>
         @endif
+        @endpush
 
+        @push('ss-home:collection')
         <!-- Feature Collections Banner -->
         @if (!empty($themeSettings['collection_status']) && $themeSettings['collection_status'] == 1)
             <section class="section-spacing bg-gray-50">
@@ -133,7 +180,9 @@
                 </div>
             </section>
         @endif
+        @endpush
 
+        @push('ss-home:product')
         <!-- Products Section -->
         @if (!empty($themeSettings['product_status']) && $themeSettings['product_status'] == 1)
             <section class="section-spacing">
@@ -159,7 +208,9 @@
                 </div>
             </section>
         @endif
+        @endpush
 
+        @push('ss-home:category')
         <!-- Category Section -->
         @if (!empty($themeSettings['category_status']) && $themeSettings['category_status'] == 1)
             <section class="section-spacing bg-gray-50">
@@ -198,8 +249,10 @@
                 </div>
             </section>
         @endif
+        @endpush
 
         
+        @push('ss-home:bestseller')
         @if (!empty($themeSettings['bestseller_status']) && $themeSettings['bestseller_status'] == 1)
             <section class="section-spacing collection-sec">
                 <div class="md:container mx-auto px-4 w-full">
@@ -265,7 +318,11 @@
                 </div>
             </section>
         @endif
+        @endpush
+        @push('ss-home:product_list')
         @include('front_end.hooks.product_list')
+        @endpush
+        @push('ss-home:testimonial')
         <!-- Testimonials Section -->
         @if (!empty($themeSettings['testimonial_status']) && $themeSettings['testimonial_status'] == 1)
             <section class="section-spacing bg-gray-50">
@@ -340,6 +397,8 @@
                 </div>
             </section>
         @endif                                         
+        @endpush
+        @push('ss-home:blog')
         <!-- Blog Section -->
         @if (!empty($themeSettings['blog_status']) && $themeSettings['blog_status'] == 1)
             <section class="section-spacing">
@@ -366,7 +425,9 @@
             </div>
             </section>
         @endif
+        @endpush
 
+        @push('ss-home:service')
         <!-- Service Section -->
         @if (isset($themeSettings['service_status']) && $themeSettings['service_status'] == 1)
             <section class="section-spacing pt-0">
@@ -387,6 +448,14 @@
                 </div>
             </section>
         @endif
-    </main>
+        @endpush
+
+        {{-- Every block above is emitted here, once, in the merchant's saved order. A key with no
+             pushed content yields the empty string, so a section whose status flag is off costs
+             nothing and the sequence stays total. --}}
+        @foreach ($ssSequence as $ssBlock)
+            @stack('ss-home:' . $ssBlock)
+        @endforeach
+    </div>
 @endsection
 

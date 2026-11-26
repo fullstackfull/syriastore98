@@ -176,6 +176,29 @@ three reserved-slug guards had to fail **separately** to prove a one-writer fix 
 
 ## 9. Outstanding — owner items, not engineering gaps
 
+> **ONE ENGINEERING GAP BELONGED IN THIS SECTION AND WAS NOT IN IT, added 2026-11-25 as `GAP-100`'s
+> own stated action.** `PHASE-03-M4-THEME-EDITOR-PLAN.md:298` recorded that *"neither first-party
+> sortable has any keyboard path (`keydown` count 0 in both), a WCAG 2.1.1 and 2.5.7 failure for any
+> reorder UI shipped as-is"*, and M4-9 then fixed that view's third-party jQuery UI load and its
+> input validation **without** the keyboard failure. So a WCAG 2.1.1 (A) failure shipped on an
+> authenticated merchant screen, measured by this project, and reached no outstanding list — neither
+> this table nor any other. The two rows below that look adjacent do **not** cover it: *"human
+> accessibility review"* is an owner attestation about quality, not a known defect, and *"the M4
+> reorder UI"* is deferred on whether the storefront should consume saved ordering (`P03-B-06`),
+> which is a different question from whether the control a merchant already has can be operated
+> without a mouse.
+>
+> **The named control is now fixed** (`5608bd54`): native move buttons, accessible names, per-row
+> position, inert end stops that stay focusable, a polite live region, and one writer shared with
+> the drag — verified keyboard-only in a real browser, 44 checks across LTR and RTL, 21 mutants
+> caught. **Two engineering items remain and are tracked on `GAP-100`, not here:** the second
+> sortable the same sentence covers (`attribute_option/index.blade.php`, re-measured at `keydown`
+> 0) and five new strings with no Arabic entry. `P03-B-06` is unchanged and still the owner's.
+>
+> Recorded this way rather than silently deleting the gap, because the failure mode was a
+> measurement that existed only in a planning document — and the fix for that is a row somebody
+> reads, not a quieter one.
+
 | | Owner |
 |---|---|
 | `Security-sensitive diff: human checklist` | owner; **fails by design** until a person attests. It has not been marked satisfied and must not be |

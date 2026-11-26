@@ -365,6 +365,69 @@ class StorefrontOrderMutationAuthorizationTest extends SecurityTestCase
             . 'explicitly, because isAbleTo() has no super-admin bypass in this codebase.');
     }
 
+    /**
+     * GAP-277 — THE PRINCIPAL THIS SUITE DID NOT HAVE, AND ITS ABSENCE IS WHY THE HOLE SURVIVED.
+     *
+     * Every case above drives a customer, a merchant, a driver or the operator, and each asks WHOSE
+     * order it is. None asked whether a `User` may change an order AT ALL — and the resolver's User
+     * branch resolves a `type='staff'` row to its owning admin through
+     * `UserPolicy::merchantTenantRoot()`, so a staff member holding NO ROLE was admitted. Measured
+     * through this route before the gate: HTTP 200 `{"status":1}`, `delivered_status` 0 → 2,
+     * `cancel_date` stamped, the merchant's entitlement reversed and `products.product_stock` 5 → 7.
+     *
+     * It lives here as well as in `Gap277StorefrontOrderStatePermissionTest` deliberately: this is
+     * the file a reader opens to ask "who may act on these two doors", the permission census
+     * exempts storefront surfaces by design, and a principal that is in neither place is a
+     * principal nobody drives.
+     */
+    public function test_a_roleless_staff_member_of_the_tenant_cannot_change_an_order(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $staff = $this->makeStaff($merchant);
+        $customer = $this->customerIn($store, 'a10');
+        $order = $this->paidOrderFor($store, $customer);
+
+        $this->assertSame([], $staff->allPermissions()->pluck('name')->all(),
+            'Premise: this staff member must hold NOTHING, or the case measures a permitted caller.');
+
+        $response = $this->changeStatus($store, $order->id, 'cancel', $staff->createToken('t')->plainTextToken);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('status', 0);
+        $this->assertSame('You do not have permission to perform this action.', $response->json('message'),
+            'A staff member holding no role cancelled their tenant\'s order, or was refused for some '
+            . 'other reason. "Order not found." would mean the ownership limb answered and the '
+            . 'permission gate was never reached — the resolver admits them by design.');
+
+        $this->assertOrderUntouched($order, 'A staff member holding no role cancelled an order');
+    }
+
+    /** The same principal on the twin door, which writes stock and `final_price`. GAP-277. */
+    public function test_a_roleless_staff_member_of_the_tenant_cannot_mark_a_return(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $staff = $this->makeStaff($merchant);
+        $customer = $this->customerIn($store, 'a11');
+        $product = $this->productIn($store, $merchant, 5);
+
+        $order = $this->makeOrder($store, [
+            'customer_id' => $customer->id, 'is_guest' => 0,
+            'delivered_status' => 1,
+            'product_json' => json_encode([[
+                'product_id' => $product->id, 'variant_id' => 0, 'qty' => 2, 'final_price' => 50,
+            ]]),
+        ]);
+
+        $response = $this->returnProduct($store, $order->id, $product->id, $staff->createToken('t')->plainTextToken);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('status', 0);
+        $this->assertSame('You do not have permission to perform this action.', $response->json('message'),
+            'A staff member holding no role marked a line returned on their tenant\'s order.');
+        $this->assertSame(5, $this->stockOf($product),
+            'The stock was credited by a principal holding no permission.');
+    }
+
     // ===================================================================================
     // AUTHZ-4 — product-return, which also writes inventory
     // ===================================================================================

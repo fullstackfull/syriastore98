@@ -1087,10 +1087,14 @@ GROUPS = [
                  '                return ["error" => true, "data" => $upload[\'msg\']];',
                  "                return redirect()->back()->with('error', $upload['msg']);"),
             ]),
+            # P06-STORAGE retargeted this mutant. The old anchor was the `number_format` arithmetic
+            # that the storage-accounting fix removed, so the harness printed `NOT APPLIED` and the
+            # script exited non-zero -- it proved nothing, which is guard #1 working. The credit-back
+            # now goes through `StorageUsage`, and the mutant says the same thing against it.
             ('PU70 Store Setting screen, seventh site: a refused file stays charged to the plan', [
                 ('app/Http/Controllers/AppSettingController.php',
-                 '                    $owner->storage_limit = $owner->storage_limit - number_format($image_size / 1048576, 2);',
-                 '                    $owner->storage_limit = $owner->storage_limit;'),
+                 '                    $owner->storage_limit = \\App\\Support\\Storage\\StorageUsage::persist(',
+                 '                    $owner->storage_limit = $owner->storage_limit; $unusedP06 = (string) ('),
             ]),
             ("PU71 updateStoreOwnerInfo: the invoice logo keeps the client's name", [
                 ('app/Http/Controllers/Api/DashboardController.php',

@@ -8,6 +8,7 @@ use Symfony\Component\HttpFoundation\Response;
 use App\Models\Customer;
 use App\Models\User;
 use App\Models\DeliveryBoy;
+use App\Support\Accounts\AccountSuspension;
 use App\Traits\ApiResponser;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -70,6 +71,39 @@ class CustomAuth
         $tokenable = $accessToken->tokenable;
 
         if (!$tokenable) {
+            return $this->unauthenticated();
+        }
+
+        /*
+         * A SUSPENDED PRINCIPAL'S TOKEN IS REFUSED HERE, BEFORE IT IS LOGGED IN ANYWHERE.
+         *
+         * MEASURED DEFECT: this middleware checked only `expires_at` and that the tokenable was
+         * non-null -- and CLAUDE.md records that Sanctum tokens in this platform NEVER EXPIRE (there
+         * is no `config/sanctum.php`), so `expires_at` is null for every token ever minted.
+         * Suspension lived only at the two login FORMS
+         * (`Auth\AuthenticatedSessionController:68` and `:72`,
+         * `Customer\Auth\CustomerLoginController:862`), which a bearer token never touches. So
+         * disabling an account left its API access intact indefinitely: the operator's only
+         * suspension control had no effect on any client that had already signed in once.
+         *
+         * THIS IS THE RIGHT SEAM because it is the single point every token type passes through --
+         * `Customer`, `User` and `DeliveryBoy` all dispatch below it -- so one check covers all three
+         * and a fourth tokenable cannot be added without passing it.
+         *
+         * REFUSED, NOT REVOKED. The token row is left alone. A refusal makes it unusable for as long
+         * as the account is suspended and costs nothing to undo, where deleting
+         * `personal_access_tokens` rows is irreversible and forces every client of that account to
+         * sign in again afterwards. Which of those the product wants is an owner decision and is in
+         * the confidential handoff; the refusal is needed either way. Deleting on a GET would also
+         * mean a cached or retried request silently destroying credentials.
+         *
+         * 401 IS CORRECT AND IS NOT A NEW REGRESSION. CLAUDE.md warns that the shipped Flutter app
+         * forces a logout on any 401, so a NEW 401 on a path a client calls is user-visible -- but
+         * for a SUSPENDED account a forced logout is precisely the intended outcome, and no
+         * non-suspended path gains a 401. `unauthenticated()` is reused rather than reinvented, so
+         * the JSON shape the app parses at repo-B `lib/network/network.dart:285-288` is unchanged.
+         */
+        if (AccountSuspension::isSuspended($tokenable)) {
             return $this->unauthenticated();
         }
 

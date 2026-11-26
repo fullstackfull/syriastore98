@@ -1,0 +1,76 @@
+
+=== light-en  (theme=light dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=off SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /plan                                theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/7 | .btn-primary=0 .ss-btn--primary=1
+  /plan/create                         theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan/1/edit                         theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /countries                           theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=3
+
+=== dark-en  (theme=dark dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=on SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /plan                                theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/7 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Plan"
+  /plan/create                         theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan/1/edit                         theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /countries                           theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=3
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Country"
+
+=== light-ar  (theme=light dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=off SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /plan                                theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/7 | .btn-primary=0 .ss-btn--primary=1
+  /plan/create                         theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan/1/edit                         theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /countries                           theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=3
+
+=== dark-ar  (theme=dark dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=on SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /plan                                theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/7 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "خطة"
+  /plan/create                         theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan/1/edit                         theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /countries                           theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/6 | .btn-primary=0 .ss-btn--primary=3
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "البلد"
+
+
+================ GROUPED CENSUS (colour, background, theme) ================
+
+DARK  TEXT    rgb(4,34,42) on rgb(51,93,168)  2.58:1 (needs 4.5)  x4 on 2 surfaces
+      surfaces: /plan /countries
+      selectors: span.dash-mtext
+      e.g.: "Plan" "Country" "خطة" "البلد"
+
+
+================ PER-SURFACE SUMMARY ================
+surface (t=text c=control-label i=icon)light-en       dark-en        light-ar       dark-ar        
+B /plan                             0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+B /plan/create                      0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+B /plan/1/edit                      0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+B /countries                        0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+
+================ CAPTURES (sha256 prefix -- four must differ) ================
+  c9e6b272bd3e7385  light-en   /plan
+  ecb5fa5f7d09d0df  light-en   /plan/create
+  294f2b26e68fa82d  light-en   /plan/1/edit
+  d4e1c23b33c34f98  light-en   /countries
+  980c8bdbe70c6729  dark-en    /plan
+  43c9c676b9e22164  dark-en    /plan/create
+  bac4f93fa8c6c8cd  dark-en    /plan/1/edit
+  8c68f50319de8fdc  dark-en    /countries
+  8dd2f99309845503  light-ar   /plan
+  c88466b2d362b1b4  light-ar   /plan/create
+  0d3d772d09edadb1  light-ar   /plan/1/edit
+  1467fc2f36eef043  light-ar   /countries
+  9bf9ad4c2b52237d  dark-ar    /plan
+  fa1cb47f6c03cc15  dark-ar    /plan/create
+  c371bdad9b04eb7d  dark-ar    /plan/1/edit
+  8022ae77dbd93c5f  dark-ar    /countries
+
+================ RESULT ================
+surfaces requested      4
+combinations            4 (light-en, dark-en, light-ar, dark-ar)
+measured (surface x combo) 16 of 16
+premise failures        0
+unreachable             0
+contrast findings       4 in 1 groups
+
+FAIL (0 premise, 4 contrast)

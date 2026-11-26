@@ -26,7 +26,19 @@
     <div class="row">
         <div class="col-sm-12 superadmin-wrp">
             <div class="row g-4 mb-4">
-                <x-dashboard-card :count="$platformTotals['stores']" :label="__('Total Store')" :icon="$total_user_icon"
+                {{-- `$platformTotals['stores']` is `User::countCompany()` -- `where('type','admin')
+                     ->where('created_by', creatorId())->count()`, a count of MERCHANT user rows.
+                     `stores` is a separate table and `User::stores()` is a `hasMany`, so one
+                     merchant owns N stores and the two numbers differ by construction.
+
+                     THE LABEL WAS WHAT WAS WRONG, NOT THE FIGURE. This card opens `stores.index`,
+                     whose handler lists type-`admin` USERS, and whose own breadcrumb already reads
+                     `__('Users')`; so the number, the destination and that screen's own heading all
+                     describe merchants. Changing the figure to `Store::count()` would have made the
+                     card disagree with the screen it opens and dropped the merchant count, which
+                     nothing else here states. The per-merchant tiles further down DO count real
+                     stores and keep the words "Total Store" for that reason. --}}
+                <x-dashboard-card :count="$platformTotals['stores']" :label="__('Total Merchants')" :icon="$total_user_icon"
                     :url="route('stores.index')" columnClass="col-xl-4 col-md-6 col-12" />
                 {{-- `PlanOrder::total_orders()` is a bare row count of the SaaS SUBSCRIPTION table, and this
                      card links to `plan.index`, not to any customer order screen. On an operator
@@ -38,13 +50,87 @@
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />
                 <x-dashboard-card :count="$platformTotals['plans']" :label="__('Total Plans')" :icon="$total_plan_icon"
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />
-                <x-dashboard-card :count="$couponName" :label="__('Total Coupon')" :icon="$coupon_icon"
+                {{-- `$couponName` is a coupon NAME, not a count, so "Total Coupon" described
+                     neither its value nor anything on this screen. Relabelled to match the
+                     `Popular Plan` sibling immediately below, which is the same idiom -- a card
+                     whose value is the name of the most-used row -- and is already labelled that
+                     way. Every other "Total X" card here really is a count. --}}
+                <x-dashboard-card :count="$couponName" :label="__('Popular Coupon')" :icon="$coupon_icon"
                     :url="route('plan-coupon.index')" columnClass="col-xl-4 col-md-6 col-12" />
                 <x-dashboard-card :count="$plan_order" :label="__('Popular Plan')" :icon="$plan_order_icon"
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />
                 <x-dashboard-card :count="$plan_requests" :label="__('Total Plan Request')" :icon="$plan_requests_icon"
                     :url="route('plan-request.index')" columnClass="col-xl-4 col-md-6 col-12" />
             </div>
+
+            {{--
+                THE THREE CROSS-TENANT SCREENS, REACHABLE. Until this panel existed, none of them
+                was linked from anywhere: `grep -rn 'platform.analytics' resources/views/` found
+                exactly one hit, the export button INSIDE the analytics screen, so P5-7's screen
+                had been reachable only by typing its URL since it shipped — and GAP-195's and
+                GAP-192's would have shipped the same way. A built screen nobody can find is not
+                delivered.
+
+                THE OPERATOR'S SIDEBAR IS SOMEBODY ELSE'S FILE. It is built by
+                `app/Listeners/SuperAdminMenuListener.php` and `app/Services/MerchantPageDirectory.php`,
+                neither of which belongs to this workstream in this phase, so the links go where
+                they can be put correctly today and a sidebar entry is recorded as a cross-agent
+                dependency.
+
+                NOT `<x-dashboard-card>`, for two reasons. A card's shape is a LABEL and a COUNT,
+                and these are not figures — a borrowed number or a zero in that typography would
+                state something false. And `tests/Unit/Ui/DashboardCardIconLinkHasANameTest`
+                asserts this dashboard renders EXACTLY SIX of them as the premise for its
+                accessible-name assertions, so a seventh would redden another workstream's ratchet
+                to add a navigation link.
+
+                EACH LINK CARRIES THE SENTENCE THAT TELLS IT FROM ITS NEIGHBOUR. "Platform
+                revenue" and "Platform analytics" are one word apart and measure different money,
+                from different payers, in different currencies, out of different tables. Keeping
+                them apart is the recovered requirement SAAS-007 itself, so the distinction is
+                stated where an operator chooses between them, not only on the screens.
+            --}}
+            <div class="row g-4 mb-4 ss-platform-links">
+                <div class="col-12">
+                    <h2 class="h5 mb-1">{{ __('Across the whole platform') }}</h2>
+
+                    <p class="ss-muted mb-3">
+                        {{ __('Three screens that read every tenant at once. Each is for the platform operator only.') }}
+                    </p>
+
+                    <ul class="list-unstyled mb-0">
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.revenue') }}">{{ __('Platform revenue') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('MRR and ARR: what merchants pay Store Syria for their plans.') }}
+                            </span>
+                        </li>
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.analytics') }}">{{ __('Platform analytics') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('Orders, buyers and payments across every store: what shoppers pay merchants.') }}
+                            </span>
+                        </li>
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.resources') }}">{{ __('Platform resources') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('What the machine reports about itself: load, memory and disk.') }}
+                            </span>
+                        </li>
+                        {{-- GAP-104. Linked here for the reason the note at the top of this file
+                             records about `platform.analytics`: a screen nothing links to is a
+                             screen only somebody who already knows the URL can reach. --}}
+                        <li>
+                            <a class="ss-link" href="{{ route('platform.site_content.index') }}">{{ __('Official website content') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('The text on the official Store Syria website, changed here rather than in a release. Plan prices and limits are not editable: they are read from the plans the subscription flow charges against.') }}
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <!-- ss-platform-links-end -->
+
             <div class="row g-4 mb-4">
                 <div class="col-xl-4 col-12">
                     {{-- orders chart --}}
@@ -182,7 +268,7 @@
                             @foreach ($topAdmins as $topAdmin)
                                 <div class="col-xxl-3 col-md-6 col-12">
                                     <div class="dashboard-card d-flex gap-3">
-                                        <img src="{{ !empty($topAdmin->profile_image) ? asset($topAdmin->profile_image) : asset('storage/uploads/profile/avatar.png') }}"
+                                        <img src="{{ !empty($topAdmin->profile_image) ? asset($topAdmin->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                             class=" " width="60px" height="60px">
                                         <div>
                                             <h5 class="f-16 f-w-600 mb-2">{{ $topAdmin->name }}</h5>

@@ -46,7 +46,7 @@ namespace App\Payments;
  * AN EARLIER VERSION OF THIS DOCBLOCK SAID 44 AND 10, AND BOTH NUMBERS WERE WRONG — recorded
  * rather than quietly corrected, because the cause is a trap worth naming. The census regex was
  * `\['name'\] = '...'`, and nine of `paymentList()`'s assignments are written with spaces inside
- * the brackets — `$Setting_array[ 41 ][ 'name' ] = 'easebuzz';` (Setting.php:884, and 42, 43, 46,
+ * the brackets — `$Setting_array[ 41 ][ 'name' ] = 'easebuzz';` (Setting.php:898, and 42, 43, 46,
  * 47, 48, 49, 50, 51). The regex skipped all nine, so the method looked like it had 44 names and
  * eight of the "10 the gateways hold that paymentList does not" were in fact in both. The ninth
  * skipped name was `DPO`, which is why this class shipped without a label for it.
@@ -113,7 +113,7 @@ final class PaymentTypeLabel
          * BOTH SPELLINGS OF DPO, and the second one is a REGRESSION THIS CLASS CAUSED.
          *
          * `dpopay` is the gateway registry's id. `DPO` is what `Setting::paymentList()` calls the
-         * same provider (Setting.php:1022) and what `PaymentService` branches on (`case 'DPO':`,
+         * same provider (Setting.php:1036) and what `PaymentService` branches on (`case 'DPO':`,
          * :424) before storing `$requests_data['payment_type']` verbatim (:2773) -- so `'DPO'` is
          * a value that really sits in `orders.payment_type`.
          *

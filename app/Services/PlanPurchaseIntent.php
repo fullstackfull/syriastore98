@@ -333,6 +333,35 @@ class PlanPurchaseIntent
     }
 
     /**
+     * The intent this reference names, read CURRENT rather than from this transaction's snapshot.
+     *
+     * Added after the independent financial review measured what the difference costs: inside a
+     * transaction under REPEATABLE READ a plain `find()` returns the row as it was when the
+     * transaction began, so a caller asking "did another door consume this while I was working?"
+     * was answered "no" by its own snapshot and reported a false discrepancy. `lockForUpdate()`
+     * waits for the other writer and reads what was committed.
+     *
+     * On SQLite this compiles to nothing and the read is already current, which is why no test in
+     * the suite could tell the two apart.
+     */
+    public static function findForUpdate(string $provider, string $reference)
+    {
+        if (! self::available() || $reference === '') {
+            return null;
+        }
+
+        try {
+            return DB::table(self::TABLE)
+                ->where('provider', $provider)
+                ->where('reference', $reference)
+                ->lockForUpdate()
+                ->first();
+        } catch (\Throwable $theRecordIsUnreadable) {
+            return null;
+        }
+    }
+
+    /**
      * THE WHOLE POINT: verify a provider's attested figures against this intent, and consume it.
      *
      * Returns `[state, intent|null, reason]`. `VERIFIED` is the ONLY state a caller may activate
@@ -435,6 +464,7 @@ class PlanPurchaseIntent
             $claimed = DB::table(self::TABLE)
                 ->where('id', $intent->id)
                 ->where('status', self::PENDING)
+                ->when(self::acknowledgementAvailable(), fn ($query) => $query->whereNull('acknowledged_at'))
                 ->update([
                     'status' => self::CONSUMED,
                     'consumed_at' => now(),
@@ -446,7 +476,11 @@ class PlanPurchaseIntent
         }
 
         if ($claimed !== 1) {
-            return [self::REFUSED_MISMATCH, $intent, 'the intent was already consumed'];
+            /* OR HAS SINCE BEEN ACKNOWLEDGED -- the claim above also requires
+               `acknowledged_at IS NULL`, so a lost claim now has two causes and the message must
+               not assert the commoner one. Both mean the same thing to the caller: this door did
+               not settle the purchase and must not pretend it did. */
+            return [self::REFUSED_MISMATCH, $intent, 'the intent was already consumed, or has since been acknowledged by a person'];
         }
 
         return [self::VERIFIED, $intent, ''];
@@ -540,28 +574,25 @@ class PlanPurchaseIntent
         );
     }
 
-    public static function verifyAndConsume(
-        string $provider,
-        string $reference,
-        $authenticatedUserId,
-        string $reportedAmount,
-        string $reportedCurrency,
-        $providerTxnId = null
-    ): array {
-        if (! self::available()) {
-            return [self::UNVERIFIABLE, null, 'the purchase-intent record is not installed'];
-        }
-
-        $intent = self::find($provider, $reference);
-
-        if ($intent === null) {
-            return [self::UNVERIFIABLE, null, 'no intent exists for this provider and reference'];
-        }
-
-        if (! is_numeric($authenticatedUserId) || (int) $intent->user_id !== (int) $authenticatedUserId) {
-            return [self::REFUSED_MISMATCH, $intent, 'the intent belongs to a different purchaser'];
-        }
-
+    /**
+     * DO A PROVIDER'S ATTESTED FIGURES MATCH THIS INTENT? A pure question: it reads nothing but its
+     * arguments and writes nothing at all.
+     *
+     * Extracted, verbatim, from `verifyAndConsume()` -- which now calls it -- for one reason: the
+     * reconciliation surface (`App\Services\Payments\Reconciliation`) has to report what it WOULD
+     * do before an operator lets it do anything, and a second copy of a money comparison is how two
+     * doors come to disagree about what "the same amount" means. One rule, asked from two places.
+     *
+     * Returns `[state, reason]`: `VERIFIED` when the currency is compatible and the amount is
+     * identical at the comparison scale, `REFUSED_RECOVERABLE` for a present-and-different currency
+     * (see that constant: a platform display label, not something the provider attests), and
+     * `REFUSED_MISMATCH` for anything else. It decides NOTHING about ownership, replay or state --
+     * those stay with the caller, and the consumption stays one conditional UPDATE.
+     *
+     * @return array{0:string,1:string}
+     */
+    public static function compare(object $intent, string $reportedAmount, string $reportedCurrency): array
+    {
         /*
          * AN EMPTY REPORTED CURRENCY IS TOLERATED, AND THIS WAS A 100% TERMINAL FAILURE BEFORE
          * INDEPENDENT REVIEW CAUGHT IT.
@@ -591,13 +622,12 @@ class PlanPurchaseIntent
         if ($intentCurrency !== '' && $reported !== '' && strcasecmp($intentCurrency, $reported) !== 0) {
             return [
                 self::REFUSED_RECOVERABLE,
-                $intent,
                 'currency mismatch: intent ' . $intentCurrency . ', reported ' . $reported,
             ];
         }
 
         if (! is_numeric($reportedAmount)) {
-            return [self::REFUSED_MISMATCH, $intent, 'the reported amount is not numeric'];
+            return [self::REFUSED_MISMATCH, 'the reported amount is not numeric'];
         }
 
         /* SCALED INTEGER STRINGS, compared with ===. Not floats (requirement 3 forbids it) and
@@ -609,7 +639,6 @@ class PlanPurchaseIntent
         if ($expected === null || $reported === null) {
             return [
                 self::REFUSED_MISMATCH,
-                $intent,
                 'an amount could not be compared exactly: intent ' . $intent->expected_amount
                 . ', reported ' . $reportedAmount,
             ];
@@ -618,9 +647,42 @@ class PlanPurchaseIntent
         if ($expected !== $reported) {
             return [
                 self::REFUSED_MISMATCH,
-                $intent,
                 'amount mismatch: intent ' . $intent->expected_amount . ', reported ' . $reportedAmount,
             ];
+        }
+
+        return [self::VERIFIED, ''];
+    }
+
+    public static function verifyAndConsume(
+        string $provider,
+        string $reference,
+        $authenticatedUserId,
+        string $reportedAmount,
+        string $reportedCurrency,
+        $providerTxnId = null
+    ): array {
+        if (! self::available()) {
+            return [self::UNVERIFIABLE, null, 'the purchase-intent record is not installed'];
+        }
+
+        $intent = self::find($provider, $reference);
+
+        if ($intent === null) {
+            return [self::UNVERIFIABLE, null, 'no intent exists for this provider and reference'];
+        }
+
+        if (! is_numeric($authenticatedUserId) || (int) $intent->user_id !== (int) $authenticatedUserId) {
+            return [self::REFUSED_MISMATCH, $intent, 'the intent belongs to a different purchaser'];
+        }
+
+        /* THE COMPARISON LIVES IN `compare()` SO THAT A DOOR WHICH MUST LOOK BEFORE IT ACTS -- the
+           reconciliation's dry run -- asks the SAME question this method answers, not a copy of it.
+           Nothing about the rule moved: the block is the one that stood here, returned as a pair. */
+        [$comparison, $comparisonReason] = self::compare($intent, $reportedAmount, $reportedCurrency);
+
+        if ($comparison !== self::VERIFIED) {
+            return [$comparison, $intent, $comparisonReason];
         }
 
         /* THE ONE WRITE, AND IT IS CONDITIONAL. `where status = pending` is what makes a second
@@ -629,6 +691,7 @@ class PlanPurchaseIntent
             $claimed = DB::table(self::TABLE)
                 ->where('id', $intent->id)
                 ->where('status', self::PENDING)
+                ->when(self::acknowledgementAvailable(), fn ($query) => $query->whereNull('acknowledged_at'))
                 ->update([
                     'status' => self::CONSUMED,
                     'consumed_at' => now(),
@@ -640,7 +703,11 @@ class PlanPurchaseIntent
         }
 
         if ($claimed !== 1) {
-            return [self::REFUSED_MISMATCH, $intent, 'the intent was already consumed'];
+            /* OR HAS SINCE BEEN ACKNOWLEDGED -- the claim above also requires
+               `acknowledged_at IS NULL`, so a lost claim now has two causes and the message must
+               not assert the commoner one. Both mean the same thing to the caller: this door did
+               not settle the purchase and must not pretend it did. */
+            return [self::REFUSED_MISMATCH, $intent, 'the intent was already consumed, or has since been acknowledged by a person'];
         }
 
         return [self::VERIFIED, $intent, ''];
@@ -657,6 +724,20 @@ class PlanPurchaseIntent
      *
      * Never throws, and never changes the status of an intent that was already consumed: a
      * successful activation followed by a refused retry must not be re-labelled as a failure.
+     */
+    /*
+     * `mb_substr`, NOT `substr`, FOR EVERY REASON FIELD -- this is a bilingual Arabic/English
+     * application and `failure_reason` is a 255-character column that reasons really do fill.
+     * Independent review measured the cost of the byte version: a 255-BYTE cut lands mid-character
+     * in Arabic, `mb_check_encoding()` then returns false, and `json_encode()` fails with
+     * `JSON_ERROR_UTF8` when that string reaches `audit_logs.new_values` -- the exact hazard the
+     * console's own `mb_check_encoding` check on `--reason` was added to close, re-created
+     * downstream of it. On MySQL utf8mb4 strict mode rejects the UPDATE instead and the writer
+     * swallows it into a `Log::warning`, so either way nobody is told.
+     *
+     * The identifier truncations beside these stay on `substr` deliberately: `provider_txn_id`,
+     * `reference`, `currency` and the module/route names are ASCII by construction, and changing
+     * them would be churn rather than a fix.
      */
     public static function recordRefusal(string $provider, string $reference, string $reason, $providerTxnId = null, $purchaserId = null): void
     {
@@ -694,7 +775,7 @@ class PlanPurchaseIntent
             $refusal
                 ->update([
                     'status' => self::REFUSED,
-                    'failure_reason' => substr($reason, 0, 255),
+                    'failure_reason' => mb_substr($reason, 0, 255),
                     'provider_txn_id' => is_scalar($providerTxnId) ? substr((string) $providerTxnId, 0, 191) : null,
                     'updated_at' => now(),
                 ]);
@@ -734,7 +815,7 @@ class PlanPurchaseIntent
             }
 
             $refusal->update([
-                'failure_reason' => substr($reason, 0, 255),
+                'failure_reason' => mb_substr($reason, 0, 255),
                 'updated_at' => now(),
             ]);
         } catch (\Throwable $theReasonWasNotRecorded) {
@@ -763,6 +844,354 @@ class PlanPurchaseIntent
                 'reason' => $theOrderWasNotAttached->getMessage(),
                 'provider' => $provider,
             ]);
+        }
+    }
+
+    /**
+     * THE ONE PREDICATE FOR "THIS INTENT IS ANSWERABLE BY A PERSON", so a read and a write cannot
+     * disagree about it.
+     *
+     * IT EXISTS BECAUSE THE WRITE USED TO OMIT IT, and independent review measured what that cost.
+     * `acknowledge()` tested the state with a separate, NON-LOCKING read and then ran an UPDATE
+     * keyed only on `id` and `acknowledged_at IS NULL` -- so with a settlement in flight:
+     *
+     *   1. a reconciliation run takes the intent's row lock and holds it through `assignPlan()`,
+     *      which saves the user, every store and every staff row -- a wide window;
+     *   2. an operator runs `--acknowledge-intent` on the same row; the state read answers from
+     *      before the settlement commits, and the UPDATE then blocks on the lock;
+     *   3. the settlement commits: `status = consumed`, `plan_order_id` set, the plan GRANTED;
+     *   4. the UPDATE unblocks, re-evaluates `acknowledged_at IS NULL` -- still true, because a
+     *      settlement never touches that column -- writes, and reports success.
+     *
+     * The operator is then told the payment "will not be settled by any door from here on" about a
+     * payment that just was. They refund out of band, the merchant keeps the plan, and because
+     * `plan_order_id` is now set the row matches no `unreconciled()` clause, so the contradiction
+     * never appears in either console table again.
+     *
+     * Putting the state INSIDE the conditional UPDATE is what the module ledger's `acknowledge()`
+     * already does (`ModulePaymentLedger:456-465` carries `->where('status', self::REFUSED)` in the
+     * UPDATE), and the docblock here used to claim it was "the same shape" while omitting exactly
+     * that. Now it is the same shape.
+     *
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private static function answerableById(int $id)
+    {
+        return DB::table(self::TABLE)
+            ->where('id', $id)
+            ->whereNull('acknowledged_at')
+            ->where(function ($query) {
+                $query->where('status', self::REFUSED)
+                    ->orWhere(function ($captured) {
+                        $captured->where('status', self::PENDING)
+                            ->whereNotNull('provider_txn_id');
+                    })
+                    ->orWhere(function ($examinedAndStillOpen) {
+                        $examinedAndStillOpen->where('status', self::PENDING)
+                            ->whereNotNull('failure_reason');
+                    })
+                    ->orWhere(function ($spentWithNothingToShow) {
+                        $spentWithNothingToShow->where('status', self::CONSUMED)
+                            ->whereNull('plan_order_id');
+                    });
+            });
+    }
+
+    /**
+     * WHETHER THIS INSTALLATION CAN RECORD AN ACKNOWLEDGEMENT AT ALL.
+     *
+     * `available()` tests the table; this tests the three columns `2026_11_25_000200` adds, because
+     * a database migrated before that change has the table and not the columns. Separate rather
+     * than folded into `available()` on purpose: the whole reconciliation surface must keep working
+     * against such a database, and only the acknowledgement must be refused -- in words, not by a
+     * swallowed exception.
+     */
+    public static function acknowledgementAvailable(): bool
+    {
+        if (! self::available()) {
+            return false;
+        }
+
+        try {
+            return Schema::hasColumn(self::TABLE, 'acknowledged_at')
+                && Schema::hasColumn(self::TABLE, 'acknowledged_by')
+                && Schema::hasColumn(self::TABLE, 'acknowledged_reason');
+        } catch (\Throwable $theSchemaIsUnreadable) {
+            return false;
+        }
+    }
+
+    /**
+     * ONE INTENT A PERSON IS BEING ASKED ABOUT, or null -- what the console shows before it writes.
+     *
+     * THE PREDICATE IS THE ONE THE COMMAND LISTS WITH -- `unreconciled(0)` -- AND THAT EQUALITY IS
+     * THE POINT:
+     * anything this application reports as needing a person can be answered by one. A narrower
+     * predicate would leave a row reported for ever and answerable never, which is the same
+     * permanently-red status the acknowledgement exists to end -- only harder to see, because the
+     * command would be telling an operator to deal with something it would then refuse to record.
+     * `PlanPaymentReconciliationTest` pins the equality in both directions rather than trusting it.
+     *
+     * STATED AS `unreconciled(0)` AND NOT "CLAUSE FOR CLAUSE", which is what it used to say.
+     * `unreconciled()` also takes an age bound (`created_at < now() - $olderThanMinutes`) that this
+     * does not, and independent review was right that the earlier wording glossed over it. The
+     * bound is a LISTING filter, not part of answerability, and the command passes 0 --
+     * `reportWhatOnlyAPersonCanResolve()` calls `unreconciled(0)` -- so every row it prints is
+     * answerable and every answerable row is printed. If a caller ever lists with a non-zero bound,
+     * the rows it hides are still answerable by id, which is the safe direction: a person can
+     * answer something they were shown elsewhere, and nobody can silence a row the command would
+     * refuse to show.
+     *
+     * WHAT IS NOT IN IT: a CLEAN `pending` intent -- no reason, no provider transaction id. That is
+     * not a finding, it is a purchase whose buyer may still be on the provider's page, and
+     * acknowledging one would make a capture permanently unsettleable with one console command and
+     * nothing recorded about what it was. `unreconciled()` does not report those either, which is
+     * why the two predicates agreeing is the safe shape and not a loophole.
+     *
+     * The `pending` + `provider_txn_id` clause is UNREACHABLE TODAY -- `create()` omits the column
+     * and all three writers set it only while changing the status, as this file's own note at
+     * `unreconciled()` records -- so including it changes nothing now. It is here so that a future
+     * door writing a transaction id onto a pending row produces a row that is both reported AND
+     * answerable, instead of silently turning this fix back into a partial one.
+     */
+    public static function needingAPerson(int $id): ?object
+    {
+        if (! self::acknowledgementAvailable() || $id <= 0) {
+            return null;
+        }
+
+        try {
+            return self::answerableById($id)->first();
+        } catch (\Throwable $theRecordIsUnreadable) {
+            return null;
+        }
+    }
+
+    /**
+     * RECORD THAT A PERSON HAS DEALT WITH AN UNRECONCILED PAYMENT. Returns false unless it wrote.
+     *
+     * This SILENCES AN ALARM AND CLOSES A DOOR, and the second is the part to be careful about. The
+     * honest resolutions for one of these rows are "refunded it" and "granted the plan by hand";
+     * both mean the payment must never be settled again, and neither is visible to any provider
+     * verifier this application has -- a refund issued after a capture need not change what a status
+     * endpoint reports.
+     *
+     * WHERE THAT IS ENFORCED: the two conditional consumption UPDATEs in this class, which carry
+     * `acknowledged_at IS NULL` beside `status = pending`. That is the one statement every door
+     * funnels through -- the three browser returns (`PaytmPaymentController:489`,
+     * `CashfreeController:291`, `MolliePaymentController:269`), the reconciliation command and
+     * `PaymentCallbackController` -- so the guarantee is atomic and not a convention each caller
+     * has to remember. `PlanPaymentReconciler` and `PlanPurchaseSettlement` also refuse earlier, to
+     * save a provider call and to name the reason, but neither is the control.
+     *
+     * An earlier version of this docblock named `PlanPurchaseSettlement` as "the browser return's
+     * door". It is not: no plan browser return reaches that class, and independent review measured
+     * that a purchaser re-presenting their own signed return body would have settled an
+     * acknowledged payment.
+     *
+     * Nothing here changes `status`, `failure_reason` or any figure: what happened to the payment is
+     * a separate fact from what a person did about it.
+     *
+     * ONE CONDITIONAL UPDATE CARRYING THE WHOLE PREDICATE -- `answerableById()`, which is also what
+     * `needingAPerson()` reads. So two people racing produce one record and the first reason
+     * survives, AND a settlement that commits while this waits for the row lock takes the row out
+     * of the predicate, so the acknowledgement loses instead of being written onto a payment that
+     * was just granted. `answerableById()`'s docblock has the measurement.
+     *
+     * `=== 1` rather than a truthy count, for the reason its caller's test measured: a second
+     * attempt that matched nothing used to leave an audit row for an acknowledgement that never
+     * happened.
+     */
+    public static function acknowledge(int $id, string $reason, ?int $actorId): bool
+    {
+        $reason = trim($reason);
+
+        if (! self::acknowledgementAvailable() || $reason === '' || $id <= 0) {
+            return false;
+        }
+
+        try {
+            return self::answerableById($id)
+                ->update([
+                    'acknowledged_at' => now(),
+                    'acknowledged_by' => $actorId,
+                    'acknowledged_reason' => mb_substr($reason, 0, 255),
+                    'updated_at' => now(),
+                ]) === 1;
+        } catch (\Throwable $theAcknowledgementFailed) {
+            return false;
+        }
+    }
+
+    /**
+     * UNDO AN ACKNOWLEDGEMENT, so a mistake is correctable on the record instead of in the database.
+     *
+     * WHY THIS EXISTS AT ALL, since it reopens a payment somebody closed. Independent review raised
+     * the irreversibility twice: `--acknowledge-intent` takes a small sequential integer printed in
+     * a table beside OTHER purchasers' findings, a single-digit typo permanently forecloses the
+     * wrong purchaser's payment under a reason describing somebody else's, and before this there was
+     * no un-acknowledge anywhere in `app/` -- the only remedy was a hand-written UPDATE.
+     *
+     * That is the comparison that decides it. The alternative to this method is not "nobody
+     * reopens an acknowledgement"; it is "somebody reopens it with SQL and nothing records that they
+     * did". Both require the same shell access, so this adds no reach -- it adds an audit row and a
+     * required reason to something that was going to happen anyway.
+     *
+     * IT SETTLES NOTHING BY ITSELF. It clears the three columns, which only makes the row eligible
+     * for the reconciliation command again -- and that command still has to obtain an authoritative
+     * capture from the provider before anything is written. So the worst a wrong reopen does is put
+     * the row back in front of a person.
+     *
+     * Conditional on `acknowledged_at IS NOT NULL`, so it cannot invent a reopen of a row nobody
+     * acknowledged, and two racing callers produce one.
+     */
+    public static function reopen(int $id): bool
+    {
+        if (! self::acknowledgementAvailable() || $id <= 0) {
+            return false;
+        }
+
+        try {
+            return DB::table(self::TABLE)
+                ->where('id', $id)
+                ->whereNotNull('acknowledged_at')
+                ->update([
+                    'acknowledged_at' => null,
+                    'acknowledged_by' => null,
+                    'acknowledged_reason' => null,
+                    'updated_at' => now(),
+                ]) === 1;
+        } catch (\Throwable $theReopenFailed) {
+            return false;
+        }
+    }
+
+    /**
+     * ONE INTENT BY ITS ID, WHATEVER STATE IT IS IN -- for an audit record that must describe the
+     * row as it is NOW rather than as a caller last saw it.
+     *
+     * It lives here rather than in the console command for the reason this table's raw-query census
+     * records: every statement against `plan_purchase_intents` belongs to the service that owns it,
+     * so the table has exactly ONE class that queries it. The console had a
+     * `DB::table('plan_purchase_intents')` of its own for one call, which broke that invariant and
+     * put the table into the per-table exposure map as a literal for the first time.
+     */
+    public static function byId(int $id): ?object
+    {
+        if (! self::available() || $id <= 0) {
+            return null;
+        }
+
+        try {
+            return DB::table(self::TABLE)
+                ->where('id', $id)
+                ->first();
+        } catch (\Throwable $theRecordIsUnreadable) {
+            return null;
+        }
+    }
+
+    /** One acknowledged intent, so the console can show what it is about to reopen. */
+    public static function acknowledged(int $id): ?object
+    {
+        if (! self::acknowledgementAvailable() || $id <= 0) {
+            return null;
+        }
+
+        try {
+            return DB::table(self::TABLE)
+                ->where('id', $id)
+                ->whereNotNull('acknowledged_at')
+                ->first();
+        } catch (\Throwable $theRecordIsUnreadable) {
+            return null;
+        }
+    }
+
+    /**
+     * INTENTS A RECONCILIATION RUN MAY ASK A PROVIDER ABOUT: still `pending`, old enough that the
+     * buyer's own return has had its chance, and young enough to be worth a question.
+     *
+     * `pending` and nothing else. A `consumed` intent has been spent and a `refused` one was closed
+     * by a door that had its reasons; neither is reopened from here, and both stay in
+     * `unreconciled()` for a human. This is the list of purchases that were INITIATED -- the server
+     * minted the reference and recorded plan, purchaser, amount and currency before the buyer left
+     * -- and that nothing has since settled. The row is the durable proof of initiation; without
+     * the table there is no proof and the answer is the empty list, never "everything".
+     *
+     * BOTH TIME BOUNDS ARE THE CALLER'S, AND NEITHER IS A SETTLEMENT RULE. The lower bound exists
+     * so a run does not race a purchase whose buyer is still on the provider's page; the upper one
+     * so a run does not ask a provider about every abandoned checkout the installation has ever
+     * had. An intent outside the window is not judged -- `outsideReconciliationWindow()` counts
+     * them so a report can say how many it did not look at instead of implying it looked at all.
+     *
+     * @return \Illuminate\Support\Collection<int,object>
+     */
+    public static function awaitingReconciliation(int $olderThanMinutes, int $withinDays, ?string $provider = null, ?string $reference = null)
+    {
+        if (! self::available()) {
+            return collect();
+        }
+
+        /*
+         * THIS ONE DOES NOT SWALLOW ITS FAILURE, unlike its read-only siblings below, and the
+         * independent financial review measured why it must not: with the query broken the command
+         * printed *"No pending intent falls inside the window examined"* and exited **0** — a run
+         * that examined nothing reporting as a run that found nothing. The caller turns a throw
+         * into exit 2, which is the difference between "clean" and "could not run".
+         */
+        return DB::table(self::TABLE)
+            ->where('status', self::PENDING)
+            ->where('created_at', '<', now()->subMinutes(max(0, $olderThanMinutes)))
+            ->where('created_at', '>=', now()->subDays(max(1, $withinDays)))
+            ->when($provider !== null && $provider !== '', fn ($query) => $query->where('provider', $provider))
+            ->when($reference !== null && $reference !== '', fn ($query) => $query->where('reference', $reference))
+            ->orderBy('id')
+            ->get();
+    }
+
+    /** The providers any intent has ever been recorded for, so a mistyped `--provider` can be refused. */
+    public static function recordedProviders(): array
+    {
+        if (! self::available()) {
+            return [];
+        }
+
+        try {
+            return DB::table(self::TABLE)->distinct()->pluck('provider')->filter()->values()->all();
+        } catch (\Throwable $theQueryFailed) {
+            return [];
+        }
+    }
+
+    /** How many `pending` intents are OLDER than the window a run examined. Counted, never judged. */
+    public static function outsideReconciliationWindow(int $withinDays): int
+    {
+        if (! self::available()) {
+            return 0;
+        }
+
+        try {
+            return DB::table(self::TABLE)
+                ->where('status', self::PENDING)
+                /*
+                 * NOT THE ONES A PERSON HAS ANSWERED -- and leaving this out reinstated the exact
+                 * permanently-red exit status the acknowledgement exists to end, just delayed by
+                 * `--days`.
+                 *
+                 * `recordRecoverableRefusal()` leaves the intent `pending`, which is what every
+                 * non-amount discrepancy produces. Such a row drops out of
+                 * `awaitingReconciliation()`'s window on day 31 and was then counted here for ever,
+                 * and the command adds this count straight to its exit status. So an operator who
+                 * had dealt with the payment watched the run go green for thirty days and red again
+                 * after. Found by independent review; invisible to the test that pins finding 9,
+                 * because that one uses a `refused` intent and this query never counts those.
+                 */
+                ->when(self::acknowledgementAvailable(), fn ($query) => $query->whereNull('acknowledged_at'))
+                ->where('created_at', '<', now()->subDays(max(1, $withinDays)))
+                ->count();
+        } catch (\Throwable $theQueryFailed) {
+            return 0;
         }
     }
 

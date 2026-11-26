@@ -3,6 +3,8 @@ title: Plan limits
 order: 2
 summary: What happens when you reach one.
 related: getting-started/choose-a-plan
+updated: 2026-11-25
+status: published
 ---
 
 ## Where to see them

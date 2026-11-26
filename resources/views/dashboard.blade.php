@@ -260,9 +260,9 @@
                                 <div class="card-content-info d-flex gap-3 flex-wrap flex-column flex-sm-row">
                                     <div
                                         class="d-flex align-items-center align-items-sm-start gap-3 flex-1 flex-column flex-sm-row">
-                                        <a href="{{ !empty(auth()->user()->profile_image) && file_exists(auth()->user()->profile_image) ? get_file(auth()->user()->profile_image) : asset(Storage::url('uploads/profile/avatar.png')) }}"
+                                        <a href="{{ !empty(auth()->user()->profile_image) && file_exists(auth()->user()->profile_image) ? get_file(auth()->user()->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                             target="_blank" class="user-img">
-                                            <img src="{{ !empty(auth()->user()->profile_image) && file_exists(auth()->user()->profile_image) ? get_file(auth()->user()->profile_image) : asset(Storage::url('uploads/profile/avatar.png')) }}"
+                                            <img src="{{ !empty(auth()->user()->profile_image) && file_exists(auth()->user()->profile_image) ? get_file(auth()->user()->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                                 alt="user-image">
                                         </a>
                                         <div class="user-info">
@@ -366,7 +366,30 @@
                                      * other two — so showing it there is showing a 0% that means
                                      * "not computed". */
                                     $ssStorageUsed      = (float) ($users->storage_limit ?? 0);
+                                    /* P06-STORAGE. `users.storage_limit` is now stored to six
+                                     * decimals, so concatenating the float printed
+                                     * "1.988443MB / 100MB" -- and for usage under ~105 bytes PHP
+                                     * switches to exponential, measured as "4.8E-5MB".
+                                     *
+                                     * A FIRST REPAIR USED `number_format($x, 2)` HERE AND BROKE
+                                     * THE THREE SENTENCES LISTED ABOVE: it renders 12 as "12.00",
+                                     * so all three of this file's documented forms changed and
+                                     * DashboardFigureHonestyTest went red on each. `display()`
+                                     * keeps a whole figure whole, drops the exponent, and still
+                                     * shows a sub-kilobyte file rather than rounding it to a zero
+                                     * that would read as "nothing stored". Display only; the
+                                     * float above stays the float. */
+                                    $ssStorageUsedText  = \App\Support\Storage\StorageUsage::display($ssStorageUsed);
                                     $ssStorageQuota     = (float) ($plan->storage_limit ?? 0);
+                                    /* THE QUOTA SIDE IS DEFENSIVE AND NOT PINNED BY A TEST, and
+                                     * saying so is cheaper than a contrived one. A plan's limit is
+                                     * a whole number of megabytes, so `(string) 500.0` is already
+                                     * "500" and no assertion can tell this call from the raw
+                                     * concatenation -- the same blind spot the used side had until
+                                     * the sub-kilobyte case was added. It is formatted anyway so
+                                     * the two halves of "X / Y" cannot drift apart if a fractional
+                                     * or very small plan limit is ever configured. */
+                                    $ssStorageQuotaText = \App\Support\Storage\StorageUsage::display($ssStorageQuota);
                                     $ssStorageUnlimited = $plan !== null && (int) $ssStorageQuota === -1;
                                     $ssStorageKnown     = $plan !== null && $ssStorageQuota > 0;
                                 @endphp
@@ -378,11 +401,11 @@
                                          empty. Hence the explicit variable. --}}
                                     @php
                                         if ($ssStorageKnown) {
-                                            $ssStorageNote = $ssStorageUsed . 'MB / ' . $ssStorageQuota . 'MB';
+                                            $ssStorageNote = $ssStorageUsedText . 'MB / ' . $ssStorageQuotaText . 'MB';
                                         } elseif ($ssStorageUnlimited) {
-                                            $ssStorageNote = __(':used MB used of unlimited storage', ['used' => $ssStorageUsed]);
+                                            $ssStorageNote = __(':used MB used of unlimited storage', ['used' => $ssStorageUsedText]);
                                         } else {
-                                            $ssStorageNote = __(':used MB used', ['used' => $ssStorageUsed]);
+                                            $ssStorageNote = __(':used MB used', ['used' => $ssStorageUsedText]);
                                         }
                                     @endphp
                                     {{-- THE NOTE IS NOT PART OF THE HEADING. It used to sit inside this

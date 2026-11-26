@@ -38,9 +38,9 @@
     <section class="ss-ps-hero">
         <div class="ss-ps-wrap">
             <div class="ss-ps-hero__inner">
-                <span class="ss-ps-eyebrow">{{ __('Features') }}</span>
-                <h1 class="ss-ps-hero__title">{{ __('What the platform does') }}</h1>
-                <p class="ss-ps-lede">{{ __('Everything listed below is part of the platform. Which parts a particular account can switch on depends on its plan, so check the plan before you count on one of them.') }}</p>
+                <span class="ss-ps-eyebrow">{{ $c['features.hero.eyebrow'] }}</span>
+                <h1 class="ss-ps-hero__title">{{ $c['features.hero.title'] }}</h1>
+                <p class="ss-ps-lede">{{ $c['features.hero.lede'] }}</p>
             </div>
         </div>
     </section>

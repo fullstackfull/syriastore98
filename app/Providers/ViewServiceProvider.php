@@ -83,6 +83,78 @@ class ViewServiceProvider extends ConcreteViewServiceProvider
             
             $slug =  $store->slug;
 
+            /*
+             * GAP-118 / P03-MP-02 -- THE MERCHANT'S SEO META, WHICH WAS WIRED TO NOTHING.
+             *
+             * `POST /seo-setting` (`AppSettingController::seoSettings`, route `seo.settings`) has
+             * always stored `metakeyword`, `metadesc` and `metaimage` into `settings` under the
+             * merchant's own `store_id`. No reader existed. MEASURED before this change, on four
+             * stores each with all three values stored and on all twelve storefront pages that
+             * answer 200: ten of the twelve `<meta>` tags carried `config('app.name')` -- the
+             * PLATFORM's name -- on every page of every store, `og:image` included, where a URL
+             * belongs. Only `og:url` and `twitter:url` were per-store, because `$slug` was the one
+             * argument the layout passed.
+             *
+             * THIS IS THE RIGHT PLACE and not a controller: all FOUR copies of
+             * `front_end/layouts/app.blade.php` (one per installed theme plus the `resources/views`
+             * fallback) already call
+             *
+             *     {!! metaKeywordSetting($metakeyword ?? null, $metadesc ?? null, $metaimage ?? null, $slug) !!}
+             *
+             * and a composer is keyed on the view NAME, under which all four resolve. So one
+             * registration feeds every copy and no Blade file had to change -- which matters,
+             * because a layout-level storefront change made in fewer than four places silently
+             * does nothing for the other themes.
+             *
+             * `$store->id` IS PASSED EXPLICITLY, AND THAT IS THE WHOLE TENANCY CONTROL.
+             * `Utility::GetValueByName($name)` with no store id defaults to
+             * `getCurrentStore() ?: getRouteStoreId()`, and `getCurrentStore()` reads
+             * `current_store` off the DEFAULT (`web`) guard. Storefront routes are inside the `web`
+             * group and the session cookie path is '/', so a merchant with a live panel session is
+             * a populated web-guard principal on every storefront request -- other merchants'
+             * storefronts included. The default would therefore have printed store A's SEO metadata
+             * into store B's <head> for that visitor. `$store` here is the row this composer
+             * already resolved from `request()->route('storeSlug')`, which is the only correct
+             * answer for a storefront page.
+             * Driven by Tests\Feature\Storefront\StorefrontSeoMetaPerStoreTest.
+             *
+             * '' IS NORMALISED TO NULL because the helper's `?? config('app.name')` fallback only
+             * fires on null. `settings.value` has no length or NOT NULL constraint and several
+             * handlers write `$request->all()`, so an empty string is a state the table reaches --
+             * and it would otherwise render an empty title on every page of that store.
+             *
+             * THE IMAGE BECOMES AN ABSOLUTE URL. `og:image` and `twitter:image` are read off-site,
+             * where the stored relative path resolves against nothing; `get_file()` is what the
+             * merchant settings screen already uses on this same value (AppSettingController:139).
+             *
+             * The values are merchant-supplied and `GetValueByName` applies no filter to these
+             * names, so they arrive verbatim at a `{!! !!}` print: the escaping inside
+             * `metaKeywordSetting()` is the whole of the defence and is a precondition of this
+             * wiring, not a separate concern (tests/Unit/Security/MetaKeywordSettingEscapingTest).
+             */
+            $storeMeta = static function (string $name) use ($store) {
+                $value = Utility::GetValueByName($name, $store->id);
+
+                return is_scalar($value) && trim((string) $value) !== '' ? (string) $value : null;
+            };
+
+            $metakeyword = $storeMeta('metakeyword');
+            $metadesc = $storeMeta('metadesc');
+            $metaimage = $storeMeta('metaimage');
+            if ($metaimage !== null) {
+                /*
+                 * `get_file()` ends in `catch (\Throwable) { return ''; }`, so a store whose
+                 * platform operator has `storage_setting = 'wasabi'` with any of the four wasabi
+                 * keys unset gets '' back -- an undefined-array-key warning that Laravel promotes
+                 * and this function swallows. That is a reachable state, not a hypothetical: none
+                 * of those keys is NOT NULL and the settings screen writes them only when remote
+                 * storage is configured. '' would print `content=''` rather than falling back, so
+                 * it is normalised to null and the helper's existing fallback applies instead.
+                 */
+                $resolved = get_file($metaimage);
+                $metaimage = is_string($resolved) && trim($resolved) !== '' ? $resolved : null;
+            }
+
             // PHASE 03 M0 -- `$currentTheme` reaches the layout, which builds every stylesheet and
             // script URL as `asset('themes/' . $currentTheme . '/assets/...')`. For a store with no
             // theme chosen `theme_id` is the empty STRING, so SIX asset URLs came out as
@@ -112,7 +184,10 @@ class ViewServiceProvider extends ConcreteViewServiceProvider
                 'MainCategoryList'=> $CategoryList,
                 'customer_name' => $customer_name,
                 'customer' => $customer,
-                'adminSetting' => $adminSetting
+                'adminSetting' => $adminSetting,
+                'metakeyword' => $metakeyword,     // GAP-118: the store's own SEO meta, by store id
+                'metadesc' => $metadesc,
+                'metaimage' => $metaimage,
             ];
             $view->with($data);
         });

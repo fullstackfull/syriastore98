@@ -49,6 +49,30 @@ class AppServiceProvider extends ServiceProvider
         // the same reason as the three above: nothing here loads either class, so this costs nothing while the module is off.
         $this->app->bind(\Workdo\Campaigns\DataTables\AllCampaignsData::class, \App\DataTables\TenantScopedCampaignsData::class);
 
+        /*
+         * GAP-138 / P04-P5-04. Three VENDORED payment services ask Tap to POST the Benefit charge --
+         * amount, currency, the payer's name and email, and the charge id the return paths treat as
+         * proof of payment -- to `https://webhook.site/fd8b0712-...`, a public bin whose URL is
+         * committed in this repository and in its git history. The two first-party copies were
+         * removed under P4-F046; these are the remainder, and `packages/workdo/` must not be edited.
+         *
+         * All three controllers take their payment service by CONSTRUCTOR INJECTION, so binding a
+         * host subclass over the vendored name is what the controller is handed. Each subclass
+         * overrides the public `process()`, takes the `Benefit` branch itself with `post.url` set to
+         * `''`, and delegates every other gateway to `parent::process()`. `processBenefit()` is
+         * private in all three, so it cannot be overridden directly.
+         *
+         * `''` removes the bin WITHOUT choosing a destination -- that is the OPEN owner escalation
+         * P1-SEC-55 and `ModuleBenefitCallback` deliberately does not pre-empt it.
+         *
+         * Bound BY NAME from one list, for the same reason as the four above: `::class` on an
+         * imported name is a compile-time string, so nothing here loads either class and this costs
+         * nothing while the modules are switched off.
+         */
+        foreach (\App\Support\Modules\ModuleBenefitCallback::OVERRIDES as $vendored => $hostOverride) {
+            $this->app->bind($vendored, $hostOverride);
+        }
+
         $this->app->singleton('module', function ($app) {
             return new Module();
         });
@@ -145,6 +169,20 @@ class AppServiceProvider extends ServiceProvider
          * pins that, so running twice is harmless. Full mechanism in the listener's docblock.
          */
         Event::listen(NormaliseRewardRedemptionFlag::EVENT, NormaliseRewardRedemptionFlag::class);
+
+        /*
+         * P06-EVENT-DUP -- every provider extending Laravel's base `EventServiceProvider` registers
+         * `Registered -> SendEmailVerificationNotification` AGAIN, because that base's guard
+         * inspects its OWN `$listen` rather than the application's listener list. MEASURED at four
+         * identical listeners here and four `VerifyEmail` notifications per event; the figure is
+         * `1 + (booted base-extending providers)`, and all 70 module providers under
+         * `packages/workdo/` qualify.
+         *
+         * Queued rather than run, and nested rather than plain, because `PackageServiceProvider`
+         * loads database-enabled modules from its own `$app->booted()` callback -- which is queued
+         * AFTER this provider's. The measurement and the mechanism are in the class docblock.
+         */
+        \App\Support\Events\NormaliseDuplicateEventListeners::queue($this->app);
 
         $cachePath = storage_path('framework/cache/data');
 

@@ -117,7 +117,39 @@ class StorefrontDarkModeLayerTest extends TestCase
             // M2-E: the Tailwind arbitrary-value brand classes axe found and my sampling probe
             // missed. These fail in BOTH appearances, so the rules apply in both.
             '.bg-\\[var\\(--primary-color\\)\\]', '.bg-primary', '.btn-outline',
-            '.tab-btn.active', '.border-\\[var\\(--primary-color\\)\\]'];
+            '.tab-btn.active', '.border-\\[var\\(--primary-color\\)\\]',
+            /*
+             * GAP-256: the product card's conversion actions — THE FIRST ENTRY HERE THAT IS NOT A
+             * COLOUR MAPPING, which is why it carries an argument rather than a name.
+             *
+             * Section 6 of the layer restores `visibility` on three vendored module buttons
+             * (ProductQuickView, ProductCompare, ProductCSV) so that a keyboard can reach them at
+             * all. `visibility: hidden` removes an element from the tab order, so before it those
+             * three were not merely invisible — they were unreachable, a WCAG 2.1.1 Level A
+             * failure — and a touch device, having no hover state, never saw them either.
+             *
+             * IT BELONGS IN BOTH APPEARANCES FOR A MEASURED REASON, NOT A STYLISTIC ONE.
+             * `data-ss-theme` is written by the inline SCRIPT in `appearance.blade.php`
+             * (`root.setAttribute('data-ss-theme', …)`), while this stylesheet is a plain `<link>`.
+             * Measured in Chromium with scripting off: the attribute is absent, an
+             * appearance-scoped selector does not match, and the module's own
+             * `visibility: hidden` still does — so scoping these rules would make a Level A
+             * guarantee conditional on a script running. A CSP, an earlier script error or a
+             * deferred load reach the same state. The section also declares only `visibility`,
+             * `opacity`, `pointer-events`, `transform` and `transition`: there is no dark-mode
+             * value of "is in the tab order", and this gate exists because a COLOUR leaking across
+             * appearances shipped 1.21:1 panels. `public/css/storefront-keyboard.css` (GAP-095) is
+             * unscoped for the same reason — verified: its only `data-ss-theme` is comment prose.
+             *
+             * THE EXCEPTION IS BOUNDED BY A TEST, NOT BY TRUST.
+             * `ProductActionKeyboardReachCssTest::test_the_unscoped_section_declares_no_property_that_can_change_a_colour`
+             * measures exactly the rule set this entry permits and fails on the first colour
+             * property added to any of them — mutation-proven against `color`, `background`,
+             * `border-color` and `outline-color`. IF THAT ASSERTION IS EVER REMOVED, REMOVE THIS
+             * ENTRY WITH IT. Narrow by construction: every section-6 selector carries
+             * `.ss-product-actions`, and nothing else in this stylesheet does.
+             */
+            '.ss-product-actions'];
 
         $unscoped = [];
 

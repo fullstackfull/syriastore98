@@ -122,18 +122,54 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
         $slug = preg_replace('/\s+/', '-', $slug); // Replace spaces with hyphens
         $slug = preg_replace('/-+/', '-', $slug); // Replace multiple hyphens with single hyphen
 
-        // If slug is empty after sanitization, use a fallback
-        if(empty($slug)) {
-            $slug = 'store-' . uniqid();
-        }
-
         // Remove special characters
         $slug = preg_replace('/[^a-zA-Z0-9\s-]/', '', $slug);
-        
+
         // Replace multiple spaces with a single hyphen
         $slug = preg_replace('/\s+/', '-', trim($slug));
         // Convert to lowercase
         $slug = strtolower($slug);
+
+        /*
+         * THE FALLBACK HAS TO RUN **AFTER** THE ASCII PASS, AND IT USED TO RUN BEFORE IT -- so it
+         * was dead code for every Arabic store name.
+         *
+         * Two sanitisation passes happen above. The first is Unicode-aware
+         * (`/[^\p{L}\p{N}\s-]/u`) and KEEPS Arabic; the second is ASCII-only
+         * (`/[^a-zA-Z0-9\s-]/`, no `/u`) and STRIPS it. The `empty($slug)` check sat between them,
+         * testing a string that was not yet empty, while the pass that emptied it ran afterwards.
+         *
+         * MEASURED, on names a Syrian merchant would really type:
+         *
+         *     متجر سوريا    -> `-`     (just the hyphen the space became)
+         *     صيدلية الشام  -> `-`     so the SECOND Arabic store collided into `-1`, the third `-2`
+         *     مطعم          -> ``      single word, no space: AN EMPTY SLUG
+         *     مقهى 24       -> `-24`
+         *     Store Syria   -> `store-syria`   unaffected
+         *
+         * `stores.slug` is the storefront's routing segment (`/{slug}/home`), so an empty slug
+         * makes that `//home` and a slug of `-` gives every Arabic-named merchant the same URL.
+         * On a platform whose first-class languages are Arabic and English that is the ordinary
+         * case, not an edge one.
+         *
+         * `! preg_match('/[a-z0-9]/', ...)` RATHER THAN `empty()`, because `-` and `-24`... no:
+         * `-24` keeps its digits and is left alone. The test is "holds no alphanumeric character
+         * at all", which is exactly the unusable set: `''`, `-`, `--`. A slug that kept any part of
+         * the merchant's name keeps it.
+         *
+         * NOTHING NEW IS INVENTED. `'store-' . uniqid()` is the fallback this function already
+         * shipped for an unusable slug; the decision was made, it just could not fire. The
+         * commented-out `transliterator_transliterate('Any-Latin; Latin-ASCII', ...)` above shows
+         * the original intent was transliteration, which would give `mtjr-swrya` instead and read
+         * better -- but it needs the `intl` extension and it is a product decision about what a
+         * merchant's URL looks like, so engineering does not pick it here. Carried as an owner
+         * question.
+         *
+         * Existing stores are untouched: this mints new slugs only.
+         */
+        if (! preg_match('/[a-z0-9]/', $slug)) {
+            $slug = 'store-' . uniqid();
+        }
 
         $table = with(new Store)->getTable();
         $allSlugs = self::getRelatedSlugs($table, $slug ,$id = 0);
@@ -172,6 +208,30 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
 
             }
         }
+
+        /*
+         * P01-DOMAIN-IDENTITY-AUDIT section 3.2, STAGE 4 -- the loop used to fall off the end and
+         * this function RETURNED NULL.
+         *
+         * The audit measured the consequence on MySQL 8.0.46 and corrected its own first draft
+         * while doing so, which is why the remedy is shaped this way. An explicit NULL into the
+         * `NOT NULL` `slug` column is refused under BOTH `strict => true` and `strict => false`
+         * (non-strict mode waives implicit defaults and truncation, not a NOT NULL violation from
+         * an explicit NULL), so the real consequence was not a silent `whereNull` fail-open -- it
+         * was a HARD FAILURE: the 101st colliding store could not be created at all and the
+         * merchant got a 500.
+         *
+         * The threshold was "101 ARABIC-NAMED stores, not 101 identically-named ones", because
+         * section 3.1 collapsed every Arabic name to the same `-`. That half is fixed above, so
+         * reaching this line now requires 101 stores whose names really do sanitise alike -- but
+         * "harder to reach" is not "handled", and a merchant hitting it still gets a 500 rather
+         * than a store.
+         *
+         * `uniqid()` and not a wider loop: a 101st suffix only moves the wall. The fallback is the
+         * same one this function already uses for an unusable slug, so nothing new is invented,
+         * and the result is guaranteed routable and unique.
+         */
+        return 'store-' . uniqid();
     }
 
     public function dateFormat($date)
@@ -321,7 +381,27 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
                 $modules_array = explode(',',$modules);
                 $currentActiveModules = userActiveModule::where('user_id', $this->id)->pluck('module')->toArray();
 
-                if(!empty($user->active_module) && $oldplan->custom_plan == 1)
+                /*
+                 * `$oldplan?->` -- it is NULLABLE. `Plan::where('id', $this->plan_id)->first()`
+                 * (above) returns null for a subject whose stored `plan_id` matches no row, and
+                 * Laravel promotes the resulting warning to an `ErrorException`. That threw HERE,
+                 * after `plan_id` and `plan_expire_date` were mutated in memory and BEFORE
+                 * `$this->save()` below -- so on a gateway path the `PlanOrder` row was already
+                 * written and the money captured while the entitlement was never stored. Null is
+                 * falsy, so every case that does not currently throw is byte-identical: it takes
+                 * the replace branch, which is what already happens.
+                 *
+                 * THE FIRST OPERAND IS DELIBERATELY LEFT READING `$user`, THE ACTING PRINCIPAL.
+                 * Changing it to `$this` looks like the same correction as the delete below and is
+                 * the opposite: every merchant who has held a plan has a non-empty
+                 * `active_module`, so `$this` would make it true on exactly the operator-driven
+                 * downgrade path, and the merge branch would then PRESERVE modules the new plan
+                 * does not grant whenever the old plan was a custom plan. That re-opens the
+                 * over-entitlement the delete below closes, and whether a custom plan keeps its
+                 * extras through an operator-initiated change is an owner decision. Found by
+                 * independent review, which named it as a trap rather than a follow-on.
+                 */
+                if(!empty($user->active_module) && $oldplan?->custom_plan == 1)
                 {
                     $user_module = $currentActiveModules;
                     foreach ($modules_array as $module) {
@@ -348,7 +428,24 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
                 }
 
                 foreach ($modulesToRemove as $moduleName) {
-                    userActiveModule::where('user_id', $user->id)->where('module', $moduleName)->delete();
+                    /*
+                     * `$this->id`, NOT `$user->id`. `$user` is `\Auth::user()` (read at the top of
+                     * this method) -- the principal performing the change, which is NOT always the
+                     * subject of it. `$modulesToRemove` was computed from `$this`'s own rows and the
+                     * `create()` above already writes `$this->id`, so the delete reading a different
+                     * user was a plain inconsistency inside one loop body, not a design.
+                     *
+                     * MEASURED on the operator-driven path, which is the one that diverges:
+                     * `BankTransferController::orderapprove()` loads the buyer explicitly
+                     * (`$user = User::find($order->user_id)`) and calls `assignPlan()` on them while
+                     * the OPERATOR is signed in. Approving a downgrade therefore did both halves to
+                     * the wrong people -- the merchant kept modules the new plan does not grant, so
+                     * the downgrade did not downgrade, and the operator lost those modules from
+                     * their own account. Both are pinned by
+                     * `tests/Feature/Saas/PlanAssignmentTargetsTheRightUserTest.php`, in both
+                     * directions, with the self-service path asserted byte-identical.
+                     */
+                    userActiveModule::where('user_id', $this->id)->where('module', $moduleName)->delete();
                 }
 
                 $this->active_module = implode(',',$user_module);
@@ -356,7 +453,42 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
             }
 
             $this->save();
-            $users    = User::where('created_by', '=', $this->id)->where('type', '!=', 'super admin')->get();
+
+            /*
+             * `created_by` IS NOT A TENANT, AND THESE TWO CASCADES READ IT AS ONE.
+             *
+             * Both select "the subject's own rows" as `created_by = $this->id`. That is right for
+             * a merchant and catastrophic for the platform operator, because EVERY MERCHANT IS
+             * CREATED WITH `created_by = 1` -- `Auth\RegisteredUserController:133` and `:286`,
+             * `StoreController:280` -- and user 1 is the operator. With the operator as subject the
+             * staff query therefore selects every merchant on the platform (`type != 'super admin'`
+             * excludes only other operators), in `->get()` order with no `orderBy`, and deactivates
+             * all of them past `$plan->max_users`. One request, platform-wide deactivation.
+             *
+             * Reachable: `StoreController::activePlan` and `PlanRequestController::acceptRequest`
+             * both take the subject from input and are operator-gated, so an operator can name
+             * themselves. Self-inflicted rather than an escalation, which is why this is a safety
+             * guard and not a security report.
+             *
+             * This is the same trap CLAUDE.md records costing an account takeover once already:
+             * "`created_by = 1` is NOT a tenant, and reading it as one was an account-takeover".
+             *
+             * NOTHING IS LOST BY SKIPPING THEM. `helper.php:1932-1933` gives a `super admin` every
+             * active module regardless of any row, so an operator is not plan-limited in the first
+             * place -- there are no operator seats or operator stores for a plan to cap. The
+             * operator's own plan row above still updates exactly as before, so this does not
+             * decide whether an operator may hold a plan; only that holding one cannot deactivate
+             * other people's accounts.
+             *
+             * The guard is on the CASCADES rather than on the method's audience on purpose:
+             * refusing `assignPlan()` outright for an operator subject would change whether an
+             * operator can buy a plan at all, and that is a product question.
+             */
+            $subjectIsPlatformOperator = strtolower(trim((string) $this->type)) === 'super admin';
+
+            $users    = $subjectIsPlatformOperator
+                ? collect()
+                : User::where('created_by', '=', $this->id)->where('type', '!=', 'super admin')->get();
            
             if($plan->max_users == -1)
             {
@@ -385,7 +517,13 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
                 }
             }
 
-            $stores    = Store::where('created_by', '=', $this->id)->get();
+            // The twin of the query above, guarded for the same reason. Stores are created with
+            // `created_by => $user->id` (the merchant), so an operator subject selects only stores
+            // the operator personally created -- a far smaller blast radius than the staff query,
+            // but the same wrong question, and leaving one of a pair guarded is how a guard rots.
+            $stores    = $subjectIsPlatformOperator
+                ? collect()
+                : Store::where('created_by', '=', $this->id)->get();
 
             if ($plan->max_stores == -1) {
                 foreach ($stores as $store) {

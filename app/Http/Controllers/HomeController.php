@@ -218,6 +218,18 @@ class HomeController extends Controller
             return view('superadmin.dashboard', $data);
         } else {
             $data = $this->handleRegularUser($user);
+
+            /*
+             * GAP-013. `handleRegularUser()` answers a RESPONSE, not a data array, when the
+             * merchant resolves no store -- see the guard at its `$store = getStoreById(...)`
+             * line and `StorelessMerchantDashboardTest` for why the page cannot be rendered for
+             * that principal at all. Handing a Response to `view()` would be a second fault on
+             * the same path, so the branch is explicit rather than implied.
+             */
+            if ($data instanceof \Symfony\Component\HttpFoundation\Response) {
+                return $data;
+            }
+
             return view('dashboard', $data);
         }
     }
@@ -254,16 +266,82 @@ class HomeController extends Controller
             ->get();
 
         $plan_order = Plan::most_purchese_plan();
-        $coupons = PlanCoupon::get();
-        $maxValue = 0;
-        $couponName = '';
-        foreach ($coupons as $coupon) {
-            $max = $coupon->used_coupon();
-            if ($max > $maxValue) {
-                $maxValue = $max;
-                $couponName = $coupon->name;
-            }
-        }
+        /*
+         * ONE QUERY FOR THE COUPON RANKING, NOT ONE PER COUPON -- AND NOT A CACHED AGGREGATE.
+         *
+         * This was `PlanCoupon::get()` and then `$coupon->used_coupon()` inside a `foreach`.
+         * `used_coupon()` is `hasMany(PlanUserCoupon::class, ...)->count()` -- it returns an int,
+         * not a relation, so it runs its own `select count(*)` and cannot be eager-loaded.
+         * MEASURED at exactly 12 queries against `plan_user_coupons` for 12 coupons, on every load
+         * of the operator's landing page, unbounded by the number of coupons the platform has.
+         *
+         * THE FIRST FIX FOR THAT WAS `PlanCoupon::withCount('planUserCoupons')`, AND IT WAS WRONG.
+         * `PlanCoupon` is `Cachable`, so a `withCount` aggregate is cached under the model being
+         * queried -- `plan_coupons`. A redemption writes `plan_user_coupons`, which invalidates
+         * that model's cache and NOT this one, so the ranking kept naming the previous winner.
+         * MEASURED on MySQL with the array store: after two further redemptions moved the lead,
+         * `withCount` still answered the old coupon at its old count, while the `used_coupon()` it
+         * replaced answered correctly. The old code was accidentally FRESH because its count was a
+         * query on `PlanUserCoupon` itself.
+         *
+         * So the ranking is grouped on `PlanUserCoupon` -- THE TABLE THE REDEMPTIONS ARE WRITTEN
+         * TO, which is the part that fixes it. A query on that model caches under
+         * `plan_user_coupons`, and a redemption write invalidates exactly that, so the figure
+         * follows the data for the same reason the original loop did.
+         *
+         * `toBase()` IS NOT WHAT MAKES IT FRESH -- measured, because a mutation that removed it
+         * SURVIVED `PlanCouponRankingFreshnessTest`: the tag would be `plan_user_coupons` either
+         * way. It is kept for three other reasons, the third found by independent review:
+         *   - it avoids hydrating an Eloquent `PlanUserCoupon` out of a row holding only
+         *     `coupon_id` and a count;
+         *   - it is the shape `PlatformAnalyticsFigures::topStoresByPageViews()` already uses for
+         *     a ranking on this screen;
+         *   - `CacheKey::make()` composes table, model, columns, wheres, havings, with-models,
+         *     orderBy, offset, limit and bindings, and has NO GROUP BY COMPONENT. Two aggregates
+         *     over the same table with the same select list and ordering but different `groupBy`
+         *     would therefore collide on one cache key. There is no second such query today, so
+         *     this is latent -- but it is a reason to keep `toBase()` rather than treat it as
+         *     removable.
+         *
+         * HOW BAD THE STALENESS WAS IN PRODUCTION, stated so nobody reads the measurement above as
+         * a production data-integrity incident. `Caching::cache()` applies tags only for a
+         * TaggableStore. `ArrayStore` is one and the suite uses it (`phpunit.xml`);
+         * `DatabaseStore` is NOT, and production runs `CACHE_STORE=database`, where
+         * `config/laravel-model-caching.php` records that every model save flushes the whole
+         * store. So the stale window was UNBOUNDED IN THE SUITE and closed in production on the
+         * next save of any `Cachable` model. Still wrong, still worth fixing; not an incident.
+         *
+         * `toBase()` drops Eloquent global scopes, which is safe here and was checked rather than
+         * assumed: `PlanUserCoupon` has NO global scopes and is not in `config/tenancy.php`'s
+         * `scoped_models`, as these SaaS tables are platform-level and this handler is reached only
+         * by the operator. `Plan::most_purchese_plan()` does the same for the card beside this one,
+         * so the two figures on this screen are now the same shape.
+         *
+         * `used_coupon()` IS UNTOUCHED. It is called from about 120 sites -- every payment
+         * controller's exhaustion check -- and `PlanCouponRefusalPersistsNothingTest` and
+         * `verify-plan-coupon-refusal-ordering-on-mysql.php` both pin its platform-wide meaning.
+         *
+         * BOTH SEMANTICS OF THE ORIGINAL ARE PRESERVED, and both are pinned by
+         * `OperatorDashboardCardLabelsTest`:
+         *   - A coupon nobody has redeemed never wins. The loop started `$maxValue = 0` and used
+         *     `>`, so a zero count never set a name; a coupon with no rows is not in the GROUP BY
+         *     at all, which is the same outcome by construction.
+         *   - A tie goes to the lowest id. `>` never displaces an equal count and `get()` returns
+         *     primary-key order, so the FIRST of a tie won; hence `orderBy('coupon_id')`.
+         * `PlanCouponRankingFreshnessTest` pins the staleness this replaced.
+         */
+        $mostRedeemed = \App\Models\PlanUserCoupon::query()
+            ->selectRaw('coupon_id, COUNT(*) as redemptions')
+            ->groupBy('coupon_id')
+            ->orderByDesc('redemptions')
+            ->orderBy('coupon_id')
+            ->limit(1)
+            ->toBase()
+            ->first();
+
+        $couponName = $mostRedeemed === null
+            ? ''
+            : (string) (PlanCoupon::find((int) $mostRedeemed->coupon_id)?->name ?? '');
 
         /*
          * P05-14 / P05-19 (GAP-162, GAP-167). THE ONE DELIBERATELY CROSS-TENANT MONEY FIGURE ON
@@ -567,7 +645,55 @@ class HomeController extends Controller
         $chartData = $this->getOrderChart(['duration' => 'week']);
 
         $store = getStoreById(getCurrentStore());
-       
+
+        /*
+         * GAP-013 -- NO STORE, NO MERCHANT DASHBOARD.
+         *
+         * `$slug = $store->slug;` below was the LAST unguarded dereference of
+         * `getStoreById(getCurrentStore())` in this file, and the gap's own two lines (:610 and
+         * :612, both `route('landing_page', $store->slug)` inside `getThemeUrl()`) were only its
+         * siblings. Fixing those on 2026-11-20 made the shared CHROME render; it did not make
+         * this screen render, and `GET /dashboard` stayed an `ErrorException: Attempt to read
+         * property "slug" on null` for any merchant or staff member whose store does not
+         * resolve. `StoreFinanceController` had written that down twice (:806, :1639) while
+         * routing its own refusals here.
+         *
+         * THE ANSWER IS THIS REDIRECT BECAUSE LINE 633 ALREADY CHOSE IT. `getOrderChart()`
+         * answers a non-operator with no resolvable store by `auth()->logout()` plus
+         * `redirect()->route('login')`, and this method was discarding that into `$chartData` and
+         * carrying on -- so every principal who can arrive here with a null store has already
+         * been signed out. Rendering was never an option anyway: with only the dereference
+         * guarded, the request dies in `dashboard.blade.php` instead, on
+         * `route('theme.pages', $theme_name)` with a null `$theme_name`.
+         *
+         * THE TEST IS ON THE STORE, NOT ON `$chartData` BEING A REDIRECT. Reading another
+         * function's return type would make this screen's tenant safety a side effect of a chart
+         * helper. `config/tenancy.php` sets `null_tenant => 'open'`, so an unresolved tenant adds
+         * no predicate anywhere: a null store has to be refused where it is read.
+         *
+         * `! $store` AND NOTHING WEAKER. A falsy test on the slug or the name would refuse a
+         * store that exists and works -- see the two premise cases in
+         * `StorelessMerchantDashboardTest`, and the same correction forced by review on
+         * `getThemeUrl()` (`StorelessChromeRendersTest`).
+         *
+         * THE SIGN-OUT IS REPEATED HERE RATHER THAN ASSUMED, and that is not belt-and-braces --
+         * it is what stops this redirect becoming an infinite one. `/login` answers an
+         * AUTHENTICATED visitor with a redirect to `/dashboard`, so a dashboard that redirects to
+         * sign-in without ending the session is a two-page ring in a real browser.
+         * `FinanceNullStoreGuardTest` exists for exactly that hazard ("A 302 chain is worse than
+         * the 500 it replaces") and routes its own storeless refusals here. `logout()` is
+         * idempotent, so doing it twice when `getOrderChart()` already did costs nothing;
+         * depending on it having happened would make this screen's termination a side effect of a
+         * chart helper. MEASURED: `GET /login` after this answers 200, not a redirect.
+         */
+        if (! $store) {
+            if (auth()->check()) {
+                auth()->logout();
+            }
+
+            return redirect()->route('login')->with('message', __('You have been logged out.'));
+        }
+
         $slug = $store->slug;
         $storage_limit = 0;
         $users = User::find($user->id);
@@ -2249,7 +2375,33 @@ class HomeController extends Controller
     {
         $store = getStore($request->route('storeSlug'));
         if ($store && $request->route('page_slug')) {
-            $page   = Page::where('page_slug', $request->route('page_slug'))->where('page_status', 1)->first();
+            /*
+             * THE `store_id` PREDICATE, WITHOUT WHICH THIS SERVED ANY STORE'S PAGE UNDER ANY SLUG.
+             *
+             * `$store` is resolved from the route on the line above and was then never used as a
+             * predicate, so `GET /store-b/page/<a-slug-belonging-to-store-a>` answered 200 with
+             * store A's `page_content` inside store B's theme — anonymously, on an open storefront
+             * route (`routes/customer.php:132`).
+             *
+             * NOTHING UNDERNEATH CONTAINED IT. `Page` is `use HasFactory, Cachable;` with no
+             * `BelongsToStore` and no `StoreScope`, and it appears ZERO times in
+             * `config/tenancy.php`'s `scoped_models` — the "no scope at all" variety rather than
+             * the inert-scope variety `Product` and `Category` have, so there was no predicate for
+             * any principal.
+             *
+             * ITS OWN SIBLING ALREADY HAD THE CLAUSE: `article_page` reads
+             * `Blog::where('slug', $blogSlug)->where('store_id', $store_id)` at `:1235`. This was a
+             * gap in one handler of a pair, not a platform design.
+             *
+             * A PAGE SLUG IS MERCHANT-CHOSEN FREE TEXT, so two stores both having `about-us` or
+             * `terms` is the ordinary case, not an exotic one — and before this, which of them
+             * `first()` returned was arbitrary. Found by the independent review of the GAP-117 SEO
+             * change, which did not introduce the leak but was about to classify this route as
+             * "a store's public content".
+             */
+            $page   = Page::where('page_slug', $request->route('page_slug'))
+                ->where('store_id', $store->id)
+                ->where('page_status', 1)->first();
             if ($page) {
                 $slug = $store->slug;               
                 return view('front_end.pages.page', compact('page', 'store'));

@@ -76,9 +76,9 @@
                             </div>
                             <div class="card-body">
                                 <div class="img-fluid rounded-circle card-avatar">
-                                    <a href="{{ !empty($deliveryboy->profile_image) ? asset($deliveryboy->profile_image) : asset('storage/uploads/profile/avatar.png') }}"
+                                    <a href="{{ !empty($deliveryboy->profile_image) ? asset($deliveryboy->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                         target="_blank">
-                                        <img src="{{ !empty($deliveryboy->profile_image) ? asset($deliveryboy->profile_image) : asset('storage/uploads/profile/avatar.png') }}"
+                                        <img src="{{ !empty($deliveryboy->profile_image) ? asset($deliveryboy->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                             class="img-user wid-80 round-img rounded-circle">
                                     </a>
                                 </div>

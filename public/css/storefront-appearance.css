@@ -195,3 +195,171 @@
         border-color: var(--ss-border) !important;
     }
 }
+
+/* ---------------------------------------------------------------------------------------------
+   6. GAP-256 / P03-B-07 — THE PRODUCT CARD'S CONVERSION ACTIONS ARE REACHABLE BY A KEYBOARD,
+   ON A TOUCH DEVICE, AND UNCHANGED FOR A MOUSE.                              WCAG 2.1.1 (Level A)
+
+   WHAT WAS WRONG, MEASURED IN CHROMIUM ON A RENDERED `/{store}/home` WITH THE FOUR CONVERSION
+   MODULES REALLY LOADED, not read off a stylesheet. Three of the four modules ship an INLINE
+   `<style>` inside their own `src/resources/views/pages/button.blade.php`:
+
+       ProductQuickView  button.blade.php:25-26   opacity: 0; visibility: hidden
+       ProductCompare    button.blade.php:17-18   opacity: 0; visibility: hidden
+       ProductCSV        button.blade.php:23-24   opacity: 0; visibility: hidden
+
+   each restored only under `.product-box:hover` / `.product-item:hover` / `.product-card:hover`.
+   `visibility: hidden` REMOVES AN ELEMENT FROM THE TAB ORDER, so this was never "three invisible
+   buttons" — it was three conversion actions a keyboard shopper cannot reach at all, and a touch
+   device has no hover state to reveal them with. Tab from the first product card, before this:
+
+       a -> wishlist-btn -> product-pdf-btn -> product-pdf-btn(a) -> a -> addtocart-btn -> next card
+
+   `ProductsPDF` is in that walk; the other three are not, in either direction. It is the one of the
+   four that is reachable, and only because it ships no stylesheet at all.
+
+   WHY THIS IS HOST-SIDE AND WHY IT MUST WIN ON SPECIFICITY. `packages/workdo/` is vendored and must
+   not be edited (CLAUDE.md; `app/Http/Middleware/DisabledModuleRouteGuard.php` is the house
+   precedent for correcting vendored behaviour from the host). And those three `<style>` blocks
+   render in the BODY, inside the product card, while this sheet is linked in `<head>` — asserted
+   both ways by `ProductActionKeyboardReachTest::test_the_host_sheet_is_in_head_and_the_module_
+   styles_come_later`. At EQUAL specificity the later `<style>` wins on source order, so a bare
+   `.quickview-btn { visibility: visible }` here would measure no change whatsoever. Every selector
+   below therefore carries `.ss-product-actions` as well: (0,2,0) against the modules' (0,1,0), and
+   (0,4,0) for the reveal against their (0,3,0) hover rules. NO `!important` IS USED OR NEEDED —
+   the same reason `store-syria-ds.css`'s `.ss-product-actions > button` rule already beats them.
+
+   THE SHAPE THAT WORKS, AND THE TWO THAT DO NOT.
+
+   A `:focus` or `:focus-visible` reveal ALONE IS DEAD CODE. Focus cannot enter an element that
+   `visibility: hidden` has taken out of the tab order, so the selector can never match. That is the
+   trap in this gap: the obvious fix compiles, reads correctly, and changes nothing.
+
+   `visibility: visible` WITH `opacity: 0` ALONE IS A NEW DEFECT. `visibility: hidden` also removes
+   an element from hit testing; `opacity: 0` does not. Lifting the visibility without replacing that
+   would leave a 44x44 invisible control sitting over the product image with `z-index: 2` — a
+   sighted mouse user clicking the photo would fire Quick view, Compare, or a CSV download.
+   Measured: `document.elementFromPoint` at each button's centre, unhovered, now answers
+   `img.w-full.h-80` rather than the button.
+
+   SO THE RESTING STATE IS `visibility: visible; opacity: 0; pointer-events: none`:
+   focusable (which is the fix), unpainted (which is what a mouse user already saw), and not
+   clickable (which is what `visibility: hidden` was also doing and had to be replaced).
+
+   AND EVERY REVEAL IS ONE DECLARATION BLOCK, WHICH IS THE POINT RATHER THAN A TIDINESS. The mouse
+   path, the keyboard path and `pointer-events` are restored by the SAME rule, so it is not possible
+   to fix the keyboard and leave the mouse broken, or to restore paint and forget activation. The
+   register row's own warning — that adding `pointer-events: none` "breaks the mouse, since the
+   modules' own hover rules do not restore it" — is answered by mirroring those three ancestor
+   `:hover` selectors here, with the identical `opacity: 1; visibility: visible;
+   transform: translateX(0)` the modules declare, so what a mouse user sees is byte-identical.
+
+   WHY NOT `clip-path`, OR AN OFF-SCREEN FOCUS-RESTORES PATTERN. Both hide by GEOMETRY, and the
+   modules' own hover rules restore only `opacity`, `visibility` and `transform` — never size,
+   clipping or offset. A geometric resting state would therefore stay clipped or off-screen for the
+   MOUSE user on hover unless this file also re-derived the geometry, and these three buttons are
+   `position: absolute` at three different `top` offsets set by three different modules, one of them
+   as an inline attribute. `opacity` is the one property the modules already restore, so keying off
+   it is the minimal congruent change and the only one whose failure mode is bounded.
+
+   WHAT IS NOT DECIDED HERE. Whether a storefront card SHOULD reveal its conversion actions only on
+   hover at all is a design question, and this rule does not answer it: the resting appearance for a
+   mouse user is left exactly as the modules wrote it. Only reachability is fixed.
+
+   `.product-box` AND `.product-item` ARE MIRRORED THOUGH NO THEME USES THEM TODAY (measured: zero
+   occurrences under every theme's own `views` directory; all three themes and the
+   `resources/views` fallback carry
+   `product-card` on the outer card, which IS an ancestor of the hook). They are here because the
+   modules' own rules name them, and a host override that mirrors two of three selectors would
+   silently stop covering the mouse path for any call site that uses the third.
+
+   SECTIONS 4, 4b, 4c AND THIS ONE CHANGE LIGHT MODE. The header above describes this file as
+   dark-only; that stopped being true at section 4 and is stated here rather than left to be
+   discovered. This section is appearance-independent by design — a tab order is not a colour.
+
+   A WORD ABOUT THIS COMMENT, BECAUSE IT ALREADY BROKE THE RULE BELOW ONCE. The first draft of this
+   block described the mirrored classes as "zero occurrences in themes-star-slash-views" — written
+   with a real glob. A CSS comment ends at its FIRST terminator and the glob contains one, so the
+   comment closed in the middle of a sentence, the remaining prose became live CSS, and Chromium's
+   error recovery consumed the next qualified rule it found: rule 6a, the resting state, the one
+   declaration the whole fix depends on. The file still had 17 openers and 17 terminators and still
+   had balanced braces, `php -l`-style checks would have seen nothing, and the live measurement
+   reported the three buttons still `visibility: hidden` — which reads exactly like "the override
+   does not win on specificity". It won fine; it was not there.
+   CLAUDE.md records this failure mode for Blade and for censuses that read comments; this is the
+   same mistake one layer down, where the prose about a fix deleted the fix.
+   `ProductActionKeyboardReachCssTest` now asserts every selector here is LIVE text rather than
+   commented-out text, and that no comment in this file closes early.
+   --------------------------------------------------------------------------------------------- */
+
+/* 6a. THE RESTING STATE. `visibility: visible` is the whole fix; the other two declarations are
+       what keep the resting experience identical to what it was. */
+.ss-product-actions .quickview-btn,
+.ss-product-actions .compare-btn,
+.ss-product-actions .csv-btn {
+    visibility: visible;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* 6b. EVERY REVEAL, IN ONE BLOCK: card hover (the mouse path, unchanged), card focus-within (so
+       Tabbing to the product link brings the actions beside it into view before focus arrives at
+       them), the wrapper's own focus-within, and the button's own focus (the fallback for a call
+       site carrying none of the three ancestor classes). */
+.product-box:hover .ss-product-actions .quickview-btn,
+.product-box:hover .ss-product-actions .compare-btn,
+.product-box:hover .ss-product-actions .csv-btn,
+.product-item:hover .ss-product-actions .quickview-btn,
+.product-item:hover .ss-product-actions .compare-btn,
+.product-item:hover .ss-product-actions .csv-btn,
+.product-card:hover .ss-product-actions .quickview-btn,
+.product-card:hover .ss-product-actions .compare-btn,
+.product-card:hover .ss-product-actions .csv-btn,
+.product-box:focus-within .ss-product-actions .quickview-btn,
+.product-box:focus-within .ss-product-actions .compare-btn,
+.product-box:focus-within .ss-product-actions .csv-btn,
+.product-item:focus-within .ss-product-actions .quickview-btn,
+.product-item:focus-within .ss-product-actions .compare-btn,
+.product-item:focus-within .ss-product-actions .csv-btn,
+.product-card:focus-within .ss-product-actions .quickview-btn,
+.product-card:focus-within .ss-product-actions .compare-btn,
+.product-card:focus-within .ss-product-actions .csv-btn,
+.ss-product-actions:focus-within .quickview-btn,
+.ss-product-actions:focus-within .compare-btn,
+.ss-product-actions:focus-within .csv-btn,
+.ss-product-actions .quickview-btn:focus,
+.ss-product-actions .compare-btn:focus,
+.ss-product-actions .csv-btn:focus {
+    visibility: visible;
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+}
+
+/* 6c. TOUCH. `@media (hover: none)` is not a nicety here: a device with no hover state can never
+       satisfy any selector above except the focus ones, and a shopper does not Tab on a phone. The
+       actions are simply present. Measured in a Chromium context with `hasTouch`, which is what
+       makes it answer `(hover: none)` and `(pointer: coarse)` — the CDP
+       `Emulation.setEmulatedMedia` `features` route does NOT change these, measured. */
+@media (hover: none) {
+    .ss-product-actions .quickview-btn,
+    .ss-product-actions .compare-btn,
+    .ss-product-actions .csv-btn {
+        visibility: visible;
+        opacity: 1;
+        transform: translateX(0);
+        pointer-events: auto;
+    }
+}
+
+/* 6d. The modules declare `transition: all 0.3s ease` and no reduced-motion arm, and this change
+       gives that transition a new trigger — focus. A 20px `translateX` on every Tab is motion a
+       shopper who asked for less should not get, so the reveal becomes instant for them. This
+       removes motion and adds none. */
+@media (prefers-reduced-motion: reduce) {
+    .ss-product-actions .quickview-btn,
+    .ss-product-actions .compare-btn,
+    .ss-product-actions .csv-btn {
+        transition: none;
+    }
+}

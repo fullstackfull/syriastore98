@@ -39,16 +39,85 @@ class Coupon extends Model
      * The result is identical to the old behaviour on MySQL, correct on SQLite, and index-friendly
      * on both. Per-store coupon counts are small, so step 2 reads a handful of rows at most.
      *
+     * =============================================================================================
+     * P4-F061 / GAP-132 -- AN INACTIVE COUPON IS NO LONGER FOUND BY CODE.
+     * =============================================================================================
+     *
+     * THE DEFECT. `coupons.status` is `integer default 1` with the migration's own comment
+     * `0 => Inactive, 1 => Active`. It is WRITTEN by four merchant-facing editors
+     * (`CouponController::store` / `::update`, `DashboardController::AddCoupon` / `::UpdateCoupon`)
+     * and was READ by no query predicate and no conditional anywhere in `app/` or
+     * `packages/workdo/`. `Coupon` carries no global scope and is in no `scoped_models` entry, so
+     * nothing underneath could supply one. A coupon the merchant switched off therefore still
+     * validated and still discounted, bounded only by its expiry, `coupon_limit`,
+     * `coupon_limit_user` and spend gates -- which all worked. The toggle did nothing.
+     *
+     * MEASURED, THREE DOORS, before this predicate existed: `POST api/{slug}/apply-coupon`
+     * answered `status 1` with a 50.00 discount on a 200.00 basket; `POST api/{slug}/cart-list`
+     * reported `total_coupon_price` 50.00; and `POST /{slug}/applycoupon` -- which
+     * `routes/customer.php:203` publishes with NO auth middleware -- answered "Coupon code applied
+     * successfully", final_price 150.00, to a visitor with no session at all.
+     *
+     * HERE, BECAUSE THIS IS THE CHOKEPOINT. All eight storefront lookups that resolve a coupon
+     * from a shopper-supplied CODE come through this method (`Cart`, `CartController` x2,
+     * `OrderController`, `ApiController` x4) -- measured: exactly ONE narrowing of a query by
+     * `coupon_code` exists under `app/`, this one, and none under `packages/workdo/`. Pinned in
+     * both directions by
+     * `CouponDiscountAuthorizationTest::test_no_storefront_coupon_code_lookup_bypasses_the_status_gate`.
+     *
+     * BEFORE `$constrain`, NOT AFTER, so a caller's own conditions cannot displace it. STATED AS A
+     * PRECAUTION RATHER THAN A MEASURED CONTROL: moving it after `$constrain` is a mutant that
+     * SURVIVES the whole suite, because every one of the eight constrain closures is a plain
+     * `->where()` and SQL ANDs them whatever the order. It would only matter for a closure that
+     * opened a top-level `orWhere`, and none does. Recorded so nobody reads the ordering as
+     * something a test is holding.
+     *
+     * NOT A GLOBAL SCOPE, AND THAT IS THE POINT. The merchant must still SEE and re-enable what
+     * they deactivated: `CouponDataTable::query()`, `CouponController::edit` and
+     * `DashboardController::CouponList` read through plain `Coupon::where()` / `Coupon::find()`,
+     * which this does not touch. A scope would have made a deactivated coupon invisible to its own
+     * owner -- the finding names that as the way to get this fix wrong, and
+     * `test_the_merchant_can_still_list_and_read_a_deactivated_coupon` pins it.
+     *
+     * `$activeOnly` EXISTS FOR EXACTLY ONE CALLER, and it is not a convenience.
+     * `CouponRedemptionRecorder` resolves the row AFTER the server has already granted a discount,
+     * so that the redemption is recorded against the coupon that was validated. If a merchant
+     * deactivates a coupon between acceptance and the order write, refusing the lookup there would
+     * drop the redemption -- every coupon cap is a count on `user_coupons`, so a missing row is a
+     * limit that cannot fire, which is P4-F134's harm re-opened. The recorder therefore opts out
+     * explicitly and says so at its call site. No other caller may.
+     *
+     * STATUS IS COMPARED AS AN INTEGER 1, matching the column and its default. A NULL status (no
+     * writer produces one, but the column is reachable by import) is therefore NOT active, which
+     * is the safe direction for a predicate that decides whether to give money away.
+     *
+     * WHAT THIS DOES TO A BASKET ALREADY IN FLIGHT -- MEASURED, NOT CHOSEN. Nothing persists a
+     * coupon acceptance between storefront requests: both cart arithmetics re-resolve the code on
+     * every read, so this gate cannot be scoped to "new applications" even in principle. An
+     * UNSUBMITTED basket already showing the discount loses it at the next cart read or at checkout.
+     * A PLACED order keeps its recorded discount, because nothing re-resolves it. The GATEWAY RETURN
+     * leg was read rather than assumed: `PaymentController::getProductStatus()` adopts the stored
+     * checkout state and resolves the coupon by `coupon_id`, not by code, so a coupon deactivated
+     * between the redirect and the return cannot make the recorded total diverge from the charged
+     * one. The one thing left for the owner is a MESSAGE question, not a money one: such a shopper is
+     * told the code is invalid without being told it was withdrawn. GAP-261's sibling row, GAP-132,
+     * records it.
+     *
      * @param  callable|null  $constrain  receives the builder, for the caller's own conditions
-     *                                    (expiry, status) which stay where they were
+     *                                    (expiry) which stay where they were
+     * @param  bool  $activeOnly  false ONLY for the redemption recorder; see above
      */
-    public static function findByExactCode(?string $code, ?callable $constrain = null): ?self
+    public static function findByExactCode(?string $code, ?callable $constrain = null, bool $activeOnly = true): ?self
     {
         if ($code === null || $code === '') {
             return null;
         }
 
         $query = static::query()->where('coupon_code', $code);
+
+        if ($activeOnly) {
+            $query->where('status', 1);
+        }
 
         if ($constrain !== null) {
             $constrain($query);

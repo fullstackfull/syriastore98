@@ -480,9 +480,18 @@ class StoredFilePathSafetyTest extends SecurityTestCase
             'app/Helper/helper.php' => 1,                              // rmdir-style helper over a directory the caller built (not a stored path)
             'app/Http/Controllers/AddonController.php' => 1,           // addon installer: temp tree it just created
             'app/Http/Controllers/LanguageController.php' => 1,        // operator-only language file name
-            'app/Http/Controllers/ModuleController.php' => 1,          // module installer: temp tree it just created
+            // Both are inside the one recursive directory delete, and neither path comes from the database:
+            // the ordinary member of the tree being removed, plus the symlink that P06-MOD-1 refuses to WALK
+            // THROUGH (is_dir() follows a link, so the recursion would otherwise escape an accepted module).
+            // Its target is RemovableModule's canonical, root-confined directory -- see
+            // docs/development/phase-6/PHASE-06-MODULE-REMOVAL-FINDINGS.md.
+            'app/Http/Controllers/ModuleController.php' => 2,
             'app/Http/Controllers/SettingController.php' => 3,         // logo files: the path is a constant 'uploads/logo/<fixed name>', not a stored value
-            'app/Models/Utility.php' => 3,                             // rmdir-style directory helper + the two loops that unlink ONLY what StoredUpload::resolveAll() returned
+            // The rmdir-style directory helper -- now TWO removals in it, the ordinary file plus the
+            // symlink P06-MOD-2 refuses to walk through (is_dir() and file_exists() both follow a
+            // link, so the second also clears a dangling one) -- plus the two loops that unlink
+            // ONLY what StoredUpload::resolveAll() returned.
+            'app/Models/Utility.php' => 4,
             'app/Services/StoredUpload.php' => 1,                      // THE deleter
             'app/Support/StoreBoundFilesystem.php' => 2,               // the containment (P1-SEC-70): delegates to the real Filesystem only AFTER judging the path
         ], $found, 'A filesystem removal was added or removed in app/. A path that came from the database must go through StoredUpload::delete().');

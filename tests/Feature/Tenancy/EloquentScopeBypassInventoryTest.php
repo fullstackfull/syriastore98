@@ -232,9 +232,26 @@ class EloquentScopeBypassInventoryTest extends SecurityTestCase
             // instead.
             // SHIFTED BY +2 on 2026-11-19 (P1-SEC-73: the uploader functions above gained the remote-write checks). THE SITES ARE UNCHANGED -- each
             // was verified to be the same construct it named before.
-            'app/Models/Utility.php:3411',   // City::truncate()
-            'app/Models/Utility.php:3436',   // State::truncate()
-            'app/Models/Utility.php:3452',   // Country::truncate()
+            // SHIFTED BY +22 on 2026-11-24 (P06-MOD-2: `Utility::delete_directory()` gained the
+            // symlink guard and the docblock explaining why `is_link` is checked BEFORE
+            // `file_exists`). THE SITES ARE UNCHANGED, and that was MEASURED rather than assumed:
+            // the previous revision of the file was read back out of git and every cited line
+            // compared against its new position. All ten sites this file and
+            // ResidualTenancyExposureTest cite are byte-identical statements at +22, and the shift
+            // is uniform -- nothing was added to or removed from either inventory. Fourth such
+            // shift recorded here (+56, +58, +2, +22), which is the cost of keying a census on line
+            // numbers: it moves whenever a comment does.
+            // [2026-11-24] +24, the FIFTH such note. P06-STORAGE's docblocks in
+            // updateStorageLimit(), changeStorageLimit() and changeproductStorageLimit() moved
+            // these three down. VERIFIED A MOVE, NOT A CHANGE: each line was located in the new
+            // file by its own unique statement (`City::truncate();` and the other two are the only
+            // occurrences of their text, unlike the identical FOREIGN_KEY_CHECKS lines around
+            // them, which is why a nearest-match search gave a non-uniform answer and had to be
+            // redone), and all three moved by exactly +24 with their statements byte-identical.
+            // Nothing was added to or removed from this inventory.
+            'app/Models/Utility.php:3457',   // City::truncate()
+            'app/Models/Utility.php:3482',   // State::truncate()
+            'app/Models/Utility.php:3498',   // Country::truncate()
         ], $hits, 'The truncate inventory changed. `truncate()` is forwarded straight to the base '
             . 'query builder (Builder.php:2123) and so empties the WHOLE TABLE for EVERY tenant. '
             . 'A new site is only acceptable on a model with no tenant discriminator -- verify '

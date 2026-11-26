@@ -840,7 +840,36 @@ jobs:
           # the job fails regardless of the ceiling. Strictly stronger than the previous
           # behaviour, where a ceiling raised for an upstream advisory would also have absorbed a
           # genuinely new vulnerable dependency added in the same pull request.
-          AUDIT_CEILING: '58'
+          # LOWERED 58 -> 38 on 2026-11-26, a TIGHTENING of twenty, and the odd figure is
+          # deliberate: 38 and not 37 because of THIS STEP'S OWN lock-change rule below.
+          #
+          # WHY THE COUNT MOVED AT ALL. CI #679 failed here with 60 against the ceiling of
+          # 58 on a `composer.lock` that no commit in this batch had touched. Two advisories
+          # had been PUBLISHED upstream at 2026-11-25T09:12:09Z -- CVE-2026-133746 and
+          # CVE-2026-133754, both `symfony/routing` UrlGenerator host-escape issues -- after
+          # CI #677 was green on 84a0316a. So it was the external database growing, which is
+          # the case this ratchet is least good at telling apart from a real one.
+          #
+          # The standing directive forbids RAISING the ceiling for that, so the dependency
+          # was updated instead: `symfony/{routing,yaml,http-foundation,http-kernel,mailer,
+          # mime,process,filesystem}` v7.4.0/v7.4.3/v7.4.21 -> v7.4.24, a lock-only targeted
+          # update that moved nothing else (0 installs, 0 removals, 8 updates). Measured:
+          #     composer audit --locked --format=plain  ->  Found 37 security vulnerability
+          #     advisories affecting 12 packages        (was 60 / 20 before the update)
+          # 23 advisories cleared, five of them the `symfony/routing` set that includes
+          # CVE-2026-118516, a path-based access-control bypass in compiled URL matchers --
+          # which is a route-matching defect in a multi-tenant application, not a cosmetic
+          # version bump.
+          #
+          # AND WHY 38. The lock-change rule below fails when the lock differs from the base
+          # AND `found >= AUDIT_CEILING`. `composer.lock` differs from this PR's base for as
+          # long as this change is in the PR, so a ceiling of exactly 37 would make `37 >= 37`
+          # true and fail the job on the very change that LOWERED the count -- the opposite of
+          # what the rule is for. 38 is the tightest value that leaves the rule able to do its
+          # job: one advisory of headroom, not twenty-one. The step's closing notice will keep
+          # asking for 37, and 37 is correct the moment a head carries this lock unchanged
+          # against its base.
+          AUDIT_CEILING: '38'
         run: |
           set -o pipefail
           composer audit --locked --format=plain > audit.txt 2>&1 && rc=0 || rc=$?

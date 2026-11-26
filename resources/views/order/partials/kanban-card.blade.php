@@ -8,11 +8,30 @@
     `OrderFinancialService`. A board with its own writer would have to re-earn all of that, so it
     does not have one.
 
-    THE MOVES OFFERED ARE THE ONES THE WRITER ACCEPTS — `confirmed`, `picked_up`, `shipped`,
-    `delivered` — and cancel/return are deliberately NOT here: they are irreversible and
-    money-bearing, and they belong on the detail page where the merchant sees the whole order
-    before acting. A drag that could cancel an order is a drag nobody should be able to make by
-    accident.
+    THE MOVES OFFERED ARE THE ONES THE WRITER WILL ACTUALLY HONOUR FOR THIS ORDER. P4-F033. The
+    vocabulary comes from `FulfilmentStateMachine`'s matrix (assembled in `order/kanban.blade.php`,
+    which also drops the two the board does not carry) and every candidate is then put to
+    `permits()` against this card's own `delivered_status` below. Cancel and Return are
+    deliberately absent whatever the machine permits: they are irreversible and money-bearing, and
+    they belong on the detail page where the merchant sees the whole order before acting. A
+    drag-sized control that could cancel an order is one nobody should be able to hit by accident.
+
+    The previous rule — drop the option whose LABEL matches the card's current status — offered
+    eleven transitions the writer refuses. The account is on the PHP block that replaced it.
+
+    A NOTE ON WHAT THIS COMMENT MAY NOT CONTAIN, because two drafts of it broke the board and
+    neither failure named a comment. `BladeCompiler::compileString()` calls
+    `storeUncompiledBlocks()` and then `compileComments()`, in that order, and both are plain
+    non-greedy regexes over the whole file. So, written out literally in here:
+
+      - the raw-PHP directive's own name opens a raw block that runs to the next closing one,
+        swallowing every byte between — the card compiled to its last nine lines, HTTP 500;
+      - a comment delimiter CLOSES THIS COMMENT early, and the prose after it becomes live
+        template text — which is how the first repair of the first fault produced the second.
+
+    CLAUDE.md records four censuses satisfied or broken by prose about the thing they measure.
+    This is the same hazard with the COMPILER as the reader, so describe Blade syntax in words
+    here and put the real tokens in the PHP block below, where they are already quoted.
 --}}
 {{--
     `<div>` RATHER THAN `<p>` FOR THE META LINES, and that is not a style preference. The host's
@@ -50,7 +69,46 @@
     @endif
 
     @permission('Manage Order')
-        @php($ssOffer = collect($ssMoves)->reject(fn ($label, $value) => $label === ($ssLabels[$ssOrder->delivered_status] ?? null)))
+        {{--
+            P4-F033 — THE OFFER IS THE STATE MACHINE'S ANSWER, NOT A GUESS AT IT.
+
+            WHAT STOOD HERE was a reject() comparing each move's LABEL with the label of the status
+            the card is already in. Two faults, both measured on the rendered board:
+
+              1. IT OFFERED ELEVEN REFUSED MOVES. A cancelled or returned order names no move, so
+                 it kept all four, and FulfilmentStateMachine permits NOTHING out of a settled
+                 order; a delivered one lost only `delivered` and went on offering Confirmed,
+                 Picked Up and Shipped, which un-happen a delivery. The merchant picked one,
+                 submitted, and got "This order is closed, so its status cannot be changed." The
+                 writer was already right; the control should never have been drawn.
+
+              2. IT COMPARED TWO TRANSLATED STRINGS. The move labels and the column labels come
+                 from separate __() calls that happen to be worded identically. One reworded
+                 catalogue entry and the board would silently offer a DIFFERENT set of moves in
+                 Arabic than in English.
+
+            BOTH ARE NOW ONE QUESTION EACH, asked of the machine:
+
+              - permits() — the writer's own rule, so a control cannot outlive the server's
+                willingness to honour it. That is the whole fix, and it is one call.
+              - the move's target state, from $ssMoveTarget, against stateOf() — a move INTO the
+                state the order is already in is not a move. stateOf() rather than an int cast
+                because orders.delivered_status really does hold values outside 0..8 (the literal
+                '-', Api\ApiController:10471), for which it answers null: no target matches it, so
+                such a row keeps every option — exactly what the machine documents for an
+                ungoverned state, "as movable as it is today".
+
+            AND THE TWO LINES BELOW STAY IN THE ONE-LINE DIRECTIVE FORM THE REST OF THIS FILE
+            USES, which is not a style choice. storePhpBlocks() is a non-greedy regex from the
+            raw-PHP directive to the next CLOSING one over the whole file, and it does not care
+            which form opened it — so introducing a closing directive here paired it with the
+            one-line $ssSource assignment thirty lines ABOVE, wrapped every directive between the
+            two in a raw PHP block, and the board answered HTTP 500 with a parse error pointing at
+            the compiled file. Measured. Keep the explanation in a comment and the code in
+            one-liners, and this file never grows a closing directive.
+        --}}
+        @php($ssCurrentState = \App\Support\Orders\FulfilmentStateMachine::stateOf($ssOrder->delivered_status))
+        @php($ssOffer = collect($ssMoves)->filter(fn ($ssLabel, $ssWord) => ($ssMoveTarget[$ssWord] ?? null) !== $ssCurrentState && \App\Support\Orders\FulfilmentStateMachine::permits($ssOrder->delivered_status, $ssWord)))
         @if ($ssOffer->isNotEmpty())
             <form method="POST" action="{{ route('order.status.change', $ssOrder->id) }}"
                   class="ss-board__card-move">

@@ -4000,14 +4000,21 @@ a.ss-setup__item:focus-visible {
    `--ss-onbrand` RATHER THAN `var(--ss-fg)`, and rather than a literal. The fill here is the
    BRAND colour, not a surface, so the ink that belongs on it is the one custom.css already
    derives for exactly that job (`custom.css:5073` and two siblings use
-   `var(--ss-onbrand, #fff)` on filled brand controls). `--ss-fg` is theme-switching and would
+   `var(--ss-on-brand, #fff)` on filled brand controls). `--ss-fg` is theme-switching and would
    go dark-on-blue in light mode -- the `--ss-fg` / `--ss-grey-900` trap the handoff warns
    about, in its other direction. A literal `#ffffff` was the first attempt and
    `DarkPageSurfaceTest` refused it: this block is a token system, and a hex here would be the
-   one value that stops following the merchant's chosen brand. */
+   one value that stops following the merchant's chosen brand.
+
+   THE TOKEN NAME WAS `--ss-onbrand` AND THE DECLARED ONE IS `--ss-on-brand` -- one hyphen, and it
+   cost a dark-mode contrast failure on every active sidebar and list item. With the name wrong the
+   `#fff` fallback painted, and the dark brand is `--ss-cyan-500` `#2ac3e5`: measured **2.09:1**,
+   against AA's 4.5:1. `--ss-on-brand` is `#ffffff` in light (so light mode is byte-identical at
+   6.42:1) and `#04222a` in dark, which gives **7.92:1**. Found by
+   `DesignSystemTokensAreDeclaredTest`, on its first run, in files nobody was looking at. */
 [data-ss-theme="dark"] .dash-content .list-group-item.active,
 [data-ss-theme="dark"] .dash-content .list-group-item-action.active {
-    color: var(--ss-onbrand, #fff);
+    color: var(--ss-on-brand, #fff);
 }
 
 /* AND THE HEADING ON THAT CARD, which the background census could not see. Removing the
@@ -5072,7 +5079,7 @@ a.ss-setup__item:focus-visible {
 .ss-upload-hint {
     display: block;
     margin-block-start: var(--ss-space-2, 0.5rem);
-    font-size: var(--ss-font-size-sm, 0.8125rem);
+    font-size: var(--ss-text-sm, 0.8125rem);
     line-height: 1.5;
 }
 
@@ -7535,8 +7542,30 @@ td.dataTables-empty:has(.ss-empty) {
    LOGICAL PROPERTIES ONLY, because the storefront is bilingual and the card mirrors in Arabic.
    `StorefrontAppearanceFoundationTest` already pins that convention for the appearance control.
 
-   EVERY COLOUR IS A TOKEN, so dark mode needs no second rule here: `--ss-bg-elevated` and
-   `--ss-fg` are re-declared under `[data-ss-theme="dark"]` further up this file.
+   EVERY COLOUR IS A TOKEN, so dark mode needs no second rule here -- and this paragraph USED TO
+   NAME TWO TOKENS THAT DO NOT EXIST, which is the whole reason the rule below was broken. It read
+   "`--ss-bg-elevated` and `--ss-fg` are re-declared under `[data-ss-theme="dark"]` further up this
+   file". `--ss-fg` is (:370 light, :569 dark, :624 auto). **`--ss-bg-elevated` was DECLARED NOWHERE
+   IN THIS REPOSITORY**, so `var(--ss-bg-elevated, #ffffff)` painted the literal white fallback in
+   every theme while `--ss-fg` correctly flipped to `#e8eaed` -- measured 1.21:1 in dark mode, with
+   the repository's own `docs/design-system/tools/check-contrast.py`, i.e. the conversion actions on
+   every product card were effectively invisible. There is no `*-elevated` token in this file at all;
+   the surface family is `--ss-surface` / `--ss-surface-hover` / `--ss-surface-sunken`, and
+   `--ss-surface` is `#262b33` under dark, which gives **11.81:1**.
+
+   AND THE FOCUS RING HAD THE SAME DEFECT, MASKING ITSELF BEHIND THE FIRST ONE. `var(--ss-focus,
+   #2563eb)` names another token that is declared nowhere; the real one is `--ss-focus-ring`
+   (`--ss-blue-500` light, `--ss-cyan-400` dark). While the background was wrongly white, the
+   hard-coded `#2563eb` measured 5.17:1 and passed -- so fixing the SURFACE alone would have dropped
+   the ring to **2.75:1 on `#262b33`, below WCAG 1.4.11's 3:1 minimum for a non-text indicator**, and
+   a change that fixed one accessibility defect would have introduced another. `--ss-focus-ring`
+   gives 7.60:1 there. The two had to be fixed together, which is why they are in one change.
+
+   THIS IS A RECURRENCE, not a new class of mistake: the comment at
+   `resources/views/front_end/partials/appearance.blade.php:97-102` records GAP-095 fixing
+   `--ss-focus` -> `--ss-focus-ring` on the appearance toggle, and names the real token. That comment
+   is also the ONLY `--ss-focus:` text anywhere in the repository, so a census that reads source
+   without stripping comments scores the token as DECLARED and misses the defect.
    --------------------------------------------------------------------------------------------- */
 
 .ss-product-actions {
@@ -7546,15 +7575,59 @@ td.dataTables-empty:has(.ss-empty) {
     align-items: center;
     padding: var(--ss-space-2, 0.5rem);
     border-radius: var(--ss-radius-md, 0.5rem);
-    background: var(--ss-bg-elevated, #ffffff);
+    background: var(--ss-surface, #ffffff);
     color: var(--ss-fg, #1b1f25);
     box-shadow: var(--ss-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.08));
 }
 
-/* The module buttons are vendored markup this file does not control, so they are reached as
-   descendants rather than by a class. A 44px minimum target is WCAG 2.5.5 and is what makes these
-   usable on a phone -- which is the whole of the "responsive" requirement for a row this small. */
-.ss-product-actions > * {
+/* The module buttons are vendored markup this file does not control, so they are reached by what
+   they ARE rather than by a class. A 44px minimum target is WCAG 2.5.5 and is what makes these
+   usable on a phone -- which is the whole of the "responsive" requirement for a row this small.
+
+   THE SELECTOR USED TO BE `> *`, AND THAT PUT THE MODULES' OWN SOURCE CODE ON THE PRODUCT CARD.
+   Measured 2026-11-25 in headless Chrome against this stylesheet and the four modules' real
+   `src/resources/views/pages/button.blade.php` markup, composed in the order the hook includes
+   them. The element children of the hook are NINE, and only four of them are meant to be seen:
+
+       button, style, script, style, button, script, button, style, a
+
+   ProductQuickView emits a button, then a style, then an `@once` script; ProductCompare a style,
+   then a button, then an `@once` script; ProductsPDF a bare button and nothing else; ProductCSV a
+   style, then an anchor. A `display` in this file is an AUTHOR declaration, so it outranked the
+   user-agent rule that keeps a style and a script out of the box tree: all FIVE non-rendered
+   children computed `display: flex` (inline-flex blockifies, because the wrapper is a flex
+   container), each took a 288px-wide box, and 3,433 characters of CSS and JavaScript painted as
+   visible text over the product image. The wrapper measured 304x2384 inside a 322x322 card.
+
+   SO THIS LISTS WHAT IT STYLES INSTEAD OF WHAT IT SKIPS, and that is the decision rather than a
+   detail. `> :not(style):not(script)` would fix the five non-rendered children that exist today
+   and nothing after them: the fifth module to appear in this hook brings a `<template>`, a
+   `<link>`, a
+   `<noscript>` or a `<style>` wrapped in something else, and an exclusion list has to be edited
+   again by whoever notices a broken card. Interactive content is a CLOSED category -- a conversion
+   action is a link, a button, or an element given one of those roles -- so an inclusion list is
+   already complete for the children that need a tap target, and nothing the browser declines to
+   render can satisfy any of these four selectors, named or not yet invented. The failure direction
+   is bounded as well: an unforeseen RENDERED child misses the floor and stays whatever size its
+   own module made it, which is a smaller defect than a wall of source text, while an unforeseen
+   NON-rendered child cannot be reached at all.
+
+   `[role="button"]` and `[role="link"]` are here because that is the realistic shape of a control
+   a module scripts itself -- a div or a span -- and it is the one case where naming element types
+   alone would drop the target size off something a shopper really taps. `input` is deliberately
+   NOT here: no module in this hook uses one, and a 2.75rem floor on a text field would be a
+   layout change rather than a target-size floor. A module that needs it can add it deliberately.
+
+   Four selectors rather than one `:is()` list: this file uses `:not()` and `:has()` already and
+   `:is()` nowhere, and the long form keeps the specificity of each branch obvious -- these are
+   (0,1,1) and (0,2,0), which is what lets them beat the modules' own (0,1,0) `.quickview-btn` /
+   `.compare-btn` / `.csv-btn` rules in the body. Measured: that changes nothing a shopper sees,
+   because those rules declare the same centring and `display: flex` on an absolutely positioned
+   box, but it is the reason the floor applies at all. */
+.ss-product-actions > a,
+.ss-product-actions > button,
+.ss-product-actions > [role="button"],
+.ss-product-actions > [role="link"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -7564,6 +7637,50 @@ td.dataTables-empty:has(.ss-empty) {
 
 .ss-product-actions a:focus-visible,
 .ss-product-actions button:focus-visible {
-    outline: 2px solid var(--ss-focus, #2563eb);
+    outline: 2px solid var(--ss-focus-ring, #4f77c0);
     outline-offset: 2px;
+}
+
+
+/* =================================================================================================
+   GAP-179 / P06-06 — PREMIUM SUPER ADMIN UX, slice 1.
+   =================================================================================================
+
+   `.ss-code` — inline literal text (a filesystem path, a key, a command) that the operator is
+   meant to be able to READ and copy.
+
+   WHY IT EXISTS. `/platform/resources` prints each storage disk's path in a bare `<code>`, and a
+   bare `<code>` is painted by Bootstrap at its default pink. Measured in the running admin as the
+   platform operator, in all four theme and direction combinations:
+
+       light   rgb(232,62,140) on rgb(249,250,251)   3.65:1
+       dark    rgb(232,62,140) on rgb(34,36,44)      4.05:1
+
+   Both fail 4.5:1, and the dark one fails by less -- which is exactly why it survived: a glance at
+   the dark page reads as "a bit low" rather than as unreadable, and the light page was never the
+   one anybody looked at. There is no merchant counterpart to this screen, so Phase 2.5 could not
+   have found it.
+
+   WHAT IT TAKES, AND WHY NO LITERAL APPEARS BELOW. `--ss-fg` over `--ss-surface-sunken` is a
+   designed pair that re-themes: grey-900 on grey-100 in light, and #e8eaed on #1f232a in dark.
+   A hard-coded hex is what the rule above it already is, and a literal that happens to pass in
+   one theme is how the defect this replaces came to exist. SuperAdminPremiumSurfaceTest refuses
+   a hex in this block for that reason.
+
+   A path is not prose, so it keeps a monospaced face and `break-all`: an absolute path in a
+   narrow card otherwise either overflows its box or pushes the card wider than the grid. `dir`
+   is NOT set -- a path is Latin inside an Arabic sentence, and the bidi algorithm already isolates
+   it correctly once `unicode-bidi: isolate` scopes it, which is what stops a trailing slash
+   jumping to the wrong end of the line in the RTL build.
+   ============================================================================================== */
+.ss-code {
+    font-family: var(--ss-font-mono, ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace);
+    font-size: 0.875em;
+    color: var(--ss-fg);
+    background: var(--ss-surface-sunken);
+    border-radius: var(--ss-radius-sm);
+    padding-block: 0.0625rem;
+    padding-inline: var(--ss-space-1);
+    word-break: break-all;
+    unicode-bidi: isolate;
 }

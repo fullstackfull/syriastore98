@@ -3,6 +3,8 @@ title: Preview and publish
 order: 3
 summary: See a draft privately, then make it live in one step.
 related: your-storefront/edit-your-theme, your-storefront/restore-an-earlier-version
+updated: 2026-11-25
+status: published
 ---
 
 ## Preview

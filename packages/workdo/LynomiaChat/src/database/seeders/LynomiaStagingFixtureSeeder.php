@@ -216,7 +216,12 @@ class LynomiaStagingFixtureSeeder extends Seeder
 
         $plan->forceFill([
             'price' => 0,
-            'duration' => 'Monthly',
+            // `Month`, NOT `Monthly`. Decision H1 fixed the vocabulary at Unlimited / Month / Year,
+            // and this row said `Monthly` -- which `SaasRevenueFigures` cannot read, so every
+            // subscriber of this plan landed in the unreadable-duration bucket instead of being
+            // counted. A seeder uses `forceFill()` and bypasses both `$fillable` and the
+            // controller's request validation, so H1's rule could never have caught it.
+            'duration' => 'Month',
             'max_stores' => 5,
             'max_users' => 5,
             'lynomia_agent_seats' => 2,

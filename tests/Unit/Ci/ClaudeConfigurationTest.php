@@ -600,7 +600,11 @@ class ClaudeConfigurationTest extends TestCase
         // ...and it must point at the gate, because "2 failed" is the expected state.
         $this->assertStringContainsString('assert-known-test-outcomes.php', $source,
             'The command does not run the known-outcome gate, so its output cannot be '
-            . 'interpreted: the Feature suite has 2 accepted failures by design.');
+            . 'interpreted: the Feature suite has accepted outcomes by design, and the gate is '
+            . 'the only thing that says which. The count moved 8 -> 2 -> 1 -> 0 accepted '
+            . 'FAILURES as each entry was fixed and deleted (the last on 2026-11-26, GAP-014), '
+            . 'with one accepted SKIP still declared -- so the number is deliberately not '
+            . 'restated here. Read .github/known-test-outcomes.json.');
 
         $this->assertFileExists($this->root() . '/.github/scripts/assert-known-test-outcomes.php');
     }

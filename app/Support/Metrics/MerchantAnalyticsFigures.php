@@ -1297,28 +1297,70 @@ final class MerchantAnalyticsFigures
          * mutation can be caught and the ordering reads as covered when only the pair is. One
          * orderer, one mutation, one test.
          */
+        /*
+         * FOLDED ON CASE AS WELL AS SPACE, AND THE PRODUCTION ENGINE IS THE REASON.
+         *
+         * MEASURED on MariaDB 10.11 with `ONLY_FULL_GROUP_BY` on, three orders whose source reads
+         * `POS`, `pos`, `pos`:
+         *
+         *     engine:  [{"bucket":"POS","total":3}]    <- ONE case-insensitive group, represented
+         *                                                 by whichever row the engine reached first
+         *     screen:  "POS (not a source this version knows)" x3
+         *
+         * So ONE row carrying a spelling the writers never produce -- a restored dump, a hand edit,
+         * a future writer, all three of which the paragraph above already anticipates -- captured
+         * the whole group and relabelled every point-of-sale order as a source this product does
+         * not recognise. The COUNT stayed right, which is what makes it hard to notice: the
+         * breakdown still summed to the order total.
+         *
+         * SQLITE COULD NOT SHOW IT. Its collation is BINARY, so the same data is two groups there
+         * and only the odd row was mislabelled. Found by
+         * `tests/Support/Security/bin/verify-analytics-breakdowns-on-mysql.php`, the harness
+         * GAP-154 and GAP-171 both asked for.
+         *
+         * THIS INVENTS NO RULE. The vocabulary is three lower-case constants on `Order` and
+         * `orderSourceLabel()` is a `match` on exactly those, so a case-folded lookup is the one
+         * that answers the question the column asks. The trim beside it already existed for the
+         * same reason -- a leading space must not read as a second channel -- and the payment-method
+         * chart on the Top Sales report groups case-insensitively with this argument recorded in
+         * its own comment.
+         *
+         * THE DISPLAY IS NOT FOLDED, only the lookup. `sources()` promises in writing that an
+         * unrecognised value is "shown with the stored value rather than left out of the count", so
+         * each bucket keeps the first spelling it was seen under and `TikTok` still reads `TikTok`.
+         */
         $buckets = [];
 
         foreach ($rows as $row) {
             $value = trim((string) ($row->bucket ?? ''));
+            $key = mb_strtolower($value);
 
-            $buckets[$value] = ($buckets[$value] ?? 0) + (int) $row->total;
+            if (! isset($buckets[$key])) {
+                $buckets[$key] = ['spelling' => $value, 'total' => 0];
+            }
+
+            $buckets[$key]['total'] += (int) $row->total;
         }
 
-        arsort($buckets);
+        /* One orderer, by count descending, exactly as the `arsort()` it replaces -- and stable,
+           so a tie keeps the order the engine returned. See the paragraph above about why the SQL
+           side deliberately has none. */
+        uasort($buckets, fn (array $a, array $b) => $b['total'] <=> $a['total']);
 
         $out = [];
         $unrecognised = false;
 
-        foreach ($buckets as $value => $count) {
-            if ($value === '') {
+        foreach ($buckets as $key => $bucket) {
+            $count = $bucket['total'];
+
+            if ($key === '') {
                 $label = __('Source not recorded (placed before this was tracked)');
             } else {
-                $named = Order::orderSourceLabel($value);
+                $named = Order::orderSourceLabel($key);
 
                 if ($named === null) {
                     $unrecognised = true;
-                    $label = __(':value (not a source this version knows)', ['value' => $value]);
+                    $label = __(':value (not a source this version knows)', ['value' => $bucket['spelling']]);
                 } else {
                     $label = $named;
                 }

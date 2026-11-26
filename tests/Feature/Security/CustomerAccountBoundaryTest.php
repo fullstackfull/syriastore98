@@ -177,7 +177,16 @@ class CustomerAccountBoundaryTest extends SecurityTestCase
             ],
             'support.ticket' => [
                 'support.ticket',
-                'support_ticket:561-565 renders an empty list for a guest.',
+                // CORRECTED, AND THE OLD TEXT WAS FALSE. This read "support_ticket:561-565 renders
+                // an empty list for a guest." It did not: the guest branch handed the view a bare
+                // `collect()` while the view calls `onFirstPage()`/`currentPage()`/`lastPage()`, so
+                // an anonymous visit was an HTTP 500 -- measured. The security conclusion held (it
+                // threw before printing anything, so nothing leaked) but the stated premise did
+                // not, and the line citation had drifted by ~175 lines. The handler now builds an
+                // empty LengthAwarePaginator, so the sentence below is true as written and
+                // `GuestSupportTicketPageTest` holds it.
+                'AccountProfileController::support_ticket renders an empty list for a guest: the '
+                . 'branch builds an empty LengthAwarePaginator, which the paginated view can read.',
             ],
             // The checkout flow, re-asserted here so that this file alone is
             // enough to catch a storefront regression introduced by this change.

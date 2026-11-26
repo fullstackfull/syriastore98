@@ -3,6 +3,8 @@ title: استعد نسخة سابقة
 order: 4
 summary: سجلّ النشر، وماذا تُلغي العودة وماذا لا تُلغي.
 related: your-storefront/preview-and-publish
+updated: 2026-11-25
+status: published
 ---
 
 ## السجلّ

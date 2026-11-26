@@ -689,8 +689,19 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
                ::resolveOwnedStore() above it. Confirmed by the ENCLOSING METHOD NAME and its validator, not by adding the offset: it is still the only
                `$messages->first()` in the file, inside storeResetPasswordUpdate(), beside `required|confirmed|same:password_confirmation`. The exclusion is
                unchanged and nothing was added to the known-outcome manifest. */
+            /* RE-MEASURED AGAIN 2026-11-25 (GAP-176 / SUPPORT-004): 942 -> 985, a +43 shift from the
+               audit row and its docblock added to the END of StoreController::changeStore(), which
+               sits above it. Confirmed by the ENCLOSING METHOD NAME and its validator, not by adding
+               the offset: it is still the ONLY `$messages->first()` in the file (grep returns one
+               hit), inside storeResetPasswordUpdate() -- declared at :972 -- beside
+               `required|confirmed|same:password_confirmation` at :978. The +43 was also derived
+               independently (46 new lines replacing 3) and agrees, so the whole shift is that one
+               change and nothing else moved. The exclusion itself is unchanged, UserController's
+               three numbers were re-checked and are unmoved, and nothing was added to the
+               known-outcome manifest. This gate caught the drift exactly as its own failure message
+               says it will, for the fourth time. */
             'app/Http/Controllers/StoreController.php' => [
-                942 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
+                985 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
                     . 'written twice, so the bag says the same thing twice',
             ],
             /* RE-MEASURED 2026-11-11 (P2.5-ACCEPTANCE): 460/503/567 -> 488/531/595, a pure

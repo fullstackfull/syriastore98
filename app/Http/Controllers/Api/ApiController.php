@@ -1968,9 +1968,20 @@ public function saveStoreFcmToken(Request $request)
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
         $final_price = 0;
+        /*
+         * GAP-235(b). `$ProductVariant->final_price` ON A LOOKUP THAT CAN RETURN NULL, before the
+         * method had looked at anything else -- so a shopper whose basket holds a variant the
+         * merchant has since deleted got HTTP 500 from the quantity control, measured, and could
+         * neither change nor clear the line. `carts` carries no foreign key onto
+         * `product_variants`, so the stale row is ordinary rather than exotic.
+         *
+         * Initialised to null so the guard further down can ask whether it resolved; the
+         * null-safe read keeps `$final_price` at 0 for a `remove`, which never uses it.
+         */
+        $ProductVariant = null;
         if (!empty($request->variant_id) || $request->variant_id != 0) {
             $ProductVariant = ProductVariant::find($request->variant_id);
-            $final_price = $ProductVariant->final_price;
+            $final_price = $ProductVariant?->final_price ?? 0;
         } else {
             $product = Product::find($request->product_id);
             if (!empty($product)) {
@@ -1996,6 +2007,29 @@ public function saveStoreFcmToken(Request $request)
         if (empty($cart)) {
             return $this->error(['message' => __('Your cart is empty.')], __('Your cart is empty.'), 200, 0, $cart_count);
         } else {
+            /*
+             * GAP-235(b). A LINE WHOSE PRODUCT OR VARIANT IS GONE CANNOT BE RE-PRICED, SO
+             * `increase` AND `decrease` ARE REFUSED -- AND `remove` IS DELIBERATELY NOT.
+             *
+             * The guard covers every dereference below, not just the one the finding named: the
+             * increase arm reads `$ProductVariant->variation_option` (before its own
+             * `!empty($ProductVariant)` test, which is therefore dead) and `$product->product_stock`
+             * a few branches further on. Measured: a deleted PRODUCT on a plain line crashed at
+             * `$cart->qty >= $product->product_stock`, not at the variant read, so guarding only
+             * the variant would have moved the 500 rather than removed it.
+             *
+             * `remove` MUST STILL WORK, and that is the requirement a blanket refusal fails. A
+             * shopper holding a stale line has to be able to clear it; refusing the whole method
+             * would leave the line in the basket for ever and `cart_check()` would then refuse the
+             * whole basket -- a different bug with the same cause. The remove path touches neither
+             * `$product` nor `$ProductVariant`, so it is safe to let through: `$cart` is already
+             * this customer's row in this store, which is how it was found.
+             */
+            if ($request->quantity_type != 'remove'
+                && (empty($product)
+                    || ((!empty($request->variant_id) || $request->variant_id != 0) && empty($ProductVariant)))) {
+                return $this->error(['message' => __('Product not found.')], __('Product not found.'), 200, 0, $cart_count);
+            }
             if ($request->quantity_type == 'increase') {
                 if (!empty($request->variant_id) || $request->variant_id != 0) {
 
@@ -5371,7 +5405,48 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
                         $response = Cart::cart_list_cookie($request->all(), $store->id);
                         $response = json_decode(json_encode($response));
                     } else {
-                        $address = DeliveryAddress::find($request->billing_address_id);
+                        /*
+                         * THE ADDRESS MUST BE THE AUTHENTICATED SHOPPER'S OWN.
+                         *
+                         * `DeliveryAddress::find($request->billing_address_id)` was a liveness
+                         * check on an id the caller chose, not an identity check, and
+                         * `DeliveryAddress` is NOT in `config/tenancy.php`'s `scoped_models` and
+                         * carries no scope -- so ANY address row in the database answered: another
+                         * customer's in this store, or another tenant's customer's.
+                         *
+                         * WHAT IT GOT THEM. The three merged values feed `cart_list()`, which
+                         * selects the merchant's tax methods BY JURISDICTION
+                         * (`Cart::getProductTaxAmount(..., $city_id, $state_id, $country, true)`
+                         * matches country/state/city), so the quote's tax block is a read-back
+                         * channel for the jurisdiction fields of an arbitrary address id. Measured
+                         * on a 100.00 basket against a merchant tax method restricted to one
+                         * country: with another TENANT's customer's address id the quote came back
+                         * `tax_price 31.00`; with an id belonging to nobody, `0.00` with
+                         * `tax_rate 25`. Same result for another shopper's address inside the same
+                         * store -- which is why the predicate is the CUSTOMER and not `store_id`:
+                         * that row is this store's, so a store predicate would not refuse it.
+                         *
+                         * WHAT IT DID NOT GET THEM, stated so this is not overread: only
+                         * `country_id`, `state_id` and `city_id` are read -- not the street
+                         * address, name, phone or postcode -- this handler writes nothing, and the
+                         * same three values are ALREADY postable directly as
+                         * `billing_info[delivery_*]`, which `cart_list()` reads with no address
+                         * involved. So closing this closes the READ of someone else's row, not the
+                         * caller's ability to price their own quote in a jurisdiction of their
+                         * choosing. That is a separate finding and is reported as one.
+                         *
+                         * `resolveStoreCustomer()` is this file's shared predicate rather than a
+                         * copy of the check, and the lookup then keys on that customer -- the same
+                         * shape `update_address()` and `delete_address()` already use. Only the
+                         * lookup moves: the branch condition, the merge and everything after it are
+                         * untouched, so a client sending its own address id is unaffected.
+                         */
+                        $coupon_customer = $this->resolveStoreCustomer($store);
+                        $address = $coupon_customer === null
+                            ? null
+                            : DeliveryAddress::where('id', $request->billing_address_id)
+                                ->where('customer_id', $coupon_customer->id)
+                                ->first();
 
                         if ($address) {
                             $parms['billing_info']['delivery_country'] = $address->country_id;
@@ -5708,7 +5783,40 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         $id = $request->id;
         $data = [];
         if (!empty($id)) {
-            $product = Product::where('id', $id)->first();
+            /*
+             * GAP-233. THIS HANDLER SERVED ANOTHER TENANT'S WHOLE PRODUCT ROW, ITS IMAGE GALLERY
+             * AND ITS REVIEWERS' NAMES AND E-MAIL ADDRESSES.
+             *
+             * Three unscoped reads, and NOTHING underneath contained any of them: `Product`
+             * carries `StoreScope` through `BelongsToStore` but is NOT in `config/tenancy.php`'s
+             * `scoped_models`, so `isActiveFor()` short-circuits and the scope is inert for ANY
+             * principal; `ProductImage` and `Testimonial` have no scope at all. `$store` was
+             * resolved from the slug and used only for the cart count and the related-products
+             * list.
+             *
+             * MEASURED against the unchanged handler, identically for a customer, a merchant and a
+             * driver token of store A: `status 1` with store B's entire row serialised by
+             * `->toArray()` (`store_id`, `cost_price`, `created_by`, `detail`, ...), its gallery
+             * paths including the absolute `image_path_full_url`, and `product_Review` carrying
+             * `user_name` and `user_email`.
+             *
+             * WHOSE E-MAIL: `Testimonial::UserData()` is `hasOne(User::class, 'id', 'user_id')`
+             * and `testimonials` has no customer column, so the address printed below comes out of
+             * `users` -- another MERCHANT's or their staff's account address, which is directly
+             * useful against a panel login whose registration is open. The column itself holds ids
+             * from two tables depending on who wrote the row, a conflation recorded at the
+             * `product_rating()` writer and deliberately unchanged here.
+             *
+             * ONE PREDICATE CLOSES ALL THREE, and that is the point of putting it here rather than
+             * on each read. The gallery and the review loop are inside `if (!empty($product))`, so
+             * once the product must be this store's they are dependent lookups on a store-verified
+             * parent. A second `store_id` predicate on `product_images` or `testimonials` would be
+             * strictly worse: both columns are NULLABLE, and this project has MEASURED the same
+             * class of column drifting on `product_variants` (`ProductController:2873-2895`: an
+             * operator's no-op save stamped store 1 on a store-7 product's variants), so a second
+             * predicate would silently refuse a store its own gallery and its own reviews.
+             */
+            $product = Product::where('id', $id)->where('store_id', $store->id)->first();
             if (!empty($product)) {
                 $product = $product->toArray();
                 $data['product_info'] =  $product;
@@ -5756,6 +5864,30 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
                     $data['product_Review'] = $review_array;
                 }
                 if ($product['variant_product'] == 1) {
+                    /*
+                     * GAP-247 / P3-F118 — INITIALISED HERE, BECAUSE `$option` IS READ UNCONDITIONALLY
+                     * AT THE END OF THIS BLOCK AND ASSIGNED ONLY INSIDE THE BRANCH BELOW.
+                     *
+                     * A product flagged `variant_product = 1` whose `product_attribute` is empty or
+                     * null skipped the branch, left `$option` undefined, and the unconditional
+                     * `$data['variant'] = $option;` raised an ErrorException -- HTTP 500 on an
+                     * ordinary product page. MEASURED, for both `null` and `''`.
+                     *
+                     * `[]` is the guest twin's own answer (`product_detail_guest` initialises
+                     * `$data['variant'] = []`), so the two now agree rather than one of them
+                     * crashing. Chosen over moving the assignment inside the branch, which would
+                     * drop the `variant` KEY for such a product and change the payload shape a
+                     * shipped client reads.
+                     *
+                     * Reachability, stated because it is why this was a row and not an emergency:
+                     * the panel always writes `product_attribute` alongside `variant_product = 1`
+                     * (`ProductController:848`, `:1100`, `:1168`, `:2363`), so this state comes from
+                     * the importer, the API, or a partial write. No fixture in the suite set
+                     * `variant_product => 1` on this path before `StorefrontProductDetailVariantCrashTest`,
+                     * which is why 12,040 Feature tests never drove it.
+                     */
+                    $option = [];
+
                     if (!empty($product['product_attribute'])) {
                         $variant_data = [];
                         $variant = json_decode($product['product_attribute']);
@@ -5816,13 +5948,32 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
     public function product_detail_guest(Request $request, $slug = '')
     {
         $store = getStore($slug);
-        
+        /*
+         * THE STORE GUARD EVERY SIBLING IN THIS CONTROLLER HAS AND THIS ONE DID NOT.
+         *
+         * `$store` was read and never checked, and `Product::instruction_array($store->id)` at the
+         * foot of the method dereferences it -- so an unknown slug answered HTTP 500. Measured.
+         * Not a disclosure, but a 500 is the shape that lets a regression test pass for the wrong
+         * reason ("no foreign data came back" holds when the handler never ran), which is why it is
+         * closed in the same change as the disclosure below rather than filed separately.
+         */
+        if (empty($store)) {
+            return $this->error(['message' => __('Store not found.')], __("Store not found."));
+        }
 
         $cart = 0;
         $id = $request->id;
         $data = [];
         if (!empty($id)) {
-            $product = Product::where('id', $id)->first();
+            /*
+             * GAP-233. THE SAME THREE READS AS THE AUTHENTICATED TWIN -- see `product_detail()`
+             * above for the full reasoning. Only the product lookup needs a predicate: the gallery
+             * and the reviews are read INSIDE `if (!empty($product))`, so gating on the
+             * store-verified product is what contains them, and a second `store_id` predicate on
+             * `product_images` or `testimonials` would be a new store-scoped reader of two
+             * NULLABLE columns.
+             */
+            $product = Product::where('id', $id)->where('store_id', $store->id)->first();
             if (!empty($product)) {
                 $product = $product->toArray();
                 $data['product_info'] =  $product;
@@ -5991,7 +6142,35 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         
 
         $limit = !empty($request->limit) ? $request->limit : 10;
-        $review = Testimonial::limit($limit)->get();
+        /*
+         * THE STORE PREDICATE. `Testimonial::limit($limit)->get()` had none, and `Testimonial` is
+         * NOT in `config/tenancy.php`'s `scoped_models` and carries no scope of its own -- so this
+         * returned the `testimonials` table as it stands, whole rows: `title`, `description`,
+         * `username`, `rating_no`, `product_id`, `user_id` and the `store_id` saying whose they
+         * are. `$limit` is caller-controlled and uncapped, so it was a dump rather than a sample:
+         * measured, `limit = 100000` returned all 13 rows of two stores to a store-A token, and
+         * the leak reproduced identically for a customer, a merchant and a driver token.
+         *
+         * `landingpage()` forty lines below reads the same table for the same purpose and already
+         * writes exactly this predicate, so this introduces no new behaviour class -- it makes the
+         * two agree. There is no store-verified parent to gate on here (the handler reads reviews
+         * with no product context), which is precisely when the row's own `store_id` is the right
+         * predicate.
+         *
+         * NO `status` PREDICATE IS ADDED, and that is a decision rather than an omission: the
+         * storefront's own writer hard-codes `status = 1` (`product_rating()`), `landingpage()`
+         * has none either, and whether a store's own deactivated review disappears from its own
+         * storefront is a moderation question that changes behaviour for legitimate same-store
+         * traffic. **One sibling DOES filter it and this comment used to imply none did** --
+         * `HomeController:1106` is `Testimonial::where('store_id', $store->id)->where('status', 1)`,
+         * the web storefront's own read. Corrected by the independent review. It does not change
+         * the deferral (the question is still "should a deactivated review vanish from the API
+         * too", a same-store behaviour change) but the evidence for it was overstated: the two
+         * surfaces DISAGREE today, which is itself the thing to decide. Folding it into a tenancy
+         * fix would make the fix and a regression indistinguishable. Likewise the missing cap on `$limit`: left as it is, and reported,
+         * because capping it is a contract change for a parameter clients already send.
+         */
+        $review = Testimonial::where('store_id', $store->id)->limit($limit)->get();
 
         if (!empty($review)) {
             return $this->success($review, __("Review get successfully."));
@@ -6811,6 +6990,48 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        /*
+         * GAP-235(b). A BASKET WHOSE PRODUCT OR VARIANT HAS BEEN DELETED IS REFUSED HERE, BEFORE
+         * THE FORWARD BELOW -- and the "before" is the whole point.
+         *
+         * WHAT WAS MEASURED, because the registered finding named this method's OWN dereferences
+         * (`$productStock_data->stock`, `$product_data->name`) and they turn out NOT to be the
+         * reachable crash. A merchant deleting a variant or a product is ordinary, and a shopper's
+         * cart row survives it (`carts` carries no foreign key onto `products` or
+         * `product_variants`). Driven against the unchanged handler, `cart-check` answered HTTP
+         * 500 -- but from inside `cart_list()`, at `$value->product_data->id` for a deleted
+         * product and at `$ProductVariant->discount_price * $value->qty` for a deleted variant,
+         * both of which run BEFORE this method's own loop. Guarding only the two lines the finding
+         * named would have left the 500 exactly where it was, which is the "a correction can be
+         * wrong in the way the thing it corrects was" error.
+         *
+         * SO THE GATE IS HERE, AND `cart_list()` IS LEFT ALONE ON PURPOSE. It is also called by
+         * `ordersave()`, `place_order()` and `payment_list()`, where its crash currently REFUSES
+         * an order rather than writing one: making it tolerate a line whose product is gone would
+         * turn a refusal into an order containing a zero-priced phantom line, and deciding what
+         * such an order should contain is a commerce question, not this slice's. Recorded as a
+         * lead rather than fixed silently.
+         *
+         * The cart rows are read with the same `customer_id` + `store_id` predicate the forward
+         * uses, so no caller input reaches this loop. `productOfCartLineStore()` -- the shared
+         * predicate a few hundred lines below -- is deliberately NOT reused: it logs
+         * "shipping quote refused a cart line naming another store's product", which would be a
+         * false statement from the checkout gate, and the store containment it adds is not this
+         * finding (the lines are already this store's by the query).
+         */
+        if (!empty($customer->id)) {
+            foreach (Cart::where('customer_id', $customer->id)->where('store_id', $store->id)->get() as $cart_line) {
+                $line_product = Product::find($cart_line->product_id);
+                $line_variant_missing = ((int) ($cart_line->variant_id ?? 0)) > 0
+                    && ProductVariant::where('product_id', $cart_line->product_id)
+                        ->where('id', $cart_line->variant_id)
+                        ->first() === null;
+
+                if (empty($line_product) || $line_variant_missing) {
+                    return $this->error(['message' => __('Product not found.')], __('Product not found.'));
+                }
+            }
+        }
         // cart list api call. cart_list() now derives its own target from the session, so what is
         // forwarded here cannot steer it.
         if (!empty($customer->id)) {
@@ -6822,11 +7043,22 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
                     if ($product->variant_id > 0) {
                         $productStock_data = ProductVariant::where('product_id', $product->product_id)->where('id', $product->variant_id)->first();
                         $product_data = Product::find($product->product_id);
+                        /* GAP-235(b), second layer. The pre-flight above already refuses a basket
+                           whose rows are gone, so this is defence in depth rather than the fix --
+                           it is here because the finding named these two dereferences, and because
+                           a future caller that reached this loop by another route would otherwise
+                           answer 500 again. */
+                        if (empty($productStock_data) || empty($product_data)) {
+                            return $this->error(['message' => __('Product not found.')], __('Product not found.'));
+                        }
                         if ($productStock_data->stock  < $product->qty) {
                             return $this->error(['message' => $product_data->name . ' insufficient stock.']);
                         }
                     } else {
                         $product_data = Product::find($product->product_id);
+                        if (empty($product_data)) {
+                            return $this->error(['message' => __('Product not found.')], __('Product not found.'));
+                        }
                         if ($product_data->product_stock < $product->qty) {
                             return $this->error(['message' => $product_data->name . ' insufficient stock.']);
                         }
@@ -6859,11 +7091,76 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
                 if (!is_array($value)) {
                     continue;
                 }
-                $product = Product::find($value['product_id']);
+                /*
+                 * GAP-131. THE STORE PREDICATE, on BOTH lookups, because neither model has one of
+                 * its own and this handler had none either.
+                 *
+                 * `$store` is resolved from the ROUTE at the top of this method and was used for
+                 * nothing but the "Store not found." early return. Measured before this change:
+                 * `POST /api/{storeA-slug}/cart-check-guest` carrying a store-B product id answered
+                 * HTTP 200 with that product's stock figure, identically for a customer, a merchant
+                 * and a driver token of store A.
+                 *
+                 * NOTHING UNDERNEATH CONTAINED IT, for two different reasons. `Product` carries
+                 * `StoreScope` (`BelongsToStore`) but is not in `config/tenancy.php`'s
+                 * `scoped_models`, so `isActiveFor()` short-circuits and the scope adds nothing for
+                 * ANY principal; `ProductVariant` has no scope at all (`use HasFactory, Cachable`
+                 * only). The conclusion is the same for both and the REASON is not -- an earlier
+                 * version of this comment said both carried the scope, which is the distinction
+                 * CLAUDE.md records as having been mis-stated in both directions. The predicate
+                 * below is the only control either way, which is why it is written here rather
+                 * than relied on from the model.
+                 *
+                 * BOTH ARMS ARE CLOSED, BUT NOT BY THE SAME MEANS, and the difference is the point.
+                 * The variant branch OVERWRITES `$product` before the stock is read, so leaving it
+                 * alone would disclose the per-variant figure however well the plain arm were
+                 * scoped.
+                 *
+                 * THE VARIANT ARM IS GATED ON THE ALREADY-VERIFIED PRODUCT, NOT ON A SECOND
+                 * `store_id` PREDICATE, and the independent review of this change is why. A variant
+                 * predicate would have been a FOURTH store-scoped reader of a column this project
+                 * has MEASURED as drifting: `ProductController:2873-2895` records an operator's
+                 * ordinary save stamping `store_id = 1` on a store-7 product's variants while
+                 * `products.store_id` stayed 7, and names the readers that then "stop seeing them".
+                 * `product_variants.store_id` is nullable besides, and both writers go through
+                 * `getCurrentStore()`, which answers null for a storeless user. On a PRE-CHECKOUT
+                 * STOCK GATE the cost of that is a shopper told "Product no found." about a product
+                 * their own merchant really sells.
+                 *
+                 * Gating on `$product` is exactly as safe: a foreign product does not resolve on the
+                 * plain arm, so a variant under it is unreachable, and a variant under a product
+                 * that DID resolve belongs to this store by construction whatever its own column
+                 * says (`product_id` is a cascading foreign key). It also stops this handler
+                 * disagreeing with `productOfCartLineStore()` a few hundred lines above, which
+                 * deliberately accepts a NULL `store_id` and refuses "only a provable mismatch".
+                 *
+                 * AND THE KEYS ARE READ DEFENSIVELY. `$value['product_id']` and
+                 * `$value['varient_id']` had no `isset`, and PHP 8 promotes the undefined-key
+                 * warning to an `ErrorException` -- so a single malformed item answered HTTP 500 for
+                 * the whole basket. Measured. A 500 is also the shape that lets a regression test
+                 * pass for the wrong reason, which this family has produced before.
+                 *
+                 * `varient_id` keeps its misspelling: it is the request key clients already send,
+                 * and it appears nowhere else in app/, so renaming it would break the contract and
+                 * a census grepping `variant_id` still misses this surface.
+                 */
+                $productId = $value['product_id'] ?? null;
+                $variantId = $value['varient_id'] ?? 0;
+
+                $product = $productId === null
+                    ? null
+                    : Product::where('id', $productId)->where('store_id', $store->id)->first();
+
                 $qty = !empty($value['qty']) ? $value['qty'] : 0;
                 $stock = 0;
-                if ($value['varient_id'] != 0) {
-                    $product = ProductVariant::where('product_id', $value['product_id'])->where('id', $value['varient_id'])->first();
+                if ($variantId != 0) {
+                    /* `$product === null` means the plain arm already refused this product for this
+                       store, so there is nothing of ours to look a variant up under. */
+                    $product = $product === null
+                        ? null
+                        : ProductVariant::where('product_id', $productId)
+                            ->where('id', $variantId)
+                            ->first();
                     $stock = !empty($product) ? $product->stock : 0;
                 } else {
                     $stock = !empty($product) ? $product->product_stock : 0;
@@ -7045,11 +7342,64 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         $data['product'] = [];
         $data['subcategory'] = [];
 
-        $maincategory = Category::find($request->category_id);
+        /*
+         * GAP-234. THIS HANDLER RETURNED EVERY STORE'S UNCATEGORISED PRODUCTS TO ANY TOKEN HOLDER.
+         *
+         * The statement in the `else` below was
+         *
+         *     Product::where('category_id', $request->category_id)->where('product_type', null)->paginate(10)
+         *
+         * with no store predicate, and `Product` is NOT in `config/tenancy.php`'s `scoped_models`
+         * -- the `StoreScope` it carries through `BelongsToStore` is INERT because of that, so no
+         * predicate is added for ANY principal. The handler's own was the only control and there
+         * was none.
+         *
+         * AND THE DOOR WAS "POST NOTHING". `Category::find(null)` is null, so the else ran, and
+         * Illuminate turns `where('category_id', null)` into `whereNull('category_id')` --
+         * `products.category_id` being nullable, that selected every tenant's uncategorised rows.
+         * Measured against the unchanged handler: a request with an EMPTY BODY, from a customer, a
+         * merchant and a driver token of store A alike, answered `status 1` with the whole product
+         * row of store B (`store_id`, `cost_price`, `created_by` and the rest), in both twins.
+         *
+         * TWO CHANGES, and the second is a deliberate behaviour change:
+         *
+         *   1. `->where('store_id', $store->id)` on the product query. This is the case where the
+         *      row's own column IS the right predicate: the category id is caller-supplied, so
+         *      there is no store-verified parent to gate the lookup on.
+         *
+         *   2. A MISSING OR NON-INTEGER `category_id` IS REFUSED rather than silently becoming
+         *      `whereNull`. "No category" is not a category, and a query the caller did not ask
+         *      for is not the query the parameter names. Nothing legitimate is lost: the else
+         *      branch is reachable only by a `category_id` that is not a category, and the two
+         *      tiles this handler prepends for that purpose (`id => 0` "All Products" and
+         *      `id => 'trending'`) match no `products.category_id` value before or after this
+         *      change. `filter_var(..., FILTER_VALIDATE_INT)` rather than `is_numeric`, which
+         *      accepts `'5.9'` and rejects `'5abc'` while MySQL coerces `'5abc'` to row 5; it also
+         *      refuses an ARRAY, which `Model::find()` answers with a truthy empty Collection and
+         *      which then read `->category_id` off that Collection.
+         *
+         * The category lookup is scoped too. `main_category()` and the subcategory query three
+         * lines below already read categories as store-owned, so a category with another store's
+         * `store_id` is one no caller of this API can legitimately have an id for; scoping it also
+         * removes a presence-and-`trending` oracle over another tenant's categories.
+         *
+         * NOT CHANGED, and named so it is not mistaken for part of this fix: `$maincategory->
+         * category_id` on the next line reads an attribute `categories` does not have (the column
+         * is aliased into existence by `main_category()`'s own select, not by the model), so this
+         * is `whereNull('parent_id')` against a column that defaults to 0. A pre-existing bug in
+         * this twin only -- the `-guest` twin uses the posted id -- and fixing it would change
+         * which subcategories a store sees, which is a product question and not a tenancy one.
+         */
+        $categoryId = filter_var($request->category_id, FILTER_VALIDATE_INT);
+        if ($categoryId === false) {
+            return $this->error(['message' => __('Category not found.')], __('Category not found.'));
+        }
+
+        $maincategory = Category::where('id', $categoryId)->where('store_id', $store->id)->first();
 
         if ($maincategory) {
             $SubCategory_query = Category::query()->where('store_id', $store->id);
-            if (!empty($request->category_id)) {
+            if (!empty($categoryId)) {
                 $SubCategory_query->where('parent_id', $maincategory->category_id);
             }
             $SubCategory = $SubCategory_query->get();
@@ -7086,7 +7436,10 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
 
             $data['subcategory'] = $SubCategory;
         } else {
-            $Product = Product::where('category_id', $request->category_id)->where('product_type', null)->paginate(10);
+            $Product = Product::where('category_id', $categoryId)
+                ->where('store_id', $store->id)
+                ->where('product_type', null)
+                ->paginate(10);
             $data['product'] = $Product;
         }
         if (!empty($data)) {
@@ -7107,12 +7460,24 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         $data['product'] = [];
         $data['subcategory'] = [];
 
-        $maincategory = Category::find($request->category_id);
+        /*
+         * GAP-234. SEE THE TWIN `sub_category()` ABOVE FOR THE FULL REASONING: identical defect,
+         * identical fix, and both had to move or the `-guest` route alone kept serving the leak.
+         *
+         * A MISSING OR NON-INTEGER `category_id` IS REFUSED instead of becoming `whereNull`, and
+         * the category and product lookups are both this store's.
+         */
+        $categoryId = filter_var($request->category_id, FILTER_VALIDATE_INT);
+        if ($categoryId === false) {
+            return $this->error(['message' => __('Category not found.')], __('Category not found.'));
+        }
+
+        $maincategory = Category::where('id', $categoryId)->where('store_id', $store->id)->first();
 
         if ($maincategory) {
             $SubCategory_query = Category::query()->where('store_id', $store->id);
-            if (!empty($request->category_id)) {
-                $SubCategory_query->where('parent_id', $request->category_id);
+            if (!empty($categoryId)) {
+                $SubCategory_query->where('parent_id', $categoryId);
             }
 
             $SubCategory = $SubCategory_query->get();
@@ -7148,7 +7513,10 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             }
             $data['subcategory'] = $SubCategory;
         } else {
-            $Product = Product::where('category_id', $request->category_id)->where('product_type', null)->paginate(10);
+            $Product = Product::where('category_id', $categoryId)
+                ->where('store_id', $store->id)
+                ->where('product_type', null)
+                ->paginate(10);
             $data['product'] = $Product;
         }
         if (!empty($data)) {
@@ -8248,8 +8616,48 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             return $this->error(['message' => __('Order not found.')], __('Order not found.'));
         }
 
+        /* GAP-135 / P4-F036. A SHOPPER MAY ONLY CANCEL -- the whole account, the precedent it
+           follows and the one narrowing it makes are on FulfilmentStateMachine::refusalForShopper().
+           The principal is DERIVED: resolveStoreCustomer() is the storefront's shared predicate and
+           answers null for a merchant's or a driver's token, and also for a null store, which is
+           what getStore() answers for a slug naming no store -- so auth('customers')->user(), the
+           expression that helper itself evaluates, is the fallback and this fails CLOSED. A
+           signed-in Customer is also exactly the branch resolveViewableOrder() admitted this order
+           on -- it tests auth('customers')->user() before the driver and User branches -- so the
+           guard and the ownership decision cannot disagree about who the caller is, even for a
+           visitor holding both a shopper and a panel session. The value judged is `$request->
+           order_status`, character for character the expression the line below hands the writer, so
+           this cannot authorise one word while another is written. Asked AFTER ownership so a
+           foreign caller still gets the identical 'Order not found.' and cannot enumerate ids. */
+        $ssShopper = $this->resolveStoreCustomer($store) ?? auth('customers')->user();
+
+        if ($ssShopper instanceof Customer) {
+            $ssRefusal = \App\Support\Orders\FulfilmentStateMachine::refusalForShopper($request->order_status);
+
+            if ($ssRefusal !== null) {
+                return $this->error(['message' => $ssRefusal], $ssRefusal);
+            }
+        }
+
+        /* GAP-277. See panelUserMayNotChangeOrderState() below the two doors. */
+        if ($this->panelUserMayNotChangeOrderState($order)) {
+            return $this->orderStateChangePermissionDenied();
+        }
+
         $data['order_id'] = $order->id;
-        $data['order_status'] = $request->order_status;
+
+        /* GAP-277, the second half: A STRING, OR NOTHING THE WRITER MATCHES.
+           `Order::order_status_change()` branches on `$order_status == 'cancel'` -- LOOSE -- while
+           this handler's restock gate below compares `(string) $x === 'cancel'`. Under PHP 8
+           `true == 'cancel'` is TRUE and `(string) true` is `'1'`, so `{"order_status": true}`
+           cancelled the order, stamped `cancel_date` and reversed the merchant's entitlement while
+           the goods stayed OFF the shelf -- measured, HTTP 200 `{"status":1}`, stock 5 -> 5. The
+           web sibling (`OrderController::status_cancel`) is immune because it hands the writer the
+           literal `'cancel'`; this door passes six words through, so the equivalent is to hand the
+           writer a STRING and let its own "that order status is not recognised" arm (F81) answer a
+           value that is not one. The two comparisons can no longer disagree, because only a string
+           reaches either. */
+        $data['order_status'] = is_string($request->order_status) ? $request->order_status : '';
 
         $date = Order::order_status_change($data);
 
@@ -8323,6 +8731,14 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             return $this->error(['message' => __('Order not found.')], __('Order not found.'));
         }
 
+        /* GAP-277. The twin door, and the more expensive one: `Order::product_return()` CREDITS
+           `products.product_stock` and SUBTRACTS the returned line from `orders.final_price`.
+           Measured before this gate: a staff member holding NO ROLE took stock 5 -> 7 and
+           `final_price` 100 -> 50 on their tenant's order. See the predicate below. */
+        if ($this->panelUserMayNotChangeOrderState($order)) {
+            return $this->orderStateChangePermissionDenied();
+        }
+
         $data['product_id'] = $request->product_id;
         $data['variant_id'] = $request->variant_id;
         $data['order_id']   = $order->id;
@@ -8333,6 +8749,98 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         } else {
             return $this->error(['message' => $responce['message']], $responce['message']);
         }
+    }
+
+    /**
+     * GAP-277 — A `User` REACHING EITHER STOREFRONT ORDER DOOR NEEDS A PERMISSION, AND HAD NONE.
+     * =============================================================================================
+     *
+     * `resolveMutableOrder()` answers WHOSE order it is, and since GAP-135 `refusalForShopper()`
+     * answers WHICH word a shopper may say. Neither asks whether a `User` may change an order at
+     * all — and the resolver's User branch resolves a `type='staff'` row to its owning admin
+     * through `UserPolicy::merchantTenantRoot()`, so every user in the tenant was admitted whatever
+     * they held. Measured through the real routes with a token the shipped
+     * `POST /api/admin/adminlogin` hands a roleless staff member: `cancel` answered HTTP 200
+     * `{"status":1}`, took `delivered_status` 0 → 2, stamped `cancel_date`, moved
+     * `store_order_financials.payment_status` paid → cancelled (the merchant's entitlement reversed)
+     * and put `products.product_stock` 5 → 7; `product-return` took stock 5 → 7 AND `final_price`
+     * 100 → 50.
+     *
+     * THE PREDICATE IS NOT NEW CODE. `App\Support\Orders\OrderStateChangeAuthorization` is the pair
+     * the two ADMIN order doors have asked since `P4-F037` (`Api\DashboardController`'s
+     * `callerMayChangeOrderState()`, which now delegates to it) — driver, then store owner, then
+     * `MerchantPermissions::allowsAny(…, ['Manage Order'], $order->store_id)`, which answers the
+     * wildcard for the platform operator because `isAbleTo()` REFUSES them. Sharing it rather than
+     * copying it is the point: four doors, one answer.
+     *
+     * WHY THE `User` BRANCH ONLY, AND HOW THAT IS SPELLED. This mirrors `resolveViewableOrder()`'s
+     * OWN branch order — customer, then driver, then User — so the gate cannot disagree with the
+     * limb that admitted the order. A shopper is authorised by owning the order and is constrained
+     * by GAP-135; a `DeliveryBoy` is not a Laratrust subject at all (`MerchantPermissions::names()`
+     * answers `[]` for anything that is not a `User`, and `isAbleTo()` on one is a fatal), and
+     * carrying the parcel IS the authorization. Gating either would end self-service cancellation
+     * for every shopper and refuse every driver on the platform.
+     *
+     * ONE JUSTIFICATION IN AN EARLIER VERSION OF THIS DOCBLOCK WAS WRONG AND IS WITHDRAWN. It said
+     * the customer limb covers "a visitor holding BOTH a shopper and a panel session". On THESE
+     * routes that cannot arise: `routes/api.php` is outside the `web` group and its own header says
+     * so, and `bootstrap/app.php` appends only `DisabledModuleRouteGuard` and `throttleApi` to the
+     * `api` group -- no `StartSession`, no `EncryptCookies` -- while `custom.auth` logs exactly one
+     * guard per tokenable class. So for a single-guard request this limb is REDUNDANT, and the
+     * `instanceof User` test below would refuse a shopper or a driver on its own. Found by the
+     * independent review of this change, which also measured that no test in the repository fails
+     * if the limb is deleted.
+     *
+     * ASKED AFTER OWNERSHIP, in both doors, so a caller with no claim on the order still gets the
+     * identical `Order not found.` and cannot learn that the order exists and only a permission was
+     * missing. `Gap277StorefrontOrderStatePermissionTest` pins that ordering with a foreign
+     * merchant.
+     *
+     * @param  \App\Models\Order|object|null  $order
+     */
+    private function panelUserMayNotChangeOrderState($order): bool
+    {
+        /*
+         * THE INVARIANT THIS LIMB DEPENDS ON, NAMED BECAUSE NOTHING TESTS IT. It is kept, and it is
+         * correct, but not for the reason the docblock first gave: it is correct because
+         * `resolveViewableOrder()` RETURNS FROM INSIDE each branch -- customer at :8418-8424,
+         * driver at :8426-8432 -- so whenever either guard is populated the `User` branch at
+         * :8436-8452 is unreachable and the order must have been admitted on `orders.customer_id`
+         * or `orders.deliveryboy_id`. If that helper's branch ORDER is ever changed, for instance by
+         * hoisting the operator limb above the customer limb, this gate stops firing and NOTHING
+         * GOES RED. Keep this comment with the code, or pin the pair with a case that populates two
+         * guards at once.
+         */
+        if (auth('customers')->user() || auth('deliveryboy')->user()) {
+            return false;
+        }
+
+        return auth()->user() instanceof User
+            && ! \App\Support\Orders\OrderStateChangeAuthorization::allows($order);
+    }
+
+    /**
+     * The refusal, in THIS door's envelope with the ADMIN doors' sentence.
+     *
+     * HTTP 200 WITH `status: 0`, NOT 403, and that is owner decision H3 applied rather than
+     * guessed: every refusal these two storefront doors give is `ApiResponser::error()`'s default
+     * shape — `Order not found.`, `This action is not available.` — and H3 decided to *"preserve
+     * the current caller-specific response contracts"* rather than introduce a status code on a
+     * door whose client would have to learn it. **Never 401**: the shipped Flutter app force-clears
+     * its session on any 401, so a 401 on an order door logs a merchant out of the whole app.
+     *
+     * THE SENTENCE IS THE SIBLING DOORS' OWN, and it is already in `resources/lang/en.json:4405`
+     * and `ar.json:4401` — `DashboardController::orderPermissionDenied()` answers it for
+     * `api/admin/status-change` and `api/{slug}/order-cancel`. A new string here would have gone
+     * out untranslated to every Arabic merchant, and the four order doors would have answered the
+     * same refusal in two different wordings. Moving this door to 403 is a one-line change if the
+     * owner prefers the admin doors' transport too.
+     */
+    private function orderStateChangePermissionDenied()
+    {
+        $ssMessage = __('You do not have permission to perform this action.');
+
+        return $this->error(['message' => $ssMessage], $ssMessage);
     }
 
     public function navigation(Request $request, $slug = '')
@@ -8910,7 +9418,30 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         }
 
         $product_id = $request->product_id;
-        $product = Product::find($product_id);
+        /*
+         * GAP-235(a). THE PRODUCT THE LIST IS BUILT AROUND MUST BE THIS STORE'S.
+         *
+         * `Product::find($product_id)` had no predicate, and nothing underneath supplies one:
+         * `Product` carries `StoreScope` through `BelongsToStore` but is NOT in
+         * `config/tenancy.php`'s `scoped_models`, so `isActiveFor()` short-circuits and the scope
+         * adds nothing for ANY principal -- not a customer, not a merchant, not the operator. The
+         * `null_tenant => 'open'` rule does not even come into it.
+         *
+         * WHAT THAT LEAKED, stated precisely. The list below was already store-scoped, so no
+         * foreign row came back. What came back was an EXISTENCE ORACLE over every tenant's
+         * product ids -- a foreign id answered "Related products get successfully." and an id
+         * belonging to nobody answered "Related products not found.", so the endpoint enumerated
+         * which product ids exist on the platform. Measured, both routes, all three token
+         * classes. And the foreign row's own `category_id` then steered the caller's list: when it
+         * was NULL, Illuminate turned `where('category_id', null)` into `whereNull` and store A's
+         * uncategorised catalogue came back for a product store A does not sell.
+         *
+         * The predicate is on `products.store_id` because this is the lookup whose own column is
+         * the only evidence available -- there is no store-verified parent to gate on, since the
+         * id is caller-supplied. The two refusals are now indistinguishable, which is the
+         * precedent `order_detail` and `delete_address` set in this controller.
+         */
+        $product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
         if (!empty($product)) {
             $releted_product_query = Product::where('store_id', $store->id)->where('product_type', null)->where('id', '!=', $product_id);
             
@@ -10101,7 +10632,7 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         );
         $order->delivery_id = $request['method_id'] ?? 0;
         $order->delivery_comment = !empty($request->shipping_comment) ? $request->shipping_comment : '-';
-        $order->delivered_status = !empty($request->delivered_status) ? $request->delivered_status : '-';
+        $order->delivered_status = '-';   // GAP-258: NOT `$request->delivered_status`. This read the fulfilment state from unvalidated request input -- the rule array above has `payment_type` and `delivery_id` and neither is this -- so a store's own shopper POSTed `delivered_status=1` and their order was born DELIVERED, the state `Order::product_return()` requires before it REDUCES `final_price`; `3` landed `(delivered_status='3', return_status=0)`, which neither web control can act on (both gate on `return_status == 1`); and any string at all reached an integer column. No legitimate shopper flow names a fulfilment state: the field is in no client (the Flutter admin app sends `delivered_status` only to `/orders/update-status` and as an `&delivered_status=` filter, and does not call this route) and in no contract (`packages/workdo/Api/src/documentation/theme.json:8360-8384`), so the request is not read at all rather than validated -- which also refuses the vocabulary values a constants check would admit. THE DEFAULT IS UNCHANGED ON PURPOSE: `'-'` is what every request that posts nothing already got, so this is a no-op for legitimate traffic, and four citations elsewhere name this line as the one shipped writer of that literal (`Support\Orders\FulfilmentStateMachine:68`/`:273`, `Api\DeliverySyriaOrderController:276`, `DeliverySyriaOrderTransitionTest:603`) with GAP-254 settling that such a row keeps its own board bucket. Moving it to 0 is a product decision, reported and not taken here. Kept to ONE line so no line number in this file moves: the observability inventory keys two rows on `:10743` and `:10792`. Pinned by `StorefrontOrderFulfilmentStateNotCallerChosenTest`.
         $order->reward_points = (float)$product_reward_point;
         $order->additional_note = !empty($request->additional_note) ? $request->additional_note : '-';
         $order->store_id = $store->id;

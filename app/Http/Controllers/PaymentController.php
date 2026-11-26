@@ -395,7 +395,7 @@ public const PAYMERA_STATUS_UNAUTHENTICATED = '__paymera_status_unauthenticated'
  * which is what PaymentService::processPaymera() already uses to authorise the
  * CREATE-payment call (PaymentService.php:340, :428), what the settings screen
  * writes (PaymentSettingController.php:177-178 lists PAYMERA_TERMINAL_ID and
- * PAYMERA_USERNAME as Paymera's required_fields) and what Setting.php:1059-1074
+ * PAYMERA_USERNAME as Paymera's required_fields) and what Setting.php:1073-1088
  * reads back per store. A single global env var cannot express a per-store
  * credential on a shared-database multi-tenant platform, so the env key was
  * never going to be right.

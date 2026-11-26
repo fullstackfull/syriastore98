@@ -98,7 +98,28 @@ class SecurityLogInventoryTest extends SecurityTestCase
             $lines = file($file->getPathname());
 
             foreach ($lines as $i => $line) {
-                if (preg_match($pattern, $line, $m)) {
+                /*
+                 * THE MESSAGE MAY SIT ON THE NEXT LINE, AND FOR 23 CALLS IT DID -- so this census,
+                 * which claims to cover every `critical` and `warning` in `app/`, could not see
+                 * them. Measured 2026-11-26: 23 call sites across 10 files, one added the same day.
+                 * The inventory's whole question is "when one of these fires in production, where
+                 * does it land and who reads it" -- those 23 had no answer, and nothing would ever
+                 * have asked. Formatting should not decide whether a log line is accountable.
+                 *
+                 * A WIDER MATCH IS THE WRONG FIX AND I TRIED IT FIRST: joining every line with the
+                 * two after it and adding `/s` found **591** "undeclared" lines, because each call
+                 * then matched from three overlapping windows and picked up neighbouring messages.
+                 * So the lookahead is taken only when the line is an OPENER -- `Log::level(` with
+                 * nothing but whitespace after the parenthesis -- which is unambiguous, keeps the
+                 * CALL's line number (what the inventory keys on), and cannot double-count.
+                 */
+                $subject = $line;
+
+                if (preg_match('/(?:\\\\?Log::|logger\\(\\)->)(?:' . implode('|', self::LEVELS) . ')\\s*\\(\\s*$/', $line) === 1) {
+                    $subject = rtrim($line) . ltrim($lines[$i + 1] ?? '');
+                }
+
+                if (preg_match($pattern, $subject, $m)) {
                     $found[$relative . ':' . ($i + 1)] = trim(str_replace('\\', '', $m[2]));
                 }
             }

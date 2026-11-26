@@ -1265,6 +1265,155 @@ Route::get(
         ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
         ->name('platform.analytics.export');
 
+    /*
+     * GAP-195 / OPS-002 — REAL RESOURCE MEASUREMENTS, for the platform operator only.
+     *
+     * Declared here, beside the cross-tenant analytics screen, because it is the same kind of
+     * surface and takes the same gate for the same reason: `PlatformOperatorOnly` and NOT a
+     * permission name, because a merchant creates their own roles and a permission is therefore
+     * substantially self-assignable, while the subject of this screen is the machine every tenant
+     * shares. Inside the same `auth` group, so an anonymous caller is redirected to sign in by
+     * `auth` — which runs first — rather than told 403 by the operator check; and 403 and never
+     * 401 for a signed-in non-operator, because repo B maps any 401 to a forced logout.
+     *
+     * NO PARAMETER, ON PURPOSE. The handler reads nothing from the request, and a `path` segment
+     * on a screen that calls `disk_free_space()` would hand the caller an arbitrary-filesystem
+     * probe. `PlatformResourcesScreenTest` asserts that a query string changes nothing.
+     */
+    Route::get('platform/resources', [\App\Http\Controllers\SuperAdminResourcesController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.resources');
+
+    /*
+     * GAP-192 / SAAS-007 — THE PLATFORM'S OWN REVENUE (MRR/ARR), SEPARATE FROM MERCHANT SALES.
+     *
+     * A SEPARATE SCREEN FROM `platform/analytics` ON PURPOSE, because the separation IS the
+     * recovered requirement: "فصل إيرادات المنصة MRR/ARR عن GMV ومبيعات التجار". Two more tiles on
+     * the analytics screen would put an MRR next to a cross-tenant GMV, which is how somebody
+     * eventually adds them — they are different money, from different payers, in different
+     * currencies, and `plans.price` has no currency column at all.
+     *
+     * Same gate as its two neighbours and for the same reason: `PlatformOperatorOnly`, not a
+     * permission name, because a merchant creates their own roles. This screen reports what every
+     * merchant on the platform pays, so it is commercial information about third parties.
+     */
+    Route::get('platform/revenue', [\App\Http\Controllers\SuperAdminRevenueController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.revenue');
+
+    /*
+     * GAP-107 / P03-D-04 — THE DOCUMENTATION CENTRE'S EDITORIAL SURFACE, for the platform
+     * operator only.
+     *
+     * The public centre is `platform/docs/...`, registered in the unauthenticated group near the
+     * top of this file and serving PUBLISHED articles only. These two routes are the other side of
+     * that: what state every article is in, and the draft itself rendered for the reviewer who has
+     * to approve it. Both read `DocumentationLibrary::editorial*`, which sees drafts.
+     *
+     * DECLARED HERE, BESIDE `platform/analytics`, `platform/resources` AND `platform/revenue`,
+     * because it is the same kind of surface and takes the same gate for the same reason:
+     * `PlatformOperatorOnly` and NOT a permission name. A merchant creates their own roles through
+     * the product, so a permission is substantially self-assignable, while the subject here is the
+     * platform's own unpublished content. `isAbleTo()` alone would also refuse the platform
+     * operator outright -- there is no super-admin bypass in this codebase -- so a permission gate
+     * would be wrong in both directions at once.
+     *
+     * Inside the same `auth` group as its neighbours, so an anonymous caller is redirected to sign
+     * in by `auth` -- which runs first -- rather than told 403 by the operator check; and 403 and
+     * never 401 for a signed-in non-operator, because repo B maps any 401 to a forced logout.
+     *
+     * THE HANDLERS CHECK AGAIN. `DocumentationEditorialController::refuseAnyoneButTheOperator()`
+     * repeats the test, because relying on route grouping alone has failed in this repository
+     * before and a later edit that moves one of these routes out of the group would otherwise open
+     * unpublished content silently.
+     *
+     * `platform/documentation` AND NOT `platform/docs/...`: the public patterns `docs/{category}`
+     * and `docs/{category}/{article}` are declared EARLIER in this file and Laravel matches in
+     * declaration order, so a preview route under `platform/docs/` would be swallowed by the
+     * public category pattern and answer a reader's 404 instead.
+     */
+    Route::get('platform/documentation', [\App\Http\Controllers\DocumentationEditorialController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.documentation.index');
+
+    Route::get('platform/documentation/{category}/{article}', [\App\Http\Controllers\DocumentationEditorialController::class, 'preview'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.documentation.preview');
+
+    /*
+     * GAP-104 / P03-C-05 — THE OFFICIAL WEBSITE'S CONTENT EDITOR, for the platform operator only.
+     *
+     * The public site is `platform/...`, registered in the unauthenticated group near the top of
+     * this file. These three routes are the other side of it: what an operator may change about the
+     * platform's own public words without a code change, review, merge and deploy — which is the
+     * capability GAP-104 records as absent, and the reason the five legal documents and the contact
+     * details could previously only be published by a developer.
+     *
+     * DECLARED HERE, BESIDE `platform/analytics`, `platform/resources`, `platform/revenue` AND
+     * `platform/documentation`, because it is the same kind of surface and takes the same gate for
+     * the same reason: `PlatformOperatorOnly` and NOT a permission name. A merchant creates their
+     * OWN roles through the product, so a permission is substantially self-assignable, while the
+     * subject here is what the company says about itself at its own address. `isAbleTo()` alone
+     * would also refuse the platform operator outright — there is no super-admin bypass in this
+     * codebase — so a permission gate would be wrong in both directions at once.
+     *
+     * Inside the same `auth` group as its neighbours, so an anonymous caller is redirected to sign
+     * in by `auth` — which runs first — rather than told 403 by the operator check; and 403 and
+     * never 401 for a signed-in non-operator, because repo B maps any 401 to a forced logout.
+     *
+     * THE HANDLERS CHECK AGAIN. `PlatformContentController` repeats the test in all three actions,
+     * because relying on route grouping alone has failed in this repository before and a later edit
+     * that moved one of these routes out of the group would otherwise open the company's own public
+     * copy — including, once the owner supplies it, the text that binds the business.
+     *
+     * `platform/site-content` AND NOT `platform/content`: nothing collides either way today, but
+     * the public group earlier in this file owns `platform/{literal}` for seven page names and
+     * `platform/docs/{category}`, and a one-word second segment is the shape most likely to be
+     * added to it later. `PlatformContentEditorGateTest` resolves all three names through the real
+     * router and asserts the resolved middleware stack, which is the only check that can tell a
+     * shadowed route from a working one.
+     */
+    Route::get('platform/site-content', [\App\Http\Controllers\PlatformContentController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.site_content.index');
+
+    Route::get('platform/site-content/{page}', [\App\Http\Controllers\PlatformContentController::class, 'edit'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.site_content.edit');
+
+    /*
+     * THE WRITE ROUTE DROPS `xss`, AND ONLY `xss`, AND ONLY ON THIS ROUTE. Found by the
+     * authorization review of this change and MEASURED before acting.
+     *
+     * `App\Http\Middleware\XSS` deletes four substrings from EVERY string in EVERY request it
+     * handles -- `['&lt;', '&gt;', 'javascript', 'alert']` (XSS.php:35, applied at :116) -- with an
+     * exemption list that covers credential-shaped keys only. This is the one route in the
+     * application whose entire purpose is to carry PROSE the operator typed, so an acceptable-use
+     * document reading "you may not inject javascript into your storefront" saved, reported
+     * success, and published "you may not inject  into your storefront" on the company's own
+     * website. `str_replace` is case-sensitive, so "JavaScript" survived and "javascript" did not.
+     * For the five legal documents that is binding text being altered without anybody seeing it.
+     *
+     * WHAT IS GIVEN UP, named rather than waved away: nothing this path relies on. `XSS` is an
+     * INPUT sanitiser, not an output encoder, and the controls that actually stop markup reaching
+     * a reader are downstream and tested -- Blade escaping for a `line` or `block` field, and
+     * `DocumentationRenderer::html()` (`html_input => 'strip'`, `allow_unsafe_links => false`) for
+     * a `markdown` one. The mutation that replaces that renderer with a raw echo reddens
+     * `test_html_in_a_published_legal_document_is_stripped`, which is what proves the renderer and
+     * not this middleware was doing the work.
+     *
+     * The other thing `XSS` does -- redirecting a super admin to the installer when a migration is
+     * pending (XSS.php:56-78) -- still happens on the two GET routes above, so an operator reaching
+     * this screen is still bounced. It is a setup check, not an authorization control.
+     *
+     * CSRF IS UNAFFECTED: `ValidateCsrfToken` is in the `web` GROUP, not in `xss`, and XSS.php's
+     * own docblock records that it has already run by the time this middleware does.
+     */
+    Route::post('platform/site-content/{page}', [\App\Http\Controllers\PlatformContentController::class, 'update'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->withoutMiddleware('xss')
+        ->name('platform.site_content.update');
+
     // Report
     Route::resource('reports', ReportController::class);
     Route::get('reports-chart', [ReportController::class, 'reports_chart'])->name('reports.chart');
@@ -1918,6 +2067,34 @@ Route::get(
   Route::post('/format-price', [ProductController::class, 'formatPrice'])->name('format.price');
   require __DIR__ . '/customer.php';
 });
+
+/*
+ * GAP-117 / `P03-MP-01` — THE PER-STORE XML SITEMAP.
+ *
+ * Declared from first-party code so the URI, the name, the throttle and the action have ONE owner;
+ * see `App\Support\Storefront\StorefrontSitemapRoute`. Until this line existed the route was
+ * declared only by two tests' `setUp()`, so `GET /{slug}/sitemap.xml` was a 404 in production and
+ * every sitemap assertion passed against a route the application did not have — which is why the
+ * census now carries an assertion that does NOT call `declare()` itself.
+ *
+ * AFTER the `customer.php` require, and outside the `web` group that closes on the line above.
+ * Two reasons, both measured rather than assumed:
+ *
+ *   - ORDER. A later declaration replaces an earlier one for the same method+URI, silently
+ *     dropping the earlier middleware. Nothing can take this slot: every existing two-segment
+ *     storefront route has a LITERAL second segment, there is no `Route::fallback`, no
+ *     two-parameter route, and no module declares `sitemap` in any module route file (grepped across every
+ *     module's own routes). NOTE: that glob is deliberately written in words — spelling it
+ *     with a star-slash inside a block comment CLOSES THE COMMENT, which is how the first
+ *     draft of this very block produced a parse error, and is the same trap GAP-256 hit in
+ *     CSS an hour earlier.
+ *     So this adds a slot rather than taking one.
+ *   - OUTSIDE `ActiveTheme`/`themelanguage` ON PURPOSE. `ActiveTheme` calls
+ *     `visitor()->visit($store)`, so serving this from inside that group would log every crawler
+ *     fetch of a machine-readable file as a shop VISIT and inflate the merchant's analytics.
+ *     Neither middleware is a security control and this route renders no view, so nothing is lost.
+ */
+\App\Support\Storefront\StorefrontSitemapRoute::declare();
 
 
 

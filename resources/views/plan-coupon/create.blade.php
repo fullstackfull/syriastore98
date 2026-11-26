@@ -23,7 +23,7 @@
     </div>
     <div class="modal-footer pb-0">
         <input type="button" value="{{ __('Cancel') }}" class="btn btn-badge btn-secondary" data-bs-dismiss="modal">
-        <input type="submit" value="{{ __('Create') }}" class="btn btn-badge btn-primary mx-1">
+        <input type="submit" value="{{ __('Create') }}" class="ss-btn ss-btn--primary mx-1">
     </div>
 </div>
 {!! Form::close() !!}

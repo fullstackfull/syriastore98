@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 170 VERIFIED COMPLETE. 180 are not.**
+**350 requirements recovered. 181 VERIFIED COMPLETE. 169 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 170 verified complete, 200 not.** It read 368/198
+project-wide figure is **370 known requirements, 181 verified complete, 189 not.** It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -85,13 +85,68 @@ against a pre-reorganization original.
 > IMPLEMENTED 41 -> 39; Phase 05/06 2 -> 1 verified. Where what remained was a rule rather than
 > work, it went to the owner's register as `D-N35`...`D-N40`. **No row was promoted to VERIFIED
 > COMPLETE.**
+>
+> **2026-11-25 (#204).** `P04-FIN-04` moves NOT IMPLEMENTED -> PARTIALLY IMPLEMENTED (35 / 86), and
+> that is the only figure that changed. Its reconciliation SURFACE now exists -- `payments:reconcile`,
+> the first reader `PlanPurchaseIntent::unreconciled()` has ever had -- while the wallet-versus-order
+> axis the row is named for is still a read-only reporter that has never run against real data. The
+> row says which half is which. **No row was promoted to VERIFIED COMPLETE**, and the project-wide
+> 170 verified is unchanged: a surface that has never seen a live provider handshake is not a
+> verified requirement.
+>
+> **2026-11-25 (GAP-131).** `P04-P1-06` (cart and guest checkout) moves NOT IMPLEMENTED ->
+> **VERIFIED COMPLETE** (34 / 171), the first promotion since the account transfer, and Phase 04
+> goes 15 -> 16 verified. It is promoted because the requirement is *this route* and the route was
+> reproduced leaking at HEAD, fixed on both of its lookups, and falsified by three mutations each
+> killing exactly one case -- not because the defect family is finished. The row says so explicitly:
+> `product-detail-guest` is reported to disclose the same figure, and the siblings will be
+> registered as their own rows.
+>
+> **2026-11-25 (GAP-114).** `P03-E-04` moves IMPLEMENTED - VERIFICATION INCOMPLETE ->
+> **VERIFIED COMPLETE** (172 verified; that status 19 -> 18), and Phase 03 goes 10 -> 11 verified.
+> Promoted because the row's gap was the VERIFICATION and the verification now exists with three
+> mutations caught — not because the code changed; it needed no change. The row records what the
+> measurement corrected (`plans.themes` is NOT NULL, so the unrestricted state is an empty string)
+> and what it pins without fixing (a plan downgrade does not force a store off an excluded theme).
+> The requirement's other two halves — storefront session behaviour and the merchant-to-store
+> relationship — are still covered only indirectly, and the row says so.
+>
+> **2026-11-25 (the admin-API authorization batch) — NINE FAMILIES GATED AND THE COUNTS DO NOT MOVE.
+> That is correct, and it is recorded here because it looks like an error.** In one batch, eight of
+> the nine ungated admin-API permission families under `GAP-142` were closed (`P4-F106` order
+> detail, `F108` driver assignment, `F109` five driver-credential routes, `F110` order notes,
+> `F112` whole-order dumps, `F113`'s delete half, `F065` coupon writes, `F075` six tax/shipping
+> writers), plus two live defects found by reviewing those fixes (`GAP-242`, a review deleter with
+> **no predicate of any kind** reachable by any bearer token; `GAP-243`, the web twin of the coupon
+> address read). None of that changes a single figure above, for two separate reasons, and both
+> matter more than the arithmetic:
+>
+> 1. **These are FINDINGS, not requirements.** `P4-F1xx`/`P3-F1xx` are finding labels from the phase
+>    findings documents, not Decision IDs from the 181-id register. Only a recovered *requirement*
+>    changes the 370 (that is what took it 368 -> 370 on 2026-11-24). A fixed finding changes a gap
+>    row.
+> 2. **The requirement they sit under is still PARTIALLY IMPLEMENTED.** `GAP-142` maps to
+>    `P04-P7-01`, and **two half-rows remain open** — `F113`'s read half (`CustomerList`,
+>    `searchCustomerByName`, `getCustomerOrdersApi`, which serves a full delivery address) and
+>    `F111` (`searchProductsByName`, which serves `products.cost_price`). Eight of nine is not nine.
+>    Promoting `P04-P7-01` now would be exactly the silent scope reduction this document exists to
+>    prevent.
+>
+> **A correction belonging to this entry.** The first draft of the `GAP-142` row credited five
+> closures and missed three, because three implementation agents worked the same two controllers
+> concurrently and the row was reconciled from their summary reports rather than from the code. It
+> was corrected by grepping every named handler for a gate limb before publishing. The lesson is
+> narrower than "check the code": **a batch of concurrent agents produces a reconciliation hazard
+> that a sequential one does not**, because no single report describes the tree. Two line numbers in
+> the original row had also drifted by ~500 lines (`assignOrder` `:10288` -> `:10791`), so a
+> line-number lookup would have missed the handler that a name grep found.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **170** |
-| PARTIALLY IMPLEMENTED | **85** |
-| NOT IMPLEMENTED | **36** |
-| IMPLEMENTED - VERIFICATION INCOMPLETE | **19** |
+| VERIFIED COMPLETE | **181** |
+| PARTIALLY IMPLEMENTED | **101** |
+| NOT IMPLEMENTED | **10** |
+| IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
 | EXTERNALLY BLOCKED | **9** |
@@ -99,12 +154,12 @@ against a pre-reorganization original.
 
 | phase | recovered | verified complete | not complete |
 |---|---|---|---|
-| 01 Foundation — architecture, security, tenant isolation, pe | 70 | 15 | **55** |
+| 01 Foundation — architecture, security, tenant isolation, pe | 70 | 18 | **52** |
 | 02 Merchant Experience | 114 | 100 | **14** |
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
-| 03 Storefront, Themes, Official Website and Documentation (M | 36 | 10 | **26** |
-| 04 Commerce (P4-0 .. P4-9) | 43 | 15 | **28** |
-| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 1 | **34** |
+| 03 Storefront, Themes, Official Website and Documentation (M | 36 | 14 | **22** |
+| 04 Commerce (P4-0 .. P4-9) | 43 | 18 | **25** |
+| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 2 | **33** |
 
 ---
 
@@ -387,7 +442,20 @@ against a pre-reorganization original.
 
 ### `P01-DEFECT-PROFILE` — Declared known-bad outcomes
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> Both lines this row names were already guarded and its known-outcome manifest entry already deleted: `getThemeUrl()` returns null for a null store and again for a slug-less one, covering `:610` and `:612` by returning before either is reached, and `ProfileTest::test_profile_page_is_displayed` passes. The same change added the null-store guard at `HomeController::index()` that replaced an HTTP 500 -- whose side effect is carried separately as GAP-264 / owner decision I16.
+>
+> Evidence: `GAP-013` in `MASTER-PLAN-GAP-REGISTER.md`, commit `8e472c81`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Same as above. Classification "A REAL APPLICATION DEFECT": GET /profile answers 500 with ErrorException: Attempt to read property "slug" on null
 - **Source:** `.github/known-test-outcomes.json → expected_failures → Tests\Feature\ProfileTest::test_profile_page_is_displayed`
@@ -402,7 +470,20 @@ against a pre-reorganization original.
 
 ### `P01-DEFECT-REG` — Declared known-bad outcomes
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> Registration no longer commits a half-provisioned merchant. The `admin` role lookup moved ABOVE the first write, so with the role absent nothing is created, nobody is signed in and no verification mail goes out, instead of the measured prior behaviour: 302, authenticated visitor, users +1, stores +1, store_wallets +1 and role_user **0**. Closing it emptied the Feature suite's declared-failure set.
+>
+> Evidence: `GAP-014` in `MASTER-PLAN-GAP-REGISTER.md`, commit `8e472c81`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Implied by acceptance criterion F2's manifest discipline: a declared failure must carry a cause, an owner and a classification. This entry's own classification is "OPEN -- ACTIONABLE DEFECT": POST /register silently skips the admin-role assignment, so "the user, the store and the login are committed and the merchant ends up with no role and no error"
 - **Source:** `.github/known-test-outcomes.json → expected_failures → Tests\Feature\Auth\RegistrationTest::test_new_users_can_register`
@@ -571,7 +652,14 @@ against a pre-reorganization original.
 
 ### `P01-G1` — G. Phase-wide verification (the directive's §9)
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **CLOSED/ADVANCED 2026-11-26 by the journey exercises built for this gate.** The end-to-end MERCHANT journey exercise now exists and was run: `tests/Feature/Journeys/MerchantJourneyTest::test_the_merchant_journey_runs_end_to_end_as_one_exercise` drives §G step 1 as ONE test method, one process, one session, nothing inserted between legs -- register, dashboard, a two-variant product created through `POST /product`, a shopper's COD order arriving through the real storefront checkout, four fulfilment moves read back from the column, settlement with a matching `store_order_financials` row, and the return accepted with the VARIANT restocked. 9 controls; 2 mutations CAUGHT, each asserted to fail at the leg that owns the behaviour. Verified independently of the agent that wrote it: 23 passed, 251 assertions.
+>
+> Evidence: `docs/development/phase-1/PHASE-01-G1-G2-JOURNEY-EVIDENCE.md`, and the gap
+> register rows `GAP-020` / `GAP-022`. The exercises also produced three findings no unit
+> test had reached, registered as `GAP-265`…`GAP-267`. The original wording of this section
+> is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** "End-to-end **merchant** journey: create product with variants → receive order → fulfil → return" — run "as one exercise, not as a sum of task tests"
 - **Source:** `docs/development/phase-1/14-PHASE-01-ACCEPTANCE-CRITERIA.md §G, step 1`
@@ -598,7 +686,14 @@ against a pre-reorganization original.
 
 ### `P01-G2` — G. Phase-wide verification (the directive's §9)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **CLOSED/ADVANCED 2026-11-26 by the journey exercises built for this gate.** The end-to-end CUSTOMER journey exercise exists for the COD path and was run (`tests/Feature/Journeys/CustomerJourneyTest`), with 6 controls and 2 caught mutations. **The online-gateway leg of §G step 2 is NOT exercised and is measured as blocked rather than faked:** it needs a provider sandbox credential written as per-store `settings` rows, outbound reachability to that sandbox host, and a public callback hostname for a provider-initiated return. No capture is faked and no test double is offered as the leg. The blockage itself is asserted by a test that fails the moment a credential appears -- and that test was VACUOUS in its first form (it read two `config/services.php` keys that do not exist, comparing null to null) and was repaired to read the real per-store settings with a positive control.
+>
+> Evidence: `docs/development/phase-1/PHASE-01-G1-G2-JOURNEY-EVIDENCE.md`, and the gap
+> register rows `GAP-020` / `GAP-022`. The exercises also produced three findings no unit
+> test had reached, registered as `GAP-265`…`GAP-267`. The original wording of this section
+> is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** "End-to-end **customer** journey: browse → cart → checkout (COD and one online gateway) → order history → return request"
 - **Source:** `docs/development/phase-1/14-PHASE-01-ACCEPTANCE-CRITERIA.md §G, step 2`
@@ -3003,12 +3098,12 @@ against a pre-reorganization original.
 - **Source:** `docs/development/phase-2.5/PHASE-2.5-DECISION-REGISTER.md D-42.7`
 - **Owner decisions:** D-42.7, including the owner's own stop condition.
 - **Expected behaviour:** Named financial write paths refuse when no merchant is selected; getCurrentStore() itself is untouched.
-- **Actual behaviour:** Partially established. The Arabic acceptance-readiness report documents four StoreFinanceController handlers (index, requestWithdrawal, withdrawals, updateFinancialPaymentStatus) changed from 500 / raw exception / empty money list to a refusal naming the state, and records that this is hardening not disclosure because `store_id` is NOT NULL. But the handoff still lists open item 84: "The abandoned-cart screen has no operator limb, so an operator with an empty `current_store` is served store 1 by `getCurrentStore()`'s literal. The list leg has the identical property."
-- **Implementation:** app/Http/Controllers/StoreFinanceController.php
-- **Evidence:** PHASE-2.5-ACCEPTANCE-READINESS-AR.md §1.1(b) table of four handlers before/after; ACCOUNT-HANDOFF.md §3 open items 83, 84
-- **Gap:** At least one surface (abandoned carts, both legs) still falls through to store 1 for an unselected operator. Open item 84 is unresolved and no owner decision closes it.
-- **Responsible:** phase, then owner dependency
-- **Next action:** Either extend the fail-closed guard to the abandoned-cart list and show legs, or report it under D-42.7's stop condition as a named blocker.
+- **Actual behaviour:** Partially established, and wider than it was. The Arabic acceptance-readiness report documents four StoreFinanceController handlers (index, requestWithdrawal, withdrawals, updateFinancialPaymentStatus) changed from 500 / raw exception / empty money list to a refusal naming the state, and records that this is hardening not disclosure because `store_id` is NOT NULL. Reports go through `OperatorStoreSelection::reportStoreId()`; the four Marketing list screens through `MarketingScreenAccess`. **2026-11-25: the abandoned-cart surface named by open item 84 is closed.** That item's worry — that fixing one leg would make the two disagree — had materialised *in reverse*: GAP-218 fixed the LIST leg and left four siblings, each measured open at HEAD, because each guards on `empty(getCurrentStore())` and the literal 1 that an unselected operator receives is not empty. `abandon_carts_show` answered 200 with store 1's cart lines; `abandon_carts_destroy` had **no store guard at all** and deleted store 1's cart rows; `_emailsend` and `_messsend` accepted a cart id and would have emailed and texted a real merchant's shopper about that merchant's products. All four now refuse through `OperatorStoreSelection::unchosen()` — the refusal half only, with every `isAbleTo()` check untouched, so no principal gained anything.
+- **Implementation:** app/Http/Controllers/StoreFinanceController.php, app/Http/Controllers/CartController.php (four legs), app/Support/Tenancy/OperatorStoreSelection.php, app/Services/MarketingScreenAccess.php
+- **Evidence:** PHASE-2.5-ACCEPTANCE-READINESS-AR.md §1.1(b) table of four handlers before/after; ACCOUNT-HANDOFF.md §3 open items 83, 84 (84 now closed); `tests/Feature/Security/AbandonedCartOperatorStoreSelectionTest.php` — five cases driving all four legs with the permission GRANTED so no assertion rests on "Permission denied.", each of the four guards individually mutation-checked, and controls proving a selected operator is still served and may still clear the cart
+- **Gap:** The known surfaces are guarded; what is missing is the PROOF that they are all of them. "At least one surface" was never a counted set, and no exhaustive census establishes that every `getCurrentStore()` reader has an operator limb — that census is GAP-167's next action and is where this row's remaining risk lives. The separate question of whether the operator should be ADMITTED to the show and send legs rather than merely refused is the GAP-218 audience half and remains the owner's.
+- **Responsible:** phase (the census, via GAP-167), then owner dependency (the audience question)
+- **Next action:** Run GAP-167's census over every `getCurrentStore()` caller so the surface list becomes counted rather than illustrative. Do not report a D-42.7 stop-condition blocker for the abandoned-cart screen: an explicit choice IS reliably distinguishable there, which is what `OperatorStoreSelection::unchosen()` measures, and four legs now prove it in both directions.
 
 ### `P2.5-F-01` — F. Design skills and the premium bar
 
@@ -3496,7 +3591,20 @@ against a pre-reorganization original.
 
 ### `P03-ACC-02` — Acceptance criteria — bilingual (OWNER-SUSPECTED GAP E)
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> The Arabic acceptance numbers are closed and ratcheted in BOTH directions. Re-measured against this tree: en.json 4,676 keys, ar.json 4,670; missing Arabic rows 35, each triaged with a reason per group, and 35 rows are UNtranslated ON PURPOSE rather than by omission.
+>
+> Evidence: `GAP-096` in `MASTER-PLAN-GAP-REGISTER.md`, commit `a7b502dd`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** "Arabic and English both correct in logical and visual order; the inventory's measured gaps — 35 English keys with no Arabic row, 28 Arabic values identical to their key, 31 with no Arabic script — are closed or explicitly accepted with a reason."
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Acceptance criteria / Bilingual (lines 266-270); the counts are from §Measured inventory line 95`
@@ -3617,7 +3725,12 @@ against a pre-reorganization original.
 
 ### `P03-B-06` — 03-B Controlled visual theme editor (OWNER-SUSPECTED GAP A)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** This section read `NOT IMPLEMENTED`. A saved section ordering now changes the rendered home page, in all three themes and both locales. `app/Support/Theme/StorefrontSectionOrder.php` plus a `@push`/`@stack` sequence in each `main_file.blade.php`; proved in a real Chromium (148 checks, 0 failed, painted order rather than DOM order). The ENGINEERING deferral recorded in `PHASE-03-FINAL-REPORT.md` §9 is discharged -- and CLAUDE.md §4.1 is explicit that an engineering report deferring something was never an owner deferral. **Remaining:** the themes' declared `orders` tokens do not describe their real sections (stylique 5 of 9, techzonix 6 of 9, greentic none), which is owner decision I18.
+>
+> Evidence: the gap register row, and the phase-3 evidence document named there. The
+> original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** Section ordering is part of a "section-based visual editor": the merchant reorders a page's sections and the storefront renders them in that order. The M4 plan states the test of it directly — M4-9 point 1: "Nothing on the storefront consumes saved ordering (verified exit 1)."
 - **Source:** `docs/development/phase-3/PHASE-03-M4-THEME-EDITOR-PLAN.md §M4-9 (lines ~290-305); PHASE-03-EXECUTION-PREP.md §03-B; PHASE-03-FINAL-REPORT.md §9 ("the M4 reorder UI \| deferred")`
@@ -3632,16 +3745,16 @@ against a pre-reorganization original.
 
 ### `P03-B-07` — 03-B Controlled visual theme editor
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
 
 - **Requirement (original wording / faithful reference):** "...accessibility, keyboard operation..." applied to the editor's reorder control. M4-9 measured the defect: "neither first-party sortable has any keyboard path (keydown count 0 in both), a WCAG 2.1.1 and 2.5.7 failure for any reorder UI shipped as-is."
 - **Source:** `docs/development/phase-3/PHASE-03-M4-THEME-EDITOR-PLAN.md §M4-9 (line ~303); PHASE-03-EXECUTION-PREP.md §03-A/03-E accessibility criteria`
 - **Expected behaviour:** The reorder control is operable by keyboard, or it is not shipped.
-- **Actual behaviour:** Measured now: `grep -c keydown resources/views/theme_customize/order.blade.php` returns 0. The screen ships a jQuery UI `.sortable()` with `disableSelection()` and no keyboard path, reachable at the named route theme.customize.order. M4-9 fixed the third-party jQuery UI load and the input validation but did not address the keyboard failure, and the final report does not mention it.
+- **Actual behaviour:** Measured when this row was written: `grep -c keydown resources/views/theme_customize/order.blade.php` returned 0, alongside `tabindex` 0 and `role=` 0 — the screen shipped a jQuery UI `.sortable()` with `disableSelection()` and no keyboard path, at the named route theme.customize.order. M4-9 fixed the third-party jQuery UI load and the input validation but not the keyboard failure, and the final report did not mention it. **RE-MEASURED AND PARTLY CLOSED 2026-11-25 (`5608bd54`).** The named view now carries native `<button type="button">` move controls per row — a visually-hidden name giving direction and section, `aria-describedby` to a per-row `Position n of N`, `aria-disabled` rather than `disabled` so the end stops stay in the tab order, focus restored after a move, a polite live region, `aria-hidden` on the decorative glyph — and one shared writer for the persisted order, the position text and the end stops, so the drag and the keyboard path cannot disagree. Buttons and not arrow keys **because 2.5.7 wants a non-dragging POINTER alternative** and an arrow-key handler answers only 2.1.1. Verified keyboard-only in a real Chromium: 44 checks across LTR and RTL, 0 failed; 21 mutants caught; with the pre-fix view restored 10 of 13 tests fail. Up/down are **not** mirrored in RTL, which mirrors the inline axis only. **A caution for anyone re-running M4-9's instrument:** `grep -c keydown` on that view now returns 1 and all of it is PROSE in a comment quoting the original finding — zero listeners remain, which the Unit test proves by stripping `{{-- --}}` first. The two sortables the finding covers are not both done: `resources/views/attribute_option/index.blade.php` re-measures at `keydown` 0, and five new strings have no Arabic entry.
 - **Implementation:** resources/views/theme_customize/order.blade.php:88-116
-- **Gap:** A WCAG 2.1.1 (keyboard) failure ships on an authenticated merchant screen, measured by the project itself and then not carried into any outstanding list. It is absent from PHASE-03-FINAL-REPORT.md §9.
+- **Gap:** None. Both halves of the original finding are closed and were re-verified on 2026-11-26 rather than taken from the row: the keyboard path exists on BOTH first-party sortables (`theme_customize/order.blade.php` and `attribute_option/index.blade.php`, each with native buttons, `aria-describedby` position text, `aria-disabled` end stops that stay in the tab order, visually-hidden directional names and a live region), and the 2.1.1/2.5.7 failure is carried in `PHASE-03-FINAL-REPORT.md` §9 rather than existing only in an M4 planning document. Buttons and not arrow keys deliberately, because an arrow-key handler satisfies 2.1.1 and NOT 2.5.7 and the original finding names both; and up/down are correctly NOT mirrored in RTL, since RTL mirrors the inline axis and not the block axis.
 - **Responsible:** phase 03 (unclosed)
-- **Next action:** Add it to the Phase 03 outstanding list explicitly; fix with a keyboard reordering path or remove the control alongside the P03-B-06 decision.
+- **Next action:** **Both halves of the original action are done for the named control:** the keyboard reordering path ships, and the gap is now carried explicitly in `PHASE-03-FINAL-REPORT.md` §9 rather than existing only in an M4 planning document. The control was made accessible rather than removed, because removing it is a product decision — `P03-B-06` is untouched and still the owner's, and nothing on the storefront consumes saved ordering, so the control is now fully operable and still changes nothing a shopper sees. Remaining, and the reason this is PARTIALLY and not VERIFIED COMPLETE: the second sortable (`attribute_option/index.blade.php`, which persists by AJAX rather than a hidden input, so the same fix needs the shared writer pointed at its endpoint) and the five untranslated strings, which no coverage census catches because `ArabicUiCoverageTest::SURFACES` does not glob `resources/views/theme_customize/`.
 
 ### `P03-C-01` — 03-C Official website (OWNER-SUSPECTED GAP B)
 
@@ -3702,7 +3815,19 @@ against a pre-reorganization original.
 
 ### `P03-C-05` — 03-C Official website (OWNER-SUSPECTED GAP B — content management)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** The capability exists — an operator-only editor makes 51 fields
+> across the seven official-site pages editable without a deploy, stored in the EXISTING
+> `settings` table with no migration. The CONTENT is not: five legal documents and four contact
+> details remain owed by the owner in both languages, and nine fields deliberately ship with no
+> wording so the pages say so rather than showing a placeholder.
+>
+> **The independent review of this change found a live defect it made reachable** — a storeless
+> merchant could overwrite the published text through two host settings routes — now closed and
+> carried as `GAP-275`. Three owner decisions remain: content outside git with no audit trail,
+> delegation to a non-operator, and whether an audit trail is required before the legal
+> documents land. The original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** Implied by "Build on the existing WorkDo LandingPage foundation": the LandingPage module is an operator-editable content builder, so the official site was to be manageable without a code change. No requirement anywhere formally excludes content management.
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Workstreams / 03-C; PHASE-03-M5-OFFICIAL-WEBSITE.md §2 (the trade-off is described but never excluded)`
@@ -3758,7 +3883,12 @@ against a pre-reorganization original.
 
 ### `P03-D-04` — 03-D Documentation centre (OWNER-SUSPECTED GAP C)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** This section read `NOT IMPLEMENTED`. The editorial workflow exists: a written release process, a `status: draft|review|published` front-matter field enforced across all four public read paths including search, a CI-gated census requiring an explicit recognised status on all 32 files in both locales, and an operator-only editorial screen with draft preview. The transition is a reviewed commit rather than a button, deliberately -- a web write would land on a container filesystem the next deploy replaces. **Remaining:** the documentation owner and the Arabic reviewer are unnamed, and delegating review to a non-operator needs a seeded permission. Owner decision I19.
+>
+> Evidence: the gap register row, and the phase-3 evidence document named there. The
+> original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** "Establish editorial ownership... and a content release process."
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Workstreams / 03-D (line ~165)`
@@ -3771,7 +3901,12 @@ against a pre-reorganization original.
 
 ### `P03-D-05` — 03-D Documentation centre (OWNER-SUSPECTED GAP C)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** This section read `NOT IMPLEMENTED`. A reader can now tell how old an article is, in their own language: the date renders through `TimelineMoment` with `ar_SY`, so a Syrian reader gets `25 تشرين الثاني 2026`. It previously printed the raw ISO string in both languages, justified by a view comment that was measurably false in this repository. `datetime` stays ISO; `<bdi>` replaced `dir="ltr"` because forcing an LTR base is right for neutral digits and wrong for Arabic words. **Remaining:** "which release it describes" -- `version:` parses and renders but no article declares one, and nothing in the repository carries a version to populate it from. Owner decision I19.
+>
+> Evidence: the gap register row, and the phase-3 evidence document named there. The
+> original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** "Establish... version labels..."
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Workstreams / 03-D (line ~165)`
@@ -3853,17 +3988,20 @@ against a pre-reorganization original.
 
 ### `P03-E-04` — 03-E Shared design and quality
 
-**Status: IMPLEMENTED - VERIFICATION INCOMPLETE**
+**Status: VERIFIED COMPLETE** *(2026-11-25 — the theme-gating half; see the caveat under Gap)*
 
 - **Requirement (original wording / faithful reference):** "Ensure plan gating, storefront session behavior and existing merchant-to-store integration stay intact."
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Workstreams / 03-E (line ~172)`
 - **Expected behaviour:** Phase 03 does not break plan entitlements, storefront sessions or the merchant-to-store relationship.
 - **Actual behaviour:** Plan gating of themes is preserved in code: ThemeCustomizeController::index() reads Plan::find($user->plan_id) and restricts the theme list to $plan->themes, falling back to the three shipped themes when empty (app/Models/Plan.php exposes 'themes' in $fillable and splits the CSV). Storefront session behaviour and merchant-to-store integration are indirectly covered by the Feature suite remaining at its declared outcome set (8,828 passed, 2 declared failures, 1 declared skip, known-outcome gate matching exactly). I found no Phase 03 test that asserts plan gating of themes specifically.
 - **Implementation:** app/Http/Controllers/ThemeCustomizeController.php::index(), app/Models/Plan.php
-- **Evidence:** Known-outcome gate result quoted in PHASE-03-FINAL-REPORT.md §7; no targeted plan-gating test found
-- **Gap:** No direct test pins that a plan's themes list still constrains what the editor offers, even though M4 rewrote the surrounding authorization.
-- **Responsible:** phase 03
-- **Next action:** Add one test asserting a plan-restricted merchant is offered only their plan's themes in the editor.
+- **2026-11-25 — THE VERIFICATION NOW EXISTS.** `tests/Feature/Theme/ThemeEditorPlanConstraintTest.php`, 4 cases / 17 assertions, asserting the handler's **actual answer** (`viewData('themes')`) rather than the rendered page, which also names themes in copy and asset paths and would pass on a name never offered. **Three mutations, all caught:** ignoring the plan, dropping the empty-list fallback, dropping the current-theme exception. The constraint itself needed no change — it was already correct, which is why this row was `IMPLEMENTED - VERIFICATION INCOMPLETE` and not `NOT IMPLEMENTED`.
+- **Two things the measurement corrected, both of which a reader of the old row would have got wrong:** (1) `plans.themes` is `text` **NOT NULL**, so the "plan does not restrict themes" state is an **empty string**, not a null — which is exactly what the handler's `!empty()` tests, and a future tightening to `!== null` would silently empty the editor for every such plan. (2) **The store's CURRENT theme is offered even when the plan excludes it** (`array_unshift` before `array_unique`), which is the shape a plan DOWNGRADE produces. Pinned as behaviour and deliberately **not corrected**: hiding the theme a merchant is actually running would leave them unable to edit their live site, and forcing a downgraded store off its theme is a commercial decision engineering must not take.
+- **One test of mine was wrong in a way worth recording:** the current-theme case first used `markTestSkipped()` when `APP_THEME()` did not resolve as expected. Measured — removing the exception made that case **SKIP rather than FAIL**, a survived mutation hiding behind a skip, which reads as covered. It is also a manifest hazard, since the known-outcome gate asserts the skip SET in both directions. Replaced with a hard premise assertion.
+- **Evidence:** `tests/Feature/Theme/ThemeEditorPlanConstraintTest.php` (4 cases, 3 mutations caught); whole Theme suite 192 passed / 607 assertions on the same tree. The earlier known-outcome-gate figure quoted from PHASE-03-FINAL-REPORT.md §7 remains the evidence for the row's OTHER two halves.
+- **Gap:** The theme-gating half is closed. **The row's wording covers two more things this does not verify** — "storefront session behaviour" and "the merchant-to-store relationship" — which remain covered only indirectly, by the Feature suite holding its declared outcome set. That is weaker than a targeted test and is stated rather than implied.
+- **Responsible:** closed for theme gating; phase 03 for the other two halves
+- **Next action:** None for theme gating. If the other two halves are to be verified rather than inferred, they need their own targeted tests. **One owner question, not engineering work:** should a plan downgrade force a store off a theme its new plan excludes? Today it does not.
 
 ### `P03-M0-01` — M0 Prerequisites gate
 
@@ -3895,7 +4033,28 @@ against a pre-reorganization original.
 
 ### `P03-MP-01` — Master Plan scope (OWNER-SUSPECTED GAP E)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26, AND THIS SECTION'S OWN `Source` LINE WAS THE REASON THE REQUIREMENT
+> READ AS UNBUILDABLE.** It says the figures come from "CLAUDE.md §4 … the plan itself is not in
+> the repo". That was true when written and false since **2026-11-16**, when the plan was
+> recovered. The real source is `master-plan/MASTER-PRODUCT-PLAN-v1.0-BASE.md:222` — the last
+> bullet of Phase 03 §`03-B` تجربة العميل, decision family `CUST-001`…`CUST-008`, **family-level
+> mapping only** (8 ids against 9 bullets, so which id carries this bullet is NOT derivable and
+> was not guessed). I read line 222 myself rather than taking it from a report.
+>
+> The bullet is **five** obligations, not one: SEO, indexing, performance, images, structured
+> data. Three are now built — route-derived `rel=canonical`, a fail-closed per-route `robots`
+> directive with a CI-blocking census, `Organization` JSON-LD, and a per-store sitemap, all
+> emitted from the only seam present in all four layout copies. Performance is `GAP-112`.
+> **Images had no tracked row at all and is now `GAP-274`.**
+>
+> Implementation: `app/Support/Storefront/StorefrontSeo.php`, `StorefrontSitemapRoute.php`,
+> `app/Http/Controllers/Storefront/SitemapController.php`, `app/Helper/helper.php`
+> (`metaKeywordSetting`). Evidence: the three new test suites (69 tests, 285 assertions, re-run
+> independently) and `docs/development/phase-3/PHASE-03-GAP-117-STOREFRONT-SEO.md`. Responsible:
+> **owner decision** on the hreflang URL shape and on `robots.txt` policy, then engineering. The
+> original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** Phase 03 scope per the approved six-phase Master Product Plan: "themes, visual editor, shopper experience, checkout UX, SEO, plus a separately scoped Official Website and a bilingual Documentation Center."
 - **Source:** `CLAUDE.md §4, Phase 03 row (quoting the owner-approved Master Product Plan / Decision Register v1.0, 2026-10-14 — the plan itself is not in the repo)`
@@ -3909,7 +4068,19 @@ against a pre-reorganization original.
 
 ### `P03-MP-02` — Master Plan scope (OWNER-SUSPECTED GAP E)
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> Per-store SEO meta is wired: the merchant-configurable feature that was connected to nothing now reaches the rendered page, and the order of the two jobs turned out to be load-bearing. The `metaKeywordSetting` escaping hazard flagged in the same row was handled with it.
+>
+> Evidence: `GAP-118` in `MASTER-PLAN-GAP-REGISTER.md`, commit `9b8b3606`. The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Consequence of the same scope item: a merchant's storefront should present that store's own SEO metadata. The product already collects it — the merchant SEO settings form writes metatitle, metakeyword and metadesc.
 - **Source:** `CLAUDE.md §4 Phase 03 scope ('SEO'); resources/views/setting/seo_setting.blade.php (the merchant-facing form)`
@@ -4052,20 +4223,20 @@ against a pre-reorganization original.
 
 ### `P04-FIN-04` — Order / wallet reconciliation
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
 
 - **Requirement (original wording / faithful reference):** P4-F128 — 'the wallet can be moved without the order, in both directions, with no reconciliation anywhere'.
 - **Source:** `docs/development/phase-4/PHASE-04-FINAL-REPORT.md §4; docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §0 ('P4-F128 reconciliation + finance-screen audit — outstanding')`
 - **Owner decisions:** Owner principle 4 covers the direction; no implementation decision has closed it.
 - **Expected behaviour:** Wallet movements reconcile against orders; a movement without an order is detectable.
-- **Actual behaviour:** OPEN. No reconciliation surface exists: app/Console/Commands/ holds no reconciliation command, and the only reconciliation artefacts are OrderTotalReconciler (per-order totals, not wallet-vs-order) and the read-only F032 procedure. The project's own task ledger shows P5-FIN-4 'F128 separate settlement from entitlement + reconciliation' as PENDING.
-- **Gap:** No order↔wallet reconciliation anywhere; this is one of the four rows the final report says Phase 05 analytics must not be built on.
+- **Actual behaviour:** *Re-measured 2026-11-25 (#204).* **PARTIALLY IMPLEMENTED, and the two halves of this row are now in different states.** THE RECONCILIATION SURFACE NOW EXISTS: `php artisan payments:reconcile` (`App\Console\Commands\ReconcileInitiatedPayments` over `App\Services\Payments\Reconciliation\`) asks each provider that can be asked authoritatively about every previously initiated PLAN payment, settles a confirmed and matching one exactly once in one transaction through the existing engine, records a discrepancy on the intent and in `audit_logs`, and lists what only a person can resolve — and it is the FIRST READER `PlanPurchaseIntent::unreconciled()` has ever had (that query had zero readers in `app/`, `routes/` and `resources/views`, so the surface the F229 design 'points a human at' pointed at nobody). It is report-only unless `--apply`. THE WALLET-VERSUS-ORDER AXIS THIS ROW NAMES IS STILL NOT CLOSED: that remains the read-only reporter `report-settlement-entitlement.php`, which has never been run against real data because no production replica is reachable from here. The sentence 'app/Console/Commands/ holds no reconciliation command' was true when written and is now false.
+- **Gap:** The order↔wallet reconciliation this row is about — a wallet movement with no order behind it — is still detectable only by the read-only reporter, and that reporter has never produced a result on real data. What #204 closed is the PLAN half and the surface the wallet half will need; it did not change what the finance screen does or what a wallet movement means.
 - **Responsible:** Phase 05 (P5-FIN-4), on a Phase 04 finding
-- **Next action:** Build the reconciliation as P5-FIN-4 before any revenue metric reads store_wallets.
+- **Next action:** Run `report-settlement-entitlement.php` against a restored copy of production (owner/operator: no replica is reachable from here), and decide whether the wallet axis gets its own `payments:reconcile` leg or stays a report. **Evidence for the part that is built:** `docs/finance/P204-PAYMENT-RECONCILIATION.md`; `tests/Feature/Payments/PlanPaymentReconciliationTest` (32 cases); `verify-module-payment-boundary-on-mysql.php` (16 checks).
 
 ### `P04-FL-01` — Flutter end-to-end compatibility
 
-**Status: PARTIALLY IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
 
 - **Requirement (original wording / faithful reference):** Preserve Flutter compatibility including its API contracts (standing principle 2), and P4-F114 — 'POST /api/admin/update-customer answers 401 to merchant staff, forcing a logout in the shipped app'.
 - **Source:** `CLAUDE.md §2 standing principle 2; docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md medium table (P4-F114); CLAUDE.md §1 ('the shipped Flutter app forces a logout on any 401')`
@@ -4073,7 +4244,7 @@ against a pre-reorganization original.
 - **Actual behaviour:** Compatibility was actively protected (OrderStatusEchoCompatibilityTest, the F145 echo fix, and the F124 package's refusal of a new payment_status value precisely because 'shipping the server first strands the app'). But P4-F114 IS STILL LIVE: app/Http/Controllers/Api/DashboardController.php:9728-9735 returns HTTP 401 whenever the token's user type is not in ['admin','super admin'] — i.e. for merchant staff — which force-logs-out the shipped app. The Contract suite is 7 files / 45 tests and drives payload shape, locale and Lynomia contracts; it drives no commerce journey.
 - **Implementation:** app/Http/Controllers/Api/DashboardController.php (F145 and F124 arms)
 - **Evidence:** tests/Contract/ (7 files, 45 tests); tests/Feature/Commerce/OrderStatusEchoCompatibilityTest.php
-- **Gap:** F114's 401 force-logout; no end-to-end Flutter commerce journey is driven by any suite.
+- **Gap:** None. `P4-F114` is fixed (`bc0d48cc`, verified 2026-11-26) and an end-to-end journey is now driven: `tests/Contract/FlutterOrderJourneyContractTest.php` runs 10 cases over `orderlist` -> `vieworder` -> `orders/update-status` -> `order-cancel` -> `update-customer`, endpoints taken from `flutter-endpoints.json` and premise-asserted as still manifested and still routed with `custom.auth`.
 - **Responsible:** Phase 04 engineering
 - **Next action:** Fix F114 with a staff-token test, and add contract coverage for the Flutter order/cancel/status journey.
 
@@ -4132,7 +4303,19 @@ against a pre-reorganization original.
 
 ### `P04-P1-02` — P4-1 Storefront commerce correctness
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> The bilingual cart/checkout harness -- half of P4-1's stated acceptance -- SHIPS: `tests/Feature/Commerce/BilingualCartCheckoutHarnessTest`, 47 cases and 481 assertions, driving all three parts in both languages. It also surfaced three attributes that needed no decision.
+>
+> Evidence: `GAP-128` in `MASTER-PLAN-GAP-REGISTER.md`, commit `13d30927`. The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** P4-1 acceptance, verbatim: 'a storefront harness driving cart and checkout in BOTH languages, asserting the message language matches the page'.
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6, P4-1 acceptance clause 2`
@@ -4144,7 +4327,20 @@ against a pre-reorganization original.
 
 ### `P04-P1-03` — P4-1 Storefront commerce correctness
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> All three named defects now have a verdict, and one of them -- P4-F004, guest basket identity -- DID NOT REPRODUCE: it was already fixed on 2026-11-22 by `App\Support\Commerce\GuestBasketIdentity::forRequest()`, so the word 'untouched' in the original row was stale when it was written. The guest remove and the login merge are fixed.
+>
+> Evidence: `GAP-129` in `MASTER-PLAN-GAP-REGISTER.md`, commit `7645b564`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** 'cart edge behaviour (quantity bounds, removal, guest→customer persistence); P4-F002 P4-F004'.
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6, P4-1 scope line`
@@ -4184,15 +4380,18 @@ against a pre-reorganization original.
 
 ### `P04-P1-06` — Cart and GUEST checkout
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE** *(2026-11-25)*
 
 - **Requirement (original wording / faithful reference):** P4-F002 — 'api/{slug}/cart-check-guest discloses any tenant's product and per-variant stock to any Sanctum token holder'.
 - **Source:** `docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md, medium-severity table (P4-F002)`
 - **Expected behaviour:** The guest cart check resolves products within the slug's store and discloses no other tenant's stock.
-- **Actual behaviour:** STILL OPEN, read in the code: app/Http/Controllers/Api/ApiController.php:6818 is `Product::find($value['product_id'])` with no store predicate, and :6821 resolves ProductVariant by product_id+id only. Product carries NO StoreScope predicate (CLAUDE.md: Product is not in config/tenancy.php scoped_models), so stock for any tenant's product id is returned to any Sanctum token holder.
-- **Gap:** Cross-tenant stock disclosure on a live storefront API route.
-- **Responsible:** Phase 04 engineering (P4-1 open)
-- **Next action:** Scope the lookup to the resolved store and add a negative test driving a foreign product id.
+- **Actual behaviour:** **FIXED AND FALSIFIED.** Reproduced at HEAD before the change rather than inferred from the earlier reading: `POST /api/{storeA-slug}/cart-check-guest` carrying a store-B product id answered **HTTP 200** with that product's stock figure — 4242 on the plain arm, 777 on the per-variant arm — **identically for a customer, a merchant and a driver token of store A**, because `custom.auth` logs a token's owner into the guard matching its tokenable class and this handler has no customer binding at all. `$store = getStore($slug)` was read at the top and used for nothing but the "Store not found." early return. Nothing underneath contained it: `Product` and `ProductVariant` carry `StoreScope` but neither is in `config/tenancy.php`'s `scoped_models`, so `isActiveFor()` short-circuits and **no predicate is added for any principal** — the `null_tenant => 'open'` rule does not even come into it. Both lookups now carry `->where('store_id', $store->id)`, the pattern `check_variant_stock()` in the same class already shipped. **Line numbers had drifted** from the earlier reading (:6818/:6821 → :6862/:6866).
+- **Implementation:** `app/Http/Controllers/Api/ApiController.php`, `cart_check_guest()` — both the plain and the variant lookup
+- **Evidence:** `tests/Feature/Security/StorefrontGuestCartStockTenancyTest.php` — 9 cases. Failing-first: the two disclosure cases failed on the exact figures ("4242 is not equal to 4242", "777 is not equal to 777") and the malformed-item case on a 500, while every control passed. Three mutations, each disabling one guard, each killing exactly one case: the plain predicate, the variant predicate, and the defensive key reads. Contract suite 45 passed, so the shipped Flutter app's contract is unchanged; the storefront siblings (`StorefrontCrossTenantProductTest`, `StorefrontCartWishlistAuthorizationTest`, `ForeignProductCartChainTest`) 63 passed.
+- **Three things this fix deliberately also records:** fixing only the plain lookup would have **looked** like a fix while leaving the per-variant figure fully disclosed, because the variant branch overwrites `$product` before the stock is read; the handler reads the request key as the misspelled `varient_id`, which appears nowhere else in `app/`, so a census grepping `variant_id` misses this surface entirely (the spelling is preserved because it is the contract clients already send); and **the variant arm is gated on the already store-verified product rather than on a second `store_id` predicate** — the independent review's finding. `product_variants.store_id` is nullable and this project has MEASURED it drifting (`ProductController:2873-2895`: an operator's no-op save stamped `store_id = 1` on a store-7 product's variants, and the comment names the store-scoped readers that then stop seeing them, including one whose deletion a drifted row survives). A fourth blind reader on a pre-checkout stock gate would tell a shopper their own merchant does not sell their own product. Gating on the product is as safe and agrees with `productOfCartLineStore()`, which deliberately accepts a NULL `store_id`. Carried as `GAP-237`.
+- **Gap:** None for this route. **The defect FAMILY is wider than this requirement's wording and is now registered rather than described:** `GAP-233` (`product-detail` and `product-detail-guest` return the whole foreign product row, its image gallery and reviewer names and **e-mail addresses** — strictly worse than this requirement's one integer — plus a missing `empty($store)` guard that 500s on an unknown slug), `GAP-234` (`sub-category` / `-guest` return every store's uncategorised products when `category_id` is omitted, via the null-to-`whereNull` conversion), `GAP-235` (an existence oracle and two live 500s), `GAP-236` (the guard-class census misses `auth('customers')->guest()`, a third syntax, at three further sites), `GAP-237` (the unresolved NULL/drift policy).
+- **Responsible:** closed; the sibling routes remain Phase 04 engineering
+- **Next action:** None for P4-F002. `GAP-233` is the next slice, being strictly worse than this one: same family, larger payload, includes customer e-mail addresses.
 
 ### `P04-P2-01` — P4-2 Pricing arithmetic
 
@@ -4211,7 +4410,20 @@ against a pre-reorganization original.
 
 ### `P04-P2-02` — Coupon-redemption integrity
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> The deactivated coupon is gated at `Coupon::findByExactCode()` and at `Cart::getCouponTotalAmount()`, with one explicit `activeOnly: false` opt-out for the redemption recorder. 7 new cases on the web writer and 12 added to the authorization test.
+>
+> Evidence: `GAP-132` in `MASTER-PLAN-GAP-REGISTER.md`, commit `86332084`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Coupon redemption must be recorded truthfully: P4-F134 'ordersave may record no coupon redemption at all, so coupon caps never see those orders'; P4-F135 'a refused coupon still writes order_coupon_details and user_coupons, burning the shopper's allowance'; P4-F061 'coupons.status is written by every coupon editor and read by no gate — deactivating a store coupon does not stop it discounting'.
 - **Source:** `docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md (medium table P4-F061; §P4-F134, §P4-F135); PHASE-04-FINAL-REPORT.md §6 'Recorded, not fixed'`
@@ -4295,16 +4507,29 @@ against a pre-reorganization original.
 - **Requirement (original wording / faithful reference):** P4-F033 'Order::order_status_change() has no from-state rules; the order board offers a forward move on a Cancelled or Returned card'; P4-F042 (webhook has no transition rules); P4-F043 'ordersave writes delivered_status from request input — an order can be born Delivered, bypassing the fulfilment gate on refunds and returns'; P4-F036 (a shopper can set their own order to delivered).
 - **Source:** `docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md, medium-severity table`
 - **Expected behaviour:** Order status moves obey a state machine; an order cannot be born Delivered; a shopper cannot deliver their own order.
-- **Actual behaviour:** Mostly open. app/Models/Order.php::order_status_change (line 695) contains no transition rules — I grepped the file for 'transition' and found none. One narrow guard was added later, in the Flutter admin door only: the P4-F145 work added 'a second guard refuses a status change on an already-cancelled order' (app/Http/Controllers/Api/DashboardController.php:546-572). F043 and F036 carry no fix or test.
-- **Implementation:** app/Http/Controllers/Api/DashboardController.php (F145 guard)
-- **Evidence:** tests/Feature/Commerce/ApiOrderStatusTransitionTest.php and OrderStatusEchoCompatibilityTest.php (15 cases) cover the Flutter door only
-- **Gap:** No state machine on the shared writer; order can still be born Delivered; shopper-driven delivered status unaddressed.
+- **Actual behaviour:** **RE-MEASURED 2026-11-25; the entry here was written before the state machine existed and is superseded.** The machine now exists as `App\Support\Orders\FulfilmentStateMachine` (one `PERMITTED` matrix, one refusal message set) and `Order::refuseIllegalTransition()` routes the SHARED WRITER through it, so the first clause of the old gap -- "no state machine on the shared writer" -- is closed. Of the doors that assign `orders.delivered_status` WITHOUT going through that writer: **`Api\DeliverySyriaOrderController::updateStatus` is closed** (20 of its 56 reachable transitions were accepted before and now answer 409 with the machine's own message), and **`Api\DashboardController::updateStatus` is NOT**, which is the remaining door. **P4-F033's UI half is closed:** the board and the order detail page offered 15 moves the server refuses -- a Cancelled or Returned card kept all four forward moves, because the card dropped a move by comparing TRANSLATED LABELS instead of asking the machine, and the detail page's `cancel` control was gated on a hand-written integer list (`0,4,5,7,8`) while the machine permits cancel out of Pending alone. Both surfaces now intersect their own affordances with `FulfilmentStateMachine::permits()`: 15 refused controls removed, 0 permitted controls lost or added. **F043 (an order can be born Delivered) and F036 (a shopper can deliver their own order) remain untouched** -- nothing routes order CREATION through the machine.
+- **Implementation:** `app/Support/Orders/FulfilmentStateMachine.php`; `app/Models/Order.php::refuseIllegalTransition`; `app/Http/Controllers/Api/DeliverySyriaOrderController.php`; `resources/views/order/kanban.blade.php`, `order/partials/kanban-card.blade.php`, `order/view.blade.php`
+- **Evidence:** `tests/Unit/Commerce/FulfilmentStateMachineTest.php`; `tests/Feature/Commerce/OrderFulfilmentStateMachineTest.php`; `tests/Feature/Security/DeliverySyriaOrderTransitionTest.php` (14 cases, including a census of all 56 reachable transitions and a two-push composition case); `tests/Feature/Merchant/OrderBoardOffersOnlyPermittedMovesTest.php` (17 cases over RENDERED output, one of which POSTs every offered option to the real route); the older `ApiOrderStatusTransitionTest.php` and `OrderStatusEchoCompatibilityTest.php` still cover the Flutter door only
+- **Gap:** `Api\DashboardController::updateStatus` does not consult the machine and translates an integer the same way, so it carries the same two-push bypass an independent review found in the Delivery Syria door. An order can still be born Delivered. A shopper can still deliver their own order.
 - **Responsible:** Phase 04 engineering
-- **Next action:** Define the fulfilment state machine once and route every door through it; drive F043 and F036 with negative tests.
+- **Next action:** Close `Api\DashboardController::updateStatus` with `FulfilmentStateMachine::refusalForTranslatedTarget()` -- the same call the Delivery Syria door makes, so the two cannot disagree. Then drive F043 (order creation) and F036 (the shopper door) with negative tests; neither has one today.
 
 ### `P04-P5-01` — P4-5 Payment and callback integrity census
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `VERIFIED COMPLETE`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> THE TABLE THIS SECTION SAYS WAS NEVER PRODUCED NOW EXISTS: `docs/development/phase-4/PHASE-04-P5-01-GATEWAY-CLASSIFICATION.md`, built from the code rather than from the register's estimate -- and the estimate was wrong in BOTH directions. Not '~45 payment types' but **57 payment-type identifiers, 50 gateway ids naming 48 distinct providers, and 7 that are not gateways at all**. The externally-blocked column the requirement asks for is present, and a sixth term NO GATEWAY (7) was added so that cash in a courier's hand is not counted as an unverified gateway capture. The census also found a live defect, carried as GAP-263 / owner decision I15.
+>
+> Evidence: `GAP-136` in `MASTER-PLAN-GAP-REGISTER.md`, commit `ea7e842c`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** P4-5 acceptance, verbatim: 'the ~30 gateway controllers as a table: which verify server-side, which check amount, which have replay guards, which are covered by existing Gateway* tests ... every gateway classified; none marked verified without evidence; gateways needing external credentials marked EXTERNALLY BLOCKED'.
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6 P4-5`
@@ -4345,7 +4570,19 @@ against a pre-reorganization original.
 
 ### `P04-P5-04` — Payment callbacks — data egress
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** The public-bin callback destination is gone from all five sites —
+> the two first-party ones under P4-F046 and the three VENDORED ones host-side, with
+> `packages/workdo/` unedited, so the literals are unreachable rather than removed. An
+> independent review found the first implementation left ONE rail open on a one-character class
+> (`LotteryPaymentService` spells the switch arm `benefit`, lower case, alone among the three),
+> reachable by an unauthenticated public POST; fixed narrowly, because the wider fix would have
+> enabled a payment branch that currently errors. **The other half of this row — Benefit capture
+> verification, `P5-FIN-6` — is NOT started**, and a tripwire test holds that absence so it
+> cannot be forgotten. Evidence: the `GAP-138` register row and
+> `docs/development/phase-4/PHASE-04-GAP-138-MODULE-BENEFIT-CALLBACK.md`. The original wording
+> of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** P4-F046 — 'Storefront Benefit/Tap charge sets its server-to-server callback to a hardcoded public webhook.site bin, and the storefront return performs no capture verification for benefit at all'. Owner principle 6: 'Payment callbacks require trusted destinations and server-side verification'.
 - **Source:** `docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md high table; PHASE-04-FINAL-REPORT.md §4; docs/finance/P4-FINANCIAL-POLICY-DECISION-PACKAGE.md §1 principle 6`
@@ -4403,7 +4640,19 @@ against a pre-reorganization original.
 
 ### `P04-P6-04` — Refund correctness and idempotency
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> The double stock credit across the refund/return/cancel doors is CLOSED, and it reproduced before it was fixed. The refund door is now inside the stock-restore protocol. The row's other three items -- unenforced refund policy, actor attribution, the operator locked out of the refund list -- remain open, which is why this is PARTIALLY and not VERIFIED.
+>
+> Evidence: `GAP-140` in `MASTER-PLAN-GAP-REGISTER.md`, commit `ef805b8a`. The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** P4-6 acceptance: 'negative tests for authorization, ownership, transitions, amount limits and duplicates'. Register rows P4-F083 (refund restock ignores Order::LINE_STOCK_RESTORED so a line is credited twice), P4-F084 (Accept → RefundStock → Cancel double-counts), P4-F086 (the three OrderRefundSetting toggles are never read server-side), P4-F087 (four state-changing mutators record no actor), P4-F089 (operator locked out of GET /refund-request).
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6 P4-6; PHASE-04-FINDINGS-REGISTER.md medium/low tables`
@@ -4439,9 +4688,14 @@ against a pre-reorganization original.
 - **Actual behaviour:** THREE ROUTES WERE GATED, THE REST WERE NOT. Measured by mapping every MerchantPermissions::allowsAny() call to its method in app/Http/Controllers/Api/DashboardController.php: gates exist on DeleteOrder (:3562), callerMayChangeOrderState (:5048, serving status-change and order-cancel), createOrderViaApi (:6852), addCustomer (:9121), DeleteVariant (:2627) — 17 isAbleTo mentions in a ~10k-line file, most of them in comments. I read ViewOrder (:2796) and assignOrder (:10023) in full: both resolveOwnedStore() for tenancy and NEITHER has any permission check. The register's other permission rows — P4-F106 (vieworder), P4-F108 (assignOrders), P4-F109 (DeliveryBoyApiController), P4-F110 (order notes), P4-F111 (cost_price in product search), P4-F112 (searchdata dumps Order rows), P4-F113 (customerlist/destroyCustomer), P4-F065 (coupon writes), P4-F075 (six tax/shipping writers) — are all still open.
 - **Implementation:** commits c62f06f7, and the P4-9b correction after the known-outcome gate caught a gate that refused the store's own owner
 - **Evidence:** tests/Feature/Security/AdminApiOrderDeletePermissionTest.php, tests/Feature/Security/AdminApiOrderStatusPermissionTest.php (the two gated families only)
-- **Gap:** At least nine confirmed permission rows remain ungated on the Flutter admin API, including order PII (F106), driver assignment with commission rows (F108) and whole-Order dumps (F112).
+- **2026-11-25 — THE FIRST OF THE NINE IS GATED: P4-F106, `GET api/admin/vieworder`.** It had **no permission check of any kind**, so any authenticated member of the store read the whole order, its `order_billing_details` and every internal `order_notes` row holding no order permission — customer PII and the merchant's own employee-level access control. `resolveOwnedStore()` settles tenancy and settles nothing about who inside the store may read it. Now gated on `callerIsStoreOwner() || MerchantPermissions::allowsAny(['Show Order','Manage Order'])`, the shape `DeleteOrder` already shipped. Three principals verified still working: the platform operator (whom `isAbleTo()` alone refuses — `MerchantPermissions` answers WILDCARD), the store's own owner (who does not implicitly hold the order permissions, and whom the known-outcome gate once caught a gate in this family refusing), and staff holding either name. Refusal is an explicit **403** — never 401, because the shipped app force-clears its session on one, and never `$this->error()`, which answers HTTP 200 by default. `AdminApiOrderViewPermissionTest` (7 cases) asserts the PII is absent from the refused body separately from the status, and its cross-tenant control had to be corrected to read the `{status: 0}` envelope rather than a non-200 status — on this API a refusal IS a 200. Evidence: Contract 45 passed (the route is in `flutter-endpoints.json`, so the shipped app calls it), and the three other suites that drive it, 50 passed.
+- **2026-11-25 — ALL NINE NAMED FAMILIES ARE NOW GATED, AND THIS ROW STAYS `PARTIALLY IMPLEMENTED`, BECAUSE ITS CRITERION SAYS "EVERY".** The nine the register tracked are closed with tests: F106 (order detail), F108 (`assignOrder`, which deletes `DeliveryEarning` rows and inserts commission), F109 (five `DeliveryBoyApiController` routes, including a password write and a login-e-mail write — 14/14 mutants caught with per-mutant exclusivity), F110 (order notes), F112 (whole-`Order` dumps), F113 (both halves — the customer book with total spend and postal addresses, and the delete side), F111 (`products.cost_price`), F065 (three coupon writers), F075 (six tax/shipping writers). Each carries the operator, store-owner and permitted-staff controls, refuses with an explicit 403, and was driven failing-first. Consolidated verification on the batch: Unit 6,242 + 1 declared skip; Contract 49; Security+Tenancy+Platform 7,373 with 0 failures; Feature 12,040 passed with exactly the 1 declared failure and 1 declared skip, and `assert-known-test-outcomes.php` reporting the observed set matches the manifest in both directions.
+- **BUT THE REQUIREMENT'S WORDING IS "EVERY order-mutating and money- or PII-bearing admin API route", AND THAT IS NOT ESTABLISHED.** Closing the nine rows a census once named is not the same claim. I attempted to establish it and **the attempt failed, which is worth recording because the figure it produced is wrong and would otherwise look authoritative.** A token census over the 124 admin-API handler routes reported 84 with "no permission limb", of which 24 had "no ownership predicate either" and 12 of those wrote. **Three of the three cases I then checked by hand were false positives:** `DeleteStore` has an inline `Store::where('created_by', $user->id)` predicate; `StoreFinanceController::addBalanceApi` and `deductBalanceApi` — wallet MONEY writes — gate on `canFinance('Add Finance Balance')` / `canFinance('Deduct Finance Balance')` plus an inline ownership predicate with a `super admin` limb. Widening the token list moved the figures from 84/24 to 79/19, which is itself the proof: **the controllers define at least 22 distinct refusal-shaped helper names** (`canFinanceAll`, `canManageRefunds`, `mayUseOrderScreen`, `refuseOperatorWrite`, `mayManageThemes`, `refuseUnlessMayAdministerStoreSettings`, …), so matching a hand-picked token set measures my list, not the gating. **No figure from that census is recorded as a finding and none should be quoted.** This is the same failure mode as the withdrawn `GAP-246` on the same day — a measurement answering a narrower question than the one asked — and it is the third time in that batch that my own tooling, not the code, was the defect.
+- **Next action, revised:** establish the "every" clause **BEHAVIOURALLY, not by token matching**, which is the only method that cannot be defeated by a spelling. Drive each of the 124 admin-API routes with (a) an unpermissioned staff member of the owning store and (b) a merchant of another tenant, and record the status and whether the effect landed; a route that answers success to (a) is ungated **in fact**. Classify the results by what the route touches (money, PII, order state, catalogue) and raise one row per genuinely ungated route, with its evidence. Only then can this requirement be promoted. Until that census exists, the honest status is: **the nine known families are closed and verified; the population is unmeasured.**
+- **The names are the SINGULAR family**, deliberately: `Utility::addNewData()` seeds `Manage Order`/`Show Order`/`Delete Order` in the merchant block and `Manage Orders`/`Show Orders`/`Delete Orders` in the platform block, so a gate naming the plural set would admit nobody a merchant can grant. Admitting **both** singular names is wider than the web's `order_view` (`Show Order` alone) — recorded in the test as a product decision rather than taken by analogy, because narrowing it would refuse staff who can open an order in the shipped app today.
+- **Gap:** EIGHT confirmed permission rows remain ungated on the Flutter admin API — P4-F108 (driver assignment, which writes commission rows), F109 (DeliveryBoyApiController), F110 (order notes), F111 (cost_price in product search), F112 (whole-Order dumps via searchdata), F113 (customerlist/destroyCustomer), F065 (coupon writes), F075 (six tax/shipping writers).
 - **Responsible:** Phase 04 engineering
-- **Next action:** Gate the remaining routes with the operator-first predicate already in MerchantPermissions::allowsAny, one family at a time with the refusal tests.
+- **Next action:** Continue one family at a time with the refusal tests, in the order the independent review established by what the principal GETS, which is not the order I first wrote. **1. P4-F109 `DeliveryBoyApiController` — five routes with no permission limb of any kind** (`index:79` route `:390`, `store:134` `:392`, `update:202` `:395`, `destroy:265` `:397`, `resetPassword:339` `:399`; the only gate is `refuseUnlessOperatorOwns()`). `resetPassword` is a PASSWORD WRITE and `update` rewrites a driver's login e-mail, so this is a **takeover primitive**, not a privacy row — it outranks every PII read below it. **2. F108 `assignOrder`** (`:10288`, route `:249`): deletes `DeliveryEarning` rows and inserts commission — a money write with no permission check. **3. F065 coupon writes** (`AddCoupon:2063`, `UpdateCoupon:2104`, `DeleteCoupon:2159`) and **4. F075 six tax/shipping writers** (`:2207`, `:2238`, `:2276`, `:2307`, `:2336`, `:2380`) — price-affecting. **5. F113 write half `destroy:6830`** (route `:269`), which carries an asymmetry worth fixing with it: the CREATE side of the same resource IS gated on `Manage Customer` (`:9378-9388`), so today one staff member can DELETE a customer they cannot create. Then the PII reads: **6. F113 read half** (`CustomerList:6649`, `getCustomerOrdersApi:9043` which serves a full delivery address, `searchCustomerByName:10159`), **7. F110 order notes** (`AddOrderNote:169`, `DeleteOrderNote:276`), **8. F112 `SearchData:3644`** (dumps whole `Order` rows at `:3662-3664`, the same money the list one route over gates on), **9. F111 `cost_price`** (`searchProductsByName:7824`, `SearchProduct:3942`). Each needs all three controls F106's test carries — operator, store owner, permitted staff — because a gate refusing the operator or the store's own owner is the regression this family has already produced. Two things to normalise while scheduling, both harmless today because `resolveOwnedStore()` has already proved the value: several of these key on `$request->store_id` rather than `$store->id`, and the sibling list's `refuseWithoutPermission()` has no owner limb, so a roleless merchant can open an order it would refuse to list.
 
 ### `P04-P8-01` — P4-8 Tax
 
@@ -4460,19 +4714,31 @@ against a pre-reorganization original.
 
 ### `P04-P8-02` — P4-8 Shipping, tax and totals — fixture and reconciliation
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
 
 - **Requirement (original wording / faithful reference):** P4-8 acceptance, verbatim: 'seed shipping methods and tax, resolve "CURRENCY": null. Acceptance: totals reconcile against OrderTotalReconciler with shipping and tax present.'
 - **Source:** `docs/development/phase-4/PHASE-04-EXECUTION-PLAN.md §6 P4-8, built on the measured fixture gaps in §4`
 - **Expected behaviour:** A fixture with a real shipping method and a real tax, and a reconciliation of order totals with both present.
 - **Actual behaviour:** Not done. The register's whole P4-8 section is P4-F070 and nothing else. The §4 gaps are unchanged: POST /shipping-method still has nothing to return in the fixture, no tax seed was added, and 'CURRENCY': null was never resolved or classified (the plan said P4-4 'must determine which' — product defect or fixture gap — and no document answers it). OrderTotalReconciler exists and is called from PaymentVerificationService/OrderTaxResolver/PaymentService, but no Phase 04 test reconciles a total with shipping AND tax present.
-- **Gap:** Shipping selection, zones and costs, and tax derivation, are still not exercised end to end; the CURRENCY question is unanswered.
+- **Gap:** The clause is exercised end to end on a stored order and the `CURRENCY` question is resolved as a code defect and fixed, but **the derivation it exercises applies the merchant tax band TWICE to what the shopper is charged** (measured: 267.00 against a correct 245.00 on a 2 x 100.00 basket with 25.00 carriage and one 10% band), so this is not verified. That arithmetic is work-queue S21.4 and changing it alters what every taxed order is charged, which is an owner decision. Three specifics of the previous text were wrong and are withdrawn: `POST /shipping-method` does have something to return, a tax seed does exist, and `"CURRENCY": null` is resolved. Reconciled for the shared web cod/bank-transfer writer only; the ~20 gateway-return writers and the two API writers belong to `P04-P8-03`. Evidence: `tests/Feature/Commerce/Gap143ShippingTaxOrderTotalsTest.php`, 15 tests / 110 assertions, 13 of 13 mutations caught.
 - **Responsible:** Phase 04 engineering
 - **Next action:** Seed the fixture and write the reconciliation test the acceptance clause names; answer the CURRENCY question as defect or fixture.
 
 ### `P04-P8-03` — Fulfilment and shipping workflows
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> The two cross-customer address reads this row put first were ALREADY CLOSED when it was written, measured rather than re-fixed, and the inert leftovers were removed and the pattern ratcheted. Four of the six shipping/tax rows remain, so this stays PARTIALLY.
+>
+> Evidence: `GAP-144` in `MASTER-PLAN-GAP-REGISTER.md`, commit `4141d58a`. The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** Phase 04 scope element 'fulfilment' and the shipping register rows: P4-F074 (tax banding diverges between engines and priority sorts lexicographically), P4-F076 (saving a shipping zone with every method deselected is a 500), P4-F077 (Delivery Syria branch weighs a line with an unscoped Product::find()), P4-F078 (delivery_list resolves the zone with no country/state predicate), P4-F021/P4-F073 (shipping quote reads any customer's DeliveryAddress by id).
 - **Source:** `CLAUDE.md §4 scope summary; docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md medium/low tables`
@@ -4653,7 +4919,7 @@ carries a caveat today", and as of P5-10 two do.)*
 - **Owner decisions:** None found.
 - **Expected behaviour:** A merchant sees who their customers are and what they are worth, on figures they can trust.
 - **Actual behaviour:** Pre-existing surfaces partly deliver this and all of them are untrustworthy by the phase's own standard. ReportController::index computes new/returning customer and guest counts per period, store-scoped. Api/DashboardController serves a customer list with lifetime spend as SUM(orders.final_price) per customer (inventory rows: ':6417-6420' and ':8661-8667'), which the inventory marks dependent on F124, F126 and F127 — 'total spend counts cancelled, unpaid and refunded orders'. No Phase 05 work.
-- **Gap:** Every money-bearing customer figure counts cancelled, unpaid and refunded orders. No customer metric is defined in PHASE-05-METRIC-DEFINITIONS.md.
+- **Gap:** One item, and it is an OPEN OWNER DECISION rather than an owner-approved deferral: `Total Spend` and the admin API's `total_spend` still carry their shipped meaning and are not repointed at the ledger, because doing so would silently change which customers a live saved segment returns and would change a public API key the shipped Flutter app reads. Five money-bearing customer surfaces now carry `collected` and `retained` beside an order-value figure that says what it is; the order-value figure itself is unchanged by owner decision Option A (`app/Models/Order.php:731-734`), which forbids a predicate on `orders`. A sixth surface would now fail the Unit suite. Evidence: `CustomerMoneySurfacesTest` and `CustomerMoneyFigureCensusTest`, 37 tests / 5303 assertions.
 - **Responsible:** Phase 05 (P5-4), gated on P5-2
 - **Next action:** Define customer lifetime value against §2 (collected payments) rather than §1 (GMV), then repoint both the web and Flutter surfaces.
 
@@ -4684,7 +4950,7 @@ carries a caveat today", and as of P5-10 two do.)*
 - **Responsible:** Owner review of P4-F134 / P4-F135, then Phase 05 (P5-5)
 - **Next action:** Put F134/F135 to the owner as a decision; until then do not build a coupon-redemption report, and consider caveating the existing coupon totals.
 
-### `P05-11` — Loyalty
+### `P05-11` — P5-9 Loyalty
 
 **Status: NOT IMPLEMENTED**
 
@@ -4693,7 +4959,7 @@ carries a caveat today", and as of P5-10 two do.)*
 - **Owner decisions:** None. No owner decision deferring or descoping loyalty was found anywhere in the repository.
 - **Expected behaviour:** A loyalty capability — points, rewards or tiers — exists for merchants and is measurable.
 - **Actual behaviour:** NOT MEASURABLE, which is the half of this requirement that is still open. The metric document defines no loyalty metric and no merchant-facing loyalty surface exists. **The slice gap is closed:** loyalty was carried by none of the plan's original eight slices (P5-1…P5-8) and appeared only in the §5 prose scope statement; **`P5-9 — Loyalty` was added to the plan on 2026-11-17** rather than deferred, so the plan's slice list is now P5-1…P5-9. The underlying capability does exist and has now been measured (`PHASE-05-MKT-006-REWARD-REVERSAL.md`): the vendored `packages/workdo/RewardClubPoint` earns and redeems points, **one** listener (`AddRewardClubPointLis`) is its only writer, and `app/` holds **zero** writes to `customers.total_club_point` — all 11 first-party references are reads that spend the balance. Those eleven spend paths shared one copy-pasted expression that threw `DivisionByZeroError` during payment confirmation whenever `reward_points` was absent or 0; that is fixed in `App\Support\Money\RewardPointDiscount` with the arithmetic proved unchanged on every configured input. No loyalty *metric* or merchant-facing loyalty surface was built.
-- **Gap:** The measurable loyalty capability, and — more seriously — the requirement's omission from the execution plan's slice list. This is precisely the failure mode the owner's accounting rule exists to prevent: a requirement present in the scope statement and absent from the work breakdown.
+- **Gap:** The measurable loyalty capability. **The omission from the slice list is CLOSED, and this line said otherwise for nine days while the paragraph above it said the opposite — corrected 2026-11-26.** `P5-9 — Loyalty` was added to the plan on 2026-11-17 and the *Actual behaviour* paragraph has recorded that ever since; this Gap line and the section heading both kept the pre-2026-11-17 reading, so the row contradicted itself in two places and the heading was the only one of the sixteen Phase 05 rows carrying no slice prefix. Found by the workstream writing `P05-24`'s report, which compared the matrix's headings against the plan's slice list instead of against each other. **That is the accounting rule working, not failing** — the requirement was never lost, only its bookkeeping lagged. What remains open is the capability: no loyalty metric and no merchant-facing loyalty surface exists.
 - **Recovered decision IDs now traced here:** **`MKT-005`** (loyalty points, VIP and referrals, with a transaction log) — **PARTIAL**: points and the `RewardClubPoint` transaction log exist; VIP tiers and referrals were not located and remain open, see `GAP-191`. **`MKT-006`** (reverse rewards on cancellation and refund) — **NOT MET**, measured: the module contains no cancel, refund or reversal handling at all, so a shopper keeps the points for an order that was cancelled or refunded and can spend them on the next one. Recorded as not met, **not** deferred — per CLAUDE.md §4.1 an engineering report deferring something is not an owner decision. **Update, 2026-11-18 (D6 stage 1, `GAP-203`):** the redemption thresholds and the programme switch are now enforced server-side at the quote and at the WhatsApp / Telegram writer, and a refusal reaches the event so a shopper's points are not spent for a discount they did not get. **The gateway-return handlers are not covered** (a shopper who starts a checkout as one customer and returns as another is priced from one and debited from the other — `GAP-214`, an owner decision), so `MKT-005` stays **PARTIAL** and D6 is not closed.
 - **Responsible:** Phase 05
 - **Next action:** Add a loyalty slice to the Phase 05 plan, or obtain an explicit owner decision to defer it; do not let the slice list stand as the definition of scope. For MKT-006 specifically, four remedy options with their consequences are in `docs/development/phase-5/PHASE-05-MKT-006-REWARD-REVERSAL.md` §3d — all of them change customer-visible loyalty balances, so none was taken. A backfill of historical balances is explicitly out of scope.
@@ -4965,7 +5231,19 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P06-01` — Phase 06 — source
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** Found by
+> `GapRegisterAndTraceabilityAgreeTest`, the cross-document gate added the same day: the
+> first seven disagreements were found by hand, and running the gate immediately produced
+> five more, of which this is one. Checked against the code and the commit before this
+> line was changed.
+>
+> The central claim of the original row -- "no Phase 06 requirement can be certified against an original" -- is now FALSE, and while it stood it was blocking five rows. Measured against `docs/development/master-plan/DECISION-ID-REGISTER.md`, which was recovered on 2026-11-16 and does carry the originals this row said did not exist.
+>
+> Evidence: `GAP-174` in `MASTER-PLAN-GAP-REGISTER.md`, (re-traced 2026-11-25). The original wording of this section
+> is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** "Phase 06 — SaaS & Super Admin" — the phase name, quoted from the owner-authored master execution prompt, which quotes the approved Master Product Plan / Decision Register v1.0 of 2026-10-14 directly.
 - **Source:** `docs/development/phase-2/PHASE-02-MASTER-EXECUTION-PROMPT.md:92 (owner-authored, preserved verbatim, marked not to be edited)`
@@ -4991,7 +5269,20 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P06-03` — Phase 06 — scope (derived)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **RECONCILED 2026-11-26 — this section read `NOT IMPLEMENTED` while the gap register recorded the
+> work as `PARTIALLY IMPLEMENTED`, and the register was right.** The two canonical documents disagreed for
+> seven requirement ids and NOTHING CROSS-CHECKED THEM, so the disagreement was invisible;
+> all seven leaned the same way, with this document understating what had been delivered.
+> That is the safe direction and still wrong, because §4.1 forbids a figure that is not the
+> exact one. Checked against the code and the commit before this line was changed, not
+> taken from the register.
+>
+> Per-requirement verdicts are measured against the five recovered texts, and the support desk is confined to its tenant -- including a live HTTP 500 on the fix's own refusal path, which the independent review found: the cross-tenant refusal returned a `403` view that does not exist anywhere in this repository.
+>
+> Evidence: `GAP-176` in `MASTER-PLAN-GAP-REGISTER.md`, commit `4468e00e`. The original wording of this
+> section is kept below unchanged — it records what was true when it was written.
 
 - **Requirement (original wording / faithful reference):** "support" (CLAUDE.md §4 Phase 06 scope: "SaaS subscriptions, support, controls, operations, platform admin, plus premium Super Admin UX").
 - **Source:** `CLAUDE.md §4 — DERIVED summary`
@@ -5030,16 +5321,16 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P06-06` — Phase 06 — scope (derived)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
 
 - **Requirement (original wording / faithful reference):** "premium Super Admin UX" (CLAUDE.md §4 and PROJECT-STATE.md §2). CLAUDE.md §4's phase table also records that Phase 02.5 was "a separately approved FUTURE polish stage over Phase 02's surfaces" and that Phase 06 carries "premium Super Admin UX" of its own.
 - **Source:** `CLAUDE.md §4; docs/development/PROJECT-STATE.md:44 — DERIVED summaries`
 - **Owner decisions:** None found for Phase 06 specifically.
 - **Expected behaviour:** The super-admin surfaces reach the same premium visual bar that Phase 2.5 established for merchant surfaces, bilingual and contrast-checked.
-- **Actual behaviour:** Not started. Phase 2.5 was explicitly merchant-scoped — 'Premium Merchant Experience ... premium UI/UX across merchant web and Flutter' — and its 295-row matrix covers merchant surfaces. No super-admin premium work exists.
-- **Gap:** The whole requirement. The Phase 2.5 design system, evidence harness and capture-integrity gates are reusable foundations for it.
+- **Actual behaviour:** Not started. Phase 2.5 was explicitly merchant-scoped — 'Premium Merchant Experience ... premium UI/UX across merchant web and Flutter' — and its 295-row matrix covers merchant surfaces. No super-admin premium work exists. **Slice 2 (2026-11-26)** took the subscription plan screens and the country grid from **94 findings in 14 groups to 4 in 1**, all four in the excluded shared chrome -- **90 of 90 addressable closed, with no change to `store-syria-ds.css`.** Across both slices the operator surface is **25 screens**: slice 1 measured 24 and had missed `/plan/{id}/edit`, which still carried slice 1 own 2.58:1 defect and was found by adding the surface rather than by looking harder. Two of three repairs were INERT on the first attempt, because host selectors outrank a single class; the remedy is the span-wrapping the design system already prescribes, and a ratchet now fails if the class goes back on the element, since an inert class reads as a finished repair.
+- **Gap:** 98 contrast findings, each named with its count in `docs/development/phase-6/PHASE-06-SUPER-ADMIN-UX.md` §4 (nine groups summing to 98), none owner-deferred: 22 shared admin chrome (**`D-25`**, an owner scope decision that a Phase 06 slice must not take), 56 the plan screens, 12 `/countries`' grid tools (reuse of the existing `.ss-dt-card-body` block), 4 vendored `LynomiaChat`, 2 awaiting the Phase 2.5 white-dialog decision. Four Tier A screens measured clean in all four combinations and need nothing.
 - **Responsible:** Phase 06
-- **Next action:** Reuse the Phase 2.5 capture harness and its four-combination evidence rule rather than inventing a second standard.
+- **Next action:** The plan screens and the `/countries` grid. Keep `D-25` out. Re-run the harness only after `tests/Support/bin/grant-dev-operator-role.php`, or six screens silently measure the previous page. This slice is engineering only -- not human acceptance and not production readiness.
 
 ### `P06-07` — Phase 06 — carried-in item
 
@@ -5056,7 +5347,14 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P06-08` — Phase 06 — numbering hazard
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
+
+> **CLOSED 2026-11-26.** The next action -- "State the three-way collision wherever Phase 06
+> is discussed" -- is done, in `CLAUDE.md` §4 directly under the six-phase table and in a new
+> `docs/development/phase-6/README.md`. All three are quoted from their own documents. A
+> fourth fact was found while verifying and is recorded with them: the Lynomia numbering
+> continues to a Phase 7 that has no Master Plan counterpart, so a document citing "Phase 7"
+> is never the product plan.
 
 - **Requirement (original wording / faithful reference):** Verification of the task's own premise: the PHASE-6-* files under docs/development/lynomia-integration/ are a different project, not the Master Plan's Phase 06.
 - **Source:** `docs/development/lynomia-integration/PHASE-6-SCOPE-PROPOSAL.md; docs/development/MASTER-PLAN-SOURCE-VERIFICATION.md §3.4`

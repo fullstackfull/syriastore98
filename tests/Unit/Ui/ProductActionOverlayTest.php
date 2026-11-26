@@ -2,6 +2,10 @@
 
 namespace Tests\Unit\Ui;
 
+use DOMDocument;
+use DOMXPath;
+use Symfony\Component\CssSelector\CssSelectorConverter;
+use Symfony\Component\CssSelector\Exception\ExceptionInterface as CssSelectorException;
 use Tests\TestCase;
 
 /**
@@ -33,6 +37,12 @@ use Tests\TestCase;
  *  5. NO MODULE BUTTON IS NESTED INSIDE AN `<a>`. techzonix's call sat inside the product anchor,
  *     so the module's own links and buttons were interactive content inside a link — invalid HTML,
  *     and a shopper pressing "compare" could follow the outer link instead.
+ *  6. THE CHILD RULE REACHES ONLY RENDERED CHILDREN. It was `.ss-product-actions > *`, and FIVE OF
+ *     THE HOOK'S NINE ELEMENT CHILDREN ARE A `<style>` OR A `<script>`: an author `display`
+ *     outranks the user-agent rule that keeps those out of the box tree, so the four modules' own
+ *     CSS and JavaScript rendered as visible text over the product image. Measured 2026-11-25 in
+ *     headless Chrome — see `test_the_design_system_styles_the_wrapper`, which now evaluates the
+ *     selector against a DOM rather than reading it as a string.
  *
  * THIS IS A SOURCE CENSUS, NOT A RENDER TEST, and that limit is stated rather than hidden: the
  * buttons themselves come from `ProductQuickView`, `ProductCompare`, `ProductsPDF` and `ProductCSV`,
@@ -48,6 +58,60 @@ final class ProductActionOverlayTest extends TestCase
     private const HOOK = 'resources/views/front_end/hooks/action_link.blade.php';
 
     private const DS = 'public/css/store-syria-ds.css';
+
+    /**
+     * THE HOOK'S ELEMENT CHILDREN, IN ORDER, AS MEASURED -- and five of the nine are not rendered.
+     *
+     * This is the sequence the four modules really produce, read out of a browser rather than
+     * inferred: `button, style, script, style, button, script, button, style, a`. Measured
+     * 2026-11-25 in headless Chrome against `public/css/store-syria-ds.css` plus the four modules'
+     * own `src/resources/views/pages/button.blade.php` markup composed in the order
+     * `action_link.blade.php` includes them, because per CLAUDE.md those modules load in NO test
+     * run unless an `add_on_managers` row is inserted, so the suite cannot render them itself.
+     *
+     * Reading the four module files gives the same answer and says why:
+     *   - `ProductQuickView` -- `<button class="quickview-btn">`, then a `<style>`, then an
+     *     `@once` `<script>`.
+     *   - `ProductCompare`   -- a `<style>`, then `<button id="compareButton" class="compare-btn">`,
+     *     then an `@once` `<script>`.
+     *   - `ProductsPDF`      -- `<button class="product-pdf-btn">` and nothing else.
+     *   - `ProductCSV`       -- a `<style>`, then `<a class="csv-btn export-btn">`.
+     *
+     * WHAT WENT WRONG WITH `> *`: `display` in the design system is an AUTHOR declaration and the
+     * `display: none` that keeps a `<style>` and a `<script>` out of the box tree is a USER-AGENT
+     * one, so the author rule won. All five non-rendered children computed `display: flex`
+     * (`inline-flex` blockifies inside a flex container), each took a 288px-wide box, and 3,433
+     * characters of the modules' CSS and JavaScript painted as visible text over the product
+     * image -- the wrapper measured 304x2384 inside a 322x322 card. With the selector scoped they
+     * compute `display: none` at 0x0 and the wrapper measures 60x60.
+     */
+    private const MEASURED_CHILDREN = [
+        ['button', 'quickview-btn'],
+        ['style', null],
+        ['script', null],
+        ['style', null],
+        ['button', 'compare-btn'],
+        ['script', null],
+        ['button', 'product-pdf-btn'],
+        ['style', null],
+        ['a', 'csv-btn export-btn'],
+    ];
+
+    /**
+     * Element types a browser gives no box to, so a rule that reaches one can only ever make its
+     * source text visible.
+     *
+     * THE LIST IS WIDER THAN WHAT THE FOUR MODULES EMIT TODAY, DELIBERATELY. The defect was a
+     * selector that described what to skip instead of what to style, and an exclusion list is only
+     * ever complete for the modules that already exist. `<style>` and `<script>` are the ones
+     * measured in this hook; `<template>`, `<link>`, `<meta>`, `<noscript>`, `<title>` and `<base>`
+     * are what a fifth module could reasonably add, and a selector that cannot reach any of them
+     * is one the next module cannot break. (`<noscript>` is `display: none` only while scripting
+     * is enabled, which is the storefront's case -- every one of these modules needs jQuery.)
+     */
+    private const NEVER_RENDERED = [
+        'style', 'script', 'template', 'link', 'meta', 'noscript', 'title', 'base',
+    ];
 
     private function read(string $relative): string
     {
@@ -131,11 +195,41 @@ final class ProductActionOverlayTest extends TestCase
     {
         $block = $this->wrapperBlock();
 
-        foreach (['--ss-bg-elevated', '--ss-fg', '--ss-radius-md', '--ss-space-2'] as $token) {
+        /*
+         * THE TOKEN MUST BE DECLARED, NOT MERELY NAMED, AND THIS CASE USED TO ASSERT ONLY THE NAME.
+         *
+         * It listed `--ss-bg-elevated`, which was DECLARED NOWHERE IN THE REPOSITORY -- so this
+         * assertion passed on a token that does not exist, while `var(--ss-bg-elevated, #ffffff)`
+         * painted the literal white fallback in dark mode and the conversion actions measured
+         * **1.21:1**, i.e. invisible. The case's own message said the colour "must be a token
+         * because the dark values are re-declared under [data-ss-theme=dark]"; that was true of
+         * `--ss-fg` and false of the one it was checking. A name is not a declaration, and the
+         * difference is the whole defect.
+         *
+         * The same block named `--ss-focus` for its ring, also undeclared, and the two MASKED each
+         * other: with the surface wrongly white, the hard-coded `#2563eb` fallback measured 5.17:1
+         * and passed, so correcting the surface alone would have dropped the ring to 2.75:1 on
+         * `#262b33` -- below WCAG 1.4.11's 3:1. Both are now the declared tokens
+         * (`--ss-surface` 11.81:1, `--ss-focus-ring` 7.60:1).
+         *
+         * `DesignSystemTokensAreDeclaredTest` is the general ratchet over every `var(--ss-*)` in the
+         * design system; this case asks the narrower question it exists for -- that THIS block uses
+         * tokens rather than hexes -- and now asks it in a form a nonexistent token cannot satisfy.
+         */
+        $declarations = $this->readWithoutCssComments(self::DS);
+
+        foreach (['--ss-surface', '--ss-fg', '--ss-focus-ring', '--ss-radius-md', '--ss-space-2'] as $token) {
             $this->assertStringContainsString($token, $block,
                 'The wrapper does not use the ' . $token . ' token, so it will not follow dark '
                 . 'mode -- every colour on this surface must be a token because the dark values '
                 . 'are re-declared under [data-ss-theme="dark"] and nowhere else.');
+
+            $this->assertMatchesRegularExpression('/' . preg_quote($token, '/') . '\s*:/', $declarations, sprintf(
+                '`%s` is used on this block and DECLARED NOWHERE, so the hard-coded fallback paints '
+                . 'in every theme and the surface never switches. That is exactly how this block '
+                . 'reached 1.21:1 in dark mode while this very case was green.',
+                $token
+            ));
         }
 
         $this->assertStringContainsString('min-height: 2.75rem', $block,
@@ -147,6 +241,93 @@ final class ProductActionOverlayTest extends TestCase
         $this->assertStringContainsString('focus-visible', $block,
             'The actions have no visible focus ring, so a keyboard shopper cannot see where they '
             . 'are.');
+
+        /*
+         * AND THE CHILD RULE REACHES ONLY RENDERED CHILDREN. IT DID NOT, AND THE MODULES' OWN
+         * SOURCE CODE RENDERED AS TEXT ON THE PRODUCT CARD.
+         *
+         * The rule was `.ss-product-actions > *` with `display: inline-flex` on it. Five of the
+         * hook's nine element children are a `<style>` or a `<script>` (`MEASURED_CHILDREN` has
+         * the sequence and how it was measured), an author `display` outranks the user-agent
+         * `display: none` that keeps those out of the box tree, and so 3,433 characters of the
+         * four modules' CSS and JavaScript painted over the product image -- `quickview-btn {
+         * position: absol...` across the photo, the wrapper 304x2384 inside a 322x322 card.
+         *
+         * WHY THIS IS EVALUATED AND NOT READ. The suite cannot render these modules at all
+         * (CLAUDE.md: no WorkDo module loads without an `add_on_managers` row), and a string
+         * assertion cannot tell `> *` from `> a, > button` from `> :not(style):not(script)` --
+         * the whole difference between them is what they MATCH. So the selector is run against a
+         * document built in the measured child order, and the assertion is about the node set.
+         *
+         * THE PROBE IS WIDER THAN TODAY'S FOUR MODULES, which is the other half of the fix. An
+         * exclusion list is complete only for the markup that already exists, so the probe also
+         * holds a `<template>`, a `<link>`, a `<meta>`, a `<noscript>`, a `<title>` and a `<base>`
+         * -- a selector that reaches none of those is one a fifth module in this hook cannot
+         * break, and `> :not(style):not(script)` would fail here rather than pass.
+         */
+        $childRules = $this->childRules();
+
+        $this->assertNotSame([], $childRules,
+            'The `.ss-product-actions` block has no child rule at all, so the 44px WCAG 2.5.5 '
+            . 'floor is carried by nothing. The modules size `.quickview-btn`, `.compare-btn` and '
+            . '`.csv-btn` at 36x36 themselves and give `.product-pdf-btn` no stylesheet at all, so '
+            . 'this is the only rule that puts any of them over the minimum. Scope the child rule; '
+            . 'do not delete it.');
+
+        [$xpath, $actions, $nonRendered] = $this->probeDom();
+
+        $floorReaches = [];
+
+        foreach ($childRules as $selector => $body) {
+            $reached = $this->selects($xpath, $selector);
+
+            $leaked = array_values(array_intersect_key($nonRendered, array_flip($reached)));
+
+            $this->assertSame([], $leaked, sprintf(
+                "The child rule `%s` reaches %d element(s) a browser renders no box for: %s. It "
+                . "declares `display`, which is an AUTHOR declaration and beats the user-agent "
+                . "`display: none` on those elements -- so their SOURCE TEXT paints on the product "
+                . "card. That is exactly what `> *` did: measured 2026-11-25, 3,433 characters of "
+                . "the four modules' CSS and JavaScript over the product image, wrapper 304x2384 "
+                . "inside a 322x322 card. Select the children by what they ARE (a link, a button, "
+                . "or something carrying one of those roles) rather than by what they are not; an "
+                . "exclusion list only covers the modules that exist today.",
+                $selector,
+                count($leaked),
+                implode(', ', $leaked)
+            ));
+
+            if (str_contains($body, 'min-width: 2.75rem') && str_contains($body, 'min-height: 2.75rem')) {
+                $floorReaches = array_merge($floorReaches, $reached);
+            }
+        }
+
+        /*
+         * AND THE 44px FLOOR STILL APPLIES TO EVERY REAL BUTTON. This is the half that scoping a
+         * selector can quietly destroy, and the block-level `min-height: 2.75rem` assertion above
+         * cannot see it: that one answers "does the string exist in this block", which stays true
+         * if the rule carrying it has been narrowed to something none of the four modules emit.
+         * CLAUDE.md records a mutation dropping this very target size SURVIVING because another
+         * component in the same 7,000-line stylesheet had the same rule. This asks the question
+         * that mutation could not satisfy: does the rule that declares the floor select each of
+         * the four action elements the modules really produce.
+         */
+        $unprotected = array_values(array_intersect_key($actions, array_flip(
+            array_values(array_diff(array_keys($actions), $floorReaches))
+        )));
+
+        $this->assertSame([], $unprotected, sprintf(
+            'No rule declaring BOTH `min-width: 2.75rem` and `min-height: 2.75rem` reaches %d of '
+            . "the hook's real action elements: %s. 44px is WCAG 2.5.5 and is the whole of the "
+            . '"usable on a phone" requirement for this row. Nothing else supplies it: the modules '
+            . 'size `.quickview-btn`, `.compare-btn` and `.csv-btn` at 36x36 in their own CSS and '
+            . 'give `.product-pdf-btn` no stylesheet at all. The CSV action is an `<a>`, so the '
+            . 'floor reaches it only while something reinstates a flex or block display, which is '
+            . 'the `display` in this same rule. Narrowing the child selector must not drop any of '
+            . 'them.',
+            count($unprotected),
+            implode(', ', $unprotected)
+        ));
     }
 
     /**
@@ -166,6 +347,143 @@ final class ProductActionOverlayTest extends TestCase
             . 'GAP-220 state: the buttons render as bare unspaced icons wherever the hook is called.');
 
         return substr($css, $start);
+    }
+
+    /**
+     * THE COMPONENT'S CHILD RULES ONLY, as `selector => body`, comment-free.
+     *
+     * Every rule inside the block whose selector names `.ss-product-actions` AND uses the child
+     * combinator. This is NARROWER than `wrapperBlock()` on purpose: that helper runs from the
+     * component's first rule to the end of the file, which is exact only while this component
+     * happens to be the last thing in the stylesheet. Requiring the component's own class in the
+     * selector keeps the assertions below about THIS component whatever gets appended under it --
+     * the same reason the rest of this file is scoped to the block at all.
+     */
+    private function childRules(): array
+    {
+        preg_match_all('/([^{}]*)\{([^{}]*)\}/s', $this->wrapperBlock(), $matches, PREG_SET_ORDER);
+
+        $rules = [];
+
+        foreach ($matches as $match) {
+            $selector = trim((string) preg_replace('/\s+/', ' ', $match[1]));
+
+            if (! str_contains($selector, '.ss-product-actions') || ! str_contains($selector, '>')) {
+                continue;
+            }
+
+            $rules[$selector] = $match[2];
+        }
+
+        return $rules;
+    }
+
+    /**
+     * A REAL DOM IN THE MEASURED CHILD ORDER, so the selector can be EVALUATED rather than read.
+     *
+     * A string assertion was never going to hold this: `> *`, `> :not(style):not(script)` and a
+     * list of element types are three spellings whose difference is in what they MATCH, and the
+     * only honest way to ask "can this reach a `<style>`" is to put a `<style>` in a document and
+     * run the selector. The nodes are built with `createElement` rather than parsed from HTML
+     * because libxml's HTML parser relocates `<style>` and `<link>` into `<head>`, which would
+     * quietly empty the probe and make every assertion below pass for the wrong reason.
+     *
+     * Returns `[$xpath, $actions, $nonRendered]`, the two maps keyed by the probe id and valued
+     * with a readable `tag.class` for the failure message.
+     */
+    private function probeDom(): array
+    {
+        $children = self::MEASURED_CHILDREN;
+
+        // Plus one of every non-rendered type not already in the measured sequence: the point of
+        // the fix is that an UNFORESEEN one cannot be reached either.
+        foreach (self::NEVER_RENDERED as $tag) {
+            if (! in_array($tag, array_column($children, 0), true)) {
+                $children[] = [$tag, null];
+            }
+        }
+
+        $dom = new DOMDocument();
+        $html = $dom->createElement('html');
+        $body = $dom->createElement('body');
+
+        // The hook's own wrapper, both classes, exactly as `action_link.blade.php` emits it.
+        $wrapper = $dom->createElement('div');
+        $wrapper->setAttribute('class', 'ss-product-actions supdiv');
+
+        $actions = [];
+        $nonRendered = [];
+
+        foreach ($children as $i => $child) {
+            [$tag, $class] = $child;
+
+            $element = $dom->createElement($tag);
+            $element->setAttribute('id', 'probe' . $i);
+
+            if ($class !== null) {
+                $element->setAttribute('class', $class);
+            }
+
+            $wrapper->appendChild($element);
+
+            $label = $tag . ($class === null ? '' : '.' . str_replace(' ', '.', $class));
+
+            if (in_array($tag, self::NEVER_RENDERED, true)) {
+                $nonRendered['probe' . $i] = $label;
+            } else {
+                $actions['probe' . $i] = $label;
+            }
+        }
+
+        $body->appendChild($wrapper);
+        $html->appendChild($body);
+        $dom->appendChild($html);
+
+        return [new DOMXPath($dom), $actions, $nonRendered];
+    }
+
+    /**
+     * The probe ids one CSS selector actually selects.
+     *
+     * STATE PSEUDO-CLASSES ARE DROPPED FIRST, and that is sound rather than convenient: removing
+     * `:focus-visible` from a selector can only WIDEN the set of elements it matches, so what is
+     * measured here is an over-approximation of what the real selector reaches. For the question
+     * "can this reach a `<style>`" that is the conservative direction -- if the wider form cannot,
+     * the real one cannot either. A conversion with no answer FAILS rather than skips, because a
+     * selector this helper cannot evaluate is a decision for a human, not a silent pass.
+     */
+    private function selects(DOMXPath $xpath, string $selector): array
+    {
+        $widened = (string) preg_replace(
+            '/:(?:hover|focus|focus-visible|focus-within|active|visited|any-link|target|disabled|enabled|checked)\b/',
+            '',
+            $selector
+        );
+
+        try {
+            $expression = (new CssSelectorConverter())->toXPath($widened);
+        } catch (CssSelectorException $e) {
+            $this->fail(sprintf(
+                "The child selector `%s` cannot be evaluated (%s), so this case can no longer "
+                . 'answer whether it reaches a <style> or a <script> -- which is the defect it '
+                . 'exists for. Teach `selects()` the new construct deliberately; do not delete '
+                . 'the assertion.',
+                $selector,
+                $e->getMessage()
+            ));
+        }
+
+        $found = $xpath->query($expression);
+
+        $this->assertNotFalse($found, 'XPath for `' . $selector . '` did not evaluate: ' . $expression);
+
+        $ids = [];
+
+        foreach ($found as $node) {
+            $ids[] = $node->getAttribute('id');
+        }
+
+        return $ids;
     }
 
     /**

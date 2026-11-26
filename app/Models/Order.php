@@ -698,13 +698,13 @@ $order_array['tax_price_formatted']   = order_currency_format_with_sym($order->t
         $order_status = $date['order_status'];
         $order = Order::find($order_id);
         if (!empty($order)) {
+            /* THE FULFILMENT STATE MACHINE, ASKED ONCE, BEFORE ANY ARM WRITES. GAP-135. The
+               account, and what it deliberately does not restrict, is on the method below. */
+            if (($refusal = self::refuseIllegalTransition($order, $order_status)) !== null) {
+                return ['status' => 'error', 'message' => $refusal];
+            }
+
 if ($order_status == 'cancel') {
-    if ($order->delivered_status != 0) {
-        $return['status'] = 'error';
-        $return['message'] = 'The order has been delivered. So you cannot cancel the order.';
-        return $return;
-    }
-    
     $order->cancel_date = now();
     $order->delivered_status = 2;
 
@@ -801,12 +801,9 @@ if ($order_status == 'cancel') {
                 return $return;
             }
             if ($order_status == 'return') {
-                if ($order->delivered_status == 0) {
-                    $return['status'] = 'error';
-                    $return['message'] = 'Your order has not been delivered. You can return the order after delivery.';
-                    return $return;
-                }
-
+                /* The "not delivered yet" rule that stood here is now one row of
+                   `FulfilmentStateMachine::PERMITTED`, asked at the top of this method with the
+                   same message. One definition, not two. */
                 $order->return_date = now();
                 $order->delivered_status = 3;
                 $order->return_status = 1;
@@ -890,6 +887,69 @@ if ($order_status == 'cancel') {
     }
 
     /**
+     * WHY THIS TRANSITION IS REFUSED, OR NULL WHEN IT IS ALLOWED. GAP-135 / `P04-P4-03`.
+     * =============================================================================================
+     *
+     * `order_status_change()` above is the writer FIVE doors share -- the merchant web screen and
+     * the order board, the storefront customer's own order
+     * (`Api\ApiController::order_status_change`), `OrderReplacement::cancelAndReplace()`, the
+     * vendored `LotteryPrizes` order screen, and the `PartialPayments` / `PreOrder` arms inside it
+     * -- and it carried exactly TWO transition rules, one inside its cancellation arm and one
+     * inside its return arm. The four progression arms asked NOTHING about where the order already
+     * was: they assigned the integer and saved.
+     *
+     * SO A SETTLED ORDER COULD BE RE-OPENED, AND THE CONSEQUENCE IS MONEY. `product_return()`
+     * refuses unless `delivered_status == 1` (:1064) and then REDUCES `final_price` (:1453); the
+     * storefront refund request is gated on delivery the same way
+     * (`AccountProfileController:1461-1467`). So a CANCELLED order -- one whose merchant
+     * entitlement `OrderEntitlementReversal` has already walked back, and whose goods the cancel
+     * door has already credited -- could be marked delivered and walked straight into that
+     * workflow. P4-F036 names the same leg from the shopper's end. A RETURNED order could be made
+     * deliverable again, for a second pass at the same goods. Both measured at HEAD, and falsified
+     * by neutralising this call, in `tests/Feature/Commerce/OrderFulfilmentStateMachineTest`.
+     *
+     * THE TWO OLD RULES ARE NOT DUPLICATED -- THEY MOVED, into
+     * `App\Support\Orders\FulfilmentStateMachine`, which answers with their EXACT established
+     * strings. Both are keys in `resources/lang/en.json` and `ar.json`; a new string there would
+     * have gone out untranslated to every Arabic merchant and shopper and broken any client
+     * matching the text. The two arms' own `if`s are gone rather than left as a second copy, which
+     * is why neutralising this one call turns off all of the rules at once.
+     *
+     * WHAT IT DOES NOT GOVERN. The machine answers for exactly the six status words this writer's
+     * branch chain matches, so `pre_order`, the `PartialPayments` vocabulary and an unrecognised
+     * value all fall through to the arms below as before -- F81's "that order status is not
+     * recognised" included (`OrderStatusUnknownValueTest`). A backwards move AMONG the in-flight
+     * states also stays permitted: restricting a merchant correcting a mis-click is a business-rule
+     * change, which CLAUDE.md puts in the escalate-to-owner set, not a defect.
+     *
+     * THE RAW COLUMN VALUE IS PASSED, NOT A CAST ONE, and that is deliberate: one shipped handler
+     * writes the literal `-` into this column (`Api\ApiController:10616`), and under PHP 8 a cast
+     * would have made such a row cancellable when it is not today. The machine reproduces the
+     * writer's own loose comparisons for the two pre-existing rules.
+     *
+     * THE ONE DOOR THIS CANNOT REACH is `Api\DashboardController::updateStatus()`, which writes
+     * `delivered_status` directly instead of calling this method. It grew its own cancellation and
+     * return rules under P4-F104/F105 and still has none on the other four arms. Routing it through
+     * here is the remainder of GAP-135, recorded rather than done.
+     *
+     * KEPT SHORT AT THE CALL SITE ON PURPOSE. `OrderKanbanTest` parses the first 6,000 characters
+     * of `order_status_change()` to read its status vocabulary out of the source, so prose inside
+     * that window pushes the later branches out of the parse -- measured: a long comment at the
+     * call site broke that test's own premise assertion. All of the account therefore lives here,
+     * below the writer, where it cannot move anything.
+     *
+     * @param  \App\Models\Order  $order
+     * @param  mixed  $order_status  the raw status word, exactly as the caller supplied it
+     */
+    private static function refuseIllegalTransition($order, $order_status): ?string
+    {
+        return \App\Support\Orders\FulfilmentStateMachine::refusalFor(
+            $order->delivered_status,
+            $order_status
+        );
+    }
+
+    /**
      * The per-line marker that says "this line's goods have already been counted back in".
      *
      * ONE RETURN, ONE STOCK CREDIT -- OWNER DECISION 5: "Restock only when a return is actually
@@ -959,6 +1019,88 @@ if ($order_status == 'cancel') {
     }
 
     /**
+     * How many of this line's units a RETURN door may credit: the units still on the line.
+     *
+     * GAP-140 / P4-F083. `qty` is read out of a JSON blob, so it is neither typed nor validated:
+     * a negative value would SUBTRACT stock through a restore path and a non-numeric one was
+     * silently coerced to 0. Both answer 0 here, which is also the answer for the case this
+     * helper exists for -- a line whose units a refund request has already taken off (`qty` 0,
+     * `refunded_qty` N). Crediting 0 units is not a credit, so the caller must not then claim the
+     * goods are back: see the two call sites in `product_return()`.
+     *
+     * The same rule the two sibling doors already apply (`restoreReturnedStock()` skips a line
+     * with `qty <= 0`; `restoreCancelledOrderStock()` skips one with a non-numeric or non-positive
+     * `qty`), expressed once so the three cannot drift.
+     *
+     * @param  array<string, mixed>  $line
+     */
+    public static function creditableReturnQty(array $line): int
+    {
+        $qty = $line['qty'] ?? null;
+
+        if (! is_numeric($qty)) {
+            return 0;
+        }
+
+        return max(0, (int) $qty);
+    }
+
+    /**
+     * The stored lines with `LINE_STOCK_RESTORED` added at the given `product_json` keys.
+     *
+     * HOW THE MARKER IS SET, IN ONE PLACE, SO EVERY DOOR SETS IT THE SAME WAY. The SELECTION --
+     * which lines a door really did credit -- stays with each door, because each answers it
+     * differently: `markCancelledLinesRestored()` resolves (product_id, variant_id) pairs against
+     * the stored lines because `order_detail()` hands it a derived copy, while
+     * `OrderRefundController::RefundStock()` asks which lines a product's credit left with nothing
+     * outstanding. Sharing the selection would merge two different questions.
+     *
+     * NEVER STAMP A LINE THAT WAS SKIPPED. The marker means "these goods are already back in", and
+     * every return, cancel and refund surface reads it as evidence -- so claiming it for goods that
+     * never came back blocks a legitimate credit later. `markCancelledLinesRestored()`'s docblock
+     * records that rule and `MerchantCancelRestockTest` pins the figure beside the marker because a
+     * draft that stamped without crediting passed a marker-only assertion.
+     *
+     * PURE, AND THE PERSISTENCE IS THE CALLER'S. Each door reads and writes `product_json` under
+     * its own freshness rules -- the refund door re-reads the committed column inside its
+     * transaction, the cancel loop works from the instance it already holds -- and this method is
+     * the decision they share, so it is asserted without a database by
+     * `tests/Unit/Commerce/OrderReturnMarkerHonestyTest` while the writes are asserted through the
+     * real doors by `tests/Feature/Commerce/RefundStockCrossDoorTest`.
+     *
+     * A line that is ALREADY stamped is not a change: re-encoding the column for no state change is
+     * a write, an `updated_at` bump and an observer pass for nothing.
+     *
+     * @param  array<int|string, mixed>  $lines
+     * @param  array<int, int|string>  $keys
+     * @return array<int|string, mixed>|null  the lines to store, or null when nothing would change
+     */
+    public static function linesWithStockRestoredStamp(array $lines, array $keys): ?array
+    {
+        if ($keys === [] || $lines === []) {
+            return null;
+        }
+
+        $wanted = array_fill_keys(array_map('strval', $keys), true);
+        $changed = false;
+
+        foreach ($lines as $key => $line) {
+            if (! is_array($line) || ! isset($wanted[(string) $key])) {
+                continue;
+            }
+
+            if (self::lineStockAlreadyRestored($line)) {
+                continue;
+            }
+
+            $lines[$key][self::LINE_STOCK_RESTORED] = 1;
+            $changed = true;
+        }
+
+        return $changed ? $lines : null;
+    }
+
+    /**
      * Can this return workflow read these lines at all?
      *
      * The test is for the two keys the restock needs -- `product_id` and a quantity -- on every
@@ -998,6 +1140,13 @@ if ($order_status == 'cancel') {
      * the stored `return_price` equals this method's answer for that one line, under no coupon, a
      * flat coupon and a percentage coupon. If the two ever disagree that test fails.
      *
+     * GAP-261: THE FLOOR IS HERE TOO, AND IT HAS TO BE. This method reconstructs what EARLIER
+     * returns took off, and `product_return()` ADDS that figure to the current total to rebuild the
+     * original. A negative answer here therefore understates the original order by the coupon, so
+     * clamping the live summation and not this copy would make the base disagree with the figure
+     * that was actually written. `ZeroValueReturnCouponTest::test_the_clamp_is_in_both_copies_of_the_formula`
+     * drives this method directly for exactly that reason.
+     *
      * @param  array<int,array<string,mixed>>  $lines  lines whose `return` flag is set
      */
     private static function returnedAmountOf(array $lines, $order_id): float
@@ -1016,7 +1165,7 @@ if ($order_status == 'cancel') {
             }
         }
 
-        return $returned - $coupon_price;
+        return max(0.0, $returned - $coupon_price);
     }
 
     /**
@@ -1264,7 +1413,23 @@ if ($order_status == 'cancel') {
                         // same `$product_json` this method is about to save, so the sibling
                         // endpoint's loop can see that these goods are already back in. See
                         // Order::LINE_STOCK_RESTORED. P1-INV-15 (E), owner decision 5.
-                        if (!empty($stockProduct) && ! self::lineStockAlreadyRestored($product_json[$key])) {
+                        //
+                        // AND NOT STAMPED FOR A LINE THAT GAVE BACK NOTHING. GAP-140 / P4-F083.
+                        // `self::creditableReturnQty()` is why: a line whose units a refund
+                        // request has already taken off reads `qty: 0` here, and this branch
+                        // credited 0 and stamped the marker anyway -- a false claim that the
+                        // goods are back, which the refund door now reads as evidence and would
+                        // answer by crediting nothing at all, so the units the line really lost
+                        // would never return to the shelf. Both siblings already refuse to stamp
+                        // a line they skipped (`restoreReturnedStock()` skips `qty <= 0`;
+                        // `markCancelledLinesRestored()`'s docblock states the rule), so this is
+                        // the third door being made consistent with them rather than a new
+                        // policy. Pinned in both directions by
+                        // `RefundStockCrossDoorTest::test_a_refund_after_a_zero_quantity_return_still_credits_what_the_line_lost`
+                        // and `OrderReturnMarkerHonestyTest`.
+                        if (!empty($stockProduct)
+                            && self::creditableReturnQty($line) > 0
+                            && ! self::lineStockAlreadyRestored($product_json[$key])) {
                             /* E13-C residual: RECORDED, not merely performed. Threaded INSIDE
                                the model rather than at the three call sites, because one caller is
                                vendored (packages/workdo/LotteryPrizes) and must not be edited.
@@ -1302,8 +1467,13 @@ if ($order_status == 'cancel') {
                                 ->first();
                         // P1-INV-05: the variant twin of the restock above, same read-modify-write
                         // and same remedy. See that comment for the census and the MySQL evidence.
-                        // The variant twin of the marker above, same reason.
-                        if (!empty($ProductStock) && ! self::lineStockAlreadyRestored($product_json[$key])) {
+                        // The variant twin of the marker above, same reason -- and the variant twin
+                        // of the zero-credit rule, GAP-140, for the same reason again. `$product`
+                        // is this line (the loop variable), so the two branches read the same
+                        // quantity through the same helper.
+                        if (!empty($ProductStock)
+                            && self::creditableReturnQty($product) > 0
+                            && ! self::lineStockAlreadyRestored($product_json[$key])) {
                             app(\App\Services\ProductStockService::class)
                                 ->restoreVariantStock($ProductStock->id, (int) $product['qty'], [
                                     'store_id' => $orderStoreId,
@@ -1341,17 +1511,58 @@ if ($order_status == 'cancel') {
         $Order->product_json = json_encode($product_json);
         $Order->save();
 
-        $qty = 0;
         $return_price = 0;
-        $rp = [];
         if (!empty($Order->product_json)) {
             $product_json = json_decode($Order->product_json, true);
             foreach ($product_json as $key => $product) {
-
-                $qty += $product['qty'];
-                if ($product['return'] == 1) {
-                    $rp[] = $product['final_price'];
-                    $return_price += $product['final_price'];
+                /*
+                 * THREE UNDEFENDED READS, AND THIS LOOP RUNS **AFTER** THE FLAG HAS BEEN SAVED.
+                 * =====================================================================================
+                 *
+                 * What stood here was:
+                 *
+                 *     $qty += $product['qty'];
+                 *     if ($product['return'] == 1) {
+                 *         $rp[] = $product['final_price'];
+                 *         $return_price += $product['final_price'];
+                 *
+                 * `$qty` AND `$rp` WERE DEAD. Measured over the whole method: both were assigned
+                 * here and read nowhere by anything. They are gone rather than defended, because
+                 * `$qty += $product['qty']` is a **TypeError** under PHP 8 for a non-numeric
+                 * quantity ("Unsupported operand types: int + string") -- an uncaught 500 whose
+                 * only purpose was to compute a number no line of code ever looked at.
+                 *
+                 * THE METHOD'S OWN PRECONDITION DOES NOT COVER ANY OF THE THREE.
+                 * `linesAreReturnable()` (:1035-1048) requires `product_id` and `qty` to EXIST on
+                 * every line. It does not require `qty` to be a number, and it says nothing about
+                 * `return` or `final_price`. So a sibling line this call does not even touch could
+                 * break it.
+                 *
+                 * AND THE ORDERING IS WHAT MAKES A 500 INTO LOST MONEY. `$Order->product_json` is
+                 * written with this call's `return => 1` and SAVED at :1400-1401, before this loop;
+                 * the money write is at the end. A throw in between leaves the line permanently
+                 * marked returned with no `return_price` and no `final_price` adjustment -- and the
+                 * replay guard at :1144-1155 then answers "The product has already been returned."
+                 * for every retry. Goods recorded as returned, customer never credited, no
+                 * UI-reachable recovery.
+                 *
+                 * `?? 0` IS NOT A CHOICE MADE HERE -- IT IS THE SIBLING'S ANSWER.
+                 * `returnedAmountOf()` (:1064-1069) is documented as "THE SAME FORMULA AS THE
+                 * SUMMATION IN product_return()", with `SecondReturnTotalTest` pinning the two so
+                 * they cannot drift, and it has always read `(float) ($line['final_price'] ?? 0)`.
+                 * On a flagged line carrying no `final_price` the two disagreed in the worst way:
+                 * one answered 0, the other raised. They now agree. The replay guard above already
+                 * reads `($line['return'] ?? 0)` for the same reason.
+                 *
+                 * LATENT FOR EVERY SHIPPED WRITER, and that is why this is hardening rather than an
+                 * incident: `Cart::cart_list`'s `product_list` and `ProductController::addToCart`
+                 * both always set `qty`, `final_price` and `return`. Non-canonical stored shapes do
+                 * exist, though -- `StoreCurrencyConversionService:161-163` carries a branch for a
+                 * `product_json` that decoded to a single associative line rather than a list.
+                 * Measured, both directions, by `OrderReturnMalformedLineTest`.
+                 */
+                if ((int) ($product['return'] ?? 0) === 1) {
+                    $return_price += (float) ($product['final_price'] ?? 0);
                 }
             }
         }
@@ -1382,7 +1593,70 @@ if ($order_status == 'cancel') {
                 $coupon_price = $return_price * $order_coupon_detail->coupon_discount_number / 100;
             }
         }
-        $return_price -= $coupon_price;
+        /*
+         * GAP-261 / P04-P6-04 (FIN) -- THE RETURNED TOTAL IS FLOORED AT ZERO, SO A RETURN CAN NEVER
+         * RAISE WHAT IS OWED.
+         * =========================================================================================
+         *
+         * The subtraction above was unfloored. When the flagged lines are worth LESS than a FLAT
+         * coupon the returned total is negative, and the write below is
+         * `$original_total - (-c)` -- so `orders.final_price` goes UP by the coupon amount because
+         * goods came back. On a `cod` order that column is the cash a driver collects at the door,
+         * so this one harms the CUSTOMER, which is the opposite direction from the rest of this
+         * family (P4-F082, the no-match call) and the reason it is recorded on its own.
+         *
+         * REACHABLE, NOT THEORETICAL, and the "names no line" guard above does not cover it because
+         * a line DOES match. `AccountProfileController::order_refund_request` rescales the line it
+         * refunds -- `$product['final_price'] = ($product['final_price'] * $product['qty']) /
+         * $old_qty` -- so a line whose every unit has been refunded is stored as
+         * `{qty: 0, final_price: 0, refunded_qty: N}`. GAP-140 stops that line being restocked or
+         * stamped (`creditableReturnQty()` is 0) and deliberately left this half alone.
+         * MEASURED on a two-line cod order (an emptied line, a 40.00 line, 17.50 of tax) with a
+         * 10.00 flat coupon: 57.50 -> 67.50, with `return_price` written as -10.00. Reachable by the
+         * owning customer, an assigned driver, a merchant holding `Manage Order`, or the operator.
+         *
+         * WHY A FLOOR AND NOT "SKIP THE COUPON WHEN NO LINE CONTRIBUTED VALUE". The register offered
+         * both and asked for them to be measured against a real multi-line order with a flat coupon
+         * first, because they differ on a PARTIAL return. Both were applied and driven:
+         *
+         *   skip-when-zero   the emptied-line case passes; a 5.00 line returned under the same
+         *                    10.00 coupon still writes `5.00 - 10.00` and still raises the amount
+         *                    owed, 62.50 -> 67.50. A line DID contribute, just less than the
+         *                    coupon, so the condition never fires. 1 of 12 cases still red.
+         *   floor at zero    both pass, and so do the 16 of `SecondReturnTotalTest`. 28 of 28.
+         *
+         * Zero is only the reachable extreme of the defect; the property that fails is "the returned
+         * total is never negative", and the floor is the form that holds it everywhere.
+         *
+         * WHAT THE FLOOR DECIDES, SAID PLAINLY RATHER THAN LEFT TO BE REDISCOVERED. A return worth
+         * less than the flat coupon now credits the customer NOTHING instead of charging them more.
+         * It does not PRORATE the coupon across the returned lines, and that is the same narrow
+         * choice `OrderRefundController`'s settlement already made for the same question one door
+         * along -- it writes `$order->final_price = max(0.0, $grandTotal)` and records that
+         * prorating is a revenue-reporting decision rather than something to guess at. An
+         * un-prorated flat coupon belongs to the order as a whole, so the lines it exceeds have no
+         * residual value to give back; guessing a share of it into a money column is what the tax
+         * note below this refuses to do, for the same reason.
+         *
+         * IT DOES NOT REPAIR AN ORDER ALREADY INFLATED BY THIS DEFECT. The register notes the figure
+         * washes out of the NEXT call's reconstructed base, so a fully returned order ends on the
+         * right number either way -- measured: that case passed before this change. Between the two
+         * calls the merchant's screen and the driver's collection figure carry `original + c`, and
+         * nothing obliges a second call ever to happen. Reconciling rows already written needs a
+         * production read first and is an owner item, as P4-F082's note says of the same question.
+         *
+         * AND IT DOES NOT MAKE `final_price` NON-NEGATIVE IN GENERAL, which is a DIFFERENT cause and
+         * is stated so the floor is not read as more than it is. When the order's stored
+         * `coupon_price` exceeds what the detail row's `coupon_discount_number` takes off the
+         * returned total, the subtraction below still overshoots. MEASURED on 90.00 + 40.00 of goods
+         * with `coupon_price` 100.00 and a detail row whose configured number is 0.00: returning both
+         * lines writes `final_price` -100.00 with `return_price` 130.00 -- identical before and after
+         * this change, because the floor only catches a NEGATIVE returned total and that one is
+         * positive. It is the recorded-versus-configured coupon disagreement P4-F134/F135 recorded as
+         * still open, and flooring `final_price` here would hide it rather than fix it -- the same
+         * reason the tax column below is left untouched instead of guessed at. GAP-261 records it.
+         */
+        $return_price = max(0.0, $return_price - $coupon_price);
 
         /*
          * P4-F082 -- THE BASE IS THE ORDER'S ORIGINAL TOTAL, NOT ITS CURRENT ONE.

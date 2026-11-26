@@ -63,17 +63,29 @@ class GatewayCallbackDestinationTest extends TestCase
      * A THIRD COPY WAS DELETED instead of declared: see
      * `test_the_dead_order_exfiltration_helper_is_not_reintroduced()`.
      *
-     * THREE VENDORED COPIES REMAIN and are NOT asserted -- see VENDORED_COPIES_NOT_ASSERTED. First
-     * -party code being clean is not the platform being clean, and this file has always said so.
+     * THE THREE VENDORED COPIES ARE NOW ASSERTED ELSEWHERE -- see VENDORED_COPIES_NOT_ASSERTED,
+     * whose name is now wrong and is kept only because other files cite it. First-party code being
+     * clean is not the platform being clean, and this file has always said so.
      */
     private const DECLARED_FIRST_PARTY_BINS = [];
 
     /**
-     * The vendored copies, recorded and NOT asserted.
+     * The vendored copies. THE NAME OF THIS CONSTANT IS NOW STALE AND THE REASONING UNDER IT HAS
+     * BEEN OVERTAKEN -- corrected 2026-11-26 after an independent review pointed out that two
+     * newer files quote it as current and a reader would conclude the vendored tree is unguarded.
      *
-     * CLAUDE.md forbids editing `packages/workdo/`, so a ratchet over them could only ever be a
-     * standing red light. They are listed so that "first-party code is clean" is never mistaken
-     * for "the platform is clean", which is the precise misreading this project has made before.
+     * What it said: "CLAUDE.md forbids editing `packages/workdo/`, so a ratchet over them could
+     * only ever be a standing red light." That was true while the only available remedy was an
+     * edit. It stopped being true under GAP-138: the three vendored services are now intercepted
+     * host-side by `App\Services\Modules\*BenefitCallbackOverride`, bound over them in
+     * `AppServiceProvider::register()`, so the vendored literals are UNREACHABLE rather than
+     * removed -- and `tests/Unit/Security/ModuleBenefitCallbackCensusTest` asserts the set of
+     * vendored sites in both directions, so a fourth copy fails the build.
+     *
+     * The constant keeps its name because other files cite it by that name; what changed is that
+     * "not asserted" now means "not asserted HERE". They are still listed, for the original and
+     * still-correct reason: so that "first-party code is clean" is never mistaken for "the
+     * platform is clean", which is the precise misreading this project has made before.
      */
     private const VENDORED_COPIES_NOT_ASSERTED = [
         'packages/workdo/ — three sites, per P1-SEC-55-OUTBOUND-SENDER-CENSUS.md §3',

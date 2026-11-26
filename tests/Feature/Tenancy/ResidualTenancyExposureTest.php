@@ -511,7 +511,18 @@ class ResidualTenancyExposureTest extends TestCase
             // exactly as written. What changed in `slugs()` is a refusal of one reserved word
             // (`Store::RESERVED_SLUGS`), which narrows what may be minted and touches neither the
             // query nor its tenancy.
-            'app/Models/User.php:187',
+            // :187 -> :247 on 2026-11-25, when the domain audit's STAGE 4 landed in `slugs()`, which
+            // again sits ABOVE this method: the unusable-slug fallback moved below the ASCII pass
+            // (it could never fire for an Arabic name while it sat above it) and the suffix loop
+            // gained a final `return 'store-' . uniqid();` instead of falling off the end into null.
+            //
+            // RE-READ AT THE MOVE, per this file's own rule that a drifting line is the moment to
+            // check the CLAIM rather than the number. `getRelatedSlugs()` is byte-for-byte
+            // unchanged -- `git diff app/Models/User.php` shows no `getRelatedSlugs` or `DB::table`
+            // line touched -- and it still takes a table name and a slug and still carries NO store
+            // predicate, so the finding recorded above stands exactly as written. What changed in
+            // `slugs()` narrows what may be MINTED and touches neither this query nor its tenancy.
+            'app/Models/User.php:247',
 
             // ------------------------------------------------------------------------------
             // Utility::cookies(). `DB::table('settings')` filtered on `created_by`, NOT on
@@ -525,7 +536,17 @@ class ResidualTenancyExposureTest extends TestCase
             // come from the slug-resolved store, which is plumbing in app/Http/** and themes/**.
             // SHIFTED (+1 here, +2 below) on 2026-11-19: P1-SEC-73 added the remote-write checks to the uploader functions above these sites.
             // THE SITES ARE UNCHANGED -- each was verified to be the same construct it named before.
-            'app/Models/Utility.php:912',
+            // SHIFTED BY +22 on 2026-11-24 (P06-MOD-2: the symlink guard and its docblock in
+            // `Utility::delete_directory()`). MEASURED, not assumed: the previous revision was read
+            // back out of git and every line below compared against its new position -- all are
+            // byte-identical statements, the shift is uniform, and no raw-query site was added or
+            // removed. `EloquentScopeBypassInventoryTest` records the same shift for the three
+            // truncate sites interleaved with these.
+            // [2026-11-24] 934 -> 953 (+19). P06-STORAGE's docblock in updateStorageLimit() and
+            // changeStorageLimit() sits above this line; changeproductStorageLimit()'s sits below
+            // it, which is why this row moved +19 while the truncate rows below moved +24. Both
+            // figures were measured, not inferred.
+            'app/Models/Utility.php:953',
 
             // ------------------------------------------------------------------------------
             // FOREIGN_KEY_CHECKS toggles around the country/state/city reference-data import.
@@ -539,12 +560,14 @@ class ResidualTenancyExposureTest extends TestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3410',
-            'app/Models/Utility.php:3412',
-            'app/Models/Utility.php:3435',
-            'app/Models/Utility.php:3437',
-            'app/Models/Utility.php:3451',
-            'app/Models/Utility.php:3453',
+            // [2026-11-24] all six +24, located by the truncate statement each one brackets
+            // rather than by its own text, which is identical in all three blocks.
+            'app/Models/Utility.php:3456',
+            'app/Models/Utility.php:3458',
+            'app/Models/Utility.php:3481',
+            'app/Models/Utility.php:3483',
+            'app/Models/Utility.php:3497',
+            'app/Models/Utility.php:3499',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '

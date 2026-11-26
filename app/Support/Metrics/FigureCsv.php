@@ -33,7 +33,7 @@ namespace App\Support\Metrics;
 final class FigureCsv
 {
     /**
-     * @param  array<string, array{value: ?string, period: string, hint: string}>  $figures
+     * @param  array<string, array{value: ?string, period: string, hint: string}|CaveatedFigure>  $figures
      * @param  array<string, string>  $labels  figure key => the label the screen gives it, in order
      * @return list<list<string>>  header row first
      */
@@ -47,7 +47,18 @@ final class FigureCsv
         ]];
 
         foreach ($labels as $key => $label) {
-            if (! isset($figures[$key]) || ! array_key_exists('value', $figures[$key])) {
+            /*
+             * `array_key_exists()` WOULD THROW ON A `CaveatedFigure`, which is why this asks the
+             * figure instead. GAP-152's carrier travels these paths as an object so a screen and a
+             * file read the same derived disclosure, and `array_key_exists` is a TypeError on an
+             * ArrayAccess object in PHP 8 -- a hard failure on every export, not a dropped row.
+             *
+             * THE TEST BEING MADE IS STILL "does this entry have a value SLOT", not "is the value
+             * non-null": `isset()` alone is false for a null value, and a figure whose value is
+             * null is precisely the one that must be written as `Not available` rather than
+             * skipped. A blank cell in a spreadsheet reads as zero.
+             */
+            if (! isset($figures[$key]) || ! self::hasValueSlot($figures[$key])) {
                 continue;
             }
 
@@ -225,6 +236,19 @@ final class FigureCsv
         fclose($handle);
 
         return "\u{FEFF}" . $body;
+    }
+
+    /**
+     * Does this entry carry a figure slot at all -- array or carrier?
+     *
+     * A `CaveatedFigure` always does; an array has to be asked, because the breakdown and
+     * currency-block entries in the same map do NOT and must be skipped by `rows()`.
+     *
+     * @param  array<string, mixed>|CaveatedFigure  $figure
+     */
+    private static function hasValueSlot(array|CaveatedFigure $figure): bool
+    {
+        return $figure instanceof CaveatedFigure || array_key_exists('value', $figure);
     }
 
     /** Strip the bidi isolates the figures classes add for HTML; see the class docblock. */

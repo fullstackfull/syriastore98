@@ -13,7 +13,7 @@
 
     @if (auth()->user()->type == 'super admin' && !empty($setting['chatgpt_key']))
         <div class="d-flex justify-content-end">
-            <a href="#" class="btn btn-primary btn-badge me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate"
+            <a href="#" class="ss-btn ss-btn--secondary ss-btn--sm me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate"
                 data-ss-panel-url="{{ route('generate', ['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
                 title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
                 <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
@@ -23,7 +23,7 @@
 
     @if (auth()->user()->type == 'admin' && $plan && $plan->enable_chatgpt == 'on')
         <div class="d-flex justify-content-end">
-            <a href="#" class="btn btn-primary me-2 ai-btn btn-badge" data-size="lg" data-ss-panel-open="ai-generate"
+            <a href="#" class="ss-btn ss-btn--secondary ss-btn--sm me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate"
                 data-ss-panel-url="{{ route('generate', ['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
                 title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
                 <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
@@ -91,7 +91,7 @@
 
         <div class="pb-0 modal-footer">
             <a href="{{ route('dashboard') }}" class="btn btn-secondary btn-badge me-2">{{ __('Back') }} </a>
-            <input type="submit" value="Create" class="btn btn-primary btn-badge">
+            <input type="submit" value="Create" class="ss-btn ss-btn--primary">
         </div>
     </div>
     {!! Form::close() !!}

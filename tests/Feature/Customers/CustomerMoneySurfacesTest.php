@@ -13,8 +13,14 @@ use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
- * GAP-156 -- THE THREE SURFACES, and the filter, which is the half that decides what a merchant
+ * GAP-156 -- THE FOUR SURFACES, and the filter, which is the half that decides what a merchant
  * never sees.
+ *
+ * IT SAID THREE UNTIL THE CENSUS WAS RE-RUN. The fourth is `customer/filter.blade.php`, served by
+ * `CustomerController::CustomFilterData()` at `GET /customer-filter-data` -- a SECOND copy of the
+ * customer list that printed `total_spend` as a bare unlabelled money cell with neither ledger
+ * figure beside it. The duplication is why it was missed, and this same pair had already produced
+ * a defect for the same reason (P2.5-R-06: three numeric filter faults, in both copies).
  *
  * `CustomerLedgerMoneyTest` and `CustomerMoneyFiguresTest` establish that the figures are right.
  * This file is about what is DONE with them, and the owner's instruction names the two failures
@@ -744,6 +750,218 @@ final class CustomerMoneySurfacesTest extends TestCase
                 "The filter compares '{$field}' but the dropdown never offers it.");
             $this->assertContains($field, CustomerListFilter::NUMERIC_FIELDS,
                 "'{$field}' must take the numeric branch, not the text one.");
+        }
+    }
+
+    // ------------------------------------------ the fourth surface: the filter fragment
+
+    /**
+     * GAP-156, THE SURFACE THE FIRST THREE MISSED. `customer/filter.blade.php` is a SECOND copy
+     * of the customer list -- `<tr>` rows rendered by `CustomerController::CustomFilterData()` and
+     * returned from `GET /customer-filter-data` -- and it printed `total_spend()` as a bare money
+     * cell with no title, no note and neither ledger figure beside it.
+     *
+     * THE DUPLICATION IS THE REASON IT WAS MISSED, and this exact pair has produced a defect
+     * before: P2.5-R-06 found all three numeric filter faults in BOTH `CustomerDataTable::query()`
+     * and `CustomFilterData()`, six instances of three bugs, because a reader who repaired one copy
+     * had not repaired the screen. CLAUDE.md records the same rule for prints -- "a test that
+     * drives one copy of a print that is written twice leaves the other open".
+     *
+     * REACHABLE, not theoretical: the route is live behind `Manage Customer`, and
+     * `CustomerNumericFilterOperatorsTest` already drives it over HTTP to read the filtered set out
+     * of this very markup.
+     */
+    private function merchantWhoMayReadCustomers(int $storeId = self::STORE_A): User
+    {
+        $owner = User::findOrFail((int) DB::table('stores')->where('id', $storeId)->value('created_by'));
+        $owner->current_store = $storeId;
+        $owner->save();
+
+        /* Laratrust, not spatie: `permissions_as_gates => false`, so the handler asks
+           `isAbleTo()` and a Gate grant would be invisible to it. A permission row that no role
+           holds can be held by nobody, so the row, the role and the assignment are all made. */
+        $permission = \App\Models\Permission::firstOrCreate(
+            ['name' => 'Manage Customer'],
+            ['display_name' => 'Manage Customer'],
+        );
+
+        $role = \App\Models\Role::forceCreate([
+            'name' => 'fragment-reader-' . $owner->id,
+            'display_name' => 'Fragment Reader',
+            'guard_name' => 'web',
+            'created_by' => $owner->creatorId(),
+            'store_id' => $storeId,
+        ]);
+
+        $role->givePermission($permission);
+        $owner->addRole($role);
+        $owner->flushCache();
+
+        return User::findOrFail($owner->id);
+    }
+
+    /**
+     * The fragment's markup, as the screen would receive it.
+     *
+     * NOT `strip_tags()`. CLAUDE.md records that it reads a bare `<` comparison as a tag opening
+     * and silently discards everything to the next `>` -- measured at 80,007 bytes becoming
+     * 18,679 on `/finance` -- which inverts an absence assertion. Whitespace-collapsed raw body
+     * instead.
+     */
+    private function fragmentMarkup(): string
+    {
+        $merchant = $this->merchantWhoMayReadCustomers();
+
+        $response = $this->actingAs($merchant)->get('/customer-filter-data');
+
+        /* Three premises, each of which would otherwise satisfy every assertion below on its own:
+           a route that does not exist (404), a handler that threw (500), and the permission
+           refusal (302 to the previous page). */
+        $this->assertNotSame(404, $response->status(), 'premise: /customer-filter-data is not routed.');
+        $this->assertNotSame(302, $response->status(), 'premise: the merchant was refused by the permission gate.');
+        $this->assertSame(200, $response->status(),
+            'premise: the fragment answered ' . $response->status() . ' rather than rendering.');
+
+        return (string) preg_replace('/\s+/', ' ', (string) $response->json());
+    }
+
+    public function test_the_filter_fragment_carries_both_ledger_figures_beside_the_order_value(): void
+    {
+        /*
+         * ONE CUSTOMER, THREE ORDERS, THREE DIFFERENT ANSWERS -- the fixture is built so that no
+         * two of the figures are the same number, because a surface printing one of them under
+         * another's heading is exactly what §15 forbids and a fixture where they coincide cannot
+         * see it.
+         *
+         *   240 paid and kept          -> order value 940, collected 290, retained 240
+         *    50 paid then refunded     -> collected counts it, retained does not
+         *   650 never paid at all      -> order value counts it, neither money figure does
+         */
+        $this->storeCurrency(self::STORE_A, 'USD');
+
+        $customer = $this->customer('Fragmenta');
+
+        $kept = $this->paidOrder($customer->id, 240.0);
+        $this->movement($kept, 'credit', 240.0);
+
+        $refunded = $this->paidOrder($customer->id, 50.0, ['payment_status' => 'refunded']);
+        $this->movement($refunded, 'credit', 50.0);
+        $this->movement($refunded, 'debit', 50.0);
+
+        $neverPaid = $this->order($customer->id, ['final_price' => 650.0]);
+        $this->ledger($neverPaid, ['customer_total' => 650.0, 'remaining_amount' => 650.0]);
+
+        $markup = $this->fragmentMarkup();
+
+        $this->assertStringContainsString('Fragmenta', $markup,
+            'premise: the fixture customer is not on the fragment at all.');
+        $this->assertStringContainsString('940', $markup,
+            'premise: the order-value cell still sums every order, cancellations and all.');
+
+        $this->assertStringContainsString('290.00', $markup,
+            'The fragment must print payments collected: 240 kept plus 50 that was paid and later '
+            . 'refunded. §15 includes a reversed-but-captured payment -- the shopper did pay.');
+        $this->assertStringContainsString('240.00', $markup,
+            'The fragment must print net retained: the 50 refund subtracts itself, and the 650 '
+            . 'nobody paid was never in it.');
+    }
+
+    public function test_the_filter_fragments_order_value_cell_says_it_is_not_money_received(): void
+    {
+        /*
+         * THE DEFECT IN ONE ASSERTION. A money-looking number in an unlabelled cell reads as what
+         * the shopper paid. On this fixture nobody has paid anything and the cell says 700, so
+         * without the sentence the fragment asserts a payment that never happened.
+         */
+        $this->storeCurrency(self::STORE_A, 'USD');
+
+        $customer = $this->customer('Owingtoo');
+        $orderId = $this->order($customer->id, ['final_price' => 700.0]);
+        $this->ledger($orderId, ['customer_total' => 700.0, 'remaining_amount' => 700.0]);
+
+        $markup = $this->fragmentMarkup();
+
+        $this->assertStringContainsString('700', $markup,
+            'premise: the order-value figure is on the fragment.');
+        $this->assertStringContainsString('not money received', $markup,
+            'The order-value cell carries no statement that it is not what the customer paid. '
+            . 'CustomerMoneyTiles::spendHint() is the one sentence every surface shares.');
+    }
+
+    public function test_the_filter_fragment_withholds_a_figure_the_record_cannot_produce(): void
+    {
+        /*
+         * `store_order_financials` was never backfilled, so a long-standing shopper's orders can
+         * be invisible to the ledger. 0.00 in a money column is a claim that they have never paid;
+         * the fragment must refuse the same way the tiles and the list do.
+         */
+        $this->storeCurrency(self::STORE_A, 'USD');
+
+        $customer = $this->customer('Ancienta');
+        $this->paidOrder($customer->id, 410.0);
+        $this->order($customer->id, ['final_price' => 90.0]); // no ledger row at all
+
+        /*
+         * THE POSITIVE CONTROL, ON THE SAME FRAGMENT, and it is what makes this case worth
+         * anything. Without it "Not available appears and 410.00 does not" is satisfied by a
+         * fragment that prints Not available for EVERY customer -- which is exactly what the view
+         * renders if the controller stops passing the figures, because `??` swallows an undefined
+         * variable as readily as a missing key. Measured: with the controller half reverted and
+         * the view half left in place, this case passed. The control fails in that state.
+         */
+        $readable = $this->customer('Readabla');
+
+        /*
+         * TWO ORDERS OF 256, NOT ONE OF 512, and the difference is the whole value of the control.
+         * With a single order this customer's AOV is `512 / 1`, which `number_format(..., 2)`
+         * prints as the same `512.00` string the collected cell would -- so the control passed in
+         * the half-reverted state it was written to catch. Two orders make the AOV `256.00` and
+         * leave `512.00` reachable only from a money cell. CLAUDE.md's rule 9: when a mutation
+         * survives, ask what input makes the two readings disagree.
+         */
+        foreach ([256.0, 256.0] as $amount) {
+            $this->movement($this->paidOrder($readable->id, $amount), 'credit', $amount);
+        }
+
+        $markup = $this->fragmentMarkup();
+
+        $this->assertStringContainsString('Ancienta', $markup, 'premise: the row rendered.');
+        $this->assertStringContainsString('512.00', $markup,
+            'CONTROL: the fragment can print a readable money figure at all. If this fails, the '
+            . 'absence assertions below are measuring a broken surface rather than a withheld '
+            . 'figure.');
+        $this->assertStringContainsString(__('Not available'), $markup,
+            'An uncovered order makes the money figures unreadable; the cell must say so.');
+        $this->assertStringNotContainsString('410.00', $markup,
+            '410 is a FLOOR, not the figure: one order the record cannot see means the rest is '
+            . 'not the answer. Printing it would understate by exactly the invisible order.');
+    }
+
+    public function test_the_fragment_and_the_list_resolve_their_money_through_the_same_layer(): void
+    {
+        /*
+         * THE SOURCE-LEVEL HALF, because the behaviour above can be satisfied by a second,
+         * drifting implementation -- which is literally what happened to this pair's FILTER.
+         * Comment-stripped: CLAUDE.md records a census satisfied by prose about the thing it
+         * measures being hit eight times in this repository, and the paragraphs above this method
+         * name every identifier it looks for.
+         */
+        $controller = $this->sourceWithoutComments('app/Http/Controllers/CustomerController.php');
+        $view = $this->sourceWithoutComments('resources/views/customer/filter.blade.php');
+
+        $this->assertStringContainsString('CustomerMoneyFigures::forCustomers', $controller,
+            'The fragment holds the whole collection, so it must use the BULK resolver rather '
+            . 'than resolving per row or growing its own query.');
+        $this->assertStringNotContainsString("sum('final_price')", $view,
+            'The fragment must not compute money of its own.');
+
+        foreach (['collected', 'retained'] as $figure) {
+            $this->assertMatchesRegularExpression(
+                '/\$customerMoney\[[^\]]*\]\[[\'"]' . $figure . '[\'"]\]/',
+                $view,
+                "The fragment must read its `{$figure}` cell from the resolved tiles, so it "
+                . 'cannot disagree with the list or with the filter that selects on it.',
+            );
         }
     }
 }

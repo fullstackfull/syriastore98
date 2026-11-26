@@ -20,6 +20,11 @@
 
         <div class="form-group">
             @if (!empty($permissions))
+                {{-- GAP-060 / WS I4 + I5. The same group, legend and instruction as `roles/create`, for the
+                     reason that file's comment gives: one decision, one wording. See it for why the
+                     fieldset goes inside the `$permissions` guard and why it is never `disabled`. --}}
+                <x-ss.choice-group name="permissions" :legend="__('Permissions')"
+                        :hint="__('Tick only what this role needs. Anyone you give this role can do everything ticked here.')">
                 <div class="col-sm-12 col-md-10 col-xxl-12 col-md-12">
                     <div class="p-3 card mb-2">
                         <ul class="nav nav-pills nav-fill gap-2" id="pills-tab" role="tablist">
@@ -138,6 +143,7 @@
                         </div>
                     </div>
                 </div>
+                </x-ss.choice-group>
             @endif
         </div>
     </div>

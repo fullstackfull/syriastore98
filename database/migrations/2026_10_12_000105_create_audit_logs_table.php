@@ -52,9 +52,19 @@ use Illuminate\Support\Facades\Schema;
  * plain indexed integers.
  *
  * NULLABILITY is taken from the call site, and the measurement confirms it.
- * `AuditLog::record()` passes `auth()->id()` for `user_id` and `getCurrentStore()` for `store_id`,
- * and both are null in the contexts R4-02 names (queued job, console command, storefront,
- * customer/deliveryboy guard). `subject` is an optional parameter defaulting to null.
+ * `AuditLog::record()` passes `auth()->id()` for `user_id`, and both are null in the contexts
+ * R4-02 names (queued job, console command, storefront, customer/deliveryboy guard). `subject` is
+ * an optional parameter defaulting to null.
+ *
+ * `store_id`'S NULLABILITY IS NOW LOAD-BEARING, AND THIS PARAGRAPH USED TO DESCRIBE THE DEFECT
+ * THAT MADE IT SO. It said `record()` passes `getCurrentStore()` for `store_id`. It did, and that
+ * helper returns a hardcoded `1` for `type === 'super admin'` (`app/Helper/helper.php:888`), so
+ * every operator action was filed under store 1 whoever it was taken against -- auditing a merchant
+ * missed the operator actions against them, and store 1's own trail accumulated other tenants'
+ * rows. `record()` now calls `App\Support\Audit\AuditAttribution::storeFor($subject, ...)`, which
+ * prefers the SUBJECT's own `store_id`, gives the operator `null` rather than a fabricated tenant,
+ * and leaves a merchant's attribution as it was. So a null `store_id` now carries meaning -- "this
+ * action concerns no single store" -- rather than only "nobody was signed in".
  * `action` is a non-nullable string parameter, and production has it NOT NULL.
  *
  * `old_values` / `new_values` are declared `json()`, which the model's `$casts` requires. On

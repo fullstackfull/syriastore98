@@ -176,8 +176,26 @@
 
         <div class="row mt-3">
             <div class="col-md-4 col-12">
-                <fieldset class="ss-field">
+                {{--
+                    GAP-060 / GAP-061 (WS I4 + I5) — ten swatches whose only accessible names are
+                    "Theme colour 1" to "Theme colour 10", so the group is exactly the case an
+                    instruction exists for: the options cannot describe themselves.
+
+                    WHAT IT SAYS IS MEASURED, not assumed. The stored `color` is printed by the
+                    ADMIN layout and by nothing else: `resources/views/layouts/app.blade.php:338-340`
+                    feeds it through `StoreColour::forCss()` into `--color-customColor`, which
+                    public/css/custom-color.css drives 39 selectors from -- the sidebar and the
+                    active nav item among them. No layout under `resources/views/front_end/`
+                    references it. So a merchant choosing a swatch here to change their SHOP is
+                    using the wrong control, and until now nothing on the screen said so.
+                --}}
+                <fieldset class="ss-field" aria-describedby="color-group-help">
                     <legend class="ss-label">{{ __('Primary Color Settings') }}</legend>
+
+                    <p class="ss-field__hint" id="color-group-help">
+                        {{ __('This colours the merchant panel: its sidebar, the selected menu item and the primary buttons. It does not change your storefront, whose colours come from the storefront theme.') }}
+                    </p>
+
                     <div class="ss-swatches">
                         <div class="ss-swatch">
                             <input type="radio" class="ss-swatch__input theme_color" name="color"

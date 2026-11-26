@@ -2,7 +2,7 @@
 
     @if((auth()->user()->type == 'super admin') && (!empty($setting['chatgpt_key'])))
         <div class="d-flex justify-content-end">
-            <a href="#" class="btn btn-primary ai-btn btn-badge" data-size="lg" data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate',['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
+            <a href="#" class="ss-btn ss-btn--secondary ss-btn--sm ai-btn" data-size="lg" data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate',['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
                 <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
             </a>
         </div>
@@ -10,7 +10,7 @@
 
     @if((auth()->user()->type == 'admin') && $plan && ($plan->enable_chatgpt == 'on'))
         <div class="d-flex justify-content-end">
-            <a href="#" class="btn btn-primary ai-btn btn-badge" data-size="lg" data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate',['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
+            <a href="#" class="ss-btn ss-btn--secondary ss-btn--sm ai-btn" data-size="lg" data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate',['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
                 <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
             </a>
         </div>
@@ -39,7 +39,7 @@
 
         <div class="modal-footer pb-0">
             <input type="button" value="{{__('Cancel')}}" class="btn btn-badge btn-secondary" data-bs-dismiss="modal">
-            <input type="submit" value="{{__('Create')}}" class="btn btn-badge btn-primary mx-1">
+            <input type="submit" value="{{__('Create')}}" class="ss-btn ss-btn--primary mx-1">
         </div>
     </div>
 {!! Form::close() !!}

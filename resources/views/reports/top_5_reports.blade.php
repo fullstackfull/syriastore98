@@ -37,6 +37,24 @@
         `ReportController::top_product()`. That was invisible on this screen precisely because a
         pie with no table gives the reader nothing to check against.
     --}}
+    {{-- ANA-002 / GAP-221. THE CONTROL SITS OUTSIDE `#printableArea` DELIBERATELY: a printed
+         report should carry its period as a CAPTION, which all four charts already do, not as a
+         form nobody can use on paper. `saveAsPDF()` below captures that element and nothing else.
+
+         The form is the shared `<x-ss.analytics-period-filter>`, the same one the four screens
+         before this carry. Its docblock records why these screens post `ss_period` through
+         `AnalyticsPeriod` rather than the legacy `chart_data` the four-screen
+         `<x-ss.report-filter>` bar posts, and why that is convergence rather than a third
+         vocabulary. Do not "unify" the two by reverting this screen to `chart_data`. --}}
+    <x-ss.analytics-period-filter
+        :action="route('reports.top_product')"
+        :period-key="$periodKey"
+        :period-options="$periodOptions"
+        :period-from="$periodFrom"
+        :period-to="$periodTo"
+        :period-today="$periodToday"
+        :period-clamped="$periodClamped" />
+
     <div class="row" id="printableArea">
         <div class="col-xl-6 mb-4">
             @php

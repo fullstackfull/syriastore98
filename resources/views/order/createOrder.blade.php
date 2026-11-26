@@ -57,12 +57,19 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             {{ Form::label('payment_type', __('Payment Type'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
-                            <select name="payment_type" class="form-control select2 @error('payment_type') is-invalid @enderror" required>
+                            {{-- GAP-060 / WS I4. The instruction is bound to the control with
+                                 `aria-describedby`, which is the half the component cannot do for
+                                 itself -- `x-ss.field-help` only owns the id. A `<select>` is ONE
+                                 control in the accessibility tree however many options it holds,
+                                 so this is the single-field pattern and not the fieldset one. --}}
+                            <select name="payment_type" class="form-control select2 @error('payment_type') is-invalid @enderror"
+                                aria-describedby="payment_type-help" required>
                                 <option value="">{{ __('Select Payment Method') }}</option>
                                 @foreach($activePaymentMethods as $key => $name)
                                     <option value="{{ $key }}">{{ $name }}</option>
                                 @endforeach
                             </select>
+                            <x-ss.field-help for="payment_type">{{ __('Record how the customer is paying. Set the payment status below once the money has reached you.') }}</x-ss.field-help>
                             @error('payment_type')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -72,10 +79,18 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             {{ Form::label('payment_status', __('Payment Status'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
-                            <select name="payment_status" class="form-control @error('payment_status') is-invalid @enderror" required>
+                            {{-- GAP-060 / WS I4. "You can change this later on the order page" is
+                                 verified, not reassurance: `order/view.blade.php` carries a
+                                 `payment_status` select on the same two values. The instruction
+                                 deliberately does NOT claim reports count a paid order -- CLAUDE.md
+                                 records that ReportController has no payment_status predicate at
+                                 all, so that sentence would have been false. --}}
+                            <select name="payment_status" class="form-control @error('payment_status') is-invalid @enderror"
+                                aria-describedby="payment_status-help" required>
                                 <option value="Unpaid">{{ __('Unpaid') }}</option>
                                 <option value="Paid">{{ __('Paid') }}</option>
                             </select>
+                            <x-ss.field-help for="payment_status">{{ __('Choose Paid only if the money has already reached you. You can change this later on the order page.') }}</x-ss.field-help>
                             @error('payment_status')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror

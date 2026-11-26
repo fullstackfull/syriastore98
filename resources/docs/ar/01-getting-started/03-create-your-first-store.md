@@ -3,6 +3,8 @@ title: أنشئ متجرك الأول
 order: 3
 summary: الاسم والعنوان الإلكتروني واللغة والعملة.
 related: your-storefront/choose-a-theme, products/add-a-product
+updated: 2026-11-25
+status: published
 ---
 
 ## المتجر هو حيث يعيش كلّ شيء

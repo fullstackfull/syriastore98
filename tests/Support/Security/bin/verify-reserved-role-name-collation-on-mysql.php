@@ -99,7 +99,29 @@ $capsule = new Capsule;
 $capsule->addConnection([
     'driver' => 'mysql', 'host' => $host, 'database' => $db,
     'username' => $user, 'password' => $pass,
-    'charset' => 'utf8mb4', 'collation' => 'utf8mb4_0900_ai_ci', 'strict' => false,
+    /*
+     * THE COLLATION THIS APPLICATION ACTUALLY CONFIGURES, NOT MySQL 8's SERVER DEFAULT.
+     *
+     * This said `utf8mb4_0900_ai_ci`, and the docblock above still explains that as "MySQL's
+     * default here" -- true of the MySQL 8.0 SERVER, and not what this application gets:
+     * `config/database.php:52` and `:72` both ship `env('DB_COLLATION', 'utf8mb4_unicode_ci')`.
+     * So this script verified its claim under a collation the application never asks for.
+     *
+     * The CONCLUSION survives the correction -- both collations are accent- and
+     * case-insensitive, which is the property the reserved-name bypass turns on -- but the
+     * evidence did not match the configuration, and on this project that distinction has cost
+     * real dispositions.
+     *
+     * It also made the script UNRUNNABLE outside MySQL 8: `utf8mb4_0900_ai_ci` is a MySQL 8.0
+     * collation that MariaDB does not implement, so the connector raised
+     * `SQLSTATE[HY000] 1273 Unknown collation` as an uncaught PDOException -- a stack trace
+     * rather than a stated precondition. Reading the application's own default fixes both:
+     * measured green on 10.11.14-MariaDB, and `DB_COLLATION` still overrides it for a run
+     * against a server whose default you want to pin instead.
+     */
+    'charset' => 'utf8mb4',
+    'collation' => getenv('DB_COLLATION') ?: 'utf8mb4_unicode_ci',
+    'strict' => false,
 ]);
 $capsule->setAsGlobal();
 $capsule->bootEloquent();

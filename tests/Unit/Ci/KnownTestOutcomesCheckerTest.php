@@ -700,11 +700,23 @@ XML);
         // did exactly that while recording twice that the shared chrome was a 500 for a storeless
         // principal and that fixing it was not finance's to do.
         //
-        // THE ONE THAT REMAINS is deliberately NOT either bug and still fails: a seeder fixture
-        // gap exposing silent role-assignment tolerance.
-        $expectedFailureIds = [
-            'Tests\Feature\Auth\RegistrationTest::test_new_users_can_register',
-        ];
+        // AND THE LAST ONE REMOVED 2026-11-26, with the proof this list demands produced before it
+        // went. RegistrationTest::test_new_users_can_register was the seeder fixture gap that
+        // exposed silent role-assignment tolerance, and its own `owner` field named the decision
+        // the fix had to make: 'a null guard plus a decision about what to do when the role is
+        // absent (the half-provisioned row should not survive)'. GAP-014 made it. The admin-role
+        // lookup moved ABOVE the first write in RegisteredUserController::store, so a missing role
+        // refuses the registration instead of committing a merchant with a store, a session and no
+        // permissions -- measured before the change as 302, authenticated, users +1, stores +1,
+        // store_wallets +1, role_user 0. Measured BOTH ways: with the fix the test passes, with it
+        // reverted it fails. The three other files that drive POST /register or describe this entry
+        // were run and corrected in the same change.
+        //
+        // THE FAILURE SET IS NOW EMPTY, AND THAT IS A RATCHET POSITION, NOT AN INVITATION. An
+        // empty list means the next red test is a REGRESSION until somebody proves otherwise --
+        // which is exactly what the manifest's own README says and what this assertion enforces in
+        // both directions. The skip set is unchanged and still holds one entry.
+        $expectedFailureIds = [];
 
         // GATE F CLOSED ON 2026-11-02, so SIXTEEN of the seventeen entries that used to be in
         // this list are gone. They are deleted from this list and from the manifest in the same
@@ -881,6 +893,19 @@ XML);
     {
         $manifest = json_decode((string) file_get_contents($this->realManifestPath()), true);
 
+        if ($missing === '') {
+            // The sentinel set -- see committedFailureIds(). There is nothing to remove from the
+            // log, so the premise is asserted directly instead.
+            $this->assertSame(
+                [],
+                array_keys($manifest['expected_failures'] ?? []),
+                'The manifest declares a failure again, so the sentinel data set should not have '
+                . 'been produced. Re-read committedFailureIds().'
+            );
+
+            return;
+        }
+
         $cases   = [];
         $reasons = [];
 
@@ -907,6 +932,20 @@ XML);
         $this->assertStringNotContainsString('NEW FAILURE', $output);
     }
 
+    /**
+     * THE SENTINEL EXISTS BECAUSE AN EMPTY PROVIDER IS AN ERROR, NOT A PASS.
+     *
+     * `expected_failures` became EMPTY on 2026-11-26 when its last entry was deleted for passing,
+     * which this gate requires. PHPUnit treats a data provider that returns no sets as an ERROR,
+     * and this suite's zero-errors property is enforced unconditionally -- so an empty manifest
+     * would have broken the run that proves the manifest is right. A conditional skip was the
+     * other option and is worse: CLAUDE.md records that the declared outcome set is asserted in
+     * both directions, so a new skip would have had to be declared too.
+     *
+     * The sentinel makes the empty case ASSERT its own premise instead of vanishing: the case
+     * below checks that the manifest really declares no failures. The moment one is declared
+     * again, the real ids are yielded and the complement check resumes with no further edit.
+     */
     public static function committedFailureIds(): array
     {
         $manifest = json_decode(
@@ -918,6 +957,10 @@ XML);
 
         foreach (array_keys($manifest['expected_failures'] ?? []) as $id) {
             $sets[$id] = [$id];
+        }
+
+        if ($sets === []) {
+            $sets['(the manifest declares no failures)'] = [''];
         }
 
         return $sets;

@@ -166,7 +166,7 @@
                                                     @include('import-export::import.country_import', ['module' => 'country'])
                                                     @include('import-export::export.country_export', ['module' => 'country'])
                                                 @endif
-                                                <a href="#" class="btn btn-sm btn-primary" data-ajax-popup="true"
+                                                <a href="#" class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon" data-ajax-popup="true"
                                                     data-size="md" data-title="{{ __('Create Country') }}"
                                                     data-url="{{ route('countries.create') }}" data-bs-toggle="tooltip"
                                                     title="{{ __('Add Country') }}"
@@ -178,7 +178,7 @@
                                     </div>
                                 </div>
                                 <div class="row mt-3 g-0">
-                                    <div class="card-body table-border-style">
+                                    <div class="card-body table-border-style ss-dt-card-body">
                                         <div class="table-responsive ecom-data-table">
                                             <table class="table" id="country-table" style="width:100%">
                                                 <thead>
@@ -228,7 +228,7 @@
                                                             @include('import-export::import.state_import', ['module' => 'state'])
                                                             @include('import-export::export.state_export', ['module' => 'state'])
                                                         @endif
-                                                        <a href="#" class="btn btn-sm btn-primary"
+                                                        <a href="#" class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon"
                                                             data-ajax-popup="true" data-size="md"
                                                             data-title="{{ __('Create State') }}"
                                                             data-url="{{ route('state.create') }}"
@@ -243,7 +243,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-body table-border-style">
+                            <div class="card-body table-border-style ss-dt-card-body">
                                 <div class="table-responsive ecom-data-table">
                                     <table class="table" id="state-data-table" style="width:100%">
                                         <thead>
@@ -292,7 +292,7 @@
                                                             @include('import-export::import.city_import', ['module' => 'city'])
                                                             @include('import-export::export.city_export', ['module' => 'city'])
                                                         @endif
-                                                        <a href="#" class="btn btn-sm btn-primary"
+                                                        <a href="#" class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon"
                                                             data-ajax-popup="true" data-size="md"
                                                             data-title="{{ __('Create City') }}"
                                                             data-url="{{ route('city.create') }}"
@@ -307,7 +307,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-body table-border-style">
+                            <div class="card-body table-border-style ss-dt-card-body">
                                 <div class="table-responsive ecom-data-table">
                                     <table class="table" id="city-table" style="width:100%">
                                         <thead>

@@ -3,6 +3,8 @@ title: الخيارات والمتغيّرات
 order: 2
 summary: منتج واحد بعدّة مقاسات أو ألوان — وكيف يتبعه المخزون والسعر.
 related: products/stock-and-availability
+updated: 2026-11-25
+status: published
 ---
 
 ## متى تستخدم متغيّراً

@@ -253,4 +253,65 @@ class MasterPlanTraceabilityCountsTest extends TestCase
             'CLAUDE.md quotes traceability figures that are not the matrix\'s. It is read before the matrix is.'
         );
     }
+
+    /**
+     * AND THE HANDOFF DOCUMENT, WHICH IS READ BEFORE EITHER OF THEM.
+     *
+     * `PROJECT-STATE.md` is the first file CLAUDE.md tells a new or transferred session to open, and
+     * its NEXT EXECUTABLE ACTION block quotes the per-status remainder. On 2026-11-26 an account
+     * transfer handed over "NOT IMPLEMENTED 12, PARTIALLY IMPLEMENTED 99" while the matrix held 10
+     * and 101 -- the figures had moved under it and nothing checked, because the test above covers
+     * `CLAUDE.md` and this document was never in the set. That is the same failure the class
+     * docblock describes, one file further out: a derived figure with no consumer asserting it.
+     *
+     * Asserted in BOTH directions, like the rest: the handoff may not quote a figure the matrix does
+     * not hold, and the matrix may not move without the handoff following.
+     */
+    public function test_the_handoff_document_quotes_the_matrix_figures(): void
+    {
+        $state = (string) file_get_contents(base_path('docs/development/PROJECT-STATE.md'));
+
+        $this->assertSame(
+            1,
+            preg_match('/\*\*Current figures \(gate-enforced\): (\d+) known requirements, (\d+) verified complete, (\d+) not\.\*\*/', $state, $headline),
+            'PREMISE: PROJECT-STATE.md no longer quotes the project-wide figures in the form this test reads.'
+        );
+
+        $this->assertSame(
+            1,
+            preg_match('/Remaining: NOT IMPLEMENTED (\d+), PARTIALLY IMPLEMENTED (\d+)\./', $state, $remaining),
+            'PREMISE: PROJECT-STATE.md no longer quotes the per-status remainder in the form this test reads.'
+        );
+
+        // The project-wide sentence, which the matrix states as 350 recovered plus the 20 held in the
+        // gap register at COVERAGE NOT ASSESSED.
+        $this->assertSame(1, preg_match('/\*\*(\d+) requirements recovered\. (\d+) VERIFIED COMPLETE\. (\d+) are not\.\*\*/', $this->doc, $matrixHeadline));
+        $this->assertSame(1, preg_match('/\*\*Plus (\d+) recovered on /', $this->doc, $plus));
+
+        $known = (int) $matrixHeadline[1] + (int) $plus[1];
+
+        $this->assertSame(
+            [$known, (int) $matrixHeadline[2], $known - (int) $matrixHeadline[2]],
+            array_map('intval', array_slice($headline, 1)),
+            'PROJECT-STATE.md quotes project-wide figures that are not the matrix\'s. It is the first file a transferred session reads.'
+        );
+
+        // The per-status remainder comes from the summary table, which the tests above have already
+        // pinned to the rows themselves -- so this compares the handoff against measured counts, not
+        // against another unchecked summary.
+        foreach (['NOT IMPLEMENTED' => 1, 'PARTIALLY IMPLEMENTED' => 2] as $status => $group) {
+            $this->assertSame(
+                1,
+                preg_match('/^\| ' . preg_quote($status, '/') . ' \| \*\*(\d+)\*\* \|$/m', $this->doc, $cell),
+                "PREMISE: the matrix's summary table has no {$status} row in the form this test reads."
+            );
+
+            $this->assertSame(
+                (int) $cell[1],
+                (int) $remaining[$group],
+                "PROJECT-STATE.md says {$status} " . $remaining[$group] . " and the matrix says {$cell[1]}. "
+                . 'The handoff figure is the one an incoming session acts on.'
+            );
+        }
+    }
 }

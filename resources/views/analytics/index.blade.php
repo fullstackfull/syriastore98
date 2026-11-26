@@ -473,15 +473,10 @@
         <h2 class="h5 mb-3">{{ __('Money') }}</h2>
 
         <x-ss.stats :label="__('Financial ledger')">
-            <x-ss.stat :label="__('Payments received')"
-                       :value="$figures['payments']['value']"
-                       :period="$figures['payments']['period']"
-                       :hint="$figures['payments']['hint']" />
+            {{-- GAP-152: the carrier, not three strings -- see components/ss/figure.blade.php. --}}
+            <x-ss.figure :label="__('Payments received')" :figure="$figures['payments']" />
 
-            <x-ss.stat :label="__('Estimated gross profit')"
-                       :value="$figures['profit']['value']"
-                       :period="$figures['profit']['period']"
-                       :hint="$figures['profit']['hint']" />
+            <x-ss.figure :label="__('Estimated gross profit')" :figure="$figures['profit']" />
 
             {{-- P5-5 / section 9. Shown only for a period whose redemption records are complete; for
                  any earlier period the figures class returns a null value and says why, because a

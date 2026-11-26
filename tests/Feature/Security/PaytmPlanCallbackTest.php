@@ -249,6 +249,84 @@ class PaytmPlanCallbackTest extends SecurityTestCase
             'the plan was not assigned, so a verified payment bought nothing');
     }
 
+    /**
+     * THE CALLBACK HAS NO SESSION, SO IT MUST READ THE CREDENTIALS FROM WHERE THEY ARE STORED.
+     *
+     * Found while building the reconciliation surface (#204), and missed by every case in this
+     * file for the reason CLAUDE.md gives for most false greens here: the fixture was a state
+     * production cannot be in. `setUp()` puts the merchant key straight into
+     * `config('services.paytm-wallet.merchant_key')`. Nothing does that outside a signed-in
+     * request -- the only writer is `PaytmPaymentController::paymentConfig()`, behind
+     * `if (\Auth::check())` -- and this route is outside the session group ON PURPOSE. So a real
+     * callback met an empty key, `PaytmTransactionVerifier` answered `UNVERIFIABLE: no merchant
+     * key is configured`, and the controller recorded a TERMINAL refusal against a payment the
+     * provider had captured. Every one, from the day the gate was opened.
+     *
+     * This case clears the preset and stores the key the way an operator does.
+     */
+    public function test_the_callback_reads_the_platforms_stored_credentials_without_a_session(): void
+    {
+        config([
+            'services.paytm-wallet.merchant_key' => '',
+            'services.paytm-wallet.merchant_id' => '',
+            'services.paytm-wallet.env' => '',
+        ]);
+
+        $operator = $this->makePlatformAdmin(['current_store' => 1]);
+
+        foreach (['paytm_merchant_key' => self::KEY, 'paytm_merchant_id' => self::MID, 'paytm_mode' => 'local'] as $name => $value) {
+            DB::table('settings')->insert([
+                'name' => $name, 'value' => $value, 'created_by' => $operator->id, 'store_id' => 1,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        (new \App\Models\Setting)->flushCache();
+        \Illuminate\Support\Facades\Cache::forget('super_admin_details');
+
+        $reference = $this->intent();
+        Http::fake(['*getTxnStatus*' => Http::response($this->paytmSays(['ORDERID' => $reference]), 200)]);
+
+        $response = $this->deliverCallback($reference);
+
+        $this->assertSame('activated', $response->json('status'),
+            'the callback could not verify a payment with the credentials the operator stored: '
+            . (string) $response->getContent());
+        $this->assertNotSame(PlanPurchaseIntent::REFUSED, $this->statusRow($reference)->status);
+    }
+
+    /**
+     * AN ACTIVATION IS A SALE, AND A SALE HAS A RECORD.
+     *
+     * The callback consumed the intent and assigned the plan and wrote NO `plan_orders` row. Two
+     * consequences, both measured against the unchanged controller: the platform's own revenue
+     * table did not contain the payment, and the intent was left `consumed` with a null
+     * `plan_order_id` -- the exact shape `PlanPurchaseIntent::unreconciled()`'s third clause
+     * reports as "payment captured, nothing to show", for a purchase that had in fact completed.
+     * Every successful callback would have put a false alarm in the one list a person reads.
+     *
+     * It now settles through `PlanPurchaseSettlement`, the same writer the reconciliation uses.
+     */
+    public function test_an_activation_leaves_a_plan_order_attached_to_the_intent(): void
+    {
+        $reference = $this->intent();
+        $says = $this->paytmSays(['ORDERID' => $reference]);
+        Http::fake(['*getTxnStatus*' => Http::response($says, 200)]);
+
+        $this->assertSame('activated', $this->deliverCallback($reference)->json('status'), 'premise');
+
+        $orders = DB::table('plan_orders')->get();
+        $this->assertCount(1, $orders, 'a verified, activated purchase left no plan order');
+        $this->assertSame($says['TXNID'], $orders->first()->txn_id);
+        $this->assertSame((int) $this->plan->id, (int) $orders->first()->plan_id);
+        $this->assertSame((int) $this->purchaser->id, (int) $orders->first()->user_id);
+        $this->assertEqualsWithDelta(100.0, (float) $orders->first()->price, 0.0001);
+
+        $this->assertSame((int) $orders->first()->id, (int) $this->statusRow($reference)->plan_order_id);
+        $this->assertFalse(PlanPurchaseIntent::unreconciled(0)->contains('reference', $reference),
+            'a purchase that completed is listed as a captured payment with nothing to show');
+    }
+
     /** PROOF 3 — REPLAY. The second delivery of the same callback changes nothing. */
     public function test_a_replayed_callback_activates_nothing_a_second_time(): void
     {
@@ -267,6 +345,35 @@ class PaytmPlanCallbackTest extends SecurityTestCase
             . 'subscription for free');
         $this->assertSame($expiry, $this->purchaser->fresh()->plan_expire_date,
             'the replay moved the expiry date');
+    }
+
+    /**
+     * A PROVIDER RETRYING A DELIVERY IT ALREADY MADE IS THE ORDINARY CASE, NOT AN EMERGENCY.
+     *
+     * FOUND BY THE INDEPENDENT FINANCIAL REVIEW. `test_a_replayed_callback_activates_nothing_a_
+     * second_time` asserts only *"not activated"*, and that passed while the second delivery fell
+     * through to the terminal arm — answering `accepted` and logging **CRITICAL "this needs a
+     * human"** for a purchase that had completed perfectly. A provider that retries daily would
+     * have produced one critical alert a day for a working payment.
+     */
+    public function test_a_retried_delivery_of_a_settled_payment_is_not_an_emergency(): void
+    {
+        $reference = $this->intent();
+        Http::fake(['*getTxnStatus*' => Http::response($this->paytmSays(['ORDERID' => $reference]), 200)]);
+
+        $this->assertSame('activated', $this->deliverCallback($reference)->json('status'), 'premise');
+
+        \Illuminate\Support\Facades\Log::spy();
+
+        $second = $this->deliverCallback($reference);
+
+        $second->assertStatus(200);
+        $this->assertSame(PlanPurchaseIntent::CONSUMED, $second->json('status'),
+            'a retried delivery of a settled payment must answer with the intent\'s state');
+
+        \Illuminate\Support\Facades\Log::shouldNotHaveReceived('critical');
+
+        $this->assertSame(1, DB::table('plan_orders')->count(), 'the retry wrote a second plan order');
     }
 
     // ══════════════════════════════════════════════════════════ FAIL-CLOSED, EVERY WHICH WAY

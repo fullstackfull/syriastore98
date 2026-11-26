@@ -922,10 +922,36 @@ class Cart extends Model
                 }
             }
 
+            /*
+             * P4-F005. THE THIRD QUANTITY TYPE NOW DOES WHAT THE VALIDATOR ADVERTISES.
+             *
+             * The validator above accepts `increase,decrease,remove`. This arm implemented two of
+             * them: `remove` ran `unset($cart_array->$cart_id)`, and `$cart_array` is the basket
+             * ROW -- one Eloquent model -- not an array of rows, so that removed a dynamic
+             * PROPERTY named by the request's own `cart_id` value from an object that has no such
+             * attribute. Nothing was marked dirty, the unconditional `save()` below was gated on
+             * `isDirty()` and never reached `performUpdate`, and the handler answered `status: 1`
+             * with `Cart successfully updated.` -- which the storefront toasts as a Success -- while
+             * the line stayed in the basket and the returned count still counted it. Measured
+             * through the real route: `{"count":1,"status":1,...}` with the row and its quantity
+             * untouched.
+             *
+             * THE SAVE MUST NOT RUN AFTER THE DELETE, which is why this is an `else` and not a
+             * second statement: `Model::delete()` leaves `$exists` false, so a following `save()`
+             * takes the INSERT path and would write the row back with its own id -- a resurrection
+             * that looks exactly like the no-op it replaces. `ApiController::cart_qty`'s remove
+             * branch returns from inside itself for the same reason; that is the shape copied here.
+             *
+             * THE ROW IS THE ONE THIS COOKIE'S BASKET HOLDS, not the one `cart_id` names. It was
+             * found above through `forGuestCookie($Carts)` plus product and variant, so a caller
+             * cannot delete across baskets by guessing a sequential id -- `cart_id` takes no part
+             * in the lookup, and this deliberately keeps it that way.
+             */
             if ($request->quantity_type == 'remove') {
-                unset($cart_array->$cart_id);
+                $cart_array->delete();
+            } else {
+                $cart_array->save();
             }
-            $cart_array->save();
 
             // P1-SEC-24. The count of THIS guest's basket. It was `Cart::where('customer_id', $request->user_id)`: a
             // request-chosen customer's line count (an oracle for any customer id), or, with no user_id, the NULL-customer rows.
@@ -1195,6 +1221,26 @@ class Cart extends Model
         $coupon_price = $subTotal;
 
         if (!empty($coupon)) {
+            /*
+             * P4-F061 / GAP-132 -- THE SECOND ARITHMETIC'S OWN STATUS CHECK, and it needs one.
+             *
+             * `Coupon::findByExactCode()` now refuses an inactive coupon, which closes all eight
+             * storefront lookups by CODE. This method is handed an ALREADY-RESOLVED model, so a
+             * fix made only at the lookup does not reach it -- and this is the path the
+             * `coupon_limit` family went wrong on in exactly that way (see
+             * `test_the_cart_and_apply_coupon_agree_about_a_default_usage_limit`: the two
+             * arithmetics disagreed, so the shopper was told "applied successfully" with a
+             * discount of 0.00). Measured before the gate: `api/{slug}/cart-list` reported
+             * `total_coupon_price` 50.00 for a coupon whose `status` was 0.
+             *
+             * `$subTotal`, NOT 0. The docblock above records why at length: a refusal that answers
+             * 0 means "this line is free" to both callers, which is the zeroed-line defect
+             * `RefusedCouponLinePriceTest` pins. Same answer as the three refusals below it.
+             */
+            if ((int) $coupon->status !== 1) {
+                return $subTotal;
+            }
+
             $coupon_count = $coupon->UsesCouponCount();
             $couponQuery = Coupon::query();
             $coupon_expiry_date = (clone $couponQuery)->where('id', $coupon->id)

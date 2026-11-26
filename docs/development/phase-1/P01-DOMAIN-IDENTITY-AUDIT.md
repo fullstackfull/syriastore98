@@ -358,9 +358,46 @@ backward-compatibility requirement, and it is satisfied by addition, never by re
 `/{slug}` to the numeric host. The slug route is **kept indefinitely**: every order e-mail already sent
 (§3.4) contains a slug URL, and those must not break. There is no stage that removes it.
 
-**Stage 4 — fix the two slug defects that survive regardless.** Independent of all of the above, and
-worth doing on its own merits: the Arabic-name collapse (§3.1) and the null return (§3.2) are live
-defects in store creation today. They should be fixed whether or not numeric subdomains ship.
+**Stage 4 — fix the two slug defects that survive regardless. DONE 2026-11-25.** Independent of all
+of the above, and worth doing on its own merits: the Arabic-name collapse (§3.1) and the null return
+(§3.2) were live defects in store creation. They should be fixed whether or not numeric subdomains
+ship — and now are. **Nothing else in this audit was started**; stages 1–3 and the owner questions in
+§8 are untouched.
+
+> **§3.1 — the collapse.** `User::slugs()` ran its unusable-slug fallback BETWEEN the two
+> sanitisation passes, so it could never fire for an Arabic name: it tested a string that was not yet
+> empty, and the ASCII-only pass that emptied it ran afterwards. The fallback now runs AFTER that
+> pass, and its condition is "holds no alphanumeric character at all" rather than `empty()` — which
+> is exactly the unusable set (`''`, `-`, `--`) and leaves `-24` alone, so a merchant who kept a
+> digit keeps it. `'store-' . uniqid()` is the fallback this function already shipped; no new URL
+> scheme was chosen. **Transliteration was NOT taken** even though the commented-out
+> `transliterator_transliterate('Any-Latin; Latin-ASCII', …)` one line above shows the original
+> intent and would read better (`mtjr-swrya`): it needs the `intl` extension and it is a product
+> decision about what a merchant's URL looks like. Carried as an owner question in
+> `OWNER-DECISION-PACKAGE.md`.
+>
+> **§3.2 — the null return.** The `for ($i = 1; $i <= 100; $i++)` loop now ends in
+> `return 'store-' . uniqid();`. `uniqid()` rather than a 101st suffix, because a wider loop only
+> moves the wall. The consequence this section measured — a hard 500 at signup, not a `whereNull`
+> fail-open — is closed.
+>
+> **The characterisation suite was rewritten, which is what its own header instructs:** "when the
+> audit's stage 4 fixes land, these tests FAIL and must be rewritten to the corrected expectation —
+> which is the intended signal, not an accident." Two tests failed and were rewritten
+> (`…_each_get_their_own_slug`, `…_still_gets_a_routable_slug`). **And a third thing was wrong that
+> the rewrite exposed:** `StoreSlugIdentityTest`'s local copy of the generator diverged from the
+> shipped one, and its faithfulness guard drove only ASCII names — so it could not see the
+> divergence for the case the whole file is about, and the §3.1 pin went on passing against a copy
+> that no longer described the code. The copy now matches, the guard drives Arabic names too, and
+> the §3.1 pin measures the PASSES separately from the rescue so that a future "fix" to the ASCII
+> pass itself would still be caught. 7 tests, 38 assertions (was 29).
+>
+> Evidence: `tests/Feature/Accounts/ArabicStoreNameSlugTest.php` (7 cases, failing-first — 4 failed
+> against the unchanged generator with the real slugs `-`, `` and the collapse), the rewritten
+> `tests/Feature/Platform/StoreSlugIdentityTest.php`, and one mutation (restoring the fallback to its
+> old position) which kills 3 of the 4 Arabic cases. Platform + Accounts + Storefront + Auth: 411
+> passed with only the manifest's declared failure, so the known-outcome set is unchanged in both
+> directions.
 
 ### 6.4 What this does *not* change
 

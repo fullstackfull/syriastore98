@@ -141,10 +141,29 @@
                                             @if ($RefundStatus['shiping_deduct'] ?? '' && $RefundStatus['shiping_deduct'] == '1')
                                                 @if(isset($plan->shipping_method) && $plan->shipping_method == 'on')
                                                     <div class="col-md-4">
-                                                        <label for=""><b>{{ __('Refund Shipping Amount')}} : </b></label>
+                                                        {{-- GAP-060 / WS I4. TWO THINGS, and only the
+                                                             second is this row's subject.
+
+                                                             The caption carried `for=""` -- an empty
+                                                             `for` reads as an attribute that is
+                                                             present and associates the words with no
+                                                             control at all, so clicking them toggled
+                                                             nothing and no reader tied them to the
+                                                             checkbox. It now names the checkbox, and
+                                                             the empty sibling label that followed is
+                                                             gone rather than left to announce a second
+                                                             nameless control.
+
+                                                             The instruction is the requirement: ticking
+                                                             this ADDS `delivered_charge` to the refund
+                                                             and POSTs to `updateFinalPrice` on the
+                                                             click, so the total changes and is stored
+                                                             before the merchant presses anything else.
+                                                             Nothing on the screen said either half. --}}
+                                                        <label class="form-check-label" for="customCheckdef1trending"><b>{{ __('Refund Shipping Amount')}} : </b></label>
                                                         <input type="hidden" name="trending" value="0">
-                                                        {!! Form::checkbox("trending", 1, null, ["class" => "form-check-input input-primary check-shipp", "id"=>"customCheckdef1trending"]) !!}
-                                                        <label class="form-check-label" for="customCheckdef1trending"></label>
+                                                        {!! Form::checkbox("trending", 1, null, ["class" => "form-check-input input-primary check-shipp", "id"=>"customCheckdef1trending", "aria-describedby" => "refund_shipping-help"]) !!}
+                                                        <x-ss.field-help for="refund_shipping">{{ __('Tick this to add the delivery charge to the refund. The refund total is saved as soon as you tick it.') }}</x-ss.field-help>
                                                     </div>
                                                 @endif
                                             @endif

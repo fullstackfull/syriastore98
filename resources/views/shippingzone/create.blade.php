@@ -20,7 +20,12 @@
     </div>
     <div class="form-group col-md-12">
         {{ Form::label('shipping_method', __('Shipping Method'), ['class' => 'col-form-label']) }}
-        {!! Form::select('shipping_method[]', $shippingMethod, null, ['class' => 'form-control select2', 'id' => 'choices-multiple', 'multiple','data-role'=>'tagsinput']) !!}
+        {!! Form::select('shipping_method[]', $shippingMethod, null, ['class' => 'form-control select2', 'id' => 'choices-multiple', 'multiple','data-role'=>'tagsinput','aria-describedby'=>'shipping_method-help']) !!}
+        {{-- GAP-060 / WS I4. A MULTIPLE select, so "you can pick more than one" is the half a
+             merchant cannot see: the control looks like the single selects above it until it is
+             opened. `for="shipping_method"` matches the label's own `for`, not the element id --
+             `choices-multiple` is a JavaScript hook shared by both zone views and is not a name. --}}
+        <x-ss.field-help for="shipping_method">{{ __('Pick every shipping method a customer in this zone may choose at checkout. You can pick more than one.') }}</x-ss.field-help>
     </div>
     <div class="modal-footer pb-0">
         <input type="button" value="{{__('Cancel')}}" class="btn btn-badge btn-secondary" data-bs-dismiss="modal">

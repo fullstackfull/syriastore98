@@ -7,6 +7,8 @@ use Cookie;
 use Session;
 use Auth;
 use App\Models\Utility;
+use App\Support\Filesystem\ConfinedDirectory;
+use App\Support\Filesystem\PathNotConfined;
 use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Filesystem\Filesystem;
@@ -515,8 +517,59 @@ class LanguageController extends Controller
         
         if(auth()->user() && auth()->user()->isAbleTo('Create Language'))
         {               
+            /*
+             * P06-MOD-3. THE CODE IS VALIDATED BEFORE ANY PATH IS BUILT FROM IT.
+             *
+             * Found by independent adversarial review of `9a486500` -- the commit that confined
+             * `DELETE /lang/{lang}` -- as the half that fix left open: "the extracted confinement
+             * helper was applied to the delete door and not to the create door, which writes
+             * `resources/lang/<raw POST value>` with no validation at all".
+             *
+             * `$request->code` is a POST BODY field. Unlike the `{lang}` route segment it is not
+             * even constrained to `[^/]+`, so it could contain slashes, and this controller makes
+             * no `validate()` call anywhere. It was lowercased and concatenated into three sinks:
+             *
+             *   \File::copy($langDir . 'en.json', $jsonFile)       a FILE WRITE at any path
+             *   mkdir($dir); chmod($dir, 0777)                     a DIRECTORY CREATE, 0777
+             *   $Filesystem->copyDirectory($langDir . 'en', $dir)  a RECURSIVE TREE WRITE
+             *
+             * Measured against this repository's own `base_path()`: `code = '../../public/x'`
+             * resolves to `<base>/public/x` and `<base>/public/x.json` -- the WEBROOT -- and
+             * `resources/lang/en` holds six `.php` files, so the recursive copy places executable
+             * PHP wherever the code names. Gated by `isAbleTo('Create Language')`, so
+             * operator-reachable rather than an escalation: the same disposition as the module
+             * door (`c3010288`) and the delete door.
+             *
+             * ONE SEGMENT, REFUSED ON MISMATCH, NOT SANITISED. `safeSegment()` returns the
+             * candidate unchanged or throws, so no later line can see a value this did not accept.
+             *
+             * WHY `within()` IS NOT ALSO CALLED HERE, asked and answered rather than assumed: it
+             * resolves the target with `realpath()`, which is false for a path that does not exist
+             * yet -- and a create door's target never exists. The property it would prove is
+             * already established by construction, because `$langCode` is a single segment of
+             * `[A-Za-z0-9_-]` concatenated onto a literal root.
+             *
+             * `strtolower()` AFTER the allowlist is a normalisation, not a sanitisation: lowering
+             * a string that is already `[A-Za-z0-9_-]+` cannot reintroduce a separator, a `..` or
+             * a NUL. It is kept because every shipped language directory is lowercase.
+             *
+             * NOT CHANGED, AND RECORDED RATHER THAN SILENTLY LEFT: the `chmod($dir, 0777)` below
+             * makes a directory of `.php` files world-writable. That is pre-existing, it is not
+             * what this slice was opened for, and tightening it could break deployments where the
+             * web user differs from the user that ran this request. It is in
+             * `docs/development/phase-6/PHASE-06-LANGUAGE-CREATE-CONFINEMENT.md` for the owner.
+             */
+            try {
+                $code = ConfinedDirectory::safeSegment($request->code, 'language code');
+            } catch (PathNotConfined $refusal) {
+                return redirect()->back()->with(
+                    'error',
+                    __('A language code may contain only letters, numbers, hyphens and underscores.')
+                );
+            }
+
             $Filesystem = new Filesystem();
-            $langCode   = strtolower($request->code);
+            $langCode   = strtolower($code);
             $langDir    = base_path() . '/resources/lang/';
             $dir        = $langDir;
             if(!is_dir($dir))
@@ -542,8 +595,19 @@ class LanguageController extends Controller
             $jsonContents = File::get($filePath);
             $data = json_decode($jsonContents, true);
 
-            //append key wise data
-            $data[$request->code] = $request->name;
+            /*
+             * THE MANIFEST KEY IS THE DIRECTORY NAME -- A SECOND DEFECT, FOUND BY MEASURING THE
+             * FIRST AND NOT BY THE REVIEW.
+             *
+             * This read `$data[$request->code]` while the directory above is
+             * `strtolower($request->code)`, so `code=AR` created the directory `ar` and the
+             * manifest key `AR`. Nothing afterwards can reconcile them: the switcher,
+             * `manage.language` and `DELETE /lang/{lang}` each take ONE code and use it as both
+             * the key and the directory name, so such a language is selectable and resolves to
+             * nothing. The shipped tree already shows the cost of that drift -- `tr` is a manifest
+             * key with no directory and `th` a directory with no manifest key.
+             */
+            $data[$langCode] = $request->name;
 
             // Encode the updated array back to JSON format
             $jsonContentsUpdated = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
@@ -587,6 +651,63 @@ class LanguageController extends Controller
              * offering 'en' for deletion. The hole is pre-existing; the change altered which language
              * was exposed to it, which is reason enough to close it here rather than note it.
              */
+            /*
+             * THE NAME IS VALIDATED BEFORE ANYTHING IS COMPUTED FROM IT.
+             *
+             * P06-MOD-2. `$lang` is a raw route segment (`routes/web.php:1615`,
+             * `Route::delete('/lang/{lang}')`) and the handler below built THREE things from it with
+             * no `basename()`, no allowlist and no path check:
+             *
+             *   Utility::delete_directory($langDir . $lang)   a RECURSIVE delete
+             *   unlink($langDir . $lang . '.json')            a single-file delete
+             *   User::where('language', 'LIKE', $lang)        a LIKE pattern
+             *
+             * NO LINE NUMBERS, DELIBERATELY. This list carried `:607`, `:626` and `:628` -- true
+             * when it was written and false two commits later, because the docblock above them
+             * pushed every one of them down. The same rot was found by review in this slice's
+             * evidence document, where three of four rows had gone stale. A statement is a stable
+             * identifier; a line is not.
+             *
+             * The refusal above it only covers the default and fallback LANGUAGE CODES, so `.` and
+             * `..` went straight through: `resources/lang/.` is the language directory itself, and
+             * `resources/lang/..` is `resources/`. The single-file delete reached any `*.json` a
+             * traversal could name -- `../../composer` resolves to `composer.json`. And an
+             * unvalidated value reached a `LIKE` predicate, so one request could reassign the
+             * language of more users than it named. CORRECTED AFTER REVIEW: an earlier draft of this
+             * paragraph said validating the segment closed that, because `%` no longer survives. It
+             * did not -- `_` is also a LIKE wildcard and the allowlist admits it. The predicate is
+             * now `=`; the note at the statement itself has the measurement.
+             *
+             * LIVE REACHABILITY IS GENUINELY UNCERTAIN and is not claimed: nginx and Apache both
+             * normalise `.` and `..` (and `%2e`) out of the URI before Laravel sees it, so the
+             * traversal forms may be unreachable through a production web server while being
+             * reachable from a test client or `php artisan serve`. The `LIKE` wildcard needs no
+             * traversal at all. Gated by `isAbleTo('Delete Language')`, so operator-reachable
+             * rather than an escalation -- the same shape, and the same severity, as the module
+             * removal door fixed in `c3010288`.
+             *
+             * ONE VALIDATED VALUE IS THEN USED EVERYWHERE, so no later line can reintroduce the raw
+             * segment. `safeSegment()` returns the candidate UNCHANGED or throws: it never rewrites,
+             * because acting on a sanitised value would delete a language the caller did not name.
+             */
+            /*
+             * EACH REFUSAL SAYS WHAT IT ACTUALLY REFUSED.
+             *
+             * CORRECTED AFTER REVIEW: both of this handler's new `catch` blocks reused, verbatim,
+             * the message written for the default/fallback refusal -- so an operator who typed a
+             * malformed code was told the language is the default or the fallback, which is false,
+             * and it is the only feedback the screen gives. Three distinct conditions now carry
+             * three distinct messages.
+             */
+            try {
+                $lang = ConfinedDirectory::safeSegment($lang, 'language code');
+            } catch (PathNotConfined $refusal) {
+                return redirect()->back()->with(
+                    'error',
+                    __('A language code may contain only letters, numbers, hyphens and underscores.')
+                );
+            }
+
             $protected = array_filter(array_unique([
                 $default_lang,
                 config('app.fallback_locale'),
@@ -600,11 +721,44 @@ class LanguageController extends Controller
                 );
             }
 
-            $langDir      = base_path() . '/resources/lang/';
+            $langRoot = base_path('resources/lang');
+            $langDir      = $langRoot . DIRECTORY_SEPARATOR;
             if(is_dir($langDir))
             {
-                // remove directory and file
-                Utility::delete_directory($langDir . $lang);
+                /*
+                 * CONFINED AND CANONICAL, OR NOT DELETED AT ALL.
+                 *
+                 * `$lang` now holds only `[A-Za-z0-9_-]`, so a traversal can no longer be smuggled
+                 * through the name -- but `within()` is still what makes the RECURSION safe: it
+                 * resolves symlinks, so a `resources/lang/<code>` that is a link pointing out of the
+                 * tree is refused instead of followed, and a target that resolves to the language
+                 * root itself is refused separately because handed to a recursive delete it would
+                 * take EVERY language rather than one.
+                 *
+                 * CONDITIONAL ON THE DIRECTORY EXISTING, deliberately. A language registered in
+                 * `language.json` with no directory on disk is a real state, and refusing the whole
+                 * request for it would make that orphan impossible to clean up -- which the old code
+                 * could do, because `delete_directory()` returns true for a missing path. So the
+                 * NAME is validated unconditionally above and the CONFINEMENT governs only the
+                 * filesystem step.
+                 */
+                if (is_dir($langDir . $lang)) {
+                    try {
+                        $confined = ConfinedDirectory::within(
+                            $langRoot,
+                            $lang,
+                            'language root',
+                            'language directory'
+                        );
+                    } catch (PathNotConfined $refusal) {
+                        return redirect()->back()->with(
+                            'error',
+                            __('This language directory cannot be deleted safely: it does not resolve to a single language inside the language folder.')
+                        );
+                    }
+
+                    Utility::delete_directory($confined);
+                }
 
                 // Specify the path to your JSON file
                 $filePath = base_path('resources/lang/language.json');
@@ -624,9 +778,48 @@ class LanguageController extends Controller
                 File::put($filePath, $jsonContentsUpdated);
 
 
-                unlink($langDir . $lang . '.json');
+                /*
+                 * GUARDED, BECAUSE THE UNGUARDED FORM WAS A 500. `unlink()` on a missing path emits
+                 * a warning, which Laravel promotes to `ErrorException` -- so deleting a language
+                 * whose `<code>.json` had already gone threw AFTER `language.json` had been
+                 * rewritten, leaving the operator a 500 and a half-done removal. The path itself is
+                 * safe now (`$lang` is the validated segment), and no confinement check is needed
+                 * for a single-file `unlink`: on a symlink it removes the LINK, not the target.
+                 */
+                $langFile = $langDir . $lang . '.json';
+
+                if (is_file($langFile)) {
+                    unlink($langFile);
+                }
                 // update user that has assign deleted language.
-                User::where('language', 'LIKE', $lang)->update(['language' => $default_lang]);
+                /*
+                 * `=`, NOT `LIKE`, AND `_` IS WHY.
+                 *
+                 * FOUND BY INDEPENDENT ADVERSARIAL REVIEW OF THE COMMIT THAT WROTE THE COMMENT ABOVE,
+                 * after it had already been pushed. That comment claimed validating the segment
+                 * closes the LIKE wildcard, because `%` no longer survives. Half true, and therefore
+                 * false: `safeSegment()` accepts `^[A-Za-z0-9_-]+$`, which refuses `%` and ADMITS
+                 * `_` -- and `_` is a single-character LIKE wildcard.
+                 *
+                 * MEASURED: `safeSegment('__')` returns `'__'` unchanged and `safeSegment('e_')`
+                 * returns `'e_'`; only `%` throws. The query built as `where "language" LIKE ?` with
+                 * the binding `__`, and parameterisation binds the VALUE without neutralising LIKE
+                 * metacharacters, so the engine still expanded it.
+                 *
+                 * WHAT IT COST. 15 of the 16 shipped `resources/lang` directories are exactly two
+                 * characters (ar, da, de, en, es, fr, he, it, ja, nl, pl, pt, ru, th, zh), so
+                 * `LIKE '__'` matched all of them. `User` has ZERO global scopes and is absent from
+                 * `config/tenancy.php`'s `scoped_models` (both measured), so the write crossed EVERY
+                 * TENANT. And this statement sits OUTSIDE the `is_dir($langDir . $lang)` block above,
+                 * so `DELETE /lang/__` deleted nothing, ran no confinement check, reassigned every
+                 * matching user platform-wide, and answered "Language Deleted Successfully." `e_` was
+                 * sharper still: it matched `es` as well as the protected `en`.
+                 *
+                 * `=` is what the intent always was and nothing is lost -- MySQL's default collation
+                 * is already case-insensitive, so a code is still matched irrespective of case, and
+                 * the one thing that changes is that it matches ONE code instead of a pattern.
+                 */
+                User::where('language', $lang)->update(['language' => $default_lang]);
             }
             return redirect()->route('manage.language', $default_lang)->with('success', __('Language Deleted Successfully.'));
         }

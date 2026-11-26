@@ -3,6 +3,8 @@ title: Payment and delivery
 order: 2
 summary: Setting up how you are paid and how goods reach the customer.
 related: orders/how-an-order-moves
+updated: 2026-11-25
+status: published
 ---
 
 ## Payment

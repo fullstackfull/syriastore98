@@ -3,6 +3,8 @@ title: Keeping your account safe
 order: 3
 summary: The few habits that matter more than the rest.
 related: your-account/staff-and-what-they-can-do
+updated: 2026-11-25
+status: published
 ---
 
 ## A password that is only yours

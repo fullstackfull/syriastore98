@@ -61,6 +61,12 @@ beside one of these.
 
 Each slice is independently committable, independently testable, and names the gate it needs.
 
+**Every slice also carries the bilingual / appearance acceptance condition — §4.9 below.** Its
+per-slice disposition is a row in `PHASE-05-BILINGUAL-APPEARANCE-GATE.md`, which
+`tests/Unit/Governance/Phase05BilingualAppearanceGateTest` asserts against the headings of this
+section in both directions: **a slice added here is red until it says what it renders and in which
+combinations that was verified.**
+
 ### P5-1 — Finance ledger surfacing (no new metrics)
 Admit `cancelled` and `refunded` to the finance screens and validators that today accept only
 `in:paid,unpaid`, so a merchant can see and act on a reversed order. **Gate: P4-F124, P4-F127.**
@@ -84,6 +90,14 @@ surface needs its delta stated, not just its code changed. **Gate: P5-2.**
 ### P5-4 — Merchant analytics dashboard
 Sales, orders, conversion and customer insight, bilingual (AR RTL / EN LTR), contrast-checked in
 light and dark, permission-gated and tenant-isolated. Built on P5-2 only.
+
+**The bilingual / light-dark clause in the line above is a STANDING CONDITION FOR THE WHOLE PHASE,
+attached here (`GAP-164` / `P05-16`), not a property of this slice alone.** It is §4.9 of the
+verification standard and it is enforced, not remembered:
+`PHASE-05-BILINGUAL-APPEARANCE-GATE.md` registers every Phase 05 surface with its four-combination
+capture, and `Phase05BilingualAppearanceGateTest` fails when a slice, a surface or a metric-layer
+call site appears without one. `/analytics` itself is captured in all four combinations at
+`evidence/p05-16-four-combinations-2026-11-26/merchant/`.
 
 **Data basis, measured 2026-11-20 before building anything** — §3 forbids inventing a metric, so each of
 the four was checked against what is actually recorded:
@@ -706,7 +720,17 @@ Same as the financial work, because the owner's standard does not change between
 5. independent review for anything touching money, authorization or tenancy;
 6. real MySQL where SQLite's type affinity or writer serialisation could hide the defect;
 7. the full applicable gates on the final committed tree;
-8. honest documentation, including every caveat the metric carries.
+8. honest documentation, including every caveat the metric carries;
+9. **AR/EN × light/dark, on every surface the slice renders** — the owner's `GAP-164` action,
+   verbatim: *"Make AR/EN plus light/dark a per-slice acceptance condition at P5-4, as Phase 03 M7
+   did for the storefront."* A slice is not accepted until each surface it renders has been driven
+   in all four combinations and the capture record is committed beside it. The condition, the
+   register of surfaces, the harness command and what the gate does **not** catch are
+   `PHASE-05-BILINGUAL-APPEARANCE-GATE.md`; `Phase05BilingualAppearanceGateTest` enforces it. Like
+   point 4, it is a FALSIFICATION rule rather than a reporting one: the gate reddens on a slice
+   that renders a screen and says nothing, on a capture missing a combination, on two combinations
+   that photographed the same state, on an Arabic page whose heading was never translated, and on
+   a file that starts reading the metric layer without saying which screen it feeds.
 
 ---
 

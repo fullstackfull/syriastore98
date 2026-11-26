@@ -5,10 +5,534 @@ is the file to read first. It links the six phases, says what is done, what is n
 executable action is. Everything in it is either a measured fact with its source, or an owner
 decision quoted as such.
 
-**Last updated:** 2026-11-22 · **Active phase:** 05 (Marketing & Analytics) ·
-**Active branch:** `feature/phase-05-marketing-analytics`
+**Last updated:** 2026-11-25 · **Active branch:** `feature/phase-06-saas-super-admin` (PR #141) ·
+**Active execution scope:** the ENTIRE remaining project across all six phases and Phase 2.5 — the
+branch name does not narrow it.
 
-> ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-22)
+> The previous header read *"Active phase: 05 · Active branch `feature/phase-05-marketing-analytics`"*.
+> That was stale from 2026-11-22. The Phase 05 work it described is preserved below and in
+> `docs/development/phase-5/`; nothing has been removed.
+
+> ### NEXT EXECUTABLE ACTION (read this first — account transfer of 2026-11-26)
+>
+> **HEAD of `feature/phase-06-saas-super-admin` = `5be3602b`, pushed and CI-green.** CI #676 and
+> #677 both returned **success on all seven jobs**, merge-base regression gate included. Nothing of
+> this session's verified work is unpushed.
+>
+> **WHY THIS TRANSFER HAPPENED: the account hit its weekly API limit (resets 1 Dec, 21:00 UTC).**
+> Two agents were killed mid-task by HTTP 429. Their work is preserved as below. Do not restart
+> them; resume by message once the limit resets, or take the work over directly.
+>
+> #### 1. What landed this session (all CI-green on the development branch)
+>
+> `GAP-100` closed (its row had recorded its own completion and the status was never moved) ·
+> `GAP-125` VERIFIED COMPLETE (row stale; defect already fixed by `bc0d48cc`) · `GAP-135`
+> shopper-driven order transitions guarded · `GAP-143` shipping/tax clause exercised on a stored
+> order and `CURRENCY: null` fixed · `GAP-156` a fifth money surface · `GAP-164` the AR/EN x
+> light/dark acceptance gate · `GAP-179` slices 1 and 2 plus LynomiaChat · `GAP-276` the Phase 02
+> ledger's `F114` shipping-ownership defect (nine writers, not the one the ledger named) ·
+> `GAP-277` roleless staff could cancel and return any order in their tenant · `GAP-060`'s three
+> deferred surfaces · Flutter wave 3 on `StoreSyria_app98` (`5b3c6bb`, golden surfaces 5 to 16).
+>
+> **Raised and NOT fixed:** `GAP-278` (a neighbour tenant's currency symbol reaches this store's
+> checkout) and `GAP-279` (a NULL-`store_id` role counts for every store; within-tenant only —
+> **measure before fixing**, and the remedy belongs at the writer, not the reader).
+>
+> #### 2. UNFINISHED WORK, preserved separately — `claude/gap-140-refund-policy-wip`
+>
+> **Branch `claude/gap-140-refund-policy-wip`, commit `9d57021d`. UNREVIEWED. DO NOT MERGE.** Off
+> the development branch on purpose: the agent hit the limit before any safety review. 958 lines in
+> 4 files (`app/Services/RefundPolicy.php` new, `OrderRefundController` +157/-7,
+> `AccountProfileController` +43/-2, `RefundPolicyEnforcementTest` new).
+>
+> **Its exact state, in the agent's own last words:** *"The census asked the wrong question — it
+> grepped for a literal that now lives behind a constant. Let me fix it to key on the decision."* So
+> that census is **known-broken and mid-rewrite**; its green or red means nothing yet. `9d57021d`'s
+> message carries the full six-item remainder. The substance is real: `refund_order.blade.php`
+> renders the attachment input only when the store's `attachment` setting is on, and **no writer
+> consulted the setting** — files were accepted and stored for a merchant who had it switched off.
+>
+> #### 3. EXACT NEXT EXECUTABLE ACTIONS, in order
+>
+> 1. **Finish `GAP-140`** on its WIP branch: fix the census to key on the decision and comment-strip
+>    it; re-run fail-first and revert-and-confirm; measure which of `manage_stock`, `attachment` and
+>    `shiping_deduct` any writer consults (only `attachment` looks addressed); then `P4-F087` actor
+>    attribution and the operator's lockout from the refund list. **State the behaviour change per
+>    setting** — enforcing one that currently does nothing changes behaviour for every merchant who
+>    had it off. If one would move a refund AMOUNT rather than a permission or stock movement, stop
+>    and ask the owner. Get a `tenant-authz-reviewer` pass.
+> 2. **`GAP-279`** — measure first (can a staff row reach `getCurrentStore() === null` while holding
+>    `Create Role`?), then fix at the writer.
+> 3. **`GAP-278`** — named remedy is a `configuredSymbolFor()` on `OrderCurrencyStamp` mirroring its
+>    existing `configuredCodeFor()`; leave `symbolFor()` untouched so order stamps do not move.
+> 4. **`GAP-060`'s settings remainder: 26 declared items**, countable now because the census exists.
+>    21 single selects + 5 switch groups; four sit behind decisions already in flight.
+> 5. `GAP-179` leftovers: the **22 `D-25`** findings need the **owner's scope decision** and must not
+>    be taken by a Phase 06 slice; 2 await the Phase 2.5 white-dialog decision.
+>
+> #### 4. ACTIVE AGENTS AT TRANSFER — both dead by rate limit, work saved
+>
+> `GAP-140` refund policy (on the WIP branch) and `GAP-179` Super Admin UX (its last slice **landed**
+> in `5be3602b`; nothing lost). No agent running, no monitor armed.
+>
+> #### 5. PENDING OWNER DECISIONS — engineering cannot close these
+>
+> - **The double-applied tax band.** Measured through the shipped COD checkout: the band is applied
+>   twice, so a 2x100.00 basket with 25.00 carriage is charged **267.00 where 245.00 is correct** —
+>   22.00 of tax the merchant never configured, collected by the COD driver. Pinned by a test that
+>   fails with the *corrected* total, so a fix cannot pass unnoticed. Work-queue S21.4.
+> - **`D-25`** — the general theme change reaching every merchant screen and all 70 modules.
+> - **`GAP-006`/`GAP-024`** — unifying the totals derivation seam and promoting warn-only
+>   reconciliation to refusal; `GAP-024` depends on `GAP-006`. Not engineering's to take.
+> - **`GAP-119`, `GAP-134`, `GAP-141`, `GAP-145`, `GAP-153`, `GAP-177`, `GAP-180`** — blocked by their
+>   own text on owner decisions or unrecoverable content.
+> - **`GAP-030`** — the P01-SEC-13 migration is prepared and proven on real MySQL (31 checks, 0
+>   failures); **applying it is the owner's.**
+> - Five legal documents and contact details in both languages; 20 Flutter baselines awaiting human
+>   review; decisions I12-I19.
+> - **`plans/index` distinguishes an included plan feature from an excluded one BY COLOUR ALONE**
+>   (WCAG 1.4.1) — the fix is a different glyph, a visual decision.
+>
+> #### 6. CONFIDENTIAL — MUST NOT BE PUBLISHED, AND CANNOT TRANSFER THROUGH GITHUB
+>
+> - **`GAP-260` and security incident #120 stay private.** The owner's standing instruction is that
+>   the finding, reproduction details, sensitive tests and remediation are **not** published to the
+>   public repository without explicit authorisation. Nothing of either was pushed this session and
+>   nothing may be.
+> - **The exposed `webhook.site` bin still needs rotating** — owner action, and the bin identifier is
+>   not to be restated in any public artefact.
+> - **The production database dump remains in `main`'s tree** (P1-SEC-40 / #120); PR #122, which
+>   would remove it, is deliberately unmerged. No UI work remediates it.
+> - **What physically cannot cross:** this container's dev fixture (`database/p2dev.sqlite`, two
+>   stores, operator role granted by hand), a dev server on 127.0.0.1:8899, the scratchpad scripts,
+>   the 20 un-reviewed Flutter baselines (gitignored at `.gitignore:97`, uploaded by CI rather than
+>   committed), and the eight wave-1 baseline candidates in the Flutter repo which are
+>   **pre-framing-fix and must be re-exported before review** — approving them as they stand would
+>   freeze a defect that is already repaired.
+>
+> #### 7. THE PLAN AND THE DIRECTIVE ARE PRESERVED, UNREDUCED
+>
+> The owner-approved **six-phase Master Product Plan** is in the repository at
+> `docs/development/master-plan/` (base, +amendments, `DECISION-ID-REGISTER.md` with all 181 decision
+> ids and the 12 `EX-*` exclusions), with traceability in
+> `MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`. **Three texts remain
+> missing (1 GOV, 2 ARCH) and must not be invented.** Phase 02's scope is
+> `PHASE-02-MASTER-EXECUTION-PROMPT.md`, verbatim and not to be edited.
+>
+> **The accelerated parallel-execution directive stands:** run the maximum safe number of concurrent
+> workstreams, keep both repositories active, assign the next task the moment one finishes, do **not**
+> give overlapping shared files to independent agents, implement first and run the expensive suites at
+> integration milestones rather than after every task, accumulate coherent commits rather than pushing
+> each one, and never weaken a gate or manufacture a green result. **Preserve every recorded owner
+> disposition exactly; a recorded question or recommendation is not an approval, and an engineering
+> report deferring something is not an owner deferral.**
+>
+> **Current figures (gate-enforced): 370 known requirements, 181 verified complete, 189 not.** The
+> register holds 279 rows. Remaining: NOT IMPLEMENTED 10, PARTIALLY IMPLEMENTED 101.
+>
+> > **RECONCILED 2026-11-26.** This sentence read `NOT IMPLEMENTED 12, PARTIALLY IMPLEMENTED 99`
+> > while the matrix's summary table held **10** and **101**, and the account transfer handed the
+> > stale pair over as the project's headline. Re-measured from the matrix's own 350 requirement
+> > sections rather than from either summary: `VERIFIED COMPLETE 181 · PARTIALLY IMPLEMENTED 101 ·
+> > NOT IMPLEMENTED 10 · IMPLEMENTED - VERIFICATION INCOMPLETE 18 · OWNER-APPROVED DEFERRED 17 ·
+> > OWNER DECISION REQUIRED 12 · EXTERNALLY BLOCKED 9 · ACCEPTED OUT OF SCOPE 2`, which sums to
+> > exactly 350 and matches that table row for row. So the matrix was right, this file was stale,
+> > and **the project-wide 370/181/189 figures did not move.** Two rows had been re-traced NOT →
+> > PARTIAL without this copy following.
+> >
+> > **The cause is the one this repository keeps rediscovering: a derived figure with no consumer
+> > asserting it.** `MasterPlanTraceabilityCountsTest` already pinned the matrix to its own rows and
+> > `CLAUDE.md` to the matrix — and this document, which CLAUDE.md names as the FIRST file a new or
+> > transferred session opens, was not in the set. It now is:
+> > `test_the_handoff_document_quotes_the_matrix_figures` asserts both the project-wide sentence and
+> > the per-status remainder against the matrix, in both directions, so a status change that forgets
+> > this file fails CI instead of being handed to the next account.
+>
+> #### 8. TWO PRACTICAL WARNINGS THAT COST REAL TIME HERE
+>
+> `ci.yml` sets `concurrency: ci-${{ github.ref }}` with **`cancel-in-progress: true`**, so pushing
+> to this branch **cancels an in-flight run**. And a fixture rebuild writes ~150 untracked JPEGs under
+> `uploads/2/` and `uploads/uploads/2/` which the store-1-pinned `.gitignore` rules do not catch —
+> **delete them, never add a blanket `/uploads/2/` rule**, because store 2 is a real store with 272
+> tracked files. `fc46bb9f` records this.
+
+> ### HISTORICAL — the NEXT EXECUTABLE ACTION of the 2026-11-25 account transfer
+>
+> **MODE: EXECUTE THE VERIFIED BACKLOG. DO NOT START ANOTHER SURVEY.** The owner directive of
+> 2026-11-22 remains in force and was restated at the transfer. Long multi-agent investigations are
+> reserved for the final integration candidate. Independent specialist review of each individual
+> security or financial slice remains **mandatory**.
+>
+> **THE SCOPE IS THE WHOLE PROJECT, NOT PHASE 06.** The continuation branch is named for Phase 06
+> because that is where the newest slices land. The authorised scope is every remaining item across
+> Phase 01, Phase 02, Phase 2.5, Phase 03, Phase 04, Phase 05, Phase 06 and the project-wide
+> integration, security and acceptance obligations. **Engineering closure of a phase is not proof
+> that its original requirements were delivered** — see §4.1 of `CLAUDE.md` and the four states that
+> must never be collapsed into one label.
+>
+> #### Repositories and the stacked chain
+>
+> | | |
+> |---|---|
+> | Laravel | `fullstackfull/syriastore98` |
+> | Flutter (shipped admin app) | `fullstackfull/StoreSyria_app98` |
+>
+> `main` → Phase 03 [#138](https://github.com/fullstackfull/syriastore98/pull/138) → Phase 04
+> [#139](https://github.com/fullstackfull/syriastore98/pull/139) → Phase 05
+> [#140](https://github.com/fullstackfull/syriastore98/pull/140) → Phase 06
+> [#141](https://github.com/fullstackfull/syriastore98/pull/141). **Each PR targets the one before
+> it.** Do not merge, rebase, force-push, rewrite history or retarget any of them without owner
+> authorisation.
+>
+> #### Published state at the transfer — measured, not inferred
+>
+> | | |
+> |---|---|
+> | branch | `feature/phase-06-saas-super-admin` |
+> | local HEAD | `8811b5b2` |
+> | remote HEAD | `8811b5b2` — **in sync**, working tree clean, no uncommitted work |
+> | last CI-verified head | **`87063414`** — ci.yml **#642** ([run 45540961886](https://github.com/fullstackfull/syriastore98/actions/runs/45540961886)), **conclusion `success`**, concluded 2026-11-25 04:39:03Z |
+> | `8811b5b2` | **PUBLISHED** 2026-11-25 as a fast-forward `87063414..8811b5b2`. Its own required run had not concluded when this was written — **read the run for the head you are on.** |
+>
+> Run #642 was read job by job, not from the run conclusion: both REQUIRED Tests jobs green (04:09:06Z
+> and 04:10:49Z), the merge-base regression gate green including *"Run the Feature suite at HEAD"*,
+> *"Record the official known-outcome gate's verdict"* and *"Compare failing test identities"*, plus
+> static checks, the secret scan, `composer audit` and the PayHere report.
+>
+> **Local gate on `8811b5b2`** (the evidence for the commit whose CI had not yet concluded):
+> Feature **11,746 passed, 1 declared failure, 1 declared skip**, and
+> `assert-known-test-outcomes.php` reports the observed set matches the manifest **exactly**. Unit
+> **6,212 passed + 1 declared skip**; Contract **45 passed**.
+>
+> **The security attestation's human checklist is RED and must stay that way.** On the current head
+> the attestation workflow reports *"Security-sensitive diff: human approval"* **success** and
+> *"Security-sensitive diff: human checklist"* **failure**. That gate requires a person to work
+> `.github/SECURITY-DIFF-REVIEW.md` and leave a marker that records **who** gave it. An agent typing
+> that marker would defeat the control, not satisfy it. It is **not** a required CI job and blocks
+> nothing in development. It is already explained once on PR #141
+> ([comment 7131474457](https://github.com/fullstackfull/syriastore98/pull/141#issuecomment-7131474457));
+> **do not comment again and do not forge or bypass it.**
+>
+> #### TASK #204 — P06-2B, THE DISABLED-APPLICATION PAYMENT BOUNDARY. **DONE 2026-11-25.**
+>
+> | | |
+> |---|---|
+> | commit | **`9acca689`**, published as a fast-forward `512fa880..9acca689` |
+> | its CI run | ci.yml **#645** ([run 45604074657](https://github.com/fullstackfull/syriastore98/actions/runs/45604074657)) — **READ THE RUN**; it was in flight when this line was written |
+> | the head before it | `512fa880`, ci.yml **#644** ([run 45575129709](https://github.com/fullstackfull/syriastore98/actions/runs/45575129709)), **conclusion `success`**, all seven jobs read job by job: both REQUIRED Tests jobs with *"The Feature outcome set must match the record"* green, the merge-base regression gate including *"Compare failing test identities"*, static checks including *"packages/workdo/ is unmodified"*, the secret scan, `composer audit` and the PayHere report |
+> | local gate on `9acca689` | Unit **6,218 passed + 1 declared skip**; Contract **45 passed**; Feature **11,818 passed, 1 declared failure, 1 declared skip**, and `assert-known-test-outcomes.php` reports the observed set matches the manifest **exactly**. MariaDB: **15 + 16 checks, 0 failed** |
+>
+> Both halves were built, with their mandatory independent reviews, and the records below were
+> brought into agreement with the code. **The two owner decisions that were open are still open and
+> were not inferred.**
+>
+> | | |
+> |---|---|
+> | the prerequisite (P5-FIN-4 / P04-FIN-04 / review finding F13) | **BUILT.** `php artisan payments:reconcile` over `App\Services\Payments\Reconciliation\` — authoritative provider verification, the intent as the durable proof of initiation, exact amount and currency comparison, one settlement per payment in ONE transaction, discrepancies written on the intent and in `audit_logs`. Report-only unless `--apply`. Design: `docs/finance/P204-PAYMENT-RECONCILIATION.md` |
+> | the boundary | **WIDENED, on what a route DOES to a payment** (`App\Support\Modules\ModulePaymentFlows`) rather than on the manifest's `payment-callback` label — the label does not follow the code in either direction, measured in `PHASE-06-DISABLED-APPLICATION-BOUNDARY.md` §4.2. A disabled module cannot START a payment; a payment already initiated is honoured ONCE for the session that started it; a return that cannot show one is refused and written down |
+> | the record the modules do not keep | `module_payment_initiations` + `App\Services\ModulePaymentLedger`. **Development-and-test-only, like its two predecessors**, so the payment half of the boundary is INERT in production until the owner promotes it. Starting a payment through a disabled application is refused either way |
+> | **still the owner's, and untouched** | `storefront` — the **76** of its 100 keys that are not a payment — and `oauth` (**16**). Pinned by `test_a_non_payment_anonymous_route_of_a_disabled_module_still_passes_pending_the_owners_decision` |
+>
+> **THE TWO MANDATORY INDEPENDENT REVIEWS FOUND ELEVEN LIVE ITEMS BETWEEN THEM, ALL FIXED**, and
+> that is the part worth carrying forward rather than the clean figures. Neither found an
+> authorization hole in the new code; both found that it did less than its own docblocks claimed.
+>
+> | | |
+> |---|---|
+> | the financial/data-integrity review | three HIGH, five MEDIUM. **A refunded capture still settled** (`STATUS` has four values and none says "refunded", and the buyers this reaches are exactly the ones charged and shown the 419). **A days-old payment was applied as if it had just happened** — a three-day-old intent DOWNGRADED a buyer who had since bought a dearer plan and switched off two of their three stores. **A verified capture that failed to settle was written nowhere** and the run went green once it aged out. Plus: the model cache flushed inside the transaction, so a reader cached the pre-settlement row; `ALREADY_SETTLED` was unreachable on MariaDB and a lost race was audited as a mismatching AMOUNT; a provider retry logged CRITICAL for a working payment; "written once" was keyed on reason text; and exit 0 when nothing was examined. Full account: `docs/finance/P204-PAYMENT-RECONCILIATION.md` §5.2 |
+> | the `tenant-authz-reviewer` pass | **route middleware runs AFTER group middleware**, so a disabled Campaigns return was marked `completed` and then refused by the module's own gate — and its PowerTranz relay CAPTURES before reaching a writer it cannot reach. Plus: a payment could be completed in a different store; with no record installed one anonymous request still wrote a donation; and anonymous traffic could suppress and misattribute refusal records. Full account: `PHASE-06-DISABLED-APPLICATION-BOUNDARY.md` §4.5 |
+>
+> **AND BOTH REVIEWS SHOWED MY TESTS COULD NOT HAVE CAUGHT ANY OF IT.** Every boundary case drove a
+> synthetic route and called the guard directly, so middleware ordering was invisible; every request
+> used a slug that resolved to no store, so every store-shaped assertion was vacuous; and the
+> canonical-reference case passed with its control deleted. Fixed, and the reasons are in the test
+> docblocks rather than only here.
+>
+> **THREE DEFECTS IN ALREADY-COMMITTED CODE WERE FOUND BY BUILDING IT**, all fixed, all with a test
+> that failed against the unchanged code first:
+>
+> 1. **The F241 provider callback could never have verified a payment.** It read the Paytm merchant
+>    key from config, and the only writer of that key runs `if (\Auth::check())` — while that route
+>    is outside the session group by design. So every real callback met an empty key and recorded a
+>    **terminal** refusal against a captured payment. Its nineteen tests could not see it: they set
+>    the config directly, a state production cannot reach.
+> 2. **The same callback activated plans and wrote no `plan_orders` row**, leaving every successful
+>    activation as a false alarm in `unreconciled()`'s captured-payment-with-nothing-to-show clause.
+> 3. **`PaytmTransactionVerifier` did not check the answer was about the order it asked about.**
+>
+> **AND THE TWO MySQL HARNESSES EACH CHANGED THE CODE.**
+> `verify-module-payment-boundary-on-mysql.php` (16 checks): under `utf8mb4_general_ci` the
+> completion claim matched a reference differing only in letter case — the P1-INV-18 shape,
+> invisible to SQLite. `verify-plan-payment-reconciliation-on-mysql.php` (15 checks, driving the
+> REAL settlement against a database built by the project's own migrations): it pins the
+> `ALREADY_SETTLED` fix that no SQLite test can fail, **and it caught a defect in one of the review
+> fixes on its first run** — the entitlement check counted the intent's own order, so a retry read
+> as a discrepancy. Both registered in `run-mysql-verifications.sh`.
+>
+> Records resynced in the same change, with the half that moved named in each: `P04-FIN-04`
+> NOT IMPLEMENTED → **PARTIALLY IMPLEMENTED** (the surface exists; the order↔wallet axis does not),
+> `GAP-124` likewise, and the two summary tables that count them. **No row was promoted to VERIFIED
+> COMPLETE and the project-wide 170 verified is unchanged** — a payment surface that has never seen
+> a live provider handshake is not a verified requirement.
+>
+> #### WHAT IS NOT DONE, and is the next executable work
+>
+> **The entire remaining project-wide backlog, in the owner's priority order** (security and tenant
+> isolation · financial and data correctness · missing approved functionality · cross-phase
+> dependencies · UX, accessibility and bilingual parity). The pointers below are canonical; the
+> figures in them are recorded checkpoints and not a guarantee that every row is current.
+>
+> Carried forward from #204 itself, none of it blocking:
+>
+> | | |
+> |---|---|
+> | **F7** | `PackageServiceProvider` force-*loads* `LandingPage` and `LynomiaChat` irrespective of any row, and three other first-party mechanisms keep saying LandingPage is on. A row that exists and says `0` would make its 275 routes refuse while they disagree. Recoverable (the module screen is a host route, pinned by a test), so an inconsistency rather than a lockout |
+> | **F6** | LynomiaChat schedules six of its own reconcilers, which keep running for a switched-off module. For a bundled first-party integration that is probably right; it is a decision and it is unstated. **The owner's** |
+> | the wallet axis of `P04-FIN-04` | needs `report-settlement-entitlement.php` run against a restored copy of production, which is owner/operator work |
+> | ~~**no acknowledgement for PLAN intents**~~ | **CLOSED 2026-11-25**, see the block below |
+> | **the browser return still closes an intent terminally on an unobtainable answer** | `PaytmPaymentController:471`. The callback and the reconciliation now keep it open; three doors, two policies. Changing the oldest one changes a live purchase path |
+> | **`payment_type` spellings** | the return stores `__('paytm')`, translated per locale; the replay sweep covers the language files' current and historical spellings but not `trans('paytm')`. Pre-existing, measured on MariaDB by the review |
+> | promoting the three dev-only payment migrations | `plan_purchase_intents`, `order_gateway_references`, `module_payment_initiations`. **The owner's** |
+>
+> #### AFTER #204 — two slices, both reviewed, both in the owner's priority bands 1 and 2
+>
+> **GAP-077 / GAP-223(b) — the abandoned-cart screen's four other legs served STORE 1.** Band 1.
+> `getCurrentStore()` ends in a hard-coded literal `1` for an operator with no `current_store`, and
+> four legs guard on `empty($storeId)`, which `1` is not. Measured at HEAD before any change:
+> `/abandon-carts-show` **HTTP 200 with store 1's product in the body**; `/abandon-carts-destroy`
+> took store 1's cart rows **1 → 0**; `/abandon-carts-emailsend` **accepted the cart id**.
+> `ACCOUNT-HANDOFF.md` open item 84 worried that fixing one leg would make the two disagree — it had
+> already happened **in reverse**, GAP-218 having fixed the LIST leg only. All four now refuse
+> through `OperatorStoreSelection::unchosen()`, **refusal only**: every `isAbleTo()` check is
+> untouched, because `MarketingScreenAccess` (what the list leg uses) *admits* an operator holding no
+> permission and its own docblock says it must not gate a write. Whether the operator should be
+> **admitted** to these legs is the GAP-218 audience question and stays **the owner's**.
+>
+> The tenant-authz review of that change found a fifth defect: `abandon_carts_destroy` was the only
+> leg with no store guard **at all**, so a storeless merchant or a staff member with an unset
+> `current_store` reached `$store->id` on a null — HTTP 500 where a refusal belongs. It also named
+> the trap in the obvious fix: `$store?->id` compiles to `store_id IS NULL`, and `carts.store_id` is
+> nullable, so that one character would **delete every orphaned null-store cart row in the table,
+> across every tenant**. A test now drives the principal that makes it reachable (an operator whose
+> selected store no longer exists, for whom `StoreScope` adds no predicate at all) and fails on it.
+>
+> **The plan-intent acknowledgement — the #204 financial review's finding 9.** Band 2.
+> `payments:reconcile` added `unreconciled()`'s whole count to its exit status with no terminal
+> state, so one definite provider NO made every later run exit 1 for ever — and that command is the
+> only reader of "captured, nothing delivered", so the next genuinely new loss would have arrived
+> behind a weeks-old red status. `--acknowledge-intent` / `--reopen-intent`, three nullable columns,
+> and the guarantee enforced where it cannot be bypassed: **both conditional consumption UPDATEs now
+> carry `acknowledged_at IS NULL`**, which is the one statement every door funnels through.
+>
+> **The first version of that was wrong in a way worth recording**: it guarded
+> `PlanPurchaseSettlement` and claimed in four docblocks that this was "the door the browser return
+> comes through". No plan browser return reaches that class — `PaytmPaymentController:489`,
+> `CashfreeController:291` and `MolliePaymentController:269` consume the intent **directly**. Between
+> them the two reviews found **eleven live items**, all fixed; the full table is
+> [`../finance/P204-PAYMENT-RECONCILIATION.md`](../finance/P204-PAYMENT-RECONCILIATION.md) §7.4. The
+> sharpest was the mirror image: a settlement committing while the acknowledgement waited on the row
+> lock left the payment **granted and recorded as "will never be settled"**, and because
+> `plan_order_id` was then set the row matched no `unreconciled()` clause, so the contradiction was
+> permanently invisible.
+>
+> **GAP-131 / P4-F002 — `cart-check-guest` handed any token holder another tenant's stock.** Band 1,
+> and the first requirement promoted to VERIFIED COMPLETE since the transfer (170 → 171; Phase 04
+> 15 → 16). Reproduced at HEAD before anything was changed: `POST /api/{storeA-slug}/cart-check-guest`
+> carrying a store-B product id answered **HTTP 200 with that product's stock** — 4242 plain, 777
+> per-variant — **identically for a customer, a merchant and a driver token** of store A, because
+> `custom.auth` logs a token's owner into the guard matching its tokenable class and this handler has
+> no customer binding at all. `$store = getStore($slug)` was read at the top and used for nothing but
+> the "Store not found." early return, and **nothing underneath contained it**: `Product` and
+> `ProductVariant` carry `StoreScope` but neither is in `scoped_models`, so no predicate is added for
+> any principal.
+>
+> Both lookups now carry `->where('store_id', $store->id)`. **Fixing only the plain one would have
+> looked like a fix** — the variant branch overwrites `$product` before the stock is read — and a
+> missing request key was a 500, now read defensively. Nine cases, three mutations each killing
+> exactly one. **The family is wider than the row**: `product-detail-guest` is
+> reported to disclose the same figure, the siblings are being measured for registration as their own
+> rows, and the register says so in terms so that closing this route cannot read as closing the
+> family.
+>
+> **GAP-142 / P4-F106 — `GET api/admin/vieworder` had NO permission check, and it is the route the
+> shipped Flutter app opens an order with.** Band 1, and the first of that row's nine families.
+> `resolveOwnedStore()` settles tenancy; it settles nothing about **who inside the store** may read
+> an order, and nothing else did either — so any authenticated member of the store read the whole
+> order, its `order_billing_details` and every internal `order_notes` row while holding no order
+> permission of any kind. Now gated on `callerIsStoreOwner() || MerchantPermissions::allowsAny(['Show
+> Order','Manage Order'])`, which is the shape `DeleteOrder` already shipped, refusing with an
+> explicit **403** — never 401, because the shipped app force-clears its session on one, and never
+> `$this->error()`, which answers HTTP 200 by default.
+>
+> Three controls, because this family has already produced the opposite regression: the platform
+> operator still reads it (`isAbleTo()` alone refuses them; `MerchantPermissions` answers WILDCARD),
+> the store's **own owner** still reads it (a merchant does not implicitly hold the order
+> permissions, and the known-outcome gate once caught a gate here refusing the owner), and staff
+> holding either name still read it. **One of my own assertions was wrong and the test caught it:**
+> the cross-tenant control asserted a non-200 status and failed against *working* code, because
+> `ApiResponser::error()` answers **HTTP 200** with `{status: 0}` — on this API a refusal IS a 200,
+> which is also why the new gate had to be an explicit `response()->json(..., 403)`.
+>
+> **EIGHT rows of GAP-142 remain**, named in the register and the matrix: F108 (driver assignment,
+> which writes commission rows), F109, F110, F111, F112 (whole-Order dumps), F113, F065, F075.
+> F112 and F108 are next by PII and money exposure.
+>
+> **Still owed, recorded not fixed:** `acknowledged_by` is always null (console has no session — the
+> column is for the operator screen, whose gate must be operator-first); the real-engine lock race
+> is pinned by a forced interleave in the suite, not by two MySQL connections; and
+> `OperatorStoreSelection::logRefusal()` still writes *"Report refused"* on a cart screen — cosmetic,
+> left because the handler name is in the log context and changing the message means hand-editing a
+> 273-row observability inventory the resync script will not touch.
+>
+> #### ACCELERATED PARALLEL EXECUTION — owner directive of 2026-11-25
+>
+> The owner amended the **methodology**, not the scope or the standards. What changed: stop running
+> the full Unit/Contract/Feature/merge-base set after every small change (focused tests during
+> implementation, broader suites per integration batch, the complete set on the final candidate);
+> fewer, larger pushes rather than a green CI run per intermediate commit; up to eight concurrent
+> workstreams with isolated workspaces and non-overlapping file ownership; shorter progress
+> narratives. What did **not** change: product requirements, security controls, financial integrity,
+> approved business rules, mandatory independent specialist review of security and financial slices,
+> failing-first discipline, and the standing production restrictions.
+>
+> **Worktree isolation is not usable in this container and the equivalent is recorded here so nobody
+> re-tries it:** `vendor/` is gitignored, so a fresh `git worktree` has no dependencies and cannot
+> run `php artisan test` — and verification matters more than the isolation mechanism. The equivalent
+> in use is **strictly disjoint single-file ownership in the shared tree**, with implementation
+> agents forbidden from running any git command (the coordinator owns the index and commits) and each
+> running only its own focused tests. 4 CPUs, so 4 concurrent implementation agents.
+>
+> **Genuinely unresolved owner decisions are consolidated in one place:**
+> [`OWNER-DECISION-PACKAGE.md`](OWNER-DECISION-PACKAGE.md) — each with the exact choice, a
+> recommendation, the consequence of each option and the work it blocks. Nothing in it stops
+> independent work, and anything engineering can decide for itself is deliberately absent.
+>
+> #### BATCH 2 — THE ADMIN-API AUTHORIZATION SWEEP. Committed 2026-11-25, awaiting its CI run.
+>
+> Four concurrent implementation agents on disjoint files, plus the coordinator. **Eight of the nine
+> ungated admin-API permission families under `GAP-142` are closed**, and reviewing those fixes found
+> **two live defects worse than several of them**, both fixed in the same batch.
+>
+> | what | state |
+> |---|---|
+> | `GAP-142` F106 order detail · F108 driver assignment (a money write) · F109 five driver-credential routes · F110 order notes · F112 whole-order dumps · F113 delete half · F065 coupon writes · F075 six tax/shipping writers | **GATED**, each operator-first through `MerchantPermissions::allowsAny()` with a store-owner limb, refusing with an explicit **403** — never 401 (the shipped app force-clears its session on one) and never `$this->error()` (HTTP 200). F109 carries **14/14 mutants caught with per-mutant exclusivity measured** |
+> | `GAP-142` F113 read half · F111 `cost_price` | **ALSO GATED** — the family is complete. Four handlers that all had the tenancy gate and no permission limb: the whole customer book with **total spend** and postal addresses, one customer's orders with a **full delivery address**, the same book behind a search term, and `products.cost_price`. Three mutants each caught by exactly one case. **`P04-P7-01` is NOT promoted, and the reason CHANGED once the gate passed.** The consolidated verification has now run and passed on this tree (Feature 12,040 with exactly the declared failure and skip; the known-outcome gate confirming the set in both directions) — so the §7 reason is spent. The remaining reason is the requirement's own wording: *"EVERY order-mutating and money- or PII-bearing admin API route"*. Nine named families closed is not a measurement of the population, and **my attempt to measure it failed**: a token census over the 124 admin-API handlers reported 84 ungated, three of three spot-checks were false positives (including both wallet money writers, which gate on `canFinance(...)`), and the figure moved when I widened the token list — the controllers define 22+ distinct refusal-shaped helper names. **No figure from it is recorded.** The population needs a behavioural census: drive each route with an unpermissioned staff member and observe. Third time in this batch that my own tooling, not the code, was the defect |
+| `GAP-246` | **RAISED AND WITHDRAWN THE SAME DAY — IT WAS FALSE.** I reported that the core product permission family is seeded nowhere in this repository, and the independent review refuted it: `"Manage Products"` is seeded at `Utility.php:2941` and granted at `:3271`/`:3377-3378`, in DOUBLE quotes, which my single-quote-only extraction pattern could not see. The "measured" framing made a tokeniser bug read as evidence. Three existing artefacts already said so, including the ratchet I cited as my authority. No code was wrong — the gate is correct and the name IS grantable, so staff can be delegated it — but the register row, two docblocks and a commit message all carried the false claim and were corrected. A new premise test now runs the real seeder and reads the `permissions` table, so it cannot recur silently |
+| `GAP-242` / P4-F115 | **FIXED.** `DELETE api/admin/deletereview/{id}` carried **no predicate of any kind** — any bearer token deleted any store's review: a shopper's, a driver's, a competitor's. Found by a reviewer following the MODEL rather than the diff. The fix derives the store from the review because **the shipped app sends no `store_id`** |
+| `GAP-243` / P3-F116 | **FIXED.** `CartController::get_shipping_method:640` held the same `DeliveryAddress::find($request->…)` statement repaired on the API side as GAP-235, byte-for-byte, on the web storefront. Found by the review of that fix **sweeping for the statement elsewhere** |
+| `GAP-244`, `GAP-245`, `GAP-247`, `GAP-248` | **RAISED, NOT FIXED, and that is the right call for each** — a storefront payload disclosing `products.cost_price` and a `users.email` at the owning store's own slug (a payload contract, so the owner's); the registered `cart-list` read route that 500s on a stale basket line (inherits GAP-241's commerce decision, and a second pre-flight would make the read and the write disagree); a latent `product_detail` 500 for a variant product with an empty `product_attribute` (no suite fixture reaches it, so the fixture is the work); and a forced driver password reset that leaves `remember_token` standing (pre-existing, orthogonal to the permission axis, and three sibling writers should be checked before one is fixed) |
+| One review finding declined, with the reviewer's own reasoning | Agent A's F7 asked that `product_detail`'s dependent lookups key on `$product['id']` rather than the raw request value. **Not taken.** The enclosure was verified mechanically — brace-counted and indentation-checked in both twins — the tests catch the enclosure being broken, and the reviewer itself marked it *"Not required"*. A cosmetic edit inside a slice already under review buys nothing and costs a re-verification |
+>
+> **THE REVIEWS ARE WHAT MADE THIS BATCH WORTH ANYTHING, and two of their findings were about my own
+> tests rather than the code.** One control case **could not fail in two independent ways at once**:
+> its only needle was a street address the handler never reads, *and* it supplied no basket, so the
+> handler returned before reaching the branch the case was named after. A second case posted an
+> empty payload that the fix's own first limb refuses, so nothing store-related was reached while its
+> comment claimed a keying distinction was under test. Both are rewritten and now **mutation-measured
+> in both directions** — including one mutant that is **NOT** caught, stated in the docblock, because
+> bounding what a test is worth is the point.
+>
+> **Four `assertSame(200, …)` "controls" on handlers where 200 is also the refusal code** were
+> strengthened to pair every admitted 200 with a row read. They would have passed if somebody
+> narrowed a gate *and* converted its refusal to `error()`.
+>
+> **A reconciliation hazard specific to concurrent agents, recorded because it produced a wrong
+> record before it was caught:** the first draft of the `GAP-142` row credited five closures and
+> missed three, because no single agent report describes the tree. It was corrected by grepping every
+> named handler for a gate limb. Two line numbers in the original row had drifted ~500 lines, so a
+> name grep found what a line lookup would have missed. **A suite run taken while another agent is
+> mid-write is also not evidence:** one agent reported five undeclared state-changing GET routes; that
+> census is reflection-based and passes on the settled tree.
+>
+> **Three decisions went to the owner rather than being answered** ([`OWNER-DECISION-PACKAGE.md`
+> §G](OWNER-DECISION-PACKAGE.md)): the API now admits the platform operator to coupon/tax/shipping
+> writes while the merchant web refuses them on all nine (and F157 is an existing owner decision
+> about exactly that) — two test names carry a `_PENDING_AN_OWNER_DECISION` suffix until it is
+> answered, because their old names read as an approval; what a storefront product payload may
+> contain; and whether the three review handlers need a permission family at all.
+>
+> #### THE MANDATORY INDEPENDENT REVIEW OF BATCH 2, AND WHAT IT CHANGED
+>
+> It found **no cross-tenant hole, no privilege escalation and no guard-class trap** in any of the
+> five slices — and then found four things that mattered more than a hole would have, two of them
+> about my own work rather than the code.
+>
+> | finding | what it changed |
+> |---|---|
+> | **`Manage Products` IS seeded — my "measured" claim was false** | The worst error of the batch, and the cause is reusable: my extraction script matched **single quotes only**, and `Utility.php` writes `"Manage Products"`, `"Create Product"` and `"Edit Products"` in DOUBLE quotes while the customer names beside them are single-quoted. The search therefore returned exactly the subset that confirmed the wrong conclusion, and calling it "measured" made a tokeniser bug read as evidence. **Three artefacts in this repository already said so** — `ProductController:3452-3454` in prose, `AdminApiPermissionExposureTest:566-577` by running the seeder, and `DashboardPermissionNamesTest:162`, the very ratchet I cited as my authority, in its own failure message. GAP-246 withdrawn; the register keeps the row as the record of the failure mode. No code was wrong: the gate was right either way, but its ARGUMENT was weaker than the truth — staff really can be granted the name |
+> | **Two existing tests asserted the exact opposite of the new gate** | `ApiStoreOwnershipPredicateTest:249` and `:278` build an unpermissioned staff member and assert they are **not** refused. Both failed — undeclared, so a hard known-outcome-gate block. My regression ran `Security` + `Tenancy`; these live in `Platform`. **Third time this session** that "re-run the suites that NAME the file" would have caught something. Fixed by granting the names in those two fixtures, with a comment in each saying why that is not a weakening — the permission axis is pinned in the opposite direction, without a grant, in the new file |
+> | **`Show Customer` on the two list routes handed over money the web withholds** | My parity argument cited one line for "the web admits either on a customer READ". True of the DETAIL screen (`show():335` → `:339-341`), **false of the LIST** (`index():312` → `:314`, `Manage Customer` only) — and the citation pointed at neither (`:52` is `store()`, `:525` is `customerTimeline()`). The web keeps `Payments Collected` / `Net Retained` on the list behind `Manage Customer` while the `Show Customer` detail screen shows no money at all, and these payloads carry `total_spend`, `aov`, the `ledger` block and the postal address. **Narrowed `customerlist` and `searchCustomerByName` to `['Manage Customer']`**; `customer/orders` keeps the pair, because its analogue really is `show()` |
+> | **My premise test measured the harness, not the seeders** | It asserted `allowsAny($staff, ['Manage Customer'])` while its NAME claimed it had established which names are grantable. `grantPermission()` is a `firstOrCreate` — it creates the row, so the assertion holds for any string. It now runs `Utility::addNewData()` and reads the `permissions` table for all three names, which is the test that would have caught the false claim above. The missing control it also named — staff GRANTED `Manage Products` — is added, and it is the one case that falsifies the claim I made |
+>
+> Plus six citation corrections (three handler line numbers in my own docblocks had drifted), one
+> comment that **contradicted its own next line** (it claimed to avoid `actingAs($c, 'customers')`
+> and then called it — the measurement stands, the comment did not), and one `404` that is really a
+> 200 because `ApiResponser::error()` takes the status as its *third* argument. `GAP-249` records a
+> pre-existing platform-wide customer-existence oracle the new gate neither worsens nor closes.
+>
+> **Two findings were declined with reasons rather than applied:** agent A's F7 hardening (the
+> reviewer itself marked it "not required" and the enclosure is verified mechanically), and moving
+> the permission limb above the validators to close `GAP-249` (tenancy must answer first, and three
+> shipped suites assert that).
+>
+> #### Project-wide backlog and decision registers — the canonical pointers
+>
+> | what | where |
+> |---|---|
+> | the plan itself (immutable — do not edit, shorten or recreate) | [`master-plan/README.md`](master-plan/README.md), [`MASTER-PRODUCT-PLAN-v1.0-BASE.md`](master-plan/MASTER-PRODUCT-PLAN-v1.0-BASE.md), [`…-WITH-AMENDMENTS.md`](master-plan/MASTER-PRODUCT-PLAN-v1.0-WITH-AMENDMENTS.md), [`DECISION-ID-REGISTER.md`](master-plan/DECISION-ID-REGISTER.md) (181 ids, 12 `EX-*` exclusions) |
+> | can the plan even be checked | [`MASTER-PLAN-SOURCE-VERIFICATION.md`](MASTER-PLAN-SOURCE-VERIFICATION.md) — **NOT FULLY VERIFIED**; 3 texts (1 GOV, 2 ARCH) still missing and **must not be invented** |
+> | requirement-by-requirement | [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) — **350 recovered, 172 VERIFIED COMPLETE, 178 not**; project-wide **370 known, 172 verified, 198 not**. *(This line read 170/180 and 170/200 until 2026-11-25; the document itself had said 172 since the GAP-114 and GAP-131 promotions. A pointer table that restates a figure goes stale silently — prefer the document.)* |
+> | the gaps | [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) — **GAP-001…GAP-249** (249 rows). *(This pointer said GAP-232, then GAP-245, then GAP-249 in one day, and the middle value was stale within the hour because four more rows were added after it. The register's own header carries the authoritative count — prefer it, and expect this line to lag.)* |
+> | security queue | [`../security/P01-SECURITY-WORK-QUEUE.md`](../security/P01-SECURITY-WORK-QUEUE.md) |
+> | Phase 05 remaining + its `D-N` register | [`phase-5/`](phase-5/) |
+> | Phase 06 scope, the `D-P6-01…D-P6-51` package, owner answers | [`phase-6/`](phase-6/) |
+> | Phase 01 release gates | [`phase-1/PHASE-01-CLOSURE-EXECUTION.md`](phase-1/PHASE-01-CLOSURE-EXECUTION.md) |
+> | Phase 02 coverage | [`phase-2/PHASE-02-COVERAGE-AUDIT-2026-10-25.md`](phase-2/PHASE-02-COVERAGE-AUDIT-2026-10-25.md) |
+>
+> **These are recorded checkpoints, not a guarantee every row is current.** Classify each unverified
+> requirement as actionable engineering, verification, an owner decision, an approved deferral or an
+> external blocker — never all as implementation work.
+>
+> #### Priority order for everything that follows #204
+>
+> 1. Security and tenant isolation · 2. Financial and data correctness · 3. Missing approved
+> functionality · 4. Cross-phase dependencies · 5. UX, accessibility and bilingual parity.
+>
+> #### Owner-blocked — do not execute, do not re-ask
+>
+> | item | state |
+> |---|---|
+> | **#139 P1-SEC-81** (CRITICAL) | engineering COMPLETE on held branch `p1-sec-81-hold` @ `5c313b0d`, **on no remote**. Publication held by owner decision 2026-11-20; production remediation is owner/operator. **Keep confidential.** |
+> | **PAY-SEC** (task #141) | confidential pre-existing payment findings. No public exploit detail, no production probing. |
+> | **#120** P1-SEC-40 | the database-dump exposure incident. Deferred ≠ remediated. |
+> | **#137** | final project-wide integration and security review. |
+> | #129 P1-SEC-74 · #132 P1-SEC-76 batch 2 · #190 GAP-162 correction · #112 D6 stage 2 (GAP-214) · #67 P4-1 | each needs an owner decision or holds vendored/owner-only residue |
+>
+> #### Standing restrictions (full text in §6)
+>
+> **This repository is PUBLIC.** No credentials, production data, confidential vulnerability detail
+> or privately held remediation patches. No production deployment, credential rotation, live-host
+> change, repository-visibility change, unauthorised merge, or fabricated approval. Do not edit
+> vendored `packages/workdo/` (except first-party `LynomiaChat`) — guard from first-party code. Green
+> CI is a checkpoint, not release readiness.
+>
+> #### What could not be transferred
+>
+> Nothing was lost. The held P1-SEC-81 branch stays local and unpublished **by owner decision**, not
+> by accident.
+>
+> *(That paragraph used to end "Task #204's code is not started — only its measurement, dispositions
+> and order of work are recorded above." It was true at the transfer; #204 was executed on
+> 2026-11-25 and the block above records it.)*
+
+---
+
+> ### HISTORICAL — the previous NEXT EXECUTABLE ACTION (owner directive of 2026-11-22)
+>
+> Superseded by the block above on 2026-11-25 and **kept verbatim as the record of what was executed
+> in Phase 05**. Its head and CI references describe that moment, not now.
+>
+> #### (original heading) NEXT EXECUTABLE ACTION — owner directive of 2026-11-22
 >
 > **MODE: EXECUTE THE VERIFIED BACKLOG. DO NOT START ANOTHER SURVEY.** The owner's 2026-11-22
 > directive is explicit: the nine-row investigation is accepted as a basis for correcting the
@@ -235,8 +759,17 @@ distinct from whether the engineering passed:
 | document | what it answers |
 |---|---|
 | [`MASTER-PLAN-SOURCE-VERIFICATION.md`](MASTER-PLAN-SOURCE-VERIFICATION.md) | **Can the original plan even be checked?** Answer: **NOT FULLY VERIFIED** — the Decision Register v1.0 was never committed to this repository. |
-| [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) | **350 requirements recovered. 169 VERIFIED COMPLETE. 181 are not.** |
-| [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) | **181 open gaps — 56 category A (must complete before release)**, 16 B, 73 C, 11 D, 25 E. |
+| [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) | **350 requirements recovered. 172 VERIFIED COMPLETE. 178 are not.** Project-wide, including the recovered-and-untracked: **370 known, 172 verified, 198 not.** *(Corrected 2026-11-25. This is the SECOND copy of the same figure in this file; the first, in the canonical-pointers table above, was corrected earlier the same day and this one was missed — which is the argument against restating a figure at all.)* |
+| [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) | **GAP-001…GAP-249** (249 rows). 181 open gaps out of the 350, plus 18 recovered 2026-11-16, 2 more on 2026-11-24, and **48 raised by the work of 2026-11-25** (`GAP-200`…`GAP-249`, one of which — `GAP-246` — was withdrawn the same day as a false finding and is kept as the record of its cause). Of the original 181: 56 category A (must complete before release), 16 B, 73 C, 11 D, 25 E; the 20 recovered are deliberately `COVERAGE NOT ASSESSED`, and the 48 later rows carry no status term at all. |
+
+> **Corrected 2026-11-25, TWICE, and the second time is the lesson.** This table read *"169
+> VERIFIED COMPLETE / 181 are not"* and *"181 open gaps"*, which disagreed with the documents it
+> cites. Re-read from those files, it became 170/180 and GAP-232. Both figures were stale AGAIN
+> within the same day — 172/178 after two promotions, and GAP-249 after 17 more rows — and the
+> second staleness was found only by a deliberate sweep comparing every restated figure in this file
+> against the document that owns it. **Four copies of two numbers existed in this one file.** The
+> figures above were re-read from those two files. No requirement status
+> was changed; only this summary was brought back into agreement with its sources.
 
 **CI success does not establish product-scope completeness.** See `CLAUDE.md` §4.1 for the rule and
 the four states that must never be merged into one label.
@@ -504,7 +1037,11 @@ code.
 
 ---
 
-## 8. Next executable action
+## 8. Phase 03 milestone record (historical)
+
+> **This section's heading formerly read "Next executable action".** Retitled 2026-11-25 because it
+> records the Phase 03 M0–M3 milestones and is not a statement of what to do next; the canonical
+> NEXT EXECUTABLE ACTION is the block at the top of this file. No content below was changed.
 
 **M0, M1 and M2 are complete.** M2's five packages:
 

@@ -136,8 +136,27 @@ class OrderCompleteBindingTest extends TestCase
      */
     public function test_every_producer_of_the_thank_you_page_is_discovered_and_binds(): void
     {
-        /** Files that reach the thank-you page but write no order, so there is nothing to bind. */
-        $noOrderWritten = [];
+        /**
+         * Files that reach the thank-you page but write no order, so there is nothing to bind.
+         *
+         * `StorefrontSeo` does not reach it at all: it NAMES `order.complete` in the route list
+         * that decides each storefront route's `robots` directive — the thank-you page is
+         * withheld from indexing, which is the right answer for a page that exists once per
+         * purchase. The discovery rule here is `str_contains($code, 'order.complete')`, so a file
+         * that merely names the route reads as a file that sends a shopper to it.
+         *
+         * EXEMPTED RATHER THAN THE RULE WIDENED, deliberately. Narrowing the discovery rule (to
+         * `redirect(`/`route(` near the name, say) would be the kind of cleverness that lets a
+         * real producer slip past, and this census exists because one did. A named exemption with
+         * a reason costs one line and fails loudly if the file ever starts writing orders — the
+         * binding assertion below still runs against everything else.
+         *
+         * The docblock above already records `CinetPayPayment` being out for the adjacent reason
+         * (it names the route only in prose), so this is the second instance of the same shape.
+         */
+        $noOrderWritten = [
+            'app/Support/Storefront/StorefrontSeo.php',
+        ];
 
         $discovered = [];
 

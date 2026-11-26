@@ -16,9 +16,9 @@
     <section class="ss-ps-hero">
         <div class="ss-ps-wrap">
             <div class="ss-ps-hero__inner">
-                <span class="ss-ps-eyebrow">{{ __('Getting started') }}</span>
-                <h1 class="ss-ps-hero__title">{{ __('From signing up to a shop that is open') }}</h1>
-                <p class="ss-ps-lede">{{ __('There are six steps, and none of them needs a developer.') }}</p>
+                <span class="ss-ps-eyebrow">{{ $c['onboarding.hero.eyebrow'] }}</span>
+                <h1 class="ss-ps-hero__title">{{ $c['onboarding.hero.title'] }}</h1>
+                <p class="ss-ps-lede">{{ $c['onboarding.hero.lede'] }}</p>
             </div>
         </div>
     </section>

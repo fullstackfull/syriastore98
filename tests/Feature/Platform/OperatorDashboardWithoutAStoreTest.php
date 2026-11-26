@@ -129,7 +129,16 @@ class OperatorDashboardWithoutAStoreTest extends SecurityTestCase
 
         $body = (string) $response->getContent();
 
-        foreach ([__('Total Store') => $expected['stores'], __('Total Plan Orders') => $expected['orders'], __('Total Plans') => $expected['plans']] as $label => $count) {
+        /*
+         * `Total Merchants`, NOT `Total Store`. The figure is unchanged -- it is still
+         * `countCompany()`, a count of type-`admin` USER rows, and that is still what this test
+         * builds its expectation from. Only the card's words changed, because "Total Store" named
+         * the wrong thing: `stores` is a separate table and one merchant owns N of them. The
+         * reasoning and the measurement are in `OperatorDashboardCardLabelsTest`. The pairing
+         * below is deliberately unchanged in strength: it still requires the label and the number
+         * to be in the same card.
+         */
+        foreach ([__('Total Merchants') => $expected['stores'], __('Total Plan Orders') => $expected['orders'], __('Total Plans') => $expected['plans']] as $label => $count) {
             $this->assertMatchesRegularExpression(
                 '/' . preg_quote($label, '/') . '<\/h2>\s*<h3[^>]*>\s*' . $count . '\s*<\/h3>/u',
                 $body,

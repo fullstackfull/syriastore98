@@ -17,9 +17,9 @@
     <section class="ss-ps-hero">
         <div class="ss-ps-wrap">
             <div class="ss-ps-hero__inner">
-                <span class="ss-ps-eyebrow">{{ __('Commerce platform') }}</span>
-                <h1 class="ss-ps-hero__title">{{ __('Open your shop online, and run the whole business from one place.') }}</h1>
-                <p class="ss-ps-lede">{{ __('Store Syria gives a merchant three things that work together: a public shop with its own address and theme, a dashboard for products, orders and customers, and an admin app for the phone. Arabic and English throughout, right to left where it should be.') }}</p>
+                <span class="ss-ps-eyebrow">{{ $c['home.hero.eyebrow'] }}</span>
+                <h1 class="ss-ps-hero__title">{{ $c['home.hero.title'] }}</h1>
+                <p class="ss-ps-lede">{{ $c['home.hero.lede'] }}</p>
                 <div class="ss-ps-actions">
                     <a class="ss-ps-btn ss-ps-btn--primary ss-ps-btn--lg" href="{{ route('platform.pricing') }}">{{ __('See plans and prices') }}</a>
                     <a class="ss-ps-btn ss-ps-btn--quiet ss-ps-btn--lg" href="{{ route('platform.onboarding') }}">{{ __('How it works') }}</a>

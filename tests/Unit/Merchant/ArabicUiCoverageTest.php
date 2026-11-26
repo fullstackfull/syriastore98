@@ -57,6 +57,18 @@ class ArabicUiCoverageTest extends TestCase
         // caught it because `resources/views/customer/` was not scanned. A coverage test is only
         // as wide as its list, which is the one way this kind of check quietly stops working.
         'resources/views/customer/*.blade.php',
+
+        /*
+         * GAP-104's official-site content editor. Added because its strings were invisible to this
+         * census for the SAME reason the comment three lines above records: the glob list is the
+         * scan, so a new directory is simply not looked at. `resources/views/platform/*.blade.php`
+         * is non-recursive, so `platform/content/` was unscanned and fourteen of that screen's
+         * sixteen new strings would have shipped untranslated with this test green.
+         *
+         * That is now the third time this list has been the thing at fault rather than the code it
+         * measures. A coverage test is only as wide as its list.
+         */
+        'resources/views/platform/content/*.blade.php',
         'resources/views/components/ss/*.blade.php',
         // P2-05-6. The report screens became a Phase 02 surface when they were put on the
         // design system; before that nothing scanned them, so every figure, column header and
@@ -101,6 +113,51 @@ class ArabicUiCoverageTest extends TestCase
         'resources/views/customer_segments/*.blade.php',
         // MKT-007, added with the surface itself for the same reason as the line above.
         'resources/views/recovery_queue/*.blade.php',
+
+        // ADDED 2026-11-25, GAP-100 / P03-B-07, and this pair is the clearest case this list has
+        // ever had for the warning it already repeats twice.
+        //
+        // `theme_customize/` holds the theme editor's section-order screen. Commit 5608bd54 gave
+        // that screen its keyboard path and introduced FIVE user-visible strings, every one of
+        // them correctly wrapped in `__()` — and no glob here matched the directory, so all five
+        // rendered in ENGLISH for an Arabic merchant and nothing said so. `__()` does not warn.
+        // MEASURED before this line was added: four of the five absent from ar.json (the fifth,
+        // ':section moved to position :n of :total', is invisible to `collectKeys()` because keys
+        // beginning with a colon are skipped as non-literals — see the note on that skip below).
+        //
+        // `attribute_option/` is the design-system pilot screen and the second of the two
+        // sortables GAP-100 names. MEASURED before adding: all 24 of its `__()` strings already
+        // have Arabic, so that glob closes a LATENT gap rather than a live one — it is added in
+        // the same change that puts new strings on the screen, which this file's own comments
+        // call the only time the list has ever been widened before a gap existed.
+        'resources/views/theme_customize/*.blade.php',
+        'resources/views/attribute_option/*.blade.php',
+
+        // ADDED 2026-11-26 WITH GAP-060 / P02-I4, in the same change that put new strings on these
+        // screens -- which this list's own comments call the only honest time to widen it.
+        //
+        // P02-I4 ("short task-oriented instructions") had been delivered on the product editor
+        // only, and the gap sentence names orders, shipping and staff. The instructions now on the
+        // role-permission matrix, the two shipping-method modals, the two shipping-zone modals and
+        // the coupon code group are user-visible sentences on screens NO glob here matched, so
+        // every one of them could have rendered in English for an Arabic merchant with this test
+        // green -- exactly the failure the `theme_customize` note three paragraphs above records.
+        //
+        // MEASURED BEFORE ADDING, with `collectKeys()`'s own extraction: shipping 18 keys,
+        // shipping_method 13, shippingzone 19, roles 23, coupon 44 -- and ZERO of the 117 missing
+        // from ar.json. So these five globs close a LATENT gap and turn nothing red; the one live
+        // Arabic defect on this surface was a WRONG translation rather than a missing one
+        // ('Manual' => 'دليل', a manual as in a handbook, on four coupon-code radios where the word
+        // means by hand), which no key-presence census can see and which is fixed in the same
+        // change.
+        //
+        // `shipping/` carries no choice group and gained no string here; its glob is added anyway
+        // because it is the same merchant surface and was equally unscanned.
+        'resources/views/shipping/*.blade.php',
+        'resources/views/shipping_method/*.blade.php',
+        'resources/views/shippingzone/*.blade.php',
+        'resources/views/roles/*.blade.php',
+        'resources/views/coupon/*.blade.php',
     ];
 
     /**
@@ -158,8 +215,25 @@ class ArabicUiCoverageTest extends TestCase
                     }
                     $key = str_replace(["\\'", '\\"'], ["'", '"'], $raw);
 
-                    // `__($variable)` and `__(':placeholder')` are not literal strings to translate.
-                    if (str_starts_with($key, ':')) {
+                    /*
+                     * A BARE PLACEHOLDER IS NOT A STRING TO TRANSLATE. A KEY THAT MERELY BEGINS
+                     * WITH ONE IS.
+                     *
+                     * TIGHTENED 2026-11-25. This was `str_starts_with($key, ':')`, which skipped
+                     * every key whose first character is a colon — and that is a hole, not a
+                     * filter. MEASURED across all 18 globs above: TEN keys were being skipped,
+                     * including ':count left, above the low-stock level of :threshold.',
+                     * ':n notifications you have not read' and the two reorder announcements this
+                     * change adds. All ten happen to be translated already, so closing the hole
+                     * turns nothing red — but a sentence that opens with a value is an ordinary
+                     * sentence, and until now this census was blind to the whole class of them.
+                     *
+                     * `__($variable)` never reached here in the first place: the pattern above
+                     * only matches a QUOTED literal, so a variable argument never produces a key.
+                     * What is genuinely not translatable is a literal that is nothing but a
+                     * placeholder, e.g. `__(':duration')`, and that is what this now skips.
+                     */
+                    if (preg_match('/^:[a-zA-Z_][a-zA-Z0-9_]*$/', $key) === 1) {
                         continue;
                     }
 

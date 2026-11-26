@@ -805,7 +805,26 @@ class FinanceAdjustmentAccountabilityTest extends TestCase
          * The expected text is COMPUTED the way the framework computes it, not pasted, so this
          * case does not break when the suite locale changes.
          */
-        $expected = __('validation.required', ['attribute' => 'payment status']);
+        /*
+         * GAP-149 -- THE ATTRIBUTE IS NOW THE SCREEN'S OWN WORD, NOT THE COLUMN NAME.
+         *
+         * This was `['attribute' => 'payment status']`, which is what Laravel derives from the
+         * field name. The validator in `StoreFinanceController::updateFinancialPaymentStatus()`
+         * now declares the attribute as `__('Payment Status')`, because the derived form put the
+         * raw snake-cased English column name inside an Arabic sentence
+         * (`القيمة المحددة لـ payment status غير صحيحة.` -- measured by driving the route). So the
+         * English message a merchant reads moved from "The payment status field is required." to
+         * "The Payment Status field is required.", and this case follows the change rather than
+         * pinning the old wording.
+         *
+         * STILL COMPUTED, NEVER PASTED, AND FROM THE SAME CALL THE CONTROLLER MAKES -- so a change
+         * of locale, of the `Payment Status` translation, or of the framework's message template
+         * cannot make this assertion wrong in a way that looks like a defect. The Arabic half is
+         * `EntitlementStateBilingualScreenTest::test_the_refusal_names_the_field_in_the_merchants_own_language`,
+         * which is the case that actually failed before the fix: under `en` this message is
+         * readable either way.
+         */
+        $expected = __('validation.required', ['attribute' => __('Payment Status')]);
 
         $this->assertNotSame('validation.required', $expected,
             'PREMISE: the validation language file did not resolve, so the string below would be a '

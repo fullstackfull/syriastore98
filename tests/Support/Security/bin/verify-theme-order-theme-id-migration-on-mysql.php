@@ -66,6 +66,26 @@ if ($opt['socket'] === null) {
 $root = dirname(__DIR__, 4);
 $name = 'p3m3d_order_' . getmypid();
 
+/*
+ * ROLL THIS MIGRATION BACK BY PATH, NOT BY POSITION.
+ *
+ * This used to be `--step=1`, which reverts the single most recent migration. That was
+ * correct only while 2026_11_15_000100 WAS the most recent one. Ten migrations have landed
+ * after it since, so --step=1 reverted `add_acknowledgement_to_plan_purchase_intents_table`
+ * instead and this script measured the wrong migration's down(): section 2's premise went
+ * INCONCLUSIVE and section 3 reported 3 FAILs that read as 'the rollback leaves the column
+ * behind' -- which is NOT true of this migration. Worse, section 3's two PASSES were void in
+ * the same way: 'the rollback completes without errno 1553' held against a rollback of
+ * something else entirely.
+ *
+ * --path filters which migrations rollback will revert; the step count only has to be large
+ * enough to keep this one inside the candidate set, since `migrate` puts every migration in
+ * ONE batch. Measured on MariaDB 10.11 after the change: 20 checks, 0 failed, 0 inconclusive.
+ */
+const ROLLBACK_THIS_MIGRATION = 'migrate:rollback --force --no-interaction'
+    . ' --path=database/migrations/2026_11_15_000100_add_theme_id_to_theme_customize_orders_table.php'
+    . ' --step=500';
+
 const TABLE = 'theme_customize_orders';
 const INDEX = 'tco_store_theme_page_index';
 const FK_INDEX = 'theme_customize_orders_store_id_foreign';
@@ -224,7 +244,7 @@ try {
 
     /* Build the pre-M3-D state by rolling this one migration back, then seed legacy rows. */
     [$code, $out] = artisan($root, $opt, $name,
-        'migrate:rollback --force --no-interaction --step=1');
+        ROLLBACK_THIS_MIGRATION);
 
     if ($code !== 0) {
         fwrite(STDERR, implode("\n", array_slice($out, -14)) . "\n");
@@ -294,7 +314,7 @@ try {
         ->fetchAll(PDO::FETCH_COLUMN);
 
     [$code, $out] = artisan($root, $opt, $name,
-        'migrate:rollback --force --no-interaction --step=1');
+        ROLLBACK_THIS_MIGRATION);
 
     check('the rollback completes without errno 1553 -- the M3-B failure, where dropping a '
         . 'composite index left the foreign key with none',

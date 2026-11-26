@@ -379,6 +379,39 @@ class DashboardFigureHonestyTest extends SecurityTestCase
     //  5 — THE STORAGE CARD
     // ---------------------------------------------------------------------------------------
 
+    /**
+     * THE SENTENCE A SUB-KILOBYTE FILE PRODUCES, AND WHY THE THREE CASES BELOW CANNOT SEE IT.
+     *
+     * All three fixtures below store exactly 12 MB, and `(string) 12.0` is already `"12"` -- so
+     * every one of them passes whether the view formats the figure or concatenates the raw float.
+     * MEASURED: mutating the view back to raw concatenation left all three green. They pin the
+     * sentence SHAPE; they cannot pin the formatting, which is the half this slice broke.
+     *
+     * A one-byte upload stores 9.5367431640625E-7 MiB, and PHP stringifies that WITH AN EXPONENT.
+     * Raw concatenation renders "9.5367431640625E-7 MB used" to the merchant; the formatter renders
+     * "0.000001 MB used". That difference is what this case exists to hold, and it is the only
+     * assertion on this screen that distinguishes the two.
+     */
+    public function test_a_sub_kilobyte_usage_is_not_shown_to_the_merchant_as_an_exponent(): void
+    {
+        $oneByteInMebibytes = \App\Support\Storage\StorageUsage::mebibytes(1);
+
+        $this->assertStringContainsString('E-', (string) $oneByteInMebibytes,
+            'PREMISE: this figure no longer stringifies with an exponent, so a raw concatenation '
+            . 'would look identical to a formatted one and this test would prove nothing.');
+
+        $this->merchant->plan_id = null;
+        $this->merchant->storage_limit = \App\Support\Storage\StorageUsage::persist($oneByteInMebibytes);
+        $this->merchant->save();
+        (new User)->flushCache();
+
+        $body = $this->dashboardAs(User::find($this->merchant->id));
+
+        $this->assertStringNotContainsString('E-7', $body,
+            'the storage note still prints scientific notation to a merchant');
+        $this->assertStringContainsString('0.000001 MB used', $body);
+    }
+
     public function test_the_storage_card_does_not_claim_a_quota_of_zero(): void
     {
         $this->merchant->plan_id = null;

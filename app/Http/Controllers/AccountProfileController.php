@@ -43,9 +43,38 @@ class AccountProfileController extends Controller
 
     public function index(Request $request)
     {
-        if (auth('customers')->user()) {
-            $store = getStore($request->route('storeSlug'));            
-            $recent_orders = Order::where('customer_id', auth('customers')->user()->id)->take(10)->orderBy('created_at', 'desc')->get();
+        $store = getStore($request->route('storeSlug'));
+        $customer = $this->shopper($store);
+
+        if ($customer) {
+            /*
+             * THE SAME SHAPE THE TICKET LIST AND BOTH ORDER PICKERS WERE JUST REPAIRED FOR, one
+             * screen away and unrepaired. Raised by the independent review of that change.
+             *
+             * This read `Order::where('customer_id', …)` with NO store predicate and
+             * `auth('customers')->user()` as a bare presence test. `Order` is absent from
+             * `config/tenancy.php`'s `scoped_models` and the storefront resolves no tenant, so
+             * nothing narrowed it: the account dashboard printed the reference, date, status and
+             * total of this shopper's orders from EVERY store they had ever used, into whichever
+             * storefront they happened to open -- and `account.blade.php` links each one to
+             * `route('order.details', [$store->slug, …])`, i.e. the CURRENT store's order door for
+             * another store's order. The list and the door it links to disagreed, which is exactly
+             * the classification the ticket list carried.
+             *
+             * `shopper($store)` rather than a presence test, for the reason CLAUDE.md records: a
+             * merchant's or driver's Sanctum token passes `custom.auth` while `auth('customers')`
+             * stays null, and a presence test cannot refuse a customer bound to another store.
+             * The three neighbouring handlers already carry the store; this one was the odd one out.
+             *
+             * `is_guest` is deliberately NOT added here. That is the read-versus-write question
+             * `ownedOrder()`'s own docblock reasons about, and the store predicate is the hole.
+             */
+            $recent_orders = Order::where('customer_id', $customer->id)
+                ->where('store_id', $store->id)
+                ->take(10)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
             return view('front_end.pages.account', compact('store', 'recent_orders'));
         } else {
             return redirect()->back()->with('error', __('kindly please login  and explore our website'));
@@ -734,13 +763,78 @@ public function city_list(Request $request, $slug)
     // wishlist end
 
     //support-ticket start
+    /**
+     * THE ONE TICKET HANDLER THAT HAD NO OWNERSHIP PREDICATE, AND IT IS THE SCREEN ALL THE OTHERS
+     * ARE REACHED FROM.
+     *
+     * It read `SupportTicket::where('customer_id', auth('customers')->user()->id)` -- the customer
+     * and nothing else. `StoreScope` adds no predicate on a storefront request (`MODE_UNRESOLVED` ->
+     * `null_tenant => 'open'`), so the list had no store bound from any source, while every door it
+     * links to -- edit, reply, update, delete, attachment-delete -- resolves through `ownedTicket()`,
+     * which requires the ROUTE's store. The screen therefore printed Edit and Reply buttons for
+     * rows those handlers answer "Ticket not found" for. Two shapes of it, both structural and now
+     * driven in `ShopperTicketDeskStoreBoundaryTest`:
+     *
+     *   - the `customers` guard is ONE session across every storefront, so a store-A shopper opening
+     *     store B's support page was served their own store-A ticket titles in store B's chrome; and
+     *   - `customers.store_id` is NULLABLE and `shopper()` admits a NULL-store customer at every
+     *     store, so such a shopper's list genuinely spanned the stores they had used.
+     *
+     * The list now asks the same question `ownedTicket()` does, minus the id: this customer, and
+     * (this store OR a NULL store), with the store from the ROUTE. `withoutGlobalScopes()` for the
+     * same reason as there -- the isolation is THESE predicates, and leaving the scope attached would
+     * let it substitute for them under a test whose default guard is `customers`.
+     *
+     * NOT A PRESENCE TEST: the principal comes from `shopper($store)`, which is the `customers` guard
+     * only and refuses a customer bound to another store, so a merchant's or driver's token (which
+     * `CustomAuth` logs into `web`/`deliveryboy`) resolves no shopper here and gets the guest branch.
+     *
+     * A NULL customer `store_id` still passes `shopper()`, deliberately: P1-SEC-71 (f, 5) records
+     * that requiring a non-null one is a behaviour change for legacy rows, and this is a read.
+     *
+     * AND `$store` IS NEVER NULL ON A REACHABLE REQUEST -- measured rather than assumed, because the
+     * route parameter is optional (`{storeSlug?}/support-ticket`) and the obvious reading is that a
+     * slug-less or unknown-slug visit falls into the guest branch and silently stops listing a
+     * signed-in shopper's tickets. Both were driven: `GET /support-ticket` and
+     * `GET /no-such-store-slug/support-ticket` each raise `NotFoundHttpException` before this handler
+     * runs, so there is no request for which the narrowing takes a working page away.
+     */
     public function support_ticket(Request $request, $slug)
     {
         $store = getStore($slug);
-        if (auth('customers')->user()) {
-            $tickets = SupportTicket::where('customer_id', auth('customers')->user()->id)->orderBy('id', 'desc')->paginate(10);
+        $customer = $this->shopper($store);
+        if ($customer) {
+            $tickets = SupportTicket::withoutGlobalScopes()
+                ->where('customer_id', $customer->id)
+                ->where(fn ($q) => $q->where('store_id', $store->id)->orWhereNull('store_id'))
+                ->orderBy('id', 'desc')
+                ->paginate(10);
         } else {
-             $tickets = collect();
+            /*
+             * AN EMPTY PAGINATOR, NOT `collect()` -- THIS WAS AN HTTP 500 FOR EVERY ANONYMOUS
+             * VISITOR. This route is declared OUTSIDE the `EnsureCustomerAuthenticated` group in
+             * `routes/customer.php` (it opens on the next line), deliberately, so a guest reaches
+             * this handler. The branch above hands the view a `LengthAwarePaginator`; this one
+             * handed it a bare `Collection`, and `front_end/pages/support_ticket.blade.php` calls
+             * `->onFirstPage()`, `->currentPage()` and `->lastPage()` with no guard. `Collection`
+             * has none of them, so the view raised `BadMethodCallException`. Measured by driving
+             * the real route with no session: 500.
+             *
+             * ITS SIBLINGS WERE CHECKED AND ARE FINE -- `order_list()` and `address()` both answer
+             * 200 for a guest, because `address()` uses `->get()` on both branches so its view
+             * never sees a paginator. The extent is this one route.
+             *
+             * THE EMPTY PAGINATOR RATHER THAN THREE GUARDS IN THE VIEW: the view is written for a
+             * paginator, three separate call sites would each need one, and the next person to add
+             * a fourth would not know to. This also finally makes
+             * `CustomerAccountBoundaryTest`'s stated justification for leaving this route
+             * unauthenticated TRUE -- it says the page "renders an empty list for a guest", which
+             * it did not; it threw.
+             */
+            $tickets = new \Illuminate\Pagination\LengthAwarePaginator([], 0, 10, 1, [
+                'path' => $request->url(),
+                'pageName' => 'page',
+            ]);
         }
         return view('front_end.pages.support_ticket', compact('store', 'slug', 'tickets'));
         // $return['html'] = view('front_end.pages.support_ticket', compact('slug', 'tickets'))->render();
@@ -757,11 +851,9 @@ public function city_list(Request $request, $slug)
         // SEC-INTAKE #188: the two ticket WRITERS resolve through `ownedOrder()`, which now
         // requires `is_guest = 0`, so without this the picker would offer an order the server
         // then answers "Order not found." for -- a UI that disagrees with its own handler. This is
-        // the same rule, not a new one. A separate, pre-existing observation about this query is
-        // recorded in the intake and is deliberately NOT bundled into this change.
-        $orders = Order::where('customer_id', auth('customers')->user()->id)
-            ->where('is_guest', 0)
-            ->pluck('product_order_id', 'id');
+        // the same rule, not a new one. The store half of that rule is `pickableOrders()` below --
+        // the "separate, pre-existing observation about this query" this comment used to defer.
+        $orders = $this->pickableOrders($store, $this->shopper($store));
 
         $return['html'] = view('front_end.pages.add_tickets', compact('orders', 'slug', 'order_id'))->render();
         return response()->json($return);
@@ -793,7 +885,9 @@ public function city_list(Request $request, $slug)
         $tickets                 = new SupportTicket();
         $tickets->title          = $request->title;
         $tickets->order_id          = $request->order_id;
-        $tickets->ticket_id = time();
+        // `time()` alone gave two shoppers who submitted in the same second one number, and
+        // `support_tickets.ticket_id` has no unique index: see SupportTicket::newReference().
+        $tickets->ticket_id = SupportTicket::newReference();
         $tickets->description    = $request->description;
         $tickets->status        = 'open';
         $tickets->customer_id       = $customer->id;
@@ -864,14 +958,9 @@ public function city_list(Request $request, $slug)
         if (! $tickets) {
             return $this->notFoundJson(__('Ticket not found'));
         }
-        // SEC-INTAKE #188: the two ticket WRITERS resolve through `ownedOrder()`, which now
-        // requires `is_guest = 0`, so without this the picker would offer an order the server
-        // then answers "Order not found." for -- a UI that disagrees with its own handler. This is
-        // the same rule, not a new one. A separate, pre-existing observation about this query is
-        // recorded in the intake and is deliberately NOT bundled into this change.
-        $orders = Order::where('customer_id', auth('customers')->user()->id)
-            ->where('is_guest', 0)
-            ->pluck('product_order_id', 'id');
+        // The same picker as `add_support_ticket()`, and it was the same unbounded query: see
+        // `pickableOrders()`.
+        $orders = $this->pickableOrders($store, $this->shopper($store));
         $return['html'] = view('front_end.pages.support_ticket_edit', compact('tickets', 'slug', 'orders'))->render();
         return response()->json($return);
     }
@@ -1380,6 +1469,35 @@ public function city_list(Request $request, $slug)
             // `is_guest = 1` whatever its `customer_id` happens to be.
             ->where('is_guest', 0)
             ->first();
+    }
+
+    /**
+     * THE ORDERS THE TICKET FORM MAY OFFER: exactly the set `ownedOrder()` will accept one from.
+     *
+     * Both pickers (`add_support_ticket()`, `edit_support_ticket()`) asked
+     * `Order::where('customer_id', auth('customers')->user()->id)->where('is_guest', 0)` -- the
+     * customer and the guest flag, no store. `Order` is NOT in `config/tenancy.php`'s
+     * `scoped_models`, so `StoreScope` adds nothing for ANY principal, and on a storefront request
+     * it would add nothing anyway. So a shopper's order references from every store they had used
+     * were printed into whichever storefront's form they opened, and picking one of them made the
+     * writer answer "Order not found." -- the UI disagreeing with its own handler, which is the
+     * reason the `is_guest` half of this rule was added to these pickers in the first place.
+     *
+     * An empty set when there is no shopper or no store, rather than an unbounded query: these are
+     * the two pickers, and a picker that cannot name the principal has nothing to offer.
+     *
+     * @return \Illuminate\Support\Collection<int, string>
+     */
+    private function pickableOrders($store, ?\App\Models\Customer $customer): \Illuminate\Support\Collection
+    {
+        if (! $store || ! $customer) {
+            return collect();
+        }
+
+        return Order::where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->where('is_guest', 0)
+            ->pluck('product_order_id', 'id');
     }
 
     /**

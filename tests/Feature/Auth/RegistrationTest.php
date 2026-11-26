@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -38,27 +39,33 @@ use Tests\TestCase;
  * asserts what the product really does -- user, store, tenant pointer and role -- which
  * the stock version never checked.
  *
- * WHAT IS RED HERE, ON PURPOSE: test_new_users_can_register. With the product's REAL
- * payload, registration gets most of the way and then throws. MEASURED:
+ * WHAT USED TO BE RED HERE, AND WHY IT IS NOT ANY MORE (GAP-014, 2026-11-26).
+ * test_new_users_can_register was this suite's LAST declared failure in
+ * `.github/known-test-outcomes.json`, and the entry has been deleted because it passes --
+ * which that gate requires rather than permits.
  *
- *   status=500, but auth=YES -- the user row, the store row and the login all happen,
- *   and THEN:
- *   TypeError: App\Models\User::addRole(): Argument #1 ($role) must be of type
- *   Illuminate\Database\Eloquent\Model|Ramsey\Uuid\UuidInterface|BackedEnum|array|string|int,
- *   null given, called in app/Http/Controllers/Auth/RegisteredUserController.php on line 249
+ * IT WAS A FIXTURE GAP SITTING ON TOP OF A REAL DEFECT, and both halves are addressed.
  *
- * CAUSE, RegisteredUserController.php:248-249:
- *       $role_r = Role::where('name', 'admin')->first();   // null on a fresh database
- *       $user->addRole($role_r);                           // no null guard
+ *   THE FIXTURE GAP. `RefreshDatabase` runs migrations and NOT seeders, so `roles` holds 0
+ *   rows and `Role::where('name', 'admin')->first()` is null in every test -- a state no
+ *   seeded install is ever in. This case is the HAPPY PATH, so it now seeds the role the
+ *   way `PermissionTableSeeder` creates it (one global row, `store_id` null) and asserts
+ *   the provisioning it was always about. It does not weaken anything: the absent-role
+ *   state it used to drive by accident is now driven DELIBERATELY, with far stronger
+ *   assertions, by tests/Feature/Auth/RegistrationRoleProvisioningTest.
  *
- * LIVE IMPACT, and it is a data-integrity defect, not just a 500: the merchant is created,
- * their store is created, they are logged in, and the request then dies before the admin
- * role is attached. The account is left half-provisioned -- authenticated with no role --
- * and the response is a 500, so the merchant has no idea their store exists.
+ *   THE DEFECT. With the role absent, registration did not die -- it SUCCEEDED and
+ *   committed a half-provisioned merchant. An earlier version of this docblock reported a
+ *   `TypeError ... called in RegisteredUserController.php on line 249`; that was corrected
+ *   once already (line 249 is a comment, and both real call sites carried an
+ *   `if ($role_r)` guard with a Log::warning), and the measured outcome was
  *
- * app/ is owned by another agent this phase, so this is recorded as a cross-agent
- * dependency and the test is left RED rather than skipped. It turns green the moment the
- * null guard lands, which makes it the integration signal for that fix.
+ *       status=302, auth=YES, users +1, stores +1, store_wallets +1, role_user 0
+ *
+ *   i.e. a merchant with a real store, a live session, no role and no error. The role
+ *   lookup has moved ABOVE the first write and its absence now refuses the whole
+ *   registration, so neither call site tolerates a null and the half-provisioned row is
+ *   never created.
  */
 class RegistrationTest extends TestCase
 {
@@ -78,13 +85,27 @@ class RegistrationTest extends TestCase
     }
 
     /**
-     * CORRECTED to the product's real contract, and RED on the line-249 null guard
-     * described in the class docblock. Asserts the whole provisioning outcome, because
+     * CORRECTED to the product's real contract, and GREEN since GAP-014 closed the fixture
+     * gap described in the class docblock. Asserts the whole provisioning outcome, because
      * "is the user authenticated" was never the interesting half of this test in a
      * product where registering creates a tenant.
      */
     public function test_new_users_can_register(): void
     {
+        /*
+         * THE FIXTURE THE SEEDER WOULD HAVE PROVIDED. `RefreshDatabase` runs migrations and not
+         * seeders, so without this `roles` is empty and registration is REFUSED -- correctly, and
+         * that refusal is asserted in its own right by RegistrationRoleProvisioningTest. This is
+         * the happy path, so it establishes the production precondition instead of driving a
+         * broken install by accident. Created exactly as PermissionTableSeeder creates it: one
+         * global row with a null `store_id`.
+         */
+        Role::create(['name' => 'admin', 'created_by' => null]);
+
+        $this->assertSame(1, Role::where('name', 'admin')->count(),
+            'premise: the admin role was not seeded, so this case drives the absent-role refusal '
+            . 'and not the registration it is named for.');
+
         $response = $this->post('/register', [
             'name' => 'Test User',
             'email' => 'test@example.com',
@@ -110,14 +131,15 @@ class RegistrationTest extends TestCase
 
         $this->assertTrue(
             $user->fresh()->hasRole('admin'),
-            'The merchant was created and logged in but never got the admin role. '
-            . 'MEASURED: Role::where(\'name\', \'admin\')->first() is NULL on a fresh test '
-            . 'database -- RefreshDatabase runs migrations, not seeders, so `roles` holds 0 rows '
-            . '-- and the `if ($role_r)` guard at RegisteredUserController.php:179/:310 '
-            . 'therefore SKIPS addRole. The request does NOT die: POST /register returns 302 and '
-            . 'the user, the store and the login are all committed, leaving a merchant with no '
-            . 'role and no error. An earlier version of this message blamed an unguarded '
-            . 'addRole at :249; that line is a comment and both real call sites ARE guarded.'
+            'The merchant was created and logged in but never got the admin role, although the '
+            . 'role was seeded above -- so the assignment itself has broken. This assertion '
+            . 'carried this suite\'s last declared CI failure until GAP-014 (2026-11-26). Two '
+            . 'things kept it red and both are gone: the fixture never seeded the role (fixed '
+            . 'above), and when the role was absent registration SUCCEEDED anyway -- 302, '
+            . 'authenticated, users +1, stores +1, store_wallets +1, role_user 0 -- because both '
+            . 'addRole call sites tolerated the null. The lookup now happens before the first '
+            . 'write and refuses the registration, which is asserted by '
+            . 'tests/Feature/Auth/RegistrationRoleProvisioningTest.'
         );
 
         $response->assertRedirect(route('dashboard', absolute: false));

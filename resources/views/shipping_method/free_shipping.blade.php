@@ -10,7 +10,13 @@
     </div>
     <div class="form-group col-md-12">
         {!! Form::label('FreeShipping', __('Free shipping requires'), ['class' => 'form-label']) !!}
-        {!! Form::select('shipping_requires', $Free_shipping, null, ['class' => 'form-control','id' => 'FreeShipping','placeholder' => 'Select Free Shipping Requires']) !!}
+        {!! Form::select('shipping_requires', $Free_shipping, null, ['class' => 'form-control','id' => 'FreeShipping','placeholder' => 'Select Free Shipping Requires','aria-describedby' => 'FreeShipping-help']) !!}
+        {{-- GAP-060 / WS I4. `for="FreeShipping"` matches the select's EXPLICIT `id`, not the field
+             name: konekt/html returns the given id ahead of the name, and the script at the foot of
+             this file drives the minimum-amount row from `#FreeShipping`. The second sentence is
+             what that script does -- options 3, 4 and 5 reveal `#mini_cost` and options 1 and 2
+             hide it -- so the merchant is told why a field appears and disappears. --}}
+        <x-ss.field-help for="FreeShipping">{{ __('Choose what a customer must do to earn free shipping. Some choices also ask for a minimum order amount.') }}</x-ss.field-help>
     </div>
     <div class="form-group col-md-12" id="mini_cost">
         {!! Form::label('cost', __('Minimum order amount'), ['class' => 'form-label']) !!}

@@ -3,6 +3,8 @@ title: المخزون والتوفّر
 order: 3
 summary: ماذا يحدث مع نقصان المخزون، وعند الصفر.
 related: products/variants-and-options, orders/how-an-order-moves
+updated: 2026-11-25
+status: published
 ---
 
 ## ينقص المخزون عند إنشاء الطلب

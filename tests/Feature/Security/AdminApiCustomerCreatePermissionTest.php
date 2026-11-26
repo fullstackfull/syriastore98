@@ -393,10 +393,19 @@ class AdminApiCustomerCreatePermissionTest extends SecurityTestCase
     }
 
     // =============================================================================================
-    //  AND THE SIBLING THAT IS NOT AFFECTED — checked, not assumed
+    //  AND THE SIBLING — WHICH WAS AFFECTED AFTER ALL, on 2026-11-25
+    //  ---------------------------------------------------------------------------------------------
+    //  This heading said "NOT AFFECTED" when `updateCustomerInfo` still decided access by `type`.
+    //  P4-F114 replaced that with the same two-limb permission gate, so the sibling now shares this
+    //  file's subject rather than sitting beside it.
     // =============================================================================================
 
-    public function test_update_customer_refuses_staff_because_it_checks_the_type(): void
+    /*
+     * RENAMED 2026-11-25. It was `..._because_it_checks_the_type`, and that NAME is now false: the
+     * type check is gone. A test name is read far more often than its body, and this one asserted
+     * the opposite of what it says -- the refusal it pins is the PERMISSION gate's.
+     */
+    public function test_update_customer_still_refuses_unpermitted_staff_now_through_the_permission_gate(): void
     {
         $existing = Customer::forceCreate([
             'first_name' => 'Existing', 'last_name' => 'Shopper',
@@ -411,9 +420,29 @@ class AdminApiCustomerCreatePermissionTest extends SecurityTestCase
                 'first_name' => 'Renamed',
             ]);
 
-        $this->assertSame(401, $response->getStatusCode(),
-            'updateCustomerInfo():9123 restricts type to admin/super admin. If this changes, the '
-            . 'gap recorded in this file has grown a second site');
+        /*
+         * 401 -> 403 ON 2026-11-25, AND THIS TRIPWIRE FIRED EXACTLY AS IT WAS WRITTEN TO.
+         *
+         * Its old message said "if this changes, the gap recorded in this file has grown a second
+         * site". It did change, and the opposite happened: P4-F114 was FIXED. `updateCustomerInfo`
+         * used to decide access with `in_array($adminUser->type, ['admin','super admin'])` -- a TYPE
+         * CHECK STANDING IN FOR A PERMISSION CHECK, and wrong in both directions: it admitted every
+         * `type='admin'` row, which is every self-registered merchant, regardless of what they were
+         * granted, and refused every staff member regardless of what they were granted. It now runs
+         * the two-limb gate on `Manage Customer`.
+         *
+         * SO THE STATUS IS NOT A COSMETIC CHANGE. A 401 here force-clears the shipped Flutter app's
+         * session, so a staff member who tapped "save" on a customer was logged out of the whole
+         * app rather than told no. That was the user-visible half of F114, and fixing only the
+         * status would have left the type check -- which is why both moved together.
+         *
+         * The second assertion below is unchanged and still carries the real claim: whatever the
+         * status, the write must not have happened.
+         */
+        $this->assertSame(403, $response->getStatusCode(),
+            'updateCustomerInfo no longer refuses an unpermitted staff member with a 403. If this '
+            . 'is a 401 again, the type check is back and the shipped app will log merchants out; '
+            . 'if it is 200, the gate is gone');
 
         $this->assertSame('Existing', (string) self::rows()->find($existing->id)->first_name,
             'the refusal did not prevent the write');

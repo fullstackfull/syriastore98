@@ -1,0 +1,149 @@
+/* =================================================================================================
+   STOREFRONT KEYBOARD LAYER — BYPASS BLOCKS AND A VISIBLE FOCUS INDICATOR.     GAP-095 / P03-A-04
+   =================================================================================================
+
+   WHAT THIS FIXES, MEASURED IN THE THEME SOURCES RATHER THAN ASSUMED.
+
+   All three storefront themes remove the focus indicator and put NOTHING in its place:
+
+       themes/stylique/assets/css/main-style.css:124    a:focus-visible { outline: none; }
+       themes/techzonix/assets/css/main-style.css:237   button { outline: none !important; }
+       themes/stylique  ...:239  themes/greentic ...:445  themes/techzonix ...:364
+                                                        .form-input { outline: none; }
+       all three                                        .select2-container--default
+                                                          .select2-search--dropdown
+                                                          .select2-search__field:focus
+                                                            { outline: none !important; }
+
+   The stylique rule is the one that matters most: a bare `a:focus-visible { outline: none }` with
+   no replacement declaration, in the theme `config/theme.php` ships as `active`. On the default
+   storefront a keyboard user could not see which link they were on, anywhere, in either language.
+   That is a flat WCAG 2.4.7 (Focus Visible, AA) failure on every page.
+
+   WHY THIS FILE IS LOADED AFTER THE THEME SHEET, AND WHY IT DECLARES `!important`.
+
+   The storefront loads Tailwind's runtime JIT CDN (`themes/<theme>/assets/js/tailwind.js`), which
+   injects its utilities into the document at runtime — after every stylesheet in <head>. The
+   storefront markup carries `outline-none` / `focus:outline-none` 30 times across 11 views, and
+   Tailwind's `outline-none` is `outline: 2px solid transparent`: present, invisible, and a 2.4.7
+   failure with no replacement exactly as `none` is. A single-class utility injected later beats an
+   equal-specificity rule on source order, so matching specificity is not enough. `!important` is
+   used here for the same measured reason `public/css/storefront-appearance.css` uses it, and only
+   on the declarations that must beat a utility or a theme's own `!important`.
+
+   COLOURS COME FROM THE DESIGN SYSTEM'S TOKENS, NOT FROM HEX IN THIS FILE.
+
+   `--ss-focus-ring` is `--ss-blue-500` (#4f77c0, 4.44:1 on white) in light and `--ss-cyan-400`
+   (#68cbe1, 8.27:1 on the dark page) under `[data-ss-theme="dark"]` and the `auto` +
+   `prefers-color-scheme` arm. Both clear the 3:1 that WCAG 1.4.11 asks of a focus indicator, in
+   both appearances, without this file knowing anything about either. The `var()` fallbacks are for
+   the one layout that does not load the design system — `resources/views/front_end/layouts/
+   app.blade.php`, which omits the appearance partial — so the ring is visible there too.
+
+   DIRECTION. Every offset is a logical property. The skip link is hidden by a VERTICAL transform
+   and placed with `inset-inline-start`, so it comes from the top in both directions and lands in
+   the leading corner of each: top-left in English, top-right in Arabic. A `left: 0` here would put
+   it over the logo in one direction and `transform: translateX(-200%)` would send it ON SCREEN in
+   RTL instead of off it.
+   ================================================================================================= */
+
+/* ---------------------------------------------------------------------------------------------
+   1. BYPASS BLOCKS — WCAG 2.4.1 (A).
+
+   Hidden with a transform rather than `display: none`, `visibility: hidden` or the `hidden`
+   attribute: all three remove the element from the tab order, which would make the control
+   decorative. Off-screen-until-focused is the only technique that keeps it reachable.
+   --------------------------------------------------------------------------------------------- */
+
+.ss-skip-link {
+    position: fixed;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    z-index: 10000;
+
+    /* Vertical, so it is direction-agnostic. See the header. */
+    transform: translateY(-200%);
+
+    display: inline-block;
+    padding: 0.625rem 1rem;
+
+    /* A 44px target once padding and line-height are counted; the design system's own floor. */
+    min-block-size: 44px;
+    line-height: 1.5;
+
+    font-size: 1rem;
+    font-weight: 600;
+    text-decoration: underline;
+
+    background: var(--ss-surface, #ffffff);
+    color: var(--ss-fg, #1a1d23);
+    border: 1px solid var(--ss-border, #d8dce2);
+    border-start-start-radius: 0;
+    border-end-end-radius: 0.375rem;
+}
+
+/* `:focus`, NOT `:focus-visible`. A skip link that only appears for the heuristic's idea of a
+   keyboard user is useless to a switch device or an on-screen keyboard that focuses it some other
+   way. There is no mouse interaction to protect here: the control is off-screen until focused. */
+.ss-skip-link:focus {
+    transform: translateY(0);
+    outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, #4f77c0);
+    outline-offset: calc(var(--ss-focus-offset, 2px) * -1);
+}
+
+/* ---------------------------------------------------------------------------------------------
+   2. FOCUS VISIBLE — WCAG 2.4.7 (AA) and 1.4.11 (AA).
+
+   `:focus-visible` for everything a pointer can also activate, so a mouse click does not paint a
+   ring; plain `:focus` for the select2 search field, which select2 focuses programmatically when
+   the dropdown opens and which therefore never matches the heuristic.
+   --------------------------------------------------------------------------------------------- */
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+label:focus-visible,
+[role="button"]:focus-visible,
+[role="link"]:focus-visible,
+[role="tab"]:focus-visible,
+[tabindex]:focus-visible,
+.form-input:focus-visible,
+.select2-container--default .select2-search--dropdown .select2-search__field:focus,
+.select2-container--default .select2-selection--single:focus {
+    outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, #4f77c0) !important;
+    outline-offset: var(--ss-focus-offset, 2px) !important;
+}
+
+/* Windows High Contrast / forced-colors throws away author colours, including the ring's. The
+   system keyword is the only value that survives, and without this arm the indicator disappears
+   again for exactly the users most likely to be running that mode. */
+@media (forced-colors: active) {
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    summary:focus-visible,
+    [tabindex]:focus-visible,
+    .ss-skip-link:focus {
+        outline: 3px solid Highlight !important;
+        outline-offset: 2px !important;
+    }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   3. THE SKIP TARGET.
+
+   `<main tabindex="-1">` is what makes the link actually move the keyboard position rather than
+   only the viewport, and a programmatic focus on a container has no business painting a ring —
+   the user did not navigate to it, they navigated PAST something. The ring is suppressed for that
+   one element only, and only when focus arrived programmatically (`:focus` without
+   `:focus-visible`), so tabbing never loses an indicator.
+   --------------------------------------------------------------------------------------------- */
+
+main[tabindex="-1"]:focus:not(:focus-visible) {
+    outline: none;
+}

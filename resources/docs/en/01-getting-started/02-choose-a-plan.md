@@ -3,6 +3,8 @@ title: Choose a plan
 order: 2
 summary: What a plan decides, and how to read its limits.
 related: getting-started/create-your-first-store, your-account/plan-limits
+updated: 2026-11-25
+status: published
 ---
 
 ## What a plan decides

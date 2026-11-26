@@ -2803,7 +2803,38 @@ public function store(Request $request)
             ->select('delivered_status', DB::raw('count(*) as c'))
             ->groupBy('delivered_status')
             ->pluck('c', 'delivered_status')
-            ->mapWithKeys(fn ($c, $s) => [(int) $s => (int) $c]);
+            /*
+             * THE KEY IS THE RAW STATUS, NOT `(int) $s`, AND THE CAST WAS A MEASURED DEFECT: the
+             * board COUNTED an order it could never DRAW.
+             *
+             * `Api\ApiController` writes the literal `'-'` into `orders.delivered_status` for a
+             * storefront order placed without one. `(int) '-'` is 0, so the cast FOLDED such a row
+             * into the Pending column's count -- its header read `(1)` and a spurious "See all 1 in
+             * the list" overflow link appeared -- while the bucket query below is
+             * `where('delivered_status', $status)` and `'-' = 0` is FALSE on both engines, so no
+             * card rendered there. A merchant saw a column claiming an order they could not open.
+             *
+             * DROPPING UNKNOWN VALUES WOULD HAVE BEEN WRONG, and a first draft of this fix did
+             * exactly that before `OrderKanbanTest::test_an_unknown_status_is_shown_rather_than_
+             * dropped` refused it. This board has an ESTABLISHED rule in the opposite direction:
+             * the loop below iterates `$counts->keys()` precisely because that is "every value the
+             * table actually holds", so a status the pipeline does not name still gets its own
+             * bucket and stays reachable. Routing the count through
+             * `FulfilmentStateMachine::stateOf()` -- which answers null outside 0..8 -- would have
+             * removed that back door and stranded the row completely, trading a wrong count for a
+             * missing order.
+             *
+             * KEEPING THE RAW KEY SATISFIES BOTH RULES AT ONCE and is the whole fix: `'-'` gets its
+             * own entry, so the back door renders it, AND Pending's count no longer includes it.
+             * PHP converts a numeric string key to an int on insertion, so the integer lookups at
+             * `$bucket(...)` below are unaffected -- which is what the cast was there for.
+             *
+             * GAP-254's REMAINING HALF IS A PRODUCT DECISION AND IS NOT SETTLED HERE: what such a
+             * bucket should be LABELLED, given its heading is derived from a status vocabulary that
+             * does not contain the value. Today it falls through to the board's existing
+             * unknown-status handling, which is the behaviour the test above pins.
+             */
+            ->mapWithKeys(fn ($c, $s) => [$s => (int) $c]);
 
         $pipeline = [
             HomeController::ORDER_STATUS_PENDING,
@@ -2835,7 +2866,14 @@ public function store(Request $request)
          * five orders in two statuses, and firing nine bucket queries at it would turn one query
          * into ten to fix a problem it does not have.
          */
-        $bucket = fn (int $status) => ($counts[$status] ?? 0) === 0
+        /*
+         * NOT `fn (int $status)`, because the column holds values that are not integers and the
+         * aside below is documented to name them "with their raw value". `Api\ApiController` writes
+         * the literal `'-'`; an `int` hint coerced it to 0 here, so the bucket asked
+         * `where('delivered_status', 0)` -- which `'-' = 0` does not satisfy on either engine -- and
+         * the row drew no card. The pipeline statuses still arrive as ints and are unaffected.
+         */
+        $bucket = fn ($status) => ($counts[$status] ?? 0) === 0
             ? collect()
             : (clone $query)->where('delivered_status', $status)->limit(self::BOARD_COLUMN_CAP)->get();
 
@@ -2864,8 +2902,21 @@ public function store(Request $request)
          * the back door. `$counts->keys()` is every value the table actually holds.
          */
         foreach ($counts->keys() as $status) {
-            $status = (int) $status;
-
+            /*
+             * THE CAST THAT USED TO BE HERE IS THE SECOND HALF OF GAP-254, and it defeated the very
+             * loop it sat in. `(int) '-'` is 0, and 0 IS in `$pipeline` -- so the condition below
+             * was false, no aside bucket was built, and an order carrying the literal `'-'` was
+             * counted (before the key fix above) and never drawn. The back door worked for 99,
+             * which casts to 99 and is outside the pipeline, and failed for the one value a shipped
+             * handler actually writes.
+             *
+             * The comment immediately above says these rows "go to the aside with their raw value
+             * named". The cast contradicted that sentence two lines later, so the fix is to honour
+             * the stated intent rather than to add a rule: no cast, strict comparison against the
+             * pipeline, raw key into `$aside`. PHP converts a numeric string key to an int on
+             * insertion, so a status of `'4'` still matches the pipeline's `4` and cannot
+             * accidentally open a second bucket.
+             */
             if (! in_array($status, $pipeline, true) && ! array_key_exists($status, $aside)) {
                 $aside[$status] = $bucket($status);
             }

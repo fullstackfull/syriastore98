@@ -1,0 +1,242 @@
+[
+  {
+    "name": "editor-index-en-dark",
+    "url": "/platform/site-content",
+    "status": 200,
+    "premise": true,
+    "dir": "ltr",
+    "lang": "en",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-legal-en-dark",
+    "url": "/platform/site-content/legal",
+    "status": 200,
+    "premise": true,
+    "dir": "ltr",
+    "lang": "en",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-contact-en-dark",
+    "url": "/platform/site-content/contact",
+    "status": 200,
+    "premise": true,
+    "dir": "ltr",
+    "lang": "en",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-index-en-dark",
+    "url": "/platform/site-content",
+    "status": 200,
+    "premise": true,
+    "dir": "ltr",
+    "lang": "en",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-legal-en-dark",
+    "url": "/platform/site-content/legal",
+    "status": 200,
+    "premise": true,
+    "dir": "ltr",
+    "lang": "en",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-contact-en-dark",
+    "url": "/platform/site-content/contact",
+    "status": 200,
+    "premise": true,
+    "dir": "ltr",
+    "lang": "en",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-index-ar-dark",
+    "url": "/platform/site-content",
+    "status": 200,
+    "premise": true,
+    "dir": "rtl",
+    "lang": "ar",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-legal-ar-dark",
+    "url": "/platform/site-content/legal",
+    "status": 200,
+    "premise": true,
+    "dir": "rtl",
+    "lang": "ar",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-contact-ar-dark",
+    "url": "/platform/site-content/contact",
+    "status": 200,
+    "premise": true,
+    "dir": "rtl",
+    "lang": "ar",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-index-ar-dark",
+    "url": "/platform/site-content",
+    "status": 200,
+    "premise": true,
+    "dir": "rtl",
+    "lang": "ar",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-legal-ar-dark",
+    "url": "/platform/site-content/legal",
+    "status": 200,
+    "premise": true,
+    "dir": "rtl",
+    "lang": "ar",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  },
+  {
+    "name": "editor-contact-ar-dark",
+    "url": "/platform/site-content/contact",
+    "status": 200,
+    "premise": true,
+    "dir": "rtl",
+    "lang": "ar",
+    "theme": "dark",
+    "bodyBg": "rgb(34, 36, 44)",
+    "hasMarker": true,
+    "lowContrast": 0,
+    "low": [],
+    "gradientText": [],
+    "offOrigin": [
+      "https://unpkg.com/leaflet/dist/leaflet.css",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"
+    ],
+    "consoleErrors": []
+  }
+]

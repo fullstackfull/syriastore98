@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
-use App\Services\PaytmTransactionVerifier;
+use App\Services\Payments\Reconciliation\PaytmCaptureVerifier;
+use App\Services\Payments\Reconciliation\PlanPurchaseSettlement;
+use App\Services\Payments\Reconciliation\ReconciliationOutcome;
 use App\Services\PlanPurchaseIntent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -111,9 +112,20 @@ class PaymentCallbackController extends Controller
         }
 
         /* ---------------------------------------------------------------- PROOF 1: AUTHENTICITY */
-        $providerSays = app(PaytmTransactionVerifier::class)->verify($reference);
+        /*
+         * THROUGH `PaytmCaptureVerifier`, WHICH LOADS THE PLATFORM'S STORED CREDENTIALS FIRST.
+         *
+         * This called `PaytmTransactionVerifier` directly, and that verifier reads
+         * `config('services.paytm-wallet.merchant_key')` -- a key only
+         * `PaytmPaymentController::paymentConfig()` ever sets, and only `if (\Auth::check())`. This
+         * route has no session by design, so a real callback always met an EMPTY key, was answered
+         * `UNVERIFIABLE`, and had a terminal refusal recorded against a payment the provider had
+         * captured. `PaytmPlatformCredentials` has the measurement; the adapter is the fix, and it
+         * is the same one the reconciliation command uses for the same reason.
+         */
+        $answer = app(PaytmCaptureVerifier::class)->verify($reference);
 
-        if ($providerSays['state'] !== PaytmTransactionVerifier::VERIFIED) {
+        if (! $answer->isVerified()) {
             /*
              * UNVERIFIABLE IS A REFUSAL, which is D-31's fail-closed requirement and requirement 8.
              * An unreachable status endpoint, a bad checksum, a malformed response: none of them
@@ -122,100 +134,204 @@ class PaymentCallbackController extends Controller
              * The refusal is recorded against the intent so a captured payment that cannot be
              * confirmed does not become invisible — the same reasoning as the browser path's.
              */
-            PlanPurchaseIntent::recordRefusal(
+            /*
+             * RECOVERABLE, NOT TERMINAL -- CORRECTED AFTER INDEPENDENT REVIEW, and the reviewer was
+             * right that this was the asymmetry that mattered.
+             *
+             * This called `recordRefusal()`, which sets `refused` on ANY non-consumed intent and is
+             * TERMINAL: the retry dies on `where('status', PENDING)`. It ran with NO PURCHASER SCOPE
+             * and before any ownership check, on a reference taken from the request -- so whoever
+             * could name a pending reference closed that purchase for good, and an unreachable
+             * status endpoint was enough to do it by accident.
+             *
+             * `PlanPaymentReconciler` already answers the identical provider state by writing
+             * nothing, precisely because an answer that could not be obtained says nothing about
+             * the money. Two doors disagreeing about the same answer is how a captured payment gets
+             * destroyed by the more careless one. This now keeps the intent open with its reason,
+             * which `unreconciled()`'s fourth clause surfaces and `payments:reconcile` can finish.
+             */
+            PlanPurchaseIntent::recordRecoverableRefusal(
                 'Paytm',
                 $reference,
-                'callback provider verification ' . $providerSays['state'] . ': ' . $providerSays['reason']
+                'callback provider verification ' . $answer->state . ': ' . $answer->reason
             );
 
             Log::warning('Paytm plan callback refused: the provider did not confirm the payment.', [
-                'state' => $providerSays['state'],
-                'reason' => $providerSays['reason'],
+                'state' => $answer->state,
+                'reason' => $answer->reason,
                 'reference' => $reference,
             ]);
 
             return response()->json(['status' => 'refused'], 202);
         }
 
-        /* ------------------------------- PROOFS 2, 3 and 4: BINDING, REPLAY and CONCURRENCY ---- */
-        [$state, $intent, $reason] = PlanPurchaseIntent::consumeForProviderCallback(
-            'Paytm',
-            $reference,
-            (string) $providerSays['amount'],
-            (string) ($providerSays['currency'] ?? ''),
-            $providerSays['txn_id'] ?? null
-        );
+        $intent = PlanPurchaseIntent::find('Paytm', $reference);
 
-        if ($state !== PlanPurchaseIntent::VERIFIED) {
-            if ($state === PlanPurchaseIntent::REFUSED_RECOVERABLE) {
-                /*
-                 * KEPT OPEN BUT NOT INVISIBLE. The currency comparison is against a platform
-                 * DISPLAY label Paytm is never sent and never echoes, so a difference there is a
-                 * misconfiguration; closing the intent over it would destroy a captured payment.
-                 */
-                PlanPurchaseIntent::recordRecoverableRefusal('Paytm', $reference, $reason);
-            } else {
-                PlanPurchaseIntent::recordRefusal('Paytm', $reference, 'callback: ' . $reason,
-                    $providerSays['txn_id'] ?? null,
-                    $intent->user_id ?? null);
-            }
-
+        if ($intent === null) {
+            /* The same answer the intent itself gives, and for the same reason: saying more would
+               tell a prober whether a reference is real. */
             Log::warning('Paytm plan callback refused at the intent.', [
-                'state' => $state,
-                'reason' => $reason,
+                'state' => PlanPurchaseIntent::UNVERIFIABLE,
+                'reason' => 'no intent exists for this provider and reference',
                 'reference' => $reference,
             ]);
 
-            /*
-             * 200 FOR AN ALREADY-CONSUMED INTENT, because a provider retrying a delivery it already
-             * made is not an error and telling it otherwise invites an endless retry. Any other
-             * refusal is 202: accepted, not acted on.
-             */
-            return response()->json(['status' => $state], 200);
+            return response()->json(['status' => PlanPurchaseIntent::UNVERIFIABLE], 200);
         }
 
-        /* ------------------------------------------------------------------------- ACTIVATION -- */
-        $purchaser = User::find($intent->user_id);
-
-        if ($purchaser === null) {
+        /* --------------------- PROOFS 2, 3 and 4, AND THE SETTLEMENT: ONE WRITER, ONE TRANSACTION */
+        /*
+         * `PlanPurchaseSettlement` -- THE SAME WRITER THE RECONCILIATION USES, NOT A SECOND ONE.
+         *
+         * It consumes the intent through `PlanPurchaseIntent::consumeForProviderCallback()`, so the
+         * binding, the exact amount comparison and the single conditional UPDATE are the ones this
+         * callback always relied on, and the MariaDB race evidence still covers them. What it adds
+         * is what this controller did not do:
+         *
+         *   - it WRITES THE PLAN ORDER and attaches it to the intent. This activated a plan and
+         *     recorded no sale: nothing in `plan_orders`, and an intent left `consumed` with no
+         *     order -- which `unreconciled()` reports as a captured payment with nothing to show.
+         *   - it is ONE TRANSACTION. This consumed the intent, then looked for the purchaser, then
+         *     assigned the plan; a failure after the first step left a spent intent nobody could
+         *     retry. Now a failure rolls the consumption back and the reconciliation can finish it.
+         *   - it checks the purchaser and the plan BEFORE spending the intent.
+         */
+        if ($intent->status !== PlanPurchaseIntent::PENDING) {
             /*
-             * THE INTENT IS ALREADY CONSUMED AT THIS POINT, so this cannot be retried — and that is
-             * the correct trade. The alternative is leaving the intent open while a plan may or may
-             * not have been activated, which is the ambiguity `unreconciled()` exists to prevent.
-             * A deleted purchaser with a captured payment is a human's problem, and it is logged as
-             * one rather than guessed at.
+             * A PROVIDER RETRYING A DELIVERY IT ALREADY MADE IS THE ORDINARY CASE, NOT AN EMERGENCY.
+             *
+             * Found by the independent financial review and confirmed by execution: without this,
+             * `settle()` ran, its preflight found the plan order the FIRST delivery had written, and
+             * control fell through to the terminal arm — which answers `accepted` and logs
+             * **CRITICAL "this needs a human"** for a purchase that completed perfectly. A provider
+             * that retries daily would have produced one critical alert a day for a working
+             * payment, which is how a critical channel stops being read.
+             *
+             * `PlanPaymentReconciler` already answers a non-pending intent this way
+             * (`NOT_ELIGIBLE`, no provider asked). The two doors now agree.
              */
-            Log::critical('Paytm plan callback: the payment is verified and the intent consumed, but the purchaser no longer exists. The plan was NOT activated and this needs a human.', [
+            Log::info('Paytm plan callback re-presented for an intent that is no longer pending; nothing to do.', [
                 'reference' => $reference,
-                'intent_user_id' => $intent->user_id,
+                'status' => $intent->status,
             ]);
 
-            return response()->json(['status' => 'accepted'], 200);
+            return response()->json(['status' => $intent->status], 200);
+        }
+
+        $outcome = app(PlanPurchaseSettlement::class)->settle($intent, $answer, null, 'provider-callback');
+
+        if ($outcome->isSettled()) {
+            Log::info('Paytm plan callback activated a plan.', [
+                'reference' => $reference,
+                'user_id' => $intent->user_id,
+                'plan_id' => $intent->plan_id,
+                'plan_order_id' => $outcome->evidence['plan_order_id'] ?? null,
+            ]);
+
+            return response()->json(['status' => 'activated'], 200);
+        }
+
+        if ($outcome->kind === ReconciliationOutcome::DISCREPANCY && $outcome->discrepancy === ReconciliationOutcome::AMOUNT) {
+            PlanPurchaseIntent::recordRefusal(
+                'Paytm',
+                $reference,
+                'callback: ' . $outcome->reason,
+                $answer->transactionId,
+                $intent->user_id ?? null
+            );
+
+            Log::warning('Paytm plan callback refused at the intent.', [
+                'state' => PlanPurchaseIntent::REFUSED_MISMATCH,
+                'reason' => $outcome->reason,
+                'reference' => $reference,
+            ]);
+
+            return response()->json(['status' => PlanPurchaseIntent::REFUSED_MISMATCH], 200);
+        }
+
+        if ($outcome->kind === ReconciliationOutcome::DISCREPANCY && $outcome->discrepancy === ReconciliationOutcome::CURRENCY) {
+            /*
+             * KEPT OPEN BUT NOT INVISIBLE. The currency comparison is against a platform DISPLAY
+             * label Paytm is never sent and never echoes, so a difference there is a
+             * misconfiguration; closing the intent over it would destroy a captured payment.
+             */
+            PlanPurchaseIntent::recordRecoverableRefusal('Paytm', $reference, $outcome->reason, $intent->user_id ?? null);
+
+            Log::warning('Paytm plan callback refused at the intent.', [
+                'state' => PlanPurchaseIntent::REFUSED_RECOVERABLE,
+                'reason' => $outcome->reason,
+                'reference' => $reference,
+            ]);
+
+            return response()->json(['status' => PlanPurchaseIntent::REFUSED_RECOVERABLE], 200);
+        }
+
+        if ($outcome->kind === ReconciliationOutcome::ALREADY_SETTLED) {
+            /*
+             * 200 FOR AN ALREADY-CONSUMED INTENT, because a provider retrying a delivery it already
+             * made is not an error and telling it otherwise invites an endless retry.
+             */
+            Log::warning('Paytm plan callback refused at the intent.', [
+                'state' => PlanPurchaseIntent::REFUSED_MISMATCH,
+                'reason' => $outcome->reason,
+                'reference' => $reference,
+            ]);
+
+            return response()->json(['status' => PlanPurchaseIntent::REFUSED_MISMATCH], 200);
         }
 
         /*
-         * THE EXISTING ENGINE, NOT A COPY. `User::assignPlan()` is what the browser path calls and
-         * what every other provider calls. No plan-activation rule is re-expressed here.
+         * VERIFIED, AND STILL NOT SETTLED: a purchaser or a plan that no longer exists, a
+         * transaction that is already somebody's order, or a settlement that raised and was rolled
+         * back. The payment is real and nothing was granted, so it needs a person -- and it is
+         * written onto the intent, in the server's own words, so `unreconciled()` shows them.
+         *
+         * THE INTENT IS LEFT `pending`, which is a change and a deliberate one. This used to consume
+         * it first and then give up, on the reasoning that an open intent beside a possibly-activated
+         * plan is ambiguous. Inside one transaction there is no "possibly": nothing was activated,
+         * so nothing is ambiguous, and an intent that is still open is one the reconciliation
+         * command can finish the moment the cause is put right.
          */
-        $assigned = $purchaser->assignPlan($intent->plan_id);
-
-        if (empty($assigned['is_success'])) {
-            Log::critical('Paytm plan callback: the payment is verified and the intent consumed, but assignPlan refused. This needs a human.', [
+        if ($outcome->kind === ReconciliationOutcome::ACKNOWLEDGED) {
+            /*
+             * A PERSON HAS ALREADY DEALT WITH THIS PAYMENT, so this is a working outcome and not a
+             * fault. It needs its own arm because an acknowledged intent is still `pending`, so the
+             * non-pending short-circuit above does not catch it, and falling through to the terminal
+             * arm did two wrong things -- found by independent review:
+             *
+             *   1. `recordRecoverableRefusal()` OVERWROTE `failure_reason`, destroying the
+             *      reconciliation reason that recorded why a person was needed in the first place
+             *      and replacing it with the operator's own acknowledgement text.
+             *   2. `Log::critical(... needs a human)` fired ONCE PER PROVIDER RETRY for a payment a
+             *      human had already resolved -- the same alert fatigue the non-pending
+             *      short-circuit above was added to prevent.
+             *
+             * 200, because the provider's delivery succeeded and a retry would change nothing.
+             */
+            Log::info('Paytm plan callback: the payment was already dealt with by a person.', [
                 'reference' => $reference,
-                'user_id' => $purchaser->id,
-                'plan_id' => $intent->plan_id,
-                'reason' => $assigned['message'] ?? '',
+                'intent_user_id' => $intent->user_id,
+                'reason' => $outcome->reason,
             ]);
 
-            return response()->json(['status' => 'accepted'], 200);
+            return response()->json(['status' => ReconciliationOutcome::ACKNOWLEDGED], 200);
         }
 
-        Log::info('Paytm plan callback activated a plan.', [
+        PlanPurchaseIntent::recordRecoverableRefusal(
+            'Paytm',
+            $reference,
+            'callback: ' . $outcome->kind . ': ' . $outcome->reason,
+            $intent->user_id ?? null
+        );
+
+        Log::critical('Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human.', [
             'reference' => $reference,
-            'user_id' => $purchaser->id,
+            'intent_user_id' => $intent->user_id,
             'plan_id' => $intent->plan_id,
+            'outcome' => $outcome->kind,
+            'reason' => $outcome->reason,
         ]);
 
-        return response()->json(['status' => 'activated'], 200);
+        return response()->json(['status' => 'accepted'], 200);
     }
 }

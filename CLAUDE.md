@@ -2,7 +2,7 @@
 
 Multi-tenant Laravel e-commerce SaaS. Laravel 11.57 on PHP 8.3, built on the vendored **WorkDo
 eCommerceGo** addon platform (70 modules under `packages/workdo/`). A second repository,
-`StoreSyria_app98`, is the shipped **admin** Flutter app. **Resuming or new account? Read `docs/development/HANDOFF-CURRENT.md` §13 first — Phase 01 engineering is CLOSED.**
+`StoreSyria_app98`, is the shipped **admin** Flutter app. **Resuming or new account? Read `docs/development/PROJECT-STATE.md` first** — its NEXT EXECUTABLE ACTION block is the canonical handoff; scope is the WHOLE project, not just the branch's phase.
 
 The full analysis lives in `docs/`. This file is the short version of what will bite you, and it
 records only things verified by reading or executing the code.
@@ -79,10 +79,8 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Tests and modules**
 
-- **No WorkDo module loads in any test run** unless the test inserts an `add_on_managers` row, so
-  the suite is structurally blind to module code: a test that "passes" against a module surface may
-  never have reached it. Enable it through the production loader and add a premise test.
-- **MOST of `ReportController` cannot run under the suite** — 37 `MONTH(`/10 `YEAR(` in `selectRaw`, absent from SQLite, so those handlers answer **HTTP 500** in a Feature test. That is how 3,660 lines with zero `payment_status` predicates and an 18-site date-boundary bug survived 9,112 tests. **"AT ALL" was too strong and cost a real disposition** (2026-11-21): `order_category_reports` (1893-2360) and `order_brand_reports` (2382-2903) hold **0** MySQL-only constructs, so those two ARE suite-reachable — check your handler's own range before concluding it is untestable.
+- **A module is LOADED and REACHABLE by two different mechanisms, and this said only one.** Most WorkDo modules load only if the test inserts an `add_on_managers` row, so the suite is structurally blind to their code: a test that "passes" against such a surface may never have reached it. **But `LynomiaChat` and `LandingPage` are in `PackageServiceProvider::register()`'s `$staticAddons`, so their provider, routes and views resolve with that table EMPTY** — measured 2026-11-26, both directions asserted. What the row controls is *reachability*: `ActivatedModule()` intersects the owner's activations with `Module::getByStatus(1)`, which IS `AddOnManager::where('is_enable', …)`, so a merchant with the table empty resolves nothing and every gate answers `redirect()->route('dashboard')` — **HTTP 200 on the dashboard, which a status-code assertion photographs as the screen.** So assert the LANDED PATH, not the status, and add a premise test for whichever half you depend on. Three further traps, each one red run: `XSS::handle()`'s updater gate sends a `super admin` to `LaravelUpdater::welcome` under `RefreshDatabase` (98 pending migrations) — reuse `SecurityTestCase::satisfyUpdaterGate()`; that helper calls `allModules()` in `setUp`, and `Module::find()` is `Cache::rememberForever`, so a row inserted afterwards changes nothing anything reads; and `module_is_active()` resolves its principal from `Auth::check()` first, so from a test body with nobody signed in it returns false while the row count, `has`, `isEnabled` and `getByStatus` all read true.
+- **MOST of `ReportController` cannot run under the suite** — 37 `MONTH(`/10 `YEAR(` in `selectRaw`, absent from SQLite, so those handlers answer **HTTP 500** in a Feature test. That is how 3,660 lines with zero `payment_status` predicates and an 18-site date-boundary bug survived 9,112 tests. **"AT ALL" was too strong and cost a real disposition** (2026-11-21): `order_category_reports` (2281-2797) and `order_brand_reports` (2871-3426) hold **0** MySQL-only constructs, so those two ARE suite-reachable — check your handler's own range before concluding it is untestable.
   Evidence for the unreachable ones goes in `tests/Support/Security/bin/`, never a test.
 
 **Model caching**
@@ -90,6 +88,7 @@ Each of these has produced a real defect. Do not assume the framework default.
 - **79 of the 95 models in `app/Models/` are `Cachable`** — assume cached; the 16 exceptions are `AuditLog`, `CurrencyRate`, `DeliveryBoy{Device,Notification}`, `DeliveryEarning`, `OtpIntegration`, `Permission`, `Role`, `SavedView`, `Store{Device,Notification,Wallet,WalletTransaction,Withdrawal}`, `Zid{Event,Store}`. A raw write (`DB::table('products')->update()`) leaves Eloquent reads, **route-model binding included**, serving the pre-write row, and under `CACHE_STORE=array` it lives for the rest of the test: **three measured false readings**. Write through Eloquent (it flushes) or `(new User)->flushCache()`; `$model->timestamps = false` keeps an explicit past `updated_at`.
 - Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`, so `Cache::forget('admin_details')` between a fixture and a request or it sees the pre-fixture `User`.
 - **Compiled Blades are a THIRD cache and reverse mutation results.** Blade recompiles only when the source's mtime is **newer**, and `shutil.copy` does not preserve mtime — so copy→run→`move` back renders the *previous* version. Measured 2026-11-21: a reverted `<th scope="row">` mutation stayed live, failing a test against correct source; the other direction reads as **CAUGHT** when the test never saw it. Use `tests/Support/bin/mutate.py` (restores mtime, runs `view:clear`); by hand, `php artisan view:clear`.
+- **The Blade COMPILER is a second trap: three 500s, none of whose messages mentioned a comment.** `compileString()` runs `storeUncompiledBlocks()` **before** `compileComments()`, both non-greedy over the whole file — so the raw-PHP directive's NAME inside a `{{-- --}}` comment opens a raw block to the next closing directive, a comment delimiter inside a comment makes the prose after it live, and `storePhpBlocks()` ignores which form opened a block, so a paired block in a one-line-form file pairs `@endphp` with an assignment far above (`kanban-card.blade.php` is one-line-only for this). `php -l` the APPLICATION's compiled output; a standalone compiler lacks `@permission` and misleads.
 
 **Scoped models — check before asserting absence**
 
@@ -101,16 +100,16 @@ Each of these has produced a real defect. Do not assume the framework default.
 | `Cart` | yes | yes | **yes** |
 | `DeliveryBoy` | yes | yes | **yes** |
 | `Menu`, `SupportTicket`, `SupportConversion`, `FlashSaleCondition`, `ThemeCustomizeOrder`, `NotifyUser`, `OrderRefund`, `OrderNote` | yes | yes | **yes** |
-| `Product` | yes | **no** | **NO** |
-| `Order`, `Store`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog`, `Testimonial` | no | no | no |
+| `Product`, `Category` | yes | **no** | **NO** |
+| `Order`, `Store`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog`, `Testimonial`, `ProductImage` | no | no | no |
 
 **Wrong about `DeliveryBoy` and silent about eight more until 2026-11-24, when an adversarial verifier refused it; `tests/Unit/Tenancy/ClaudeMdScopedModelClaimTest` now re-measures every row against the booted container, in both directions.**
 
 `StoreScope::isActiveFor()` short-circuits for a model that is not in `config/tenancy.php`'s
-`scoped_models`, so **`Product` adds no predicate for any principal** — not a customer, not a
-merchant, not the operator, not an admin-context request. `Product::find($id)` reaches every
-tenant's catalogue, which produced a live cross-tenant stock drain (S19) that the `customer_id`
-sweep missed because it was looking at the wrong identifier.
+`scoped_models`, so **`Product` and `Category` add no predicate for ANY principal** — yet
+`getGlobalScopes()` answers `[StoreScope]` for both, so checking *that* asks the wrong question.
+`Product::find($id)` reaches every tenant's catalogue (the S19 stock drain) and `Category` is why
+`sub_category` needed a predicate (GAP-234); **no scope at all** is how a bare `find($id)` deleted any store's review (GAP-242) and priced a quote from any customer's address (GAP-243/235).
 
 The ELEVEN that *do* filter matter for **assertions** (this said "two"): a plain
 `Customer::find()`, `Cart::find()` or `SupportTicket::find()` in a test answers against whichever
@@ -120,8 +119,7 @@ while the raw table still held it. Assert through `withoutGlobalScopes()`.
 
 **Schema**
 
-- **The migrations are not the schema.** This file claimed `delivery_boys` lacks both commission
-  columns; the restored dump refuted it. Check `Schema::hasColumn()`, and a dump first.
+- **The migrations are not the schema, and a migration's WORDING is not its column.** This file claimed `delivery_boys` lacks both commission columns; the dump refuted it. And **`$table->float()` emits a MySQL `double`** — measured on MariaDB 10.11, `2500000.49` round-trips exactly — so money off such a column is NOT `MetricCaveat::FLOAT_PRECISION`'s basis; a caveat was attached and withdrawn on exactly that. Check `Schema::hasColumn()`, a dump, and `SHOW CREATE TABLE`.
 - `customers.password_otp` is `INTEGER` but the web reset writes a 60-char bcrypt hash (P01-SEC-13,
   migration prepared, **not applied**).
 - **GATE F is CLOSED (2026-11-02).** All 15 tables and 3 columns have migrations whose structure is
@@ -155,14 +153,15 @@ while the raw table still held it. Assert through `withoutGlobalScopes()`.
 ## 3. Tests
 
 ```bash
-php artisan test --testsuite=Unit        # 1079 tests, ~50s. CI RUNS THIS FIRST AND BLOCKS ON IT
-php artisan test --testsuite=Contract    # 27 tests — the Flutter API contract. Also blocking
-php artisan test --testsuite=Feature     # 7959 tests, ~9 min. SKIPPED ENTIRELY if Unit is red
+php artisan test --testsuite=Unit        # 6524 tests +1 skip, ~2 min. CI RUNS THIS AND BLOCKS
+php artisan test --testsuite=Contract    # 58 tests — the Flutter API contract. Also blocking
+php artisan test --testsuite=Feature     # 12500 tests, ~32 min. SKIPPED ENTIRELY if Unit is red
 /tenant-check                            # tenancy + security suites (see .claude/commands)
 ```
 
-**The Feature suite is not green and is not meant to be.** It has **1 accepted failure and 1
-accepted skip** (2 until 2026-11-20, 17 until GATE F closed), declared by name in `.github/known-test-outcomes.json`,
+**The Feature suite is not green and is not meant to be.** It has **0 accepted failures and 1
+accepted skip** (the failure set emptied 2026-11-25 when GAP-014 closed the registration defect its
+last entry recorded; an empty set is NOT a licence to park the next red test there) (2 until 2026-11-20, 17 until GATE F closed), declared by name in `.github/known-test-outcomes.json`,
 which *requires* a resolved entry to be deleted. The gate asserts the
 outcome *set* in both directions — an undeclared failure *and* an unexpectedly-passing declared
 failure both fail it:
@@ -182,7 +181,7 @@ P01-SEC-13 survived. For anything schema-sensitive, use a real MySQL:
 `tests/Support/Security/bin/verify-sec13-migration-on-mysql.php` shows the pattern (it creates and
 drops its own throwaway database).
 
-**A CENSUS THAT READS COMMENTS CAN BE SATISFIED — OR BROKEN — BY PROSE ABOUT THE THING IT MEASURES.** Hit **four times on 2026-11-21 alone**, in three syntaxes: a PHP docblock naming `MerchantPermissions::allowsAny`, a Blade comment containing the literal `` `<a>` `` while explaining that the call was moved *out* of an anchor, and a CSS comment recording that a draft had used `position: relative`. Use `Tests\Support\StripsSourceComments::sourceWithoutComments()` for PHP; strip `{{-- --}}` for Blade and `/* */` for CSS (`ProductActionOverlayTest` has both). **Scope the search to the block too:** an assertion over a whole 7,000-line stylesheet answers "does this string exist anywhere", and a mutation dropping one component's 44px target survived because another component had the same rule.
+**A CENSUS THAT READS COMMENTS CAN BE SATISFIED — OR BROKEN — BY PROSE ABOUT THE THING IT MEASURES.** Hit **eight times**, four on 2026-11-21 alone, in three syntaxes: a PHP docblock naming `MerchantPermissions::allowsAny`, a Blade comment containing the literal `` `<a>` `` while explaining that the call was moved *out* of an anchor, and a CSS comment recording that a draft had used `position: relative`. Use `Tests\Support\StripsSourceComments::sourceWithoutComments()` for PHP; strip `{{-- --}}` for Blade and `/* */` for CSS (`ProductActionOverlayTest` has both). **Scope the search to the block too:** an assertion over a whole 7,000-line stylesheet answers "does this string exist anywhere", and a mutation dropping one component's 44px target survived because another component had the same rule. **AND AN ABSOLUTE LINE CITATION GOES STALE ON ANY INSERTION ABOVE IT — only the ones a TEST covers will say so.** A 14-line guard at `Setting.php:29` (2026-11-26) broke all eight `Setting.php:<n>` citations in docs and comments; the gateway table's ratchet caught the one it tests, 35 minutes into a REQUIRED CI job, and the other seven were silent. Measure drift against the commit's own parent (`git show <sha>^:<file>`) — `HEAD~1` is past it once later commits leave the file alone.
 
 Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as an executable script stating its own preconditions — a conditionally-skipped test would break the declared set.
 
@@ -195,10 +194,12 @@ Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as 
 | 01 Foundation | security, CI, regression gates, design-system foundation | engineering complete (2026-10-24), **NOT release-ready or accepted** |
 | 02 Merchant Experience | merchant dashboard, product/order UX, preferences, search, notifications, onboarding, web and Flutter parity | **owner authorised isolated engineering (2026-10-25); not authorised to merge/release** |
 | 02.5 Premium Merchant UI/UX | a separately approved FUTURE polish stage over Phase 02's surfaces | **not started — must not be merged into Phase 02** |
-| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO, **plus a separately scoped Official Website and a bilingual Documentation Center** | not started |
-| 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | not started |
-| 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | not started |
-| 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin, **plus premium Super Admin UX** | not started |
+| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO, **plus a separately scoped Official Website and a bilingual Documentation Center** | engineering under way on the branch; **14 of 36** requirements verified. Not authorised to merge or release |
+| 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | engineering under way on the branch; **18 of 43** requirements verified. Not authorised to merge or release |
+| 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | engineering under way on the branch; counted with 06 below. Not authorised to merge or release |
+| 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin, **plus premium Super Admin UX** | engineering under way on the branch (14 documents under `docs/development/phase-6/`); **05 and 06 together: 1 of 35** requirements verified. Not authorised to merge or release |
+
+This table read "not started" for 03–06 until 2026-11-26, with 48 requirements already verified against 03 and 04 — one "State" column cannot carry §4.1's four states. Figures come from `MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`'s per-phase rows. **No phase after 02 is authorised to merge or release.** **"Phase 6" names three different things here** (`GAP-181`) — this phase, `docs/discovery/09-DEVELOPMENT-ROADMAP.md` §9's "Arabic & Storefront Experience" (older 0–9 roadmap, subject matter Phase **03**'s), and the Lynomia project's own. A completion report for either of the others is not Phase 06 delivery; all three quoted from source in `docs/development/phase-6/README.md`.
 
 Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production.
 
@@ -237,7 +238,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
-| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **170 verified complete, 180 not, +20 recovered and untracked = 200 open** |
+| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **181 verified complete, 169 not, +20 recovered and untracked = 189 open** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |
@@ -284,9 +285,8 @@ work everywhere too** — pinned by content hash with every modification disclos
 - **`verification-before-completion`** — evidence before claims. The same rule as "claim only what
   you executed" below, and worth having twice.
 
-Twelve of upstream's fifteen skills were read and rejected, most for introducing a second plan tree
-beside the Phase 01 ledger, two for running `git merge`/`git push`. **There is no vendored planning
-skill and that is deliberate.** Use the ledger and the Issues.
+Twelve of upstream's fifteen were rejected, most for a second plan tree beside the ledger, two for
+running `git merge`/`git push`. **There is no vendored planning skill, deliberately** — use the ledger.
 
 **Design skills, committed on the owner's instruction (Phase 02), so these work everywhere too:**
 `frontend-design` (hash-pinned in `skills-lock.json`), `ui-ux-pro-max`, `design`, `design-system`,
@@ -300,13 +300,11 @@ font and API hosts, one of them an AI image API behind a credential. The host se
 host fails CI so somebody reads it. Phase 02 has called none of them.
 
 **Still absent, so do not write against them:** `laravel-best-practices`,
-`claude-automation-recommender`. This section has been wrong in both directions — #66 found it
-instructing three skills that did not exist, then the fix went stale by calling two absent after
-they were committed. It is a claim about the filesystem, so a test asserts it.
+`claude-automation-recommender`. This section has been wrong in BOTH directions, so a test asserts it.
 
-The full evaluation of candidate additions — twelve tools, each read from its real upstream for
-license, install mechanics, hooks, egress and credentials — is in `docs/tooling/SKILLS-MANIFEST.md`,
-with routing rules and nine hard prohibitions in `docs/tooling/SKILL-USAGE-POLICY.md`. **One is
+The full evaluation of twelve candidates — each read from its real upstream for license, install
+mechanics, hooks, egress and credentials — is `docs/tooling/SKILLS-MANIFEST.md`, with routing rules
+and nine prohibitions in `docs/tooling/SKILL-USAGE-POLICY.md`. **One is
 adopted** (the superpowers subset above). Every other candidate is rejected or deferred, and all of
 them are now settled by an owner decision recorded in the manifest — so do not re-ask, and do not
 install anything else without a new one.
@@ -318,6 +316,6 @@ not be installed**, by owner decision.
 
 The **merchant admin** is **Blade + the vendored Bootstrap 5 WorkDo theme + `public/css/store-syria-ds.css`** — **not Tailwind**. Measured: `@vite` appears in **zero** views, `resources/css/app.css` is referenced nowhere, and there is no `public/build`, so the Tailwind **build** toolchain is installed and never loaded. **The STOREFRONT is different, and this file claimed otherwise until Phase 03 M2 measured it.** Every storefront layout loads `themes/<theme>/assets/js/tailwind.js`, the **runtime JIT CDN**, and the theme markup carries colour as utility classes. Measured on a rendered page: `window.tailwind` is defined and **270–294 rules are injected inline at runtime**. So (a) a utility beats the theme stylesheet on **source order** at equal specificity — tokenising `main-style.css` is necessary and **not sufficient**, which is why `public/css/storefront-appearance.css` exists; and (b) a theme may declare its brand colour **twice**, as `--primary-color` in CSS and again as Tailwind's `primary` in its JS or layout, and the JS value is the one that paints. greentic's two drifted and **18 contrast failures survived a stylesheet that had already been fixed**. techzonix reads the token instead (`hsl(var(--primary))`) and is the pattern to copy. Both are pinned by `tests/Unit/Ui/StorefrontDarkModeLayerTest` and `StorefrontAccessibleNamesTest`; the full analysis is `docs/development/phase-3/PHASE-03-M2-PREMIUM-STOREFRONTS.md`. **There are FOUR copies of `front_end/layouts/app.blade.php`** — one per theme plus the `resources/views` fallback — and the theme's own wins via `Theme::set()` → `prependLocation()`, so a layout-level storefront change must be made four times. `config('theme.active')` is `stylique`, so a store with an empty `theme_id` renders **stylique's** views, not the fallback's. **On the ADMIN side, a layout that `@yield`s never prints a `$slot` it was handed.** Measured 2026-11-10: `layouts/app.blade.php` and `layouts/guest.blade.php` are the WorkDo layouts and contain **zero** `$slot` references, so the two Breeze views still in the `<x-*-layout>` shape rendered **nothing** — perfect chrome, HTTP 200, empty content area, in all four combinations. Both are fixed. **Do not write a new view in that shape**; `tests/Unit/Ui/SlotLayoutViewsRenderTest` fails on it, because the failure is otherwise invisible. Bilingual **Arabic (RTL) and English (LTR)**.
 Any UI change must be checked in both directions, and contrast-checked — Claude B's verification
-found option names rendering at 1.00:1 white-on-white in dark mode.
+found option names rendering at 1.00:1 white-on-white in dark mode. **MEASURE WITH `APP_DEBUG` OFF.** With it on, a contrast harness measures `span.phpdebugbar-badge` at 3.89:1 and reports **four findings per theme** that are not in the product — so any figure taken with debug on is overstated by 8 per surface. Exclude `.phpdebugbar` by ancestor, and say which setting the run used. And a quick colour probe is NOT the instrument: one reported FAIL twice where the real harness read clean, because it measured an anchor's inherited colour on an element that no longer has text, and an un-composited 15% tint. The compositing text-node walk is the instrument.
 
 For security-sensitive changes, use the **`tenant-authz-reviewer`** subagent (`.claude/agents/`).

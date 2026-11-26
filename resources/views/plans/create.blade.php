@@ -18,7 +18,7 @@
                 <h3 class="h4 m-0">{{ __('Add Plan') }}</h3>
                 <div class="d-flex align-items-center justify-content-end flex-wrap g-2">
                     @if (auth()->user()->type == 'super admin' && isset($setting['chatgpt_key']))
-                        <a href="#" class="btn btn-primary btn-badge me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate"
+                        <a href="#" class="ss-btn ss-btn--secondary ss-btn--sm me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate"
                             data-ss-panel-url="{{ route('generate', ['plan']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
                             title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
                             <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
@@ -49,21 +49,21 @@
                             <div class="form-group">
                                 {{ Form::label('max_stores', __('Maximum Store'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::number('max_stores', null, ['class' => 'form-control', 'id' => 'max_stores', 'placeholder' => __('Enter Max Store'), 'required' => 'required']) }}
-                                <span><small class="text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
+                                <span><small class="ss-text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('max_products', __('Maximum Products Per Store'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::number('max_products', null, ['class' => 'form-control', 'id' => 'max_products', 'placeholder' => __('Enter Max Products'), 'required' => 'required']) }}
-                                <span><small class="text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
+                                <span><small class="ss-text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('max_users', __('Maximum Users Per Store'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::number('max_users', null, ['class' => 'form-control', 'id' => 'max_users', 'placeholder' => __('Enter Max User'), 'required' => 'required']) }}
-                                <span><small class="text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
+                                <span><small class="ss-text-danger">{{ __("Note: '-1' for Unlimited") }}</small></span>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -71,9 +71,9 @@
                                 {{ Form::label('storage_limit', __('Storage Limit'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 <div class ='input-group'>
                                     {{ Form::number('storage_limit', null, ['class' => 'form-control', 'id' => 'storage_limit', 'placeholder' => __('Enter Storage Limit'), 'required' => 'required', 'min' => '0']) }}
-                                    <span class="input-group-text bg-transparent">{{ __('MB') }}</span>
+                                    <span class="ss-input-group__suffix">{{ __('MB') }}</span>
                                 </div>
-                                <span><small class="text-danger">{{ __('Note: upload size ( In MB)') }}</small></span>
+                                <span><small class="ss-text-danger">{{ __('Note: upload size ( In MB)') }}</small></span>
                             </div>
                         </div>
                     </div>
@@ -255,7 +255,7 @@
 
                     <div class="modal-footer pb-0">
                         <a href="{{ route('plan.index') }}"class="btn btn-badge btn-secondary">{{ __('Back') }} </a>
-                        <input type="submit" value="{{ __('Create') }}" class="btn btn-badge btn-primary ms-2">
+                        <input type="submit" value="{{ __('Create') }}" class="ss-btn ss-btn--primary ms-2">
                     </div>
                 </div>
             </div>

@@ -209,6 +209,37 @@ public function AddOrderNote(Request $request)
         return $this->storeAccessDenied();
     }
 
+    /*
+     * GAP-142 / P4-F110. THE PERMISSION AXIS. The tenancy repair above (and the one in
+     * `DeleteOrderNote`) closed WHICH STORE; neither closed WHO INSIDE IT. Any authenticated member
+     * of the tenant holding no order-note permission could write a note onto any of that tenant's
+     * orders -- and `note_type` admits `to_customer`, validated three lines above, so this route
+     * writes MERCHANT-TO-SHOPPER text. An unpermitted staff member could put words in the
+     * merchant's mouth to a named customer.
+     *
+     * `Create Order Note` IS THE WEB TWIN'S OWN NAME: `OrderNoteController::store()` authorises
+     * through `OrderNotePolicy::create()`, which is `isAbleTo('Create Order Note')` (`:65`). Seeded
+     * by `Utility.php` in the merchant block and granted to the shared global `admin` role, so no
+     * merchant is locked out in production.
+     *
+     * `Manage Order Note` IS SEEDED AND IS DELIBERATELY NOT ACCEPTED -- the opposite of the choice
+     * the coupon and tax rows made, so here is the reason. On the web it is a READ right and
+     * nothing else: `resources/views/order/view.blade.php:603` wraps the notes SECTION in
+     * `@permission('Manage Order Note')` and then wraps the buttons inside it in
+     * `@permission('Create Order Note')` (`:670`) and `@permission('Delete Order Note')` (`:649`),
+     * and the controller gate never accepts it. The coupon argument -- "the screen's own name
+     * already grants this read, so admitting it to the write adds nobody who cannot already see the
+     * data" -- does not transfer, because here the write is a separate, narrower grant a merchant
+     * ticks on purpose. `Manage Order` is not accepted either: it is the ORDER right, and the web
+     * order screen does not let it write notes.
+     *
+     * ABOVE THE ORDER LOOKUP, so an unpermitted caller cannot use the not-found branch to probe
+     * which order ids exist inside the store.
+     */
+    if (! $this->callerMayActInStore(['Create Order Note'], $store->id)) {
+        return $this->storePermissionDenied();
+    }
+
     $order = Order::query()
         ->where('id', $request->order_id)
         ->where('store_id', $store->id)
@@ -298,6 +329,25 @@ public function DeleteOrderNote(Request $request)
         return $this->storeAccessDenied();
     }
 
+    /*
+     * GAP-142 / P4-F110. THE PERMISSION AXIS, the sibling of the gate in `AddOrderNote` -- read
+     * that one for the reasoning in full, including why `Manage Order Note` is seeded and
+     * deliberately NOT accepted.
+     *
+     * `Delete Order Note` IS THE WEB TWIN'S OWN NAME: `OrderNoteController::destroy()` authorises
+     * through `OrderNotePolicy::delete()`, which is `isAbleTo('Delete Order Note')` (`:92`).
+     *
+     * THE TWO NAMES DO NOT CROSS, deliberately: a staff member granted `Create Order Note` may not
+     * delete, and one granted `Delete Order Note` may not write. `order_notes` has no soft delete,
+     * so a deletion removes the record of what the merchant told a customer.
+     *
+     * ABOVE BOTH LOOKUPS, so an unpermitted caller cannot use the two not-found branches to probe
+     * which order ids and which note ids exist inside the store.
+     */
+    if (! $this->callerMayActInStore(['Delete Order Note'], $store->id)) {
+        return $this->storePermissionDenied();
+    }
+
     $order = Order::query()
         ->where('id', $request->order_id)
         ->where('store_id', $store->id)
@@ -359,6 +409,48 @@ public function DeleteOrderNote(Request $request)
      * forbidden and none that was forbidden became permitted.
      */
     private const MERCHANT_SETTABLE_PAYMENT_STATUSES = ['Paid', 'Unpaid'];
+
+    /**
+     * `orders.delivered_status` => the status WORD the fulfilment state machine governs. GAP-135.
+     *
+     * This door speaks integers and the machine speaks the six words
+     * `Order::order_status_change()`'s own branch chain matches, so a translation is unavoidable.
+     * Both sides of every row are read from `FulfilmentStateMachine`'s own constants rather than
+     * typed out, so the map cannot drift from the matrix it is used against.
+     *
+     * THREE VALUES ARE ABSENT AND EACH ABSENCE IS A DECISION, not an oversight:
+     *
+     *   0  Pending — the machine has no word for it and neither does the shared writer; there is no
+     *      `pending` arm in that branch chain. A move back to Pending is therefore UNGOVERNED here
+     *      exactly as it is there, and inventing a rule for it would be a business-rule change,
+     *      which is in the escalate-to-owner set.
+     *   7  Partially Paid and
+     *   8  Pre Order — not fulfilment states at all. They share this column (a payment state and an
+     *      order type in the same integer), they are handled by the module arms further down the
+     *      shared writer, and `governs()` answers false for them. Refusing them here would break
+     *      `ApiOrderFilterStatusCoverageTest`'s "the write accepts every value the column holds",
+     *      which exists because a hand-typed status list had already hidden those two orders once.
+     *
+     * A missing key yields `null`, and `refusalFor()` answers `null` for a word it does not govern
+     * — so the "I have nothing to say" decision stays inside the machine instead of being made
+     * twice.
+     *
+     * @var array<int, string>
+     */
+    private const FULFILMENT_WORD_FOR_STATUS = [
+        \App\Support\Orders\FulfilmentStateMachine::STATE_DELIVERED
+            => \App\Support\Orders\FulfilmentStateMachine::DELIVERED,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_CANCELLED
+            => \App\Support\Orders\FulfilmentStateMachine::CANCEL,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_RETURN
+            => \App\Support\Orders\FulfilmentStateMachine::RETURNED,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_CONFIRMED
+            => \App\Support\Orders\FulfilmentStateMachine::CONFIRMED,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_PICKED_UP
+            => \App\Support\Orders\FulfilmentStateMachine::PICKED_UP,
+        \App\Support\Orders\FulfilmentStateMachine::STATE_SHIPPED
+            => \App\Support\Orders\FulfilmentStateMachine::SHIPPED,
+    ];
 
     public function updateStatus(Request $request): JsonResponse
     {
@@ -543,6 +635,74 @@ $storeId = getCurrentStore();
             : $oldPaymentStatus;
 
         /*
+         * P4-F145, PART 3 -- AN ECHO IS NOT A TRANSITION ON THE DELIVERY COLUMN EITHER.
+         * =========================================================================================
+         *
+         * PART 1, BELOW THIS ONE, drops an echoed `payment_status` because "a request that asks for
+         * the state the order is already in is asking for NOTHING". (It is below, and it runs
+         * AFTER the validator rather than before it -- the `in:Paid,Unpaid` rule had to move out of
+         * the rule array precisely because the stored value is not known at validation time. An
+         * earlier draft of this paragraph said the opposite of both, and comments here are
+         * load-bearing: a census reads them.) THE SAME CLIENT DOES THE SAME THING WITH THIS COLUMN
+         * and the rules below did not know it: the
+         * payment sheet fills `delivered_status` with the order's own stored value on a
+         * payment-only change (`payment_status_bottom_sheet.dart:177` -> `getDeliveredStatus`).
+         *
+         * MEASURED CONSEQUENCE, by driving this door: a merchant could not record a payment on a
+         * CANCELLED or a RETURNED order at all. The cancel guard below reads an echoed `2` as an
+         * attempt to cancel, and `FulfilmentStateMachine::refusalForLeaving()` reads an echoed `3`
+         * as an attempt to leave a settled order. A COD bag handed over on a returned order and a
+         * bank transfer that clears after a cancellation are both ordinary, and payment and
+         * fulfilment are different axes -- which is the whole reason this endpoint accepts either
+         * field alone.
+         *
+         * THIS PREDICATE GATES THE WRITE ARM TOO, AND THAT IS NOT TIDINESS. `case 2` of the switch
+         * restocks every line and reverses the merchant's wallet entitlement, and its own comment
+         * relies on the cancel guard to mean it "only ever runs from Pending"; the other arms stamp
+         * `cancel_date` / `delivery_date` / `return_date` with `now()`. Exempting the echo from the
+         * REFUSALS alone would have walked it into that arm and turned a wrong refusal into a
+         * double stock credit and a re-stamped settlement date.
+         * `SettledOrderPaymentEchoTest::test_an_echo_does_not_re_run_the_cancellation_side_effects`
+         * is that assertion.
+         *
+         * NOTHING IS RELAXED FOR A REAL MOVE. The comparison is on EQUALITY of the two values, so a
+         * genuine backward transition out of a settled order is still refused (decision H2) and a
+         * genuine cancel out of a non-pending state is still refused (P4-F105). Both have a case.
+         *
+         * TWO CONSEQUENCES DISCLOSED RATHER THAN DISCOVERED LATER, both traced through the code:
+         *
+         *   `case 3` of the write arm also sets `return_status = 1`, and an echo no longer reaches
+         *   it. THAT LOSES NOTHING, BECAUSE AN ECHO NEVER REACHED IT: an echo of 3 from a row at 3
+         *   passes both local guards and then meets `refusalForLeaving(3)` -- 3 is in `TERMINAL` --
+         *   and, in every version that shipped before that predicate existed, `refusalFor(3,
+         *   'return')` refused it too, because `PERMITTED[STATE_RETURN]` is empty. So the arm was
+         *   unreachable on an echo at this door throughout.
+         *
+         *   AN EARLIER DRAFT GAVE A DIFFERENT REASON AND IT WAS FALSE, which is worth leaving
+         *   recorded: it claimed `delivered_status = 3` with `return_status = 0` is unreachable
+         *   because every writer of 3 sets `return_status` in the same breath. There is a FOURTH
+         *   writer -- `Api\ApiController`'s `ordersave` assigns `delivered_status` straight from
+         *   unvalidated request input (its rule array has two keys, neither of them this one) and
+         *   writes no `return_status` at all, so a store's own customer can create exactly that row.
+         *   A census over writers is the shape CLAUDE.md warns about, and this one had already
+         *   missed one. The reason above needs no census: it is two predicates in one file.
+         *
+         *   For the record, `(3, 0)` is workflow-stuck rather than money-exposed either way:
+         *   `order_return_request`'s restock guard is `return_status !== 2`, not `!== 0`, so `1` is
+         *   what the web's Approve/Reject controls are gated on, not the idempotency marker.
+         *
+         *   A row holding the literal `'-'` that `Api\ApiController` writes casts to 0, so a
+         *   request naming `0` now reads as an echo and the write arm no longer normalises the
+         *   column to a real `0`. This only arises when payment or a note changes in the same
+         *   request: without one, `(int) '-' === 0` already took the "nothing changed" early
+         *   return above, so the behaviour is unchanged there. Leaving the value is also what
+         *   GAP-254 established for the board -- an unrecognised status keeps its own bucket and
+         *   stays reachable rather than being silently folded into Pending.
+         */
+        $deliveredStatusChanges = $hasDeliveredStatus
+            && $oldDeliveredStatus !== (int) $newDeliveredStatus;
+
+        /*
          * P4-F145, PART 1 -- AN ECHO IS NOT A TRANSITION.
          * =========================================================================================
          *
@@ -627,7 +787,7 @@ $storeId = getCurrentStore();
          * 403 or 404 either -- those are this handler's permission and lookup refusals and a client
          * cannot tell them apart from this.
          */
-        if ($hasDeliveredStatus && (int) $newDeliveredStatus === 2 && $oldDeliveredStatus !== 0) {
+        if ($deliveredStatusChanges && (int) $newDeliveredStatus === 2 && $oldDeliveredStatus !== 0) {
             return response()->json([
                 'success' => false,
                 'message' => __('Only a pending order can be cancelled.'),
@@ -635,7 +795,7 @@ $storeId = getCurrentStore();
             ]);
         }
 
-        if ($hasDeliveredStatus && (int) $newDeliveredStatus === 3 && $oldDeliveredStatus === 0) {
+        if ($deliveredStatusChanges && (int) $newDeliveredStatus === 3 && $oldDeliveredStatus === 0) {
             return response()->json([
                 'success' => false,
                 'message' => __('A pending order cannot be returned.'),
@@ -643,16 +803,108 @@ $storeId = getCurrentStore();
             ]);
         }
 
+        /*
+         * GAP-135, THE REMAINDER — THE FULFILMENT STATE MACHINE THIS DOOR COULD NOT REACH.
+         * =========================================================================================
+         *
+         * `Order::refuseIllegalTransition()`'s docblock names this handler by name as "THE ONE DOOR
+         * THIS CANNOT REACH", because it writes `delivered_status` directly in the switch below
+         * instead of calling `Order::order_status_change()` — the writer the merchant web screen,
+         * the order board, the storefront customer's own order, `OrderReplacement::cancelAndReplace()`
+         * and the vendored LotteryPrizes screen all share, and the one place the machine is asked.
+         * So this door grew two rules of its own (above) and had NOTHING on the four progression
+         * arms.
+         *
+         * MEASURED HERE, BY DRIVING THE ROUTE, BEFORE THIS BLOCK EXISTED: twelve governed
+         * transitions landed that the shared writer refuses — Cancelled(2) and Return(3) each to
+         * Delivered, Confirmed, Picked Up and Shipped, 2 -> 3 as well, and Delivered(1) backwards to
+         * Confirmed, Picked Up and Shipped. Cancelled -> Delivered is the money leg:
+         * `Order::product_return()` refuses unless `delivered_status == 1` and then REDUCES
+         * `final_price`, so a cancelled order whose merchant entitlement `OrderEntitlementReversal`
+         * has already walked back could be marched into the return and refund workflow.
+         *
+         * BELOW THE TWO ESTABLISHED RULES, DELIBERATELY. The cancel and return refusals above answer
+         * for the transitions they govern with strings a client may be matching on (P4-F104/F105,
+         * and `MESSAGE_CANCEL_REFUSED` / `MESSAGE_RETURN_REFUSED` are different sentences). Putting
+         * this first would reword two shipped refusals; putting it here adds the arms that had no
+         * rule at all and changes nothing that already had one.
+         *
+         * THE RAW COLUMN VALUE, NOT `$oldDeliveredStatus`, which is a cast. One shipped handler
+         * writes the literal `-` into this column, and under PHP 8 a cast would make such a row
+         * movable where the shared writer's own loose comparisons do not. This passes exactly what
+         * `Order::refuseIllegalTransition()` passes, so the two cannot disagree.
+         *
+         * ONLY WHEN A DELIVERY STATUS WAS ACTUALLY ASKED FOR. The shipped app sends
+         * `payment_status` on every call; a payment-only request is not a fulfilment transition and
+         * no fulfilment rule may touch it.
+         *
+         * THE SHAPE IS THIS HANDLER'S OWN: HTTP 200, `success: false`, `data` => `orderResponse()`,
+         * matching the two refusals above rather than inventing a fourth. NOT 401 — the shipped
+         * Flutter admin app force-clears its session on any 401 — and not 403 or 404, which are this
+         * handler's permission and lookup refusals and which a client could not tell apart from
+         * this.
+         */
+        if ($deliveredStatusChanges) {
+            /*
+             * TWO QUESTIONS, AND THE FIRST ONE IS WHY THE ONE-STEP VERSION OF THIS GATE WAS A
+             * BYPASS. `refusalFor()` answers about a target WORD, and `governs()` lists no
+             * `pending` word -- so a request naming a status this door can express but the word
+             * map cannot translate (0 Pending, 7 Partially Paid, 8 Pre Order) fell through from
+             * EVERY state, settled ones included.
+             *
+             * MEASURED ON THIS DOOR, by driving it, with the one-step gate in place: a CANCELLED
+             * order answered `{"success":true}` to `delivered_status = 0`, and
+             * `PERMITTED[PENDING]` then admits five of the six words -- so `2 -> 0 -> 1` reached
+             * `delivered_status = 1` in two requests, which is exactly what
+             * `Order::product_return()` gates on before it REDUCES `final_price`. Ten pairs, every
+             * one of them, except the `-> return` legs that `PERMITTED[PENDING]` does not hold.
+             *
+             * `refusalForLeaving()` IS THE MACHINE'S OWN PREDICATE AND NOT A SECOND LOCAL RULE.
+             * That matters more than tidiness here: a local check would be a third definition of a
+             * rule `TERMINAL` and `PERMITTED` already publish ("Nothing leaves them through the
+             * shared writer"; `matrix()[2]` is `[]`), and the two would drift. It is also NOT a new
+             * business rule -- `Order::order_status_change()` has no pending arm, so no other
+             * surface in this product can make the move, and refusing it makes this door agree with
+             * every other surface rather than diverge from one.
+             */
+            /*
+             * 7 AND 8 NEED NO EXEMPTION LIST, AND AN EARLIER DRAFT CARRIED ONE. `refusalFor()`
+             * answers null for a word it does not govern, and no entry in
+             * `FULFILMENT_WORD_FOR_STATUS` maps `STATE_PARTIALLY_PAID` or `STATE_PRE_ORDER` --
+             * deliberately, because the machine's own docblock calls those two "a schema problem
+             * that this machine must not pretend to have solved". So the pair below already permits
+             * them out of a non-settled row, which is what `P2-07-12` widened this endpoint for,
+             * while `refusalForLeaving()` still refuses them out of a SETTLED one:
+             * `PERMITTED[STATE_PARTIALLY_PAID]` admits `delivered`, so `2 -> 7 -> 1` would
+             * otherwise reopen a cancelled order exactly as `-> 0` did. The explicit list gave the
+             * same answers and read as though the machine needed correcting here.
+             */
+            $fulfilmentRefusal = \App\Support\Orders\FulfilmentStateMachine::refusalForLeaving($order->delivered_status)
+                ?? \App\Support\Orders\FulfilmentStateMachine::refusalFor(
+                    $order->delivered_status,
+                    self::FULFILMENT_WORD_FOR_STATUS[$newDeliveredStatus] ?? null
+                );
+
+            if ($fulfilmentRefusal !== null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $fulfilmentRefusal,
+                    'data' => $this->orderResponse($order),
+                ]);
+            }
+        }
+
         try {
             DB::transaction(function () use (
                 $request,
                 $order,
-                $hasDeliveredStatus,
+                $deliveredStatusChanges,
                 $newDeliveredStatus,
                 $hasPaymentStatus,
-                $newPaymentStatus
+                $newPaymentStatus,
+                $oldPaymentStatus
             ) {
-                if ($hasDeliveredStatus) {
+                if ($deliveredStatusChanges) {
                     $order->delivered_status = $newDeliveredStatus;
 
                     /*
@@ -760,6 +1012,46 @@ $storeId = getCurrentStore();
                 }
 
                 if ($hasPaymentStatus) {
+                    /*
+                     * AN AUDIT LINE, NOT A REFUSAL, AND THE DISTINCTION IS DELIBERATE.
+                     * =============================================================================
+                     *
+                     * Letting an echoed `delivered_status` through is what makes recording a
+                     * payment on a settled order possible at all -- the whole point of PART 3
+                     * above -- and a refusal here would re-break it. But the request that is now
+                     * permitted can also move money: `$order->save()` reaches `OrderObserver` ->
+                     * `OrderFinancialService::syncFromOrder()`, and a `Paid` there runs
+                     * `markFinancialAsPaid()`.
+                     *
+                     * THE CONTROL IS ALREADY THERE AND IS NAMED FOR THIS: P4-F124's guard in
+                     * `OrderFinancialService` returns early when the financial row is already
+                     * `cancelled` or `refunded`, its own docblock saying "a late `Paid` on a
+                     * cancelled order would reach `markFinancialAsPaid()` and CREDIT the merchant a
+                     * second time". It does NOT cover every case -- a RETURNED order's financial row
+                     * is moved to `refunded` only by the refund door, and a cancellation whose
+                     * reversal threw leaves the row non-terminal -- and this is NOT new: the web
+                     * twin, `OrderController::order_payment_status`, writes `payment_status` with no
+                     * `delivered_status` predicate at all, behind the SAME `Manage Order` ability.
+                     * What changed is that the shipped app can now do what the panel always could.
+                     *
+                     * So: no refusal, and a trace instead, because an operator reconstructing a
+                     * double credit should not have to infer that this request happened. Registered
+                     * as a gap rather than silently accepted.
+                     */
+                    if (in_array((int) $order->delivered_status, [2, 3], true)
+                        && strcasecmp((string) $newPaymentStatus, (string) $oldPaymentStatus) !== 0
+                    ) {
+                        Log::warning('Payment status changed on a settled order', [
+                            'order_id' => $order->id,
+                            'product_order_id' => $order->product_order_id,
+                            'store_id' => $order->store_id,
+                            'actor_id' => auth()->id(),
+                            'delivered_status' => (int) $order->delivered_status,
+                            'old_payment_status' => $oldPaymentStatus,
+                            'new_payment_status' => $newPaymentStatus,
+                        ]);
+                    }
+
                     $order->payment_status = $newPaymentStatus;
                 }
 
@@ -1467,6 +1759,41 @@ public function logouto(Request $request)
         return $this->storeAccessDenied();
     }
 
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ THE CATEGORY
+         * TREE.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer
+         * token held by a staff member of the owning store holding NO permission at all, and the whole
+         * category tree came back. The only control was tenancy, and tenancy admits every employee of
+         * the merchant by design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * A GAP IN ONE OF SEVEN LIST HANDLERS AND NOT A DESIGN THIS SURFACE TOOK: `ProductList` asks
+         * `Manage Products`, `CouponList` `Manage Coupon`, and `ShippingList`, `TaxList`, `VariantList`
+         * and `ReviewList` each carry a name. Only the category list did not.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `CategoryController::index()` -- the same screen --
+         * and is seeded by `Utility.php`, both as a row and onto the global `admin` role every
+         * self-registered merchant holds, so a merchant can really grant it and no production merchant
+         * loses the screen.
+         *
+         * `callerMayActInStore()` AND NOT `refuseWithoutPermission()`, AND THE SIX SIBLINGS ARE SPLIT
+         * BETWEEN THE TWO: `ProductList`, `VariantList` and `CouponList` use
+         * `refuseWithoutPermission()`, which has NO OWNER LIMB -- that is why the census records
+         * `couponlist` and `Top_orders` refusing the store's own BARE owner -- while `ShippingList`,
+         * `TaxList` and `ReviewList` use this owner-limbed helper. The owner-limbed one is the later
+         * shape and the correct one; reproducing a known defect on a new door would be shipping it on
+         * purpose. Its `MerchantPermissions` limb also answers the platform operator the wildcard,
+         * which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps `storeAccessDenied()`'s own words
+         * ("access this store") rather than being told they lack a permission -- both answers are 403
+         * on this door, so the message is what separates the two readings.
+         */
+        if (! $this->callerMayActInStore(['Manage Product Category'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $Category = Category::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
         if (!empty($Category)) {
@@ -1764,6 +2091,34 @@ public function OrderList(Request $request)
         return $this->storeAccessDenied();
     }
 
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ THE SHIPPING
+         * CLASSES.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they were served
+         * the list. The only control was tenancy, and tenancy admits every employee of the merchant by
+         * design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `ShippingController::index()`, and is seeded by
+         * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+         * business rule invented by engineering, and one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         *
+         * ITS TWO SIBLINGS IN THIS BLOCK ALREADY HAVE A GATE and this one did not: `OrderList` asks for
+         * `Manage Order`/`Show Order` and `CouponList` for `Manage Coupon`, both through
+         * `refuseWithoutPermission()`. The shape here is the owner-limbed one because refusing a store's
+         * own owner is the regression this family has produced.
+         */
+        if (! $this->callerMayActInStore(['Manage Shipping Class'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $shipping = Shipping::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
         if (!empty($shipping)) {
@@ -1807,6 +2162,28 @@ public function OrderList(Request $request)
         return $this->storeAccessDenied();
     }
 
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ THE TAX CLASSES.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they were served
+         * the list. The only control was tenancy, and tenancy admits every employee of the merchant by
+         * design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `TaxController::index()`, and is seeded by
+         * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+         * business rule invented by engineering, and one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Manage Tax'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $tax = Tax::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
         if (!empty($tax)) {
@@ -1835,6 +2212,33 @@ public function OrderList(Request $request)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY CREATE A CATEGORY.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they were admitted
+         * all the way to the INSERT. The only control was tenancy, and tenancy admits every employee of
+         * the merchant by design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `CategoryController::store()`, and is seeded by
+         * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+         * business rule invented by engineering, and one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         *
+         * THE INSERT ITSELF IS STILL BROKEN AND THAT IS A SEPARATE FINDING, left alone here:
+         * `categories.slug` is NOT NULL with no default and this handler never sets one, so the write
+         * fails on any engine that enforces it (production's MariaDB does). The gate is above that
+         * failure, so a refused caller never reaches it.
+         */
+        if (! $this->callerMayActInStore(['Create Product Category'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $validator = \Validator::make(
@@ -1898,6 +2302,30 @@ public function OrderList(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY REWRITE A CATEGORY.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they renamed it;
+         * the write covers `name`, the two images, `parent_id`, `trending` and `status`, and a category's
+         * `status` decides whether its products are reachable on the storefront. The only control was
+         * tenancy, and tenancy admits every employee of the merchant by design -- `creatorId()` resolves a
+         * staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `CategoryController::update()`, and is seeded by
+         * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+         * business rule invented by engineering, and one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Edit Product Category'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $rules = [
             'category_id' => 'required'
         ];
@@ -1958,6 +2386,39 @@ public function OrderList(Request $request)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY DESTROY A CATEGORY.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer
+         * token held by a staff member of the owning store holding NO permission at all, and the
+         * category row was destroyed. `categories` has no soft delete and this path writes no audit
+         * row. The only control was tenancy, and tenancy admits every employee of the merchant by
+         * design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE TWO INTEGRITY GUARDS BELOW ARE NOT THIS AXIS. They refuse a category that still holds
+         * products (the `products.category_id` cascade) or child categories, which bounds the loss;
+         * neither asks WHO the caller is. And `AddCategory` / `UpdateCategory` in this file are
+         * already gated on `Create Product Category` / `Edit Product Category`, so the irreversible
+         * delete was the one category door with no permission axis.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `CategoryController::destroy()`, and is seeded by
+         * `Utility.php` -- both as a row and onto the global `admin` role every self-registered
+         * merchant holds -- so a merchant can really grant it and no production merchant loses the
+         * door. A permission name invented here would be a business rule invented by engineering, and
+         * one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and ABOVE
+         * the row lookup, so an unpermitted caller cannot use the not-found branch to probe which
+         * category ids exist. Through `callerMayActInStore()` rather than `isAbleTo()`: its owner limb
+         * keeps the store's own owner admitted (a merchant holds no permission implicitly, and
+         * refusing the owner is the regression this family has already produced), and its
+         * `MerchantPermissions` limb answers the platform operator the wildcard, which `isAbleTo()`
+         * alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Delete Product Category'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $rules = [
@@ -2067,6 +2528,47 @@ public function OrderList(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+    /*
+     * GAP-142 / P4-F065. THE PERMISSION AXIS ON THE THREE COUPON WRITERS.
+     *
+     * `resolveOwnedStore()` above settles TENANCY and the per-row lookup carries a `store_id`
+     * predicate. Neither says who INSIDE the store may run a coupon, and nothing else did -- so any
+     * authenticated member of the tenant holding no coupon permission could mint a coupon, rewrite a
+     * live campaign's `discount_amount`, or delete one. That is price-affecting: `discount_amount`,
+     * `coupon_limit` and `coupon_expiry_date` are what a shopper's basket is reduced by.
+     *
+     * EACH HANDLER TAKES ITS OWN WEB TWIN'S NAME: `CouponController::store()` gates on
+     * `Create Coupon` (`:89`), `update()` on `Edit Coupon` (`:417`), `destroy()` on `Delete Coupon`
+     * (`:483`). All four Coupon names are seeded by `Utility.php` in the merchant block, so nothing
+     * is invented here.
+     *
+     * `Manage Coupon` IS ALSO ACCEPTED, and that is wider than the web rather than equal to it, so
+     * it is a stated choice: `CouponController::index()` and `show()` gate the coupon SCREEN on
+     * `Manage Coupon`, so a staff member holding only that name already reads every coupon in the
+     * store, `discount_amount` included. The admin API is the Flutter app's only coupon surface and
+     * has no separate read screen, so a merchant who ticked that one box for a staff member can run
+     * coupons in the app today. Refusing them would be a NEW refusal of a live capability, which
+     * this row is not authorised to take. `AdminApiCouponWritePermissionTest` pins it by name, so
+     * narrowing it later is a visible change rather than a silent one.
+     *
+     * THE OPERATOR IS ADMITTED AND THE WEB REFUSES THEM -- RECORDED, NOT RESOLVED.
+     * `CouponController::refuseOperatorWrite()` refuses the platform operator every coupon write by
+     * name, on the owner's decision of 2026-10-28 ("read and export only"). The API does not adopt
+     * that, because the operator can write through these three routes TODAY --
+     * `resolveOwnedStore()` admits them to any store and nothing else asked -- and withdrawing a
+     * live capability is a second, unstated product decision that must not ride on a security fix.
+     * GAP-142's recorded next action is to gate these routes "with the operator-first predicate
+     * already in `MerchantPermissions::allowsAny`", and that predicate answers `WILDCARD` for them.
+     * Pinned by `test_the_platform_operator_still_writes_coupons`.
+     *
+     * 403 THROUGH `storePermissionDenied()`, never `$this->error()` (HTTP 200 with `{status: 0}`,
+     * which no client distinguishes from success) and never 401 (the shipped app force-clears its
+     * session on one).
+     */
+        if (! $this->callerMayActInStore(['Create Coupon', 'Manage Coupon'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
@@ -2106,6 +2608,15 @@ public function UpdateCoupon(Request $request)
     $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
+    }
+
+    // GAP-142 / P4-F065. `Edit Coupon` is what `CouponController::update()` names. See `AddCoupon`
+    // above for the full reasoning, including why `Manage Coupon` also admits and why the operator
+    // is still admitted here while the web refuses them. `discount_amount` is assigned verbatim
+    // from the request below, so this gate is what stands between a staff member with nothing
+    // granted and a live discount.
+    if (! $this->callerMayActInStore(['Edit Coupon', 'Manage Coupon'], $store->id)) {
+        return $this->storePermissionDenied();
     }
 
     $validator = \Validator::make(
@@ -2163,6 +2674,13 @@ public function UpdateCoupon(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        // GAP-142 / P4-F065. `Delete Coupon` is what `CouponController::destroy()` names. See
+        // `AddCoupon` for the full reasoning. Ahead of the validator and of the row lookup, so an
+        // unpermitted caller cannot use the not-found branch to probe which coupon ids exist.
+        if (! $this->callerMayActInStore(['Delete Coupon', 'Manage Coupon'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $rules = [
             'coupon_id' => 'required'
         ];
@@ -2211,6 +2729,60 @@ public function UpdateCoupon(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        /*
+         * GAP-142 / P4-F075. THE PERMISSION AXIS ON THE SIX TAX AND SHIPPING WRITERS.
+         *
+         * `resolveOwnedStore()` above settles TENANCY and the per-row lookups carry a `store_id`
+         * predicate. Neither asks who INSIDE the store may act, and nothing else did -- so any
+         * authenticated member of the tenant holding nothing could create, rename or delete the
+         * store's tax and shipping classes.
+         *
+         * WHERE THE MONEY ACTUALLY IS, MEASURED -- and the brief's "price-affecting" framing
+         * corrected rather than repeated. `taxes` holds `name` and `store_id` ONLY
+         * (`2023_12_22_060417`) and `shippings` holds `name`, `description`, `slug`, `store_id`
+         * (`2023_12_19_054936`). Neither carries a rate or an amount. **THE PRICE IS ONE TABLE
+         * AWAY, THROUGH A CASCADE, AND THAT IS WORSE:** `tax_methods.tax_id` is
+         * `->onDelete('cascade')` against `taxes.id` (`2023_12_25_040519:27`) and
+         * `tax_methods.tax_rate` is the percentage a basket is taxed at -- so `DeleteTax` destroys
+         * every rate hanging off the class BELOW the application, with no model event, no log line
+         * and nothing to roll back. Same cascade shape as `categories` -> `products` (P1-INV-12).
+         * `shippings` has no foreign key referencing it, so the shipping half is a commercial
+         * SETTING rather than money, and `AdminApiTaxShippingWritePermissionTest` asserts each as
+         * what it is.
+         *
+         * EACH HANDLER TAKES ITS OWN WEB TWIN'S NAME. `Shipping` is the shipping CLASS model and
+         * its twin is `ShippingController` -- `store()` `Create Shipping Class` (`:229`), `update()`
+         * `Edit Shipping Class` (`:287`), `destroy()` `Delete Shipping Class` (`:332`). `Tax` is the
+         * tax CLASS model and its twin is `TaxController` -- `store()` `Create Tax` (`:50`),
+         * `update()` `Edit Tax` (`:172`), `destroy()` `Delete Tax` (`:218`). All six, and both
+         * `Manage` names, are seeded by `Utility.php` in the merchant block.
+         *
+         * `Manage Tax` / `Manage Shipping Class` ALSO ADMIT, for the reason `AddCoupon` records in
+         * full: those are what the web SCREENS gate on (`TaxController::index` `:21`,
+         * `ShippingController::index` `:186`), the Flutter app has no separate read screen for
+         * either, and refusing them would be a NEW refusal of a capability a merchant's staff have
+         * today. Pinned by `test_staff_holding_the_screens_manage_name_still_write`.
+         *
+         * THE OPERATOR IS ADMITTED AND THE WEB REFUSES THEM ON ALL SIX WRITES, NOT THREE -- corrected
+         * by the independent review, and the distinction it drew matters:
+         *
+         *   SHIPPING: `ShippingController::shippingWriteRefusal()` (:139-162) refuses the operator
+         *   BY NAME. That is a DECISION somebody took.
+         *
+         *   TAX: `TaxController` :50, :172, :218 are bare `isAbleTo('Create|Edit|Delete Tax')` with
+         *   no operator limb anywhere in the file -- and `isAbleTo()` has no super-admin bypass, so
+         *   the operator is refused there as a BY-PRODUCT of that shape, not by anyone's choice.
+         *
+         * Both are recorded and neither is resolved here, on the same reasoning as the coupon row:
+         * withdrawing a live capability is a product decision, not a side effect of closing a
+         * permission hole. But the coupon refusal is an explicit owner decision of 2026-10-28 and
+         * this API contradicts it, so that one is in `OWNER-DECISION-PACKAGE.md` rather than merely
+         * noted here.
+         */
+        if (! $this->callerMayActInStore(['Create Shipping Class', 'Manage Shipping Class'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
@@ -2240,6 +2812,12 @@ public function UpdateCoupon(Request $request)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        // GAP-142 / P4-F075. `Edit Shipping Class` is what `ShippingController::update()` names.
+        // See `AddShipping` above for the full reasoning.
+        if (! $this->callerMayActInStore(['Edit Shipping Class', 'Manage Shipping Class'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $rules = [
@@ -2280,6 +2858,13 @@ public function UpdateCoupon(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        // GAP-142 / P4-F075. `Delete Shipping Class` is what `ShippingController::destroy()`
+        // names. Ahead of the validator and the row lookup, so an unpermitted caller cannot use
+        // the not-found branch to probe which shipping-class ids exist. See `AddShipping`.
+        if (! $this->callerMayActInStore(['Delete Shipping Class', 'Manage Shipping Class'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $rules = [
             'shipping_id' => 'required'
         ];
@@ -2311,6 +2896,12 @@ public function UpdateCoupon(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        // GAP-142 / P4-F075. `Create Tax` is what `TaxController::store()` names. See
+        // `AddShipping` above for the full reasoning, including where the money really is.
+        if (! $this->callerMayActInStore(['Create Tax', 'Manage Tax'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
@@ -2338,6 +2929,12 @@ public function UpdateCoupon(Request $request)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        // GAP-142 / P4-F075. `Edit Tax` is what `TaxController::update()` names. See
+        // `AddShipping` above for the full reasoning.
+        if (! $this->callerMayActInStore(['Edit Tax', 'Manage Tax'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $validator = \Validator::make(
@@ -2383,6 +2980,24 @@ public function UpdateCoupon(Request $request)
 
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        /*
+         * GAP-142 / P4-F075. `Delete Tax` is what `TaxController::destroy()` names, and THIS is the
+         * money one: `tax_methods.tax_id` is ON DELETE CASCADE against `taxes.id`, so the delete
+         * below destroys every `tax_rate` hanging off the class, beneath the application. Ahead of
+         * the validator and the row lookup, so the not-found branch is not an oracle.
+         *
+         * BELOW THE `empty($store)` GUARD, AND THAT ORDER IS NOT COSMETIC. The first draft of this
+         * gate landed between the resolution and the guard, so `$store->id` dereferenced null for a
+         * caller who does not own the store: the clean HTTP-200 `{status: 0}` tenancy refusal became
+         * a 500. Caught by `test_another_tenants_member_is_still_refused_and_destroys_no_rate`,
+         * which is the only case in this suite that drives a store the caller does not own -- and
+         * precisely why a cross-tenant control belongs in every one of these suites even though
+         * tenancy is not what the row is about.
+         */
+        if (! $this->callerMayActInStore(['Delete Tax', 'Manage Tax'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $rules = [
@@ -2814,6 +3429,63 @@ public function ViewOrder(Request $request)
         ]);
     }
 
+    /*
+     * GAP-142 / P4-F106. THE PERMISSION AXIS, WHICH THIS ROUTE HAD NONE OF.
+     *
+     * `resolveOwnedStore()` above settles TENANCY -- a foreign store id resolves nothing -- and
+     * the order lookup below is scoped by `store_id`. Neither says anything about WHO INSIDE THE
+     * STORE may read an order, and nothing else did either: any authenticated member of the store
+     * could read the whole order, its billing details and every internal order note while holding
+     * no order permission of any kind. That is the merchant's own employee-level access control
+     * over customer PII.
+     *
+     * THROUGH `MerchantPermissions`, NOT `isAbleTo()`, and the ordering is the reason: `isAbleTo()`
+     * alone REFUSES the platform operator -- there is no super-admin bypass here and operator
+     * status is a string on `users.type` -- so a gate built on it would lock out the one principal
+     * who may do everything, on a store `resolveOwnedStore()` has already admitted them to.
+     * `MerchantPermissions` answers `WILDCARD` for the operator and scopes a staff member's names
+     * to THIS store, which `allPermissions()` does not.
+     *
+     * THE OWNER LIMB IS NOT REDUNDANT. A merchant does not implicitly hold the order permissions,
+     * and the known-outcome gate caught a gate in this family refusing the store's own owner once
+     * already; `DeleteOrder` carries the same two limbs for the same reason.
+     *
+     * THE NAMES ARE THE SINGULAR FAMILY, and the reason is not the one I first wrote. `Utility`
+     * seeds a singular merchant family (`Manage Order`, beside Coupon and Newsletter) and a plural
+     * platform one (`Manage Orders`, beside Manage Dashboard). I claimed a merchant cannot grant
+     * the plural names; independent review refuted that -- both become real `Permission` rows and
+     * `RoleController::create` lists `Permission::all()`, so a merchant can tick either. The true
+     * and stronger fact is that **NO GATE IN THE CODEBASE READS THE PLURAL NAMES**: they appear
+     * nowhere in `app/` except the two seeding arrays, while every order surface checks the
+     * singular ones (`OrderController:916`, `:577`, `MerchantDashboardAbilities::PERMISSION_ORDERS`,
+     * whose docblock warns against "correcting" it to the plural).
+     *
+     * BOTH SINGULAR NAMES ADMIT, AND THAT IS NOT AN OVER-ADMISSION ON ANY REACHABLE PATH -- also a
+     * correction. The web's single-order view gates on `Show Order` alone, which made this look
+     * wider than the web. But this route's own API siblings -- the order LIST at `:1639` and
+     * `Top_orders` at `:7920` -- already admit on EITHER name, and the list is the only way the
+     * shipped app reaches a detail view. So `Manage Order` admits nobody who cannot already read
+     * that order's `final_price`, `payment_status` and customer name in the list row. Naming both
+     * makes this agree with its siblings rather than diverge from the web.
+     *
+     * ONE ASYMMETRY, RECORDED RATHER THAN RESOLVED: the sibling list uses
+     * `refuseWithoutPermission()`, which has NO owner limb -- so a merchant who edited their own
+     * role to drop both names could open an order here and not list it. This gate keeps the owner
+     * limb because refusing a store's own owner is the regression this family has already produced
+     * (the register records `DeleteOrder` breaking that way), and fail-open for the legitimate owner
+     * is the right direction for a read they own. Normalising the two belongs with the remaining
+     * eight rows of GAP-142, not here.
+     *
+     * 403, NEVER 401, and NEVER `$this->error()`: the shipped Flutter app force-clears its session
+     * on any 401, and `ApiResponser::error()` answers HTTP 200 by default -- a refusal no client
+     * distinguishes from success. `orderPermissionDenied()` is the shape `DeleteOrder` and
+     * `createOrderViaApi` already use.
+     */
+    if (! $this->callerIsStoreOwner($store->id)
+        && ! MerchantPermissions::allowsAny(\Auth::user(), ['Show Order', 'Manage Order'], $store->id)) {
+        return $this->orderPermissionDenied();
+    }
+
     $orderModel = Order::query()
         ->where('id', $request->order_id)
         ->where('store_id', $store->id)
@@ -2975,6 +3647,38 @@ public function DeleteProduct(Request $request)
         ]);
     }
 
+    /*
+     * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY DESTROY A PRODUCT.
+     *
+     * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+     * held by a staff member of the owning store holding NO permission at all, and the product was
+     * destroyed -- the row, its `product_images`, every `carts` and `wishlists` line referencing it,
+     * and its image FILES on disk. There is no soft delete and no audit row on this path. The only
+     * controls were `OperatorCatalogueWrite::refuses()` (which withdraws this door from the PLATFORM
+     * OPERATOR -- the opposite axis) and tenancy, and tenancy admits every employee of the merchant
+     * by design: `creatorId()` resolves a staff row to their employer.
+     *
+     * AND ITS ADD AND UPDATE TWINS IN THIS FILE WERE ALREADY GATED (`Create Product`, `Edit
+     * Products`), so the irreversible delete was the one product door with no permission axis.
+     *
+     * THE NAME IS THE WEB TWIN'S OWN, read from `ProductController::destroy()`, and is seeded by
+     * `Utility.php` -- both as a row and onto the global `admin` role every self-registered merchant
+     * holds -- so a merchant can really grant it and no production merchant loses the door. A
+     * permission name invented here would be a business rule invented by engineering, and one that
+     * no row exists for is a permanent 403.
+     *
+     * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and BELOW
+     * `OperatorCatalogueWrite::refuses()`, so the operator keeps that owner decision's own answer
+     * rather than being told they lack a permission. Through `callerMayActInStore()` rather than
+     * `isAbleTo()`: its owner limb keeps the store's own owner admitted (a merchant holds no
+     * permission implicitly, and refusing the owner is the regression this family has already
+     * produced), and its `MerchantPermissions` limb answers the platform operator the wildcard,
+     * which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+     */
+    if (! $this->callerMayActInStore(['Delete Products'], $store->id)) {
+        return $this->storePermissionDenied();
+    }
+
     // مهم: تأكد أن المنتج تابع لنفس المتجر
     $product = Product::where('id', $request->product_id)
         ->where('store_id', $store->id)
@@ -3083,6 +3787,35 @@ public function AddProduct(Request $request)
         return $this->error(['message' => __('Store not found!')]);
     }
 
+    /*
+     * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY PUBLISH A PRICED PRODUCT.
+     *
+     * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+     * held by a staff member of the owning store holding NO permission at all, and they published a
+     * sellable product, setting its own `price` and `product_stock`. `products.price` is what a
+     * shopper is charged. The only control was tenancy, and tenancy admits every employee of the
+     * merchant by design -- `creatorId()` resolves a staff row to their employer.
+     *
+     * THE NAME IS THE WEB TWIN'S OWN, read from `ProductController::store()`, and is seeded by
+     * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+     * business rule invented by engineering, and one that no row exists for is a permanent 403.
+     *
+     * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+     * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+     * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+     * this family has already produced), and its `MerchantPermissions` limb answers the platform
+     * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+     *
+     * BELOW the F206 operator refusal as well, so the platform operator keeps
+     * `OperatorCatalogueWrite`'s own answer on this door -- that was a decision and must not be
+     * reworded into a permission refusal. The sibling `UpdateProduct` took `Edit Products` the same
+     * way and its own note said this door "needs its own measurement, not an assumption"; this is that
+     * measurement.
+     */
+    if (! $this->callerMayActInStore(['Create Product'], $store->id)) {
+        return $this->storePermissionDenied();
+    }
+
     $validator = \Validator::make($request->all(), [
         'name' => 'required|string',
         'category_id' => 'required|integer',
@@ -3176,7 +3909,7 @@ public function AddProduct(Request $request)
         $Product->status = $request->status ?? 1;
 
         $Product->product_weight = $request->product_weight ?? 0;
-        $Product->shipping_id = $request->shipping_id ?? null;
+        $Product->shipping_id = \App\Support\Commerce\ShippingClassOwnership::keepOwned($request->shipping_id ?? null, $store->id, null);
         $Product->tax_status = $request->tax_status ?? 'none';
 
         if (!empty($request->tax_id)) {
@@ -3241,6 +3974,40 @@ public function UpdateProduct(Request $request)
     $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
+    }
+
+    /*
+     * GAP-250 / P4-F119 — AND THEN WHETHER THIS PRINCIPAL MAY WRITE THE CATALOGUE AT ALL.
+     *
+     * Measured by the behavioural route census of 2026-11-25: an unpermissioned staff member of the
+     * owning store rewrote `price` 100 -> 1, `sale_price` 90 -> 1, **`cost_price` 40 -> 1** and
+     * `product_stock` 50 -> 0, and got `{status:1}` "Product Updated Successfully!". A money write
+     * by a principal granted nothing.
+     *
+     * NEITHER CONTROL ABOVE IS THIS ONE, which is why it survived both. `OperatorCatalogueWrite`
+     * withdraws the door from the platform OPERATOR (F206) -- the opposite axis, and its own comment
+     * records that this door "had no permission check of any kind". `resolveOwnedStore()` settles
+     * TENANCY and admits the owner's staff by design.
+     *
+     * THE SHARPEST FACT: `searchProductsByName`, one route over, was gated on `Manage Products` the
+     * same day PRECISELY BECAUSE IT READS `cost_price` (GAP-142 / P4-F111). The route that WRITES
+     * `cost_price` was not in that work, because it came from a list of nine named families rather
+     * than a measurement of the population. This row is the cost of that difference.
+     *
+     * `Edit Products` is the PLURAL seeded name the web twin uses (`ProductController:1646`); the
+     * singular `Edit Product` is seeded nowhere and would admit nobody a merchant can grant.
+     *
+     * BELOW both existing controls, so the operator keeps `OperatorCatalogueWrite`'s own refusal
+     * (F206 was a decision and must not be reworded into a permission refusal) and a foreign tenant
+     * keeps `Store not found!`. Both are pinned by `AdminApiProductWritePermissionTest`.
+     *
+     * NOTE FOR WHOEVER TAKES `AddProduct`: it carries the IDENTICAL two-control block, which is why
+     * an anchor on that block alone matched twice and this insertion is rooted at the handler
+     * declaration instead. AddProduct was not in this census group and is NOT gated here -- it
+     * needs its own measurement, not an assumption.
+     */
+    if (! $this->callerMayActInStore(['Edit Products'], $store->id)) {
+        return $this->storePermissionDenied();
     }
 
     $validator = \Validator::make(
@@ -3340,7 +4107,7 @@ public function UpdateProduct(Request $request)
     $product->status = $request->status ?? 1;
 
     $product->product_weight = $request->product_weight ?? 0;
-    $product->shipping_id = $request->shipping_id ?? null;
+    $product->shipping_id = \App\Support\Commerce\ShippingClassOwnership::keepOwned($request->shipping_id ?? null, $store->id, $product->shipping_id);
     $product->tax_status = $request->tax_status ?? 'none';
 
     if (!empty($request->tax_id)) {
@@ -3622,6 +4389,41 @@ public function ViewProduct(Request $request)
             ]);
         }
         if ($request->type == 'order') {
+            /*
+             * GAP-142 / P4-F112. THE PERMISSION AXIS, AND IT IS THE ORDER LIST'S DATA.
+             *
+             * The line below is `->get()->toArray()` with no column list: every column of every
+             * matching order -- `final_price`, `payment_status`, `payment_type`, `customer_id`,
+             * `deliveryboy_id`, the whole `product_json`. `OrderList` resolves the same store the
+             * same way and then calls `refuseWithoutPermission(['Manage Order', 'Show Order'], ...)`
+             * with the comment "final_price is set on every row of the paginator below". THIS route
+             * had nothing, so a staff member refused by the list could read the same figures here.
+             *
+             * AND `name` IS NOT REQUIRED -- only `type` is -- so `like '%%'` matched EVERY order in
+             * the store. An ungated caller did not even need to know a reference.
+             *
+             * THE SAME TWO NAMES AS THE LIST, deliberately: a narrower set would mean a staff
+             * member could list orders and not search them, and a wider one would admit somebody
+             * the list already refuses.
+             *
+             * INSIDE THIS BRANCH AND NOT AT THE TOP OF THE HANDLER, which is the whole point of its
+             * placement. `type == 'category'` below answers category rows; gating the whole handler
+             * on the ORDER permissions would refuse a category search to a staff member holding
+             * category rights and no order rights -- a NEW refusal of a working capability rather
+             * than the hole this row was asked to close. Gating the category branch on category
+             * permissions is a separate decision GAP-142 did not assign here, so it is left as it
+             * is and `AdminApiSearchDataPermissionTest::test_the_category_branch_is_untouched` pins
+             * the asymmetry as deliberate.
+             *
+             * `$store->id`, not `$request->store_id`: the grant is evaluated against the store that
+             * was authorised. (The query below still reads the request value, which
+             * `resolveOwnedStore()` has already matched against `stores.id`; that is pre-existing
+             * and out of this row's scope.)
+             */
+            if (! $this->callerMayActInStore(['Manage Order', 'Show Order'], $store->id)) {
+                return $this->storePermissionDenied();
+            }
+
             $order = Order::where('store_id', $request->store_id)->where('product_order_id', 'like',  '%' . $request->name . '%');
             $Data = $order->get()->toArray();
         }
@@ -3709,6 +4511,36 @@ public function ViewProduct(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY PUBLISH A REVIEW.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they published a
+         * live 5-star review ATTRIBUTED TO A NAMED SHOPPER of that store -- `user_id` is taken straight
+         * from request input -- and `Testimonial::AvregeRating()` folded it into the product's displayed
+         * rating. The only control was tenancy, and tenancy admits every employee of the merchant by
+         * design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `TestimonialController::store()`, the same
+         * `Testimonial` model, and is seeded by `Utility.php` so a merchant can really grant it. A
+         * permission name invented here would be a business rule invented by engineering, and one that no
+         * row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         *
+         * THE OTHER HALF OF THAT FINDING IS NOT CLOSED HERE: `user_id` still carries no `exists:` rule and
+         * no store predicate, so a permitted caller can still attribute a review to another tenant's
+         * customer id or to none at all. That is a validation question with its own disposition; a
+         * permission gate is not a fix for it and must not be reported as one.
+         */
+        if (! $this->callerMayActInStore(['Create Testimonial'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
@@ -3765,17 +4597,90 @@ public function ViewProduct(Request $request)
      //   $Testimonial->delete();
       //  return $this->success(['message' => __('Review deleted successfully!.')]);
     //}
+/*
+ * GAP-242 / P4-F115 — THIS HANDLER CARRIED NO PREDICATE OF ANY KIND, so `DELETE
+ * api/admin/deletereview/N` destroyed review N for ANY bearer token: a shopper's, a delivery
+ * driver's, or a competing merchant's. `custom.auth` is not a role check (it logs a token's owner
+ * into the guard matching the TOKENABLE CLASS, `CustomAuth:112-120`), the `admin` URL prefix is not
+ * an authorization boundary, `AdminApiLog` only logs, and `Testimonial` is NOT in
+ * `config/tenancy.php`'s `scoped_models`, so the global scope adds no predicate for any principal.
+ * The bare `Testimonial::find($id)` was the only control and it is not one.
+ *
+ * THE PREDICATE RUNS FROM THE REVIEW TO THE CALLER, not from request input — and that direction is
+ * forced by the shipped app, which sends no `store_id` and no body at all
+ * (`StoreSyria_app98/lib/config/repository/review_repository.dart:29-33`). Copying the sibling
+ * shape (`resolveOwnedStore($request->store_id)`, used by `UpdateReview` at :4098 and `AddReview`)
+ * would refuse every real delete in production. So: load the review, take ITS `store_id`, and ask
+ * `resolveOwnedStore()` whether this caller owns that store. Same authorization outcome, no client
+ * change. `resolveOwnedStore()` derives the principal from `\Auth::user()` and carries the operator
+ * limb, so the platform operator is admitted and a review with a null `store_id` is refused.
+ *
+ * THE PERMISSION AXIS WAS DEFERRED HERE ON A REASON THAT HAS SINCE EXPIRED, AND IS NOW CLOSED.
+ * GAP-242 recorded "neither sibling has one, so adding one to the deleter alone would invent a rule
+ * for one handler of three". Both siblings have one now: `AddReview` on `Create Testimonial` and
+ * `UpdateReview` on `Edit Testimonial`, so the deleter had become the only review door with no
+ * permission axis -- and it is the irreversible one (`testimonials` has no soft delete). The gate is
+ * below, on `Delete Testimonial`, read from `TestimonialController::destroy()`.
+ *
+ * Tenancy is pinned by `AdminApiReviewDeletionTenancyTest` (6 cases: shopper, driver, foreign
+ * merchant, own merchant WITHOUT a store_id, operator, unknown id); the permission axis by
+ * `AdminApiCatalogueDeletePermissionTest`.
+ */
 public function DeleteReview($id)
 {
-        $testimonial=Testimonial::find($id);
-        if($testimonial){
-        $testimonial->delete();
+    $testimonial = Testimonial::find($id);
 
-
-        return $this->success(['message' => __('Review deleted successfully!.')]);
+    /*
+     * BOTH REFUSALS ARE HTTP **200**, NOT 404, AND THAT IS DELIBERATE RATHER THAN A BUG -- recorded
+     * because the `404` here reads as a status and is not one. `ApiResponser::error()` is
+     * `error($data = [], $message = 'fail', int $code = 200, ...)`, so this `404` lands in
+     * `$message` and the wire carries `{"status":0,"message":404,...}` with a 200. Left as it is:
+     * it is byte-identical to the sibling `UpdateReview:4130`, a 401 is the one answer that would
+     * be harmful (the shipped app force-clears its session on one), and the delete does not happen
+     * either way. Flagged by the independent review of this slice.
+     *
+     * THE TWO BODIES ARE IDENTICAL ON PURPOSE: "no such review" and "someone else's review" must
+     * not be distinguishable, or the endpoint becomes an existence oracle across tenants.
+     */
+    if (! $testimonial) {
+        return $this->error(['message' => __('Review not found.')], 404);
     }
 
-    return $this->error(['message' => __('Review not found.')], 404);
+    $store = $this->resolveOwnedStore($testimonial->store_id);
+
+    if (empty($store)) {
+        return $this->error(['message' => __('Review not found.')], 404);
+    }
+
+    /*
+     * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY DESTROY A REVIEW.
+     *
+     * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+     * held by a staff member of the owning store holding NO permission at all, and the public review
+     * was destroyed. The only control was the tenancy predicate above, and tenancy admits every
+     * employee of the merchant by design -- `creatorId()` resolves a staff row to their employer.
+     *
+     * THE GRANT IS EVALUATED AGAINST THE REVIEW'S OWN STORE, not against a store_id from the request
+     * -- there is none to read, and that is the point of the predicate above. `$store` is the store
+     * whose review is about to be destroyed, so a staff member permitted in one of the merchant's
+     * stores cannot act on another's rows through this door.
+     *
+     * BELOW the tenancy control, so a shopper, a driver, another tenant's merchant and a review with
+     * a null `store_id` all keep the `Review not found.` answer they already got -- the same body as
+     * "no such review", deliberately, so this endpoint is not an existence oracle across tenants.
+     * Through `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own
+     * owner admitted (a merchant holds no permission implicitly, and refusing the owner is the
+     * regression this family has already produced), and its `MerchantPermissions` limb answers the
+     * platform operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin
+     * bypass here.
+     */
+    if (! $this->callerMayActInStore(['Delete Testimonial'], $store->id)) {
+        return $this->storePermissionDenied();
+    }
+
+    $testimonial->delete();
+
+    return $this->success(['message' => __('Review deleted successfully!.')]);
 }
 
 
@@ -3784,6 +4689,30 @@ public function DeleteReview($id)
     $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
+    }
+
+    /*
+     * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY REWRITE A REVIEW.
+     *
+     * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+     * held by a staff member of the owning store holding NO permission at all, and they rewrote the
+     * public review text; the write also covers `rating_no`, `status`, `user_id`, `category_id` and
+     * `product_id`, and recomputes the product's average rating. The only control was tenancy, and
+     * tenancy admits every employee of the merchant by design -- `creatorId()` resolves a staff row to
+     * their employer.
+     *
+     * THE NAME IS THE WEB TWIN'S OWN, read from `TestimonialController::update()`, and is seeded by
+     * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+     * business rule invented by engineering, and one that no row exists for is a permanent 403.
+     *
+     * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+     * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+     * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+     * this family has already produced), and its `MerchantPermissions` limb answers the platform
+     * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+     */
+    if (! $this->callerMayActInStore(['Edit Testimonial'], $store->id)) {
+        return $this->storePermissionDenied();
     }
 
     $validator = \Validator::make(
@@ -3843,6 +4772,31 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY PUBLISH OR UNPUBLISH A
+         * REVIEW.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and the toggle landed.
+         * The only control was tenancy, and tenancy admits every employee of the merchant by design --
+         * `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `TestimonialController::update()`, which is where the
+         * web writes `$Testimonial->status`; this controller has no separate status screen, so the
+         * editor's name is the twin, and is seeded by `Utility.php` so a merchant can really grant it. A
+         * permission name invented here would be a business rule invented by engineering, and one that no
+         * row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Edit Testimonial'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $validator = \Validator::make(
@@ -3908,6 +4862,32 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ A CATEGORY'S
+         * PRODUCTS.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they were served
+         * every product column, `cost_price` -- the merchant's margin -- included: the handler answers the
+         * model's own array and `App\Models\Product` declares no hidden attributes. The only control was
+         * tenancy, and tenancy admits every employee of the merchant by design -- `creatorId()` resolves a
+         * staff row to their employer.
+         *
+         * THE NAME IS THE ONE ITS OWN SIBLING ALREADY CARRIES. `searchProductsByName`, one route over, is
+         * gated on `Manage Products` PRECISELY because it serves `cost_price`, and the web catalogue
+         * screen (`ProductController::index()`) uses the same name. This door serves the same column and
+         * was missed.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Manage Products'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $rules = [
             'category_id' => 'required'
         ];
@@ -3933,6 +4913,29 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ A PRODUCT'S REVIEWS.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they were served
+         * the list. The only control was tenancy, and tenancy admits every employee of the merchant by
+         * design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `TestimonialController::index()`, the web review LIST
+         * screen, and is seeded by `Utility.php` so a merchant can really grant it. A permission name
+         * invented here would be a business rule invented by engineering, and one that no row exists for
+         * is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Manage Testimonial'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $rules = [
@@ -4142,6 +5145,45 @@ public function DeleteReview($id)
         // and multi-store merchants working.
         $admin = $this->resolveManageableUser($request->user_id);
 
+        /*
+         * GAP-251 / P4-F120 — A COLLEAGUE PANEL-ACCOUNT TAKEOVER VECTOR.
+         *
+         * Measured: an unpermissioned staff member rewrote another panel user's `users.email` and
+         * `name`. That e-mail is what `adminlogin` authenticates on and where the web password reset
+         * sends, so this points a colleague's login at an attacker-controlled address.
+         *
+         * BOUNDED, and the bound is measured rather than assumed: the reach is every panel user the
+         * MERCHANT created, and the store OWNER is NOT reachable — their `created_by` is the
+         * operator, not themselves, so `resolveManageableUser()` refuses them. That is the
+         * difference between this and an account takeover of the tenant.
+         *
+         * `Edit User` is the seeded name, and WHICH web action it belongs to is the whole point of
+         * the self exception below.
+         *
+         * THE SELF EXCEPTION WAS MISSING FROM THIS DOOR AND THE INDEPENDENT REVIEW CAUGHT IT —
+         * THE FOURTH INSTANCE OF A REGRESSION THIS BATCH HAD ALREADY PRODUCED TWICE.
+         *
+         * `UpdatePassword` and all three driver doors got the exemption; this one did not, so an
+         * ordinary panel staff member could no longer edit their OWN name, e-mail or avatar.
+         *
+         * THE WEB SPLITS THE TWO ACTIONS AND THIS ENDPOINT CONFLATES THEM, which is why the name
+         * alone was the wrong control. `UserController::editprofile()` (`:506`, route
+         * `web.php:1165`) takes its subject from `\Auth::guard()->user()` and has **no permission
+         * check at all** — it IS the self-service editor. `Edit User` belongs to
+         * `UserController::update()` (`:232`), the OTHER-user editor. This API door accepts a
+         * `user_id` and therefore serves both, so it needs both rules. Exactly the same split
+         * exists for passwords (`UserController::password_update:574` is self-only with
+         * `Hash::check` and no permission), which is what the `UpdatePassword` exemption mirrors.
+         *
+         * So admitting a user to their own row is not a weakening: it is what the web already
+         * allows unconditionally, and the permission is required only for someone else's row.
+         */
+        if (! empty($admin)
+            && (int) $admin->id !== (int) \Auth::id()
+            && ! $this->callerMayActInStore(['Edit User'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         if (!empty($admin)) {
             if (!empty($request->name)) {
                 $admin->name = $request->name;
@@ -4202,6 +5244,49 @@ public function DeleteReview($id)
         // The read is moved inside the guard, which is what the existing
         // `!empty($admin)` branch was always for.
         $admin = $this->resolveManageableUser($request->user_id);
+
+        /*
+         * GAP-251 / P4-F120 — A LATERAL CREDENTIAL WRITE BETWEEN COLLEAGUES, AND THIS ONE REUSES
+         * THE WEB'S POLICY RATHER THAN INVENTING A PERMISSION NAME.
+         *
+         * Measured in all three directions: an unpermissioned staff member COULD set a sibling
+         * staff member's password (same tenant root), the store OWNER's row was refused, and a
+         * foreign tenant was refused. No permission was consulted anywhere — the only controls were
+         * `resolveManageableUser()` (tenancy) and `Hash::check($old_password)`, so the attack is
+         * held back only by knowing the colleague's current password. That makes it a real lateral
+         * credential write and NOT an account takeover of the tenant, which is why it is reported
+         * as the former.
+         *
+         * THE WEB DOES NOT USE A PERMISSION NAME HERE EITHER. `UserController::updatePassword()`
+         * calls `$this->authorize('resetPassword', $user)`, and `UserPolicy::resetPassword()` is a
+         * complete control already: operator first, then `Reset Password`, then it refuses an
+         * OPERATOR as the target however the `type` row is spelled (a MySQL collation subtlety that
+         * cost a real finding), then `sameTenant()`. Porting that is strictly better than choosing a
+         * name by analogy, and it means the two surfaces cannot drift.
+         *
+         * `Gate::forUser()->allows()` rather than `authorize()`, because `authorize()` throws an
+         * `AuthorizationException` whose 403 is an HTML error page the shipped Flutter app does not
+         * parse. The refusal keeps this API's own envelope.
+         *
+         * THE SELF EXCEPTION IS NOT A WEAKENING, AND IT WAS A REGRESSION I CAUSED AND CAUGHT.
+         *
+         * This endpoint serves TWO purposes: a user changing their OWN password, and a privileged
+         * user resetting someone else's. The policy alone refuses the first, because
+         * `UserPolicy::resetPassword()` requires the `Reset Password` permission after its operator
+         * limb -- so the first version of this gate refused an ordinary staff member changing their
+         * own password, which the shipped app certainly does. The behavioural census's own pin
+         * caught it: its leg (i) drives exactly that and went red.
+         *
+         * `$admin->id === Auth::id()` admits only the caller's own row, and `Hash::check(
+         * $old_password)` below still applies to it -- so self-service needs the current password
+         * exactly as before. Nothing else is admitted that the policy would refuse: the lateral
+         * write between COLLEAGUES, which is what this row is about, is a different id.
+         */
+        if (! empty($admin)
+            && (int) $admin->id !== (int) \Auth::id()
+            && ! \Illuminate\Support\Facades\Gate::forUser(\Auth::user())->allows('resetPassword', $admin)) {
+            return $this->storePermissionDenied();
+        }
 
         if (!empty($admin)) {
             $current_password = $admin->password;
@@ -4365,6 +5450,34 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ THE LOYALTY
+         * SETTINGS.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they were served
+         * `loyality_program_enabled` and `reward_point`. The only control was tenancy, and tenancy admits
+         * every employee of the merchant by design -- `creatorId()` resolves a staff row to their
+         * employer.
+         *
+         * THE WRITER NEXT DOOR ALREADY ASKS THIS QUESTION, so the gate had been applied per HANDLER rather
+         * than per SUBJECT. `LoyalitySetting` (the POST) and its web twin
+         * `SettingController::LoyalityProgramSettings()` both go through `StoreSettingsAccess::permits()`;
+         * the settings screen that READS these two names (`SettingController::settingForm()`, which
+         * renders the `loyality_pro_setting` tab) goes through the same predicate; and both names are in
+         * that class's own restricted list, whose comment calls the reward "what a point is worth". The
+         * two sibling settings READERS in this controller, `GetEmailSetting` and `GetStripePayment`,
+         * already call the helper below -- and the census measured this door admitting the same principal
+         * they refuse 403.
+         *
+         * `permits()` IS OPERATOR-FIRST, THEN THE TENANT OWNER, THEN `Manage Setting`, so neither the
+         * platform operator nor the store's own owner is refused. Below the tenancy control, so a foreign
+         * tenant keeps the answer it already gets.
+         */
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $loyalitydata = [];
         $settings = Setting::where('store_id', $request->store_id)->pluck('value', 'name')->toArray();
 
@@ -4467,6 +5580,35 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ THE COD
+         * PAYMENT CONFIGURATION.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer
+         * token held by a staff member of the owning store holding NO permission at all, and the COD
+         * configuration came back. The only control was tenancy, and tenancy admits every employee of
+         * the merchant by design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE SAME PREDICATE ITS OWN WRITE TWIN ALREADY USES. `CodPayment` -- the handler that WRITES
+         * these exact rows -- is gated by `refuseUnlessMayAdministerStoreSettings()`, and so is the
+         * READ twin one resource over, `GetStripePayment`. So on this one resource a staff member
+         * could read a payment configuration they may not change, while the Stripe equivalent was
+         * closed: this is the gap, not a design. `is_cod_enabled`, `cod_info` and `cod_image` are also
+         * `StoreSettingsAccess::RESTRICTED_EXACT` names, which is the same classification asking the
+         * same question on the write side.
+         *
+         * `refuseUnlessMayAdministerStoreSettings()` answers 403 and never 401 (the shipped Flutter
+         * app force-clears its session on any 401), and `StoreSettingsAccess::permits()` asks the
+         * operator FIRST, then the tenant owner, then `Manage Setting` -- the ordering a Laratrust
+         * codebase with no super-admin bypass requires.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the `Store not found!` envelope it
+         * already gets.
+         */
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $coddata = [];
@@ -4573,6 +5715,34 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ THE STORE'S
+         * BANK DETAILS.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer
+         * token held by a staff member of the owning store holding NO permission at all, and
+         * `bank_transfer` came back -- the free-text account / IBAN block a shopper is told to pay
+         * into -- together with the uploaded transfer-slip path. The only control was tenancy, and
+         * tenancy admits every employee of the merchant by design.
+         *
+         * THE SAME PREDICATE ITS OWN WRITE TWIN ALREADY USES. `BankPayment` -- the handler that WRITES
+         * these exact rows -- is gated by `refuseUnlessMayAdministerStoreSettings()`, and so is the
+         * READ twin one resource over, `GetStripePayment`. `bank_transfer`,
+         * `is_bank_transfer_enabled` and `bank_transfer_image` are also
+         * `StoreSettingsAccess::RESTRICTED_EXACT` names.
+         *
+         * `refuseUnlessMayAdministerStoreSettings()` answers 403 and never 401 (the shipped Flutter
+         * app force-clears its session on any 401), and `StoreSettingsAccess::permits()` asks the
+         * operator FIRST, then the tenant owner, then `Manage Setting` -- the ordering a Laratrust
+         * codebase with no super-admin bypass requires.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the `Store not found!` envelope it
+         * already gets.
+         */
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $bankdata = [];
@@ -5016,15 +6186,10 @@ public function DeleteReview($id)
      */
     private function callerIsStoreOwner($storeId): bool
     {
-        $user = \Auth::user();
-
-        if (! $user instanceof \App\Models\User || empty($storeId)) {
-            return false;
-        }
-
-        $store = getStoreById($storeId);
-
-        return $store !== null && (int) $store->created_by === (int) $user->id;
+        /* GAP-277: the body moved to App\Support\Orders\OrderStateChangeAuthorization, verbatim, so
+           that the two STOREFRONT order doors can ask the same question instead of carrying a second
+           copy of it. Everything above still holds and is the account of why this limb exists. */
+        return \App\Support\Orders\OrderStateChangeAuthorization::callerOwnsStore($storeId);
     }
 
     /**
@@ -5059,21 +6224,13 @@ public function DeleteReview($id)
      */
     private function callerMayChangeOrderState($order): bool
     {
-        if (empty($order)) {
-            return false;
-        }
-
-        $boy = auth('deliveryboy')->user();
-
-        if ($boy && (int) $order->deliveryboy_id === (int) $boy->id) {
-            return true;
-        }
-
-        if ($this->callerIsStoreOwner($order->store_id)) {
-            return true;
-        }
-
-        return MerchantPermissions::allowsAny(\Auth::user(), ['Manage Order'], $order->store_id);
+        /* GAP-277: the three limbs moved to App\Support\Orders\OrderStateChangeAuthorization,
+           unchanged, because the two STOREFRONT order doors (Api\ApiController::order_status_change
+           and ::product_return) asked no permission at all and are in another class -- a roleless
+           staff member cancelled their tenant's order there, reversing the merchant's entitlement
+           and putting the goods back on the shelf. A copy would have been how the four doors drift
+           apart. Everything above still holds and is the account of each limb. */
+        return \App\Support\Orders\OrderStateChangeAuthorization::allows($order);
     }
 
     /** The refusal every state-changing order endpoint in this controller gives.
@@ -5083,6 +6240,75 @@ public function DeleteReview($id)
      * Same shape as `createOrderViaApi`'s gate in this file.
      */
     private function orderPermissionDenied()
+    {
+        return response()->json([
+            'status' => 'error',
+            'message' => __('You do not have permission to perform this action.'),
+        ], 403);
+    }
+
+    /**
+     * GAP-142 — MAY THIS PRINCIPAL ACT IN THIS STORE? The two-limb predicate, written ONCE.
+     * =============================================================================================
+     *
+     * WHY A HELPER AND NOT ELEVEN COPIES. GAP-142 adds this gate to eleven handlers across four
+     * resources, and the two limbs have to be in a particular order for two separate reasons that
+     * are easy to get wrong one site at a time:
+     *
+     *   THE OWNER LIMB IS FIRST AND IS LOAD-BEARING. A merchant does not implicitly hold any of
+     *   these permission names, and `AdminApiTenancyTest::test_assign_order_lets_the_owner_past_the
+     *   _gate_and_completes` drives `assignOrder` as a merchant built by `twoTenants()`, which
+     *   grants nothing at all — a permission-only gate turns that already-green test red. CLAUDE.md
+     *   records this family producing exactly that regression once before. It is not an escalation:
+     *   the store's owner is the principal who creates the roles and grants the permissions in
+     *   their own tenant, so there is no right they cannot give themselves through the product.
+     *
+     *   THE OPERATOR IS NOT TESTED HERE, DELIBERATELY. `MerchantPermissions::allowsAny()` already
+     *   returns `WILDCARD` for them, which is where that decision belongs — and it must happen
+     *   somewhere, because `isAbleTo()` alone REFUSES the platform operator (no super-admin bypass;
+     *   operator status is a string on `users.type`). A gate built on `isAbleTo()` would lock out
+     *   the one principal who may do everything.
+     *
+     * `MerchantPermissions` RATHER THAN `isAbleTo()` FOR THE SECOND REASON TOO: `allPermissions()`
+     * unions every role the principal holds with no store predicate, so a staff member granted a
+     * name in store A would carry it into store B of the same merchant. These handlers key their
+     * rows on `resolveOwnedStore($request->store_id)`, which admits ANY store in the caller's
+     * tenant by design, so the grant must be evaluated against THAT store — which is why the
+     * `$storeId` argument is required rather than defaulted to `current_store`.
+     *
+     * THIS IS THE PERMISSION AXIS ONLY. Tenancy is settled before any call to this, by
+     * `resolveOwnedStore()` and the per-row `store_id` predicates. Neither replaces the other, and
+     * `Order`, `Product` and `Store` are not in `config/tenancy.php`'s `scoped_models`, so those
+     * explicit predicates are the ONLY tenancy control on the rows involved.
+     *
+     * @param  list<string>  $permissions  any one of which suffices
+     * @param  int|string|null  $storeId  the store whose rows are about to be written
+     */
+    private function callerMayActInStore(array $permissions, $storeId): bool
+    {
+        if ($this->callerIsStoreOwner($storeId)) {
+            return true;
+        }
+
+        return MerchantPermissions::allowsAny(\Auth::user(), $permissions, $storeId);
+    }
+
+    /**
+     * GAP-142 — the refusal for a non-order resource whose handler has no envelope of its own.
+     *
+     * 403, NEVER 401, AND NEVER `$this->error()`. `ApiResponser::error()` answers HTTP **200** with
+     * `{status: 0}` by default, so a refusal through it is a 200 no client distinguishes from
+     * success — and the coupon, tax and shipping handlers refuse everything ELSE that way, which is
+     * exactly why the permission refusal must not. A 401 is worse than useless: the shipped Flutter
+     * app force-clears its session on any 401, so it would sign a merchant's staff out of the whole
+     * app instead of telling them they lack a right.
+     *
+     * The body is `orderPermissionDenied()`'s, because the shipped app already parses that shape
+     * from `DeleteOrder`, `ViewOrder` and `createOrderViaApi`. It is a separate method rather than a
+     * reuse so that the name does not say "order" on a coupon route — a comment that is wrong about
+     * its own subject sends the next reader to the wrong code.
+     */
+    private function storePermissionDenied()
     {
         return response()->json([
             'status' => 'error',
@@ -5281,6 +6507,34 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->storeAccessDenied();
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ A COUPON'S
+         * REDEMPTION LEDGER.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they were served
+         * every redemption: which customer redeemed, for how much, on which order. The only control was
+         * tenancy, and tenancy admits every employee of the merchant by design -- `creatorId()` resolves a
+         * staff row to their employer.
+         *
+         * BOTH NAMES, BECAUSE THE WEB SPELLS THIS SCREEN WITH TWO. `CouponController::show()` -- the
+         * screen that renders exactly this ledger -- asks for `Create Coupon`, and the coupon list screen
+         * it is reached from (`CouponController::couponReadRefusal()`, shared by the list and the export)
+         * asks for `Manage Coupon`, which is also what the API sibling `CouponList` carries. Naming both
+         * admits nobody the web already refuses and refuses nobody the web admits; picking one would have
+         * invented a narrowing. The same reasoning `ViewOrder` records for naming `Show Order` and `Manage
+         * Order` together.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Manage Coupon', 'Create Coupon'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $rules = [
@@ -5671,8 +6925,48 @@ public function DeleteStore(Request $request)
         //     must never be 401;
         //   - "not found" and "not yours" are deliberately indistinguishable, so the endpoint
         //     cannot be used to enumerate which order ids exist on the platform.
-        if (!$this->resolveChangeableOrder($request->order_id)) {
+        $orderRow = $this->resolveChangeableOrder($request->order_id);
+
+        if (!$orderRow) {
             return $this->error(['message' => __('Order not found!')]);
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ THE ORDER
+         * DOCUMENT.
+         *
+         * MEASURED: an unpermissioned staff member of the owning store was served the customer's
+         * name, e-mail and telephone, the billing AND delivery address, `payment_status` and
+         * `final_price` -- while the SIBLING `vieworder`, which serves the same document, refused
+         * that same principal 403. The resolver above is a tenancy check and a driver allowance; it
+         * asks nothing about what the actor may do, and nothing else did either.
+         *
+         * THE NAMES ARE `vieworder`'s OWN, not a choice made here: `ViewOrder` gates this document
+         * on `Show Order` / `Manage Order` with a store-owner limb above them, and its docblock
+         * records why both singular names admit (the order LIST and `Top_orders` already admit on
+         * either, and the list is how the shipped app reaches a detail view -- so `Manage Order`
+         * admits nobody who cannot already read that order's money in a list row). The plural
+         * `Manage Orders` is read by no gate in this codebase.
+         *
+         * THE ASSIGNED DRIVER IS ADMITTED ON THEIR OWN MERITS AND IS NOT ASKED FOR A PERMISSION.
+         * This route is declared inside the `//delivery boy` block of `routes/api.php` and is the
+         * driver app's order screen; a `DeliveryBoy` is not a Laratrust subject, so
+         * `MerchantPermissions` answers `[]` for one and a merchant permission on this door would
+         * refuse every driver on the platform -- a failure mode this project has shipped twice. The
+         * limb is the same test the resolver above already makes, and
+         * `AdminApiPiiAndCatalogueRouteGateTest` pins the driver leg by name.
+         *
+         * 403 THROUGH `orderPermissionDenied()`, the shape `ViewOrder`, `DeleteOrder` and
+         * `createOrderViaApi` already use -- never 401 (the shipped Flutter app force-clears its
+         * session on any 401) and never `error()`, which answers HTTP 200. The tenancy refusal above
+         * keeps its own `Order not found!` envelope, so "no such order" and "not yours" stay
+         * indistinguishable and this door is still not an order-id oracle.
+         */
+        $driver = auth('deliveryboy')->user();
+
+        if (! ($driver && (int) $orderRow->deliveryboy_id === (int) $driver->id)
+            && ! $this->callerMayActInStore(['Show Order', 'Manage Order'], $orderRow->store_id)) {
+            return $this->orderPermissionDenied();
         }
 
         $order = Order::order_detail($request->order_id);
@@ -5979,6 +7273,50 @@ public function changeProfile(Request $request)
         // so any valid token rewrote any driver's name, email and contact.
         $deliveryboy = $this->resolveManageableDeliveryBoy($request->id);
 
+        /*
+         * GAP-251 / P4-F120 — A DRIVER ACCOUNT-TAKEOVER VECTOR. Measured: an unpermissioned staff member
+         * rewrote `delivery_boys.email` and `name`. That e-mail is the identifier
+         * `deliveryLogin` authenticates on, so rewriting it points the driver's login at an
+         * address the attacker controls. The password hash is NOT written by this handler
+         * (measured), so this is a takeover VECTOR rather than a credential write — stated that
+         * way so the finding is not overstated.
+         *
+         * TWO DOORS ONTO ONE ACCOUNT, ONE GATED: the sibling `deliveryboysUpdate/{id}` already
+         * requires `Edit Deliveryboy` and `deliveryboysReset-password` requires
+         * `Reset password Deliveryboy` (both closed 2026-11-25). This one was missed because it
+         * lives on a different controller surface.
+         *
+         * `resolveManageableDeliveryBoy()` above settles TENANCY (it replaced a bare
+         * `DeliveryBoy::find($request->id)` that reached every tenant). It settles nothing about
+         * who INSIDE the store may do this, so every employee could.
+         *
+         * The store comes from the RESOLVED DRIVER, not from request input — the same direction the
+         * review deleter uses (GAP-242), and necessary here because this handler never resolves a
+         * `$store` of its own. A driver with a null `store_id` resolves no store and is refused.
+         *
+         * THE DRIVER'S OWN ROW IS EXEMPT, AND THAT IS NOT A WEAKENING — IT IS THE LIMB THIS HELPER
+         * EXISTS FOR. `resolveManageableDeliveryBoy()` admits a caller acting on THEMSELVES first
+         * (`:5375-5379`, a `DeliveryBoy` on the `deliveryboy` guard), which is how a driver signs
+         * themselves out and maintains their own profile from the driver app. A merchant permission
+         * cannot be held by a `DeliveryBoy` at all, so the limb below would refuse every driver on
+         * their own account. `DeliveryAndOrderApiAuthorizationTest::test_a_driver_can_still_log_
+         * themselves_out` names that self-service limb and caught this when the first version of
+         * these gates omitted the exemption. The permission is required only when the caller is
+         * acting on SOMEONE ELSE.
+         */
+        if (! empty($deliveryboy)) {
+            $self = auth('deliveryboy')->user();
+            $actingOnSelf = $self && (int) $self->id === (int) $deliveryboy->id;
+
+            if (! $actingOnSelf) {
+                $driverStore = \App\Models\Store::find($deliveryboy->store_id);
+
+                if (empty($driverStore) || ! $this->callerMayActInStore(['Edit Deliveryboy'], $driverStore->id)) {
+                    return $this->storePermissionDenied();
+                }
+            }
+        }
+
         $dir        = 'uploads';
 
         if (!empty($deliveryboy)) {
@@ -6025,6 +7363,51 @@ public function changeProfile(Request $request)
         // service against a delivery fleet from one request body field.
         $user = $this->resolveManageableDeliveryBoy($request->user_id);
 
+        /*
+         * GAP-251 / P4-F120 — AN AVAILABILITY WRITE: revokes ANY tenant driver's tokens, repeatedly.
+         * Measured: an unpermissioned staff member deleted a target driver's
+         * `personal_access_tokens` rows, signing them out of the shipped driver app.
+         * `$request->user_id` is not even validated as present.
+         *
+         * `Edit Deliveryboy` IS CHOSEN BY ANALOGY AND THAT IS FLAGGED, because it is the only
+         * name here not copied from a web twin: there is no standalone driver-logout action on
+         * the web at all. The web revokes a driver's tokens only INSIDE a password reset
+         * (`DeliveryBoyController:251`, gated on `Reset password Deliveryboy`). Acting on a
+         * driver's account is what `Edit Deliveryboy` governs on the two sibling doors, so it is
+         * the closest existing right; if the owner would rather this needed the reset
+         * permission, it is a one-word change and the test names the choice.
+         *
+         * `resolveManageableDeliveryBoy()` above settles TENANCY (it replaced a bare
+         * `DeliveryBoy::find($request->id)` that reached every tenant). It settles nothing about
+         * who INSIDE the store may do this, so every employee could.
+         *
+         * The store comes from the RESOLVED DRIVER, not from request input — the same direction the
+         * review deleter uses (GAP-242), and necessary here because this handler never resolves a
+         * `$store` of its own. A driver with a null `store_id` resolves no store and is refused.
+         *
+         * THE DRIVER'S OWN ROW IS EXEMPT, AND THAT IS NOT A WEAKENING — IT IS THE LIMB THIS HELPER
+         * EXISTS FOR. `resolveManageableDeliveryBoy()` admits a caller acting on THEMSELVES first
+         * (`:5375-5379`, a `DeliveryBoy` on the `deliveryboy` guard), which is how a driver signs
+         * themselves out and maintains their own profile from the driver app. A merchant permission
+         * cannot be held by a `DeliveryBoy` at all, so the limb below would refuse every driver on
+         * their own account. `DeliveryAndOrderApiAuthorizationTest::test_a_driver_can_still_log_
+         * themselves_out` names that self-service limb and caught this when the first version of
+         * these gates omitted the exemption. The permission is required only when the caller is
+         * acting on SOMEONE ELSE.
+         */
+        if (! empty($user)) {
+            $self = auth('deliveryboy')->user();
+            $actingOnSelf = $self && (int) $self->id === (int) $user->id;
+
+            if (! $actingOnSelf) {
+                $driverStore = \App\Models\Store::find($user->store_id);
+
+                if (empty($driverStore) || ! $this->callerMayActInStore(['Edit Deliveryboy'], $driverStore->id)) {
+                    return $this->storePermissionDenied();
+                }
+            }
+        }
+
         if (!empty($user)) {
             return $this->success([
                 'message' => __('User Logout'),
@@ -6056,6 +7439,44 @@ public function changeProfile(Request $request)
         // holder of any valid token DELETED any delivery boy account on the
         // platform. Irreversible.
         $user = $this->resolveManageableDeliveryBoy($request->user_id);
+
+        /*
+         * GAP-251 / P4-F120 — IRREVERSIBLE: deletes a `delivery_boys` row. Measured: an unpermissioned
+         * staff member deleted a driver account and got `{status:1}` "User Deleted
+         * successfully". The sibling `deliveryboysDestroy/{id}` already requires
+         * `Delete Deliveryboy` (closed 2026-11-25); this is the same capability on a second,
+         * ungated door.
+         *
+         * `resolveManageableDeliveryBoy()` above settles TENANCY (it replaced a bare
+         * `DeliveryBoy::find($request->id)` that reached every tenant). It settles nothing about
+         * who INSIDE the store may do this, so every employee could.
+         *
+         * The store comes from the RESOLVED DRIVER, not from request input — the same direction the
+         * review deleter uses (GAP-242), and necessary here because this handler never resolves a
+         * `$store` of its own. A driver with a null `store_id` resolves no store and is refused.
+         *
+         * THE DRIVER'S OWN ROW IS EXEMPT, AND THAT IS NOT A WEAKENING — IT IS THE LIMB THIS HELPER
+         * EXISTS FOR. `resolveManageableDeliveryBoy()` admits a caller acting on THEMSELVES first
+         * (`:5375-5379`, a `DeliveryBoy` on the `deliveryboy` guard), which is how a driver signs
+         * themselves out and maintains their own profile from the driver app. A merchant permission
+         * cannot be held by a `DeliveryBoy` at all, so the limb below would refuse every driver on
+         * their own account. `DeliveryAndOrderApiAuthorizationTest::test_a_driver_can_still_log_
+         * themselves_out` names that self-service limb and caught this when the first version of
+         * these gates omitted the exemption. The permission is required only when the caller is
+         * acting on SOMEONE ELSE.
+         */
+        if (! empty($user)) {
+            $self = auth('deliveryboy')->user();
+            $actingOnSelf = $self && (int) $self->id === (int) $user->id;
+
+            if (! $actingOnSelf) {
+                $driverStore = \App\Models\Store::find($user->store_id);
+
+                if (empty($driverStore) || ! $this->callerMayActInStore(['Delete Deliveryboy'], $driverStore->id)) {
+                    return $this->storePermissionDenied();
+                }
+            }
+        }
 
         if (!empty($user)) {
             $user->delete();
@@ -6169,6 +7590,35 @@ public function changeProfile(Request $request)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY CREATE A BRAND.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they created one --
+         * uploading its logo against the OWNER's plan storage quota. The only control was tenancy, and
+         * tenancy admits every employee of the merchant by design -- `creatorId()` resolves a staff row to
+         * their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `ProductBrandController::store()`, and is seeded by
+         * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+         * business rule invented by engineering, and one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         *
+         * THE GRANT IS EVALUATED AGAINST THE STORE THE CALLER NAMED, which is the convention every other
+         * gate in this controller follows. This writer stamps the row with the caller's own
+         * `current_store`, which for a merchant with two stores need not be that store; naming the
+         * requested store is the fail-closed direction and matches the sibling doors.
+         */
+        if (! $this->callerMayActInStore(['Create Product Brand'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
@@ -6226,6 +7676,30 @@ public function changeProfile(Request $request)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY REWRITE A BRAND.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they renamed it;
+         * the write covers `name`, `slug`, `logo` and `status`, and `status` is the column the storefront
+         * filters on. The only control was tenancy, and tenancy admits every employee of the merchant by
+         * design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `ProductBrandController::update()`, and is seeded by
+         * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+         * business rule invented by engineering, and one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Edit Product Brand'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
@@ -6303,6 +7777,43 @@ public function changeProfile(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY DESTROY A BRAND.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer
+         * token held by a staff member of the owning store holding NO permission at all, and the
+         * brand row was destroyed. `product_brands` has no soft delete and this path writes no audit
+         * row. The only control was tenancy, and tenancy admits every employee of the merchant by
+         * design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * AND THE NEIGHBOURING DOORS WERE ALREADY GATED: `AddProductBrand` on `Create Product Brand`,
+         * `UpdateProductBrand` and both status toggles on `Edit Product Brand`. The irreversible
+         * delete was the one brand door with no permission axis.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `ProductBrandController::destroy()`, and is seeded
+         * by `Utility.php` -- both as a row and onto the global `admin` role every self-registered
+         * merchant holds -- so a merchant can really grant it and no production merchant loses the
+         * door. A permission name invented here would be a business rule invented by engineering, and
+         * one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and ABOVE
+         * the row lookup, so an unpermitted caller cannot use the not-found branch as an existence
+         * oracle. Through `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the
+         * store's own owner admitted (a merchant holds no permission implicitly, and refusing the
+         * owner is the regression this family has already produced), and its `MerchantPermissions`
+         * limb answers the platform operator the wildcard, which `isAbleTo()` alone REFUSES -- there
+         * is no super-admin bypass here.
+         *
+         * `$store->id` AND NOT `ownedStoreIds()`, although the lookup below is tenant-wide: brands are
+         * stamped with the caller's `current_store` at creation and may legitimately sit in another of
+         * the merchant's own stores, so the LOOKUP must stay wide. The GRANT is still evaluated
+         * against the store the caller named, which is the store `callerMayActInStore()` documents as
+         * the right subject -- a staff member permitted in store A must not act through store B.
+         */
+        if (! $this->callerMayActInStore(['Delete Product Brand'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $rules = [
             'productbrand_id' => 'required'
         ];
@@ -6333,6 +7844,31 @@ public function changeProfile(Request $request)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY PUBLISH OR UNPUBLISH A
+         * BRAND.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and the toggle landed:
+         * `product_brands.status` moved. The only control was tenancy, and tenancy admits every employee
+         * of the merchant by design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE WEB TWIN OF THIS EXACT TOGGLE IS GATED AND THIS ONE WAS NOT, which is the sharpest fact
+         * about this row: `ProductBrandController::resolveOwnedBrand()` -- the shared guard of the web
+         * status and popular toggles -- requires `Edit Product Brand`, the name its own `edit()` and
+         * `update()` use, and `BrandLabelStatusAuthorizationTest` pins it. Somebody closed one surface.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Edit Product Brand'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $rules = [
             'productbrand_id' => 'required'
         ];
@@ -6367,6 +7903,31 @@ public function changeProfile(Request $request)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY FEATURE OR UNFEATURE A
+         * BRAND.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and the toggle landed:
+         * `product_brands.is_popular` moved. The only control was tenancy, and tenancy admits every
+         * employee of the merchant by design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `ProductBrandController::resolveOwnedBrand()`, the
+         * shared guard of the web toggles, and is seeded by `Utility.php` so a merchant can really grant
+         * it. A permission name invented here would be a business rule invented by engineering, and one
+         * that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Edit Product Brand'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $rules = [
             'productbrand_id' => 'required'
         ];
@@ -6400,6 +7961,29 @@ public function changeProfile(Request $request)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY CREATE A PRODUCT LABEL.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they created one.
+         * The only control was tenancy, and tenancy admits every employee of the merchant by design --
+         * `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `ProductLabelController::store()`, and is seeded by
+         * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+         * business rule invented by engineering, and one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Create Product Label'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
@@ -6436,6 +8020,33 @@ public function changeProfile(Request $request)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY REWRITE A PRODUCT LABEL.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and they renamed it.
+         * The only control was tenancy, and tenancy admits every employee of the merchant by design --
+         * `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `ProductLabelController::update()`, and is seeded by
+         * `Utility.php` so a merchant can really grant it. A permission name invented here would be a
+         * business rule invented by engineering, and one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         *
+         * A SECOND FINDING ON THIS HANDLER IS NOT CLOSED BY THIS GATE and is left as it was: the write
+         * rewrites `store_id` from the caller's `current_store` unconditionally, so a caller whose current
+         * store differs MOVES the label between two stores of the same tenant. That is a tenancy-shaped
+         * question inside one tenant, not a permission one, and conflating the two would hide it.
+         */
+        if (! $this->callerMayActInStore(['Edit Product Label'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $rules = [
@@ -6481,6 +8092,42 @@ public function changeProfile(Request $request)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY DESTROY A LABEL.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer
+         * token held by a staff member of the owning store holding NO permission at all, and the
+         * product-label row was destroyed. `product_labels` has no soft delete and this path writes no
+         * audit row. The only control was tenancy, and tenancy admits every employee of the merchant
+         * by design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * AND THE NEIGHBOURING DOORS WERE ALREADY GATED: `AddProductLable` on `Create Product Label`,
+         * `UpdateProductLable` and the status toggle on `Edit Product Label`. The irreversible delete
+         * was the one label door with no permission axis.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `ProductLabelController::destroy()`, and is seeded
+         * by `Utility.php` -- both as a row and onto the global `admin` role every self-registered
+         * merchant holds -- so a merchant can really grant it and no production merchant loses the
+         * door. A permission name invented here would be a business rule invented by engineering, and
+         * one that no row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and ABOVE
+         * the row lookup, so an unpermitted caller cannot use the not-found branch as an existence
+         * oracle. Through `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the
+         * store's own owner admitted (a merchant holds no permission implicitly, and refusing the
+         * owner is the regression this family has already produced), and its `MerchantPermissions`
+         * limb answers the platform operator the wildcard, which `isAbleTo()` alone REFUSES -- there
+         * is no super-admin bypass here.
+         *
+         * `$store->id` AND NOT `ownedStoreIds()`, for the reason spelled out on `DeleteProductBrand`:
+         * the lookup stays tenant-wide because labels are stamped with `getCurrentStore()`, while the
+         * grant is evaluated against the store the caller named.
+         */
+        if (! $this->callerMayActInStore(['Delete Product Label'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $rules = [
             'lable_id' => 'required'
         ];
@@ -6511,6 +8158,31 @@ public function changeProfile(Request $request)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY PUBLISH OR UNPUBLISH A
+         * PRODUCT LABEL.
+         *
+         * MEASURED, not inferred: the behavioural route census drove this door with a real bearer token
+         * held by a staff member of the owning store holding NO permission at all, and the toggle landed:
+         * `product_labels.status` moved. The only control was tenancy, and tenancy admits every employee
+         * of the merchant by design -- `creatorId()` resolves a staff row to their employer.
+         *
+         * THE NAME IS THE WEB TWIN'S OWN, read from `ProductLabelController::changeStatus()`, the web twin
+         * of this exact toggle, and is seeded by `Utility.php` so a merchant can really grant it. A
+         * permission name invented here would be a business rule invented by engineering, and one that no
+         * row exists for is a permanent 403.
+         *
+         * BELOW the tenancy control, so a foreign tenant keeps the refusal it already gets, and through
+         * `callerMayActInStore()` rather than `isAbleTo()`: its owner limb keeps the store's own owner
+         * admitted (a merchant holds no permission implicitly, and refusing the owner is the regression
+         * this family has already produced), and its `MerchantPermissions` limb answers the platform
+         * operator the wildcard, which `isAbleTo()` alone REFUSES -- there is no super-admin bypass here.
+         */
+        if (! $this->callerMayActInStore(['Edit Product Label'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $rules = [
             'lable_id' => 'required'
         ];
@@ -6645,6 +8317,36 @@ public function CustomerList(Request $request)
                     'message' => 'You do not have permission to access this store.'
                 ]
             ], 403);
+        }
+
+
+        /*
+         * GAP-142 / P4-F113 (READ HALF) — THE PERMISSION LIMB, BELOW THE TENANCY GATE.
+         *
+         * `resolveOwnedStore()` above already refuses a store this caller does not own, so this is
+         * not a tenancy fix: it is that EVERY MEMBER OF THE STORE read the whole customer book -- every name, mobile, e-mail,
+         * order count, TOTAL SPEND, the ledger block and the default postal address, paginated in
+         * one call -- whatever they were
+         * granted.
+         *
+         * `Manage Customer` ALONE, NOT the `Show Customer` pair, AND THAT IS A CORRECTION. The
+         * first version admitted either name on the argument that the web admits either "on a
+         * customer READ". Measured, that is true of the web's DETAIL screen (`CustomerController::
+         * show():335`, gated `:339-341`: operator OR `Show Customer`) and FALSE of its LIST, which
+         * requires `Manage Customer` only (`index():312`, gated `:314`). And the difference is not
+         * cosmetic: the web puts the MONEY COLUMNS on the list behind that name
+         * (`CustomerDataTable:296-297`, `Payments Collected` / `Net Retained`), while the
+         * `Show Customer` detail screen is handed `compact('orders')` and shows none. This payload
+         * carries `total_spend`, `aov`, the whole `ledger` block and the default postal address, so
+         * admitting `Show Customer` here would hand a deliberately-restricted staff member money
+         * the web withholds from them. Found by the independent review of this slice.
+         *
+         * BELOW the tenancy gate, not above it: a caller from another tenant must keep getting the
+         * STORE refusal they get today, which shipped suites assert. 403 through
+         * `storePermissionDenied()` -- never 401 (the shipped app force-clears its session on one).
+         */
+        if (! $this->callerMayActInStore(['Manage Customer'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $query = \App\Models\Customer::where('store_id', $storeId);
@@ -6829,6 +8531,59 @@ public function destroy(Request $request, $id = null)
                 'data' => [
                     'message' => 'You do not have permission to delete customers from this store.'
                 ]
+            ], 403);
+        }
+
+        /*
+         * GAP-142 / P4-F113 (write half). THE PERMISSION AXIS, AND THE ASYMMETRY IT CLOSES.
+         *
+         * `resolveOwnedStore()` above settles TENANCY and the customer lookup below carries a
+         * `store_id` predicate. Neither asks who INSIDE the store may act, so `$targetCustomer
+         * ->delete()` ran for any authenticated member of the tenant holding nothing at all --
+         * against `customers`, the highest-value PII table that is not storefront-public.
+         *
+         * **THE CREATE SIDE OF THIS SAME RESOURCE WAS ALREADY GATED.** `addCustomer()` checks
+         * `MerchantDashboardAbilities::PERMISSION_CUSTOMERS` through `MerchantPermissions`, with its
+         * own pinned suite. So until this line one staff member could DELETE a customer they could
+         * not CREATE. Measured before the fix, one principal driving both halves: create answered
+         * 403, delete answered 200.
+         *
+         * THE SAME CONSTANT AS THE CREATE SIDE, not the literal, so the two halves of one resource
+         * cannot drift apart. It resolves to `Manage Customer`, which is also what the web twin
+         * `CustomerController::destroy()` (`:289`) names. `Show Customer` is deliberately NOT
+         * accepted: it is a READ right, neither the web delete nor the API create accepts it, and
+         * accepting it would let a read-only grant destroy PII.
+         *
+         * THE ENVELOPE IS THE CREATE SIDE'S, NOT `storePermissionDenied()`'s, and that is
+         * deliberate. This handler speaks `{status: 0, message: 'fail', data: {message}}` with real
+         * HTTP codes throughout, and the ownership refusal immediately above is already a 403 in
+         * exactly that shape. Matching it keeps one envelope per route for the shipped app, and
+         * makes "I do not own that store" indistinguishable from "I lack the right" -- no new
+         * existence oracle, which is the property `addCustomer` was explicitly repaired for.
+         *
+         * 403 AND NEVER 401: the shipped Flutter app force-clears its session on any 401.
+         *
+         * PLACED BELOW THE OWNERSHIP 403 AND ABOVE THE CUSTOMER LOOKUP, so an unpermitted caller
+         * cannot use the 404 branch to probe which customer ids exist inside the store.
+         *
+         * ONE ASYMMETRY REMAINS AND IS RECORDED RATHER THAN HIDDEN: this gate has the owner limb
+         * (`callerMayActInStore()`) and the create side does not, so a store owner holding no role
+         * at all can now delete a customer they could not create. The limb stays because refusing a
+         * store's own owner is the regression this family has already produced once, and because
+         * there is no security gain -- the owner grants the permissions in their own tenant. In
+         * production it is moot: `Utility.php` grants `Manage Customer` to the shared global `admin`
+         * role that every self-registered merchant holds. Both owner shapes are asserted by
+         * `AdminApiCustomerDeletePermissionTest`, so neither reading is left to inference, and
+         * widening `addCustomer` instead would change a handler with its own pinned behaviour.
+         */
+        if (! $this->callerMayActInStore(
+            [\App\Support\MerchantDashboardAbilities::PERMISSION_CUSTOMERS],
+            $store->id
+        )) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to delete customers from this store.']
             ], 403);
         }
 
@@ -7559,6 +9314,33 @@ public function getStoreOwnerInfo(Request $request)
             return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
         }
 
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY READ THE STORE
+         * AND OWNER PROFILE.
+         *
+         * MEASURED: an unpermissioned staff member of the owning store was served the store
+         * OWNER's `users.email`. That is the address the password-reset flow sends to, so this is
+         * the first half of an account-takeover chain rather than a directory listing; their name,
+         * their mobile, the store address block and the store's currency settings come with it.
+         * The control above settles tenancy only -- this handler's own note records closing the
+         * CROSS-TENANT hole and says nothing about the intra-tenant one.
+         *
+         * THE TWIN IS THE SETTINGS SCREEN, which is where the web reads these same fields:
+         * `SettingController::settingForm()` renders every settings tab -- the `brand_setting` tab
+         * is the store name, e-mail and address block -- behind `StoreSettingsAccess::permits()`,
+         * and `BusinessSettings()`, which WRITES them, is behind the same predicate. The API
+         * sibling that writes them, `updateStoreOwnerInfo`, keeps its own owner-identity rule
+         * (P1-SEC-18); this is the read.
+         *
+         * `permits()` IS OPERATOR-FIRST, THEN THE TENANT OWNER, THEN `Manage Setting`, so the
+         * platform operator and the store's own owner are both still admitted. Placed below the
+         * tenancy refusal, so an unowned store id and an absent one still answer identically and
+         * this door is still not a store-id oracle.
+         */
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $storeId = $store->id;
 
         $owner = \App\Models\User::find($store->created_by);
@@ -7809,6 +9591,39 @@ private function buildStoreUrlLikeWeb($store, $settings)
             'message' => 'fail',
             'data' => ['message' => 'You do not have permission to access this store.']
         ], 403);
+    }
+
+    /*
+     * GAP-142 / P4-F111 — THE PERMISSION LIMB, AND A MEASUREMENT THAT HAD TO BE STATED HERE.
+     *
+     * This handler serves `products.cost_price` -- the merchant's margin, the most commercially
+     * sensitive column in the catalogue -- to every member of the store, whatever they held.
+     * `resolveOwnedStore()` above covers tenancy; this covers the right.
+     *
+     * `Manage Products` MATCHES THE WEB (`ProductController:1514`) AND IS SEEDED, so this is an
+     * ordinary grantable control that a merchant can delegate.
+     *
+     * AN EARLIER VERSION OF THIS COMMENT CLAIMED THE OPPOSITE -- that the whole core product
+     * permission family is "seeded nowhere in this repository" -- and raised a gap row for it. That
+     * was WRONG, and the cause is worth more than the correction: the measuring script extracted
+     * quoted strings with a SINGLE-QUOTE-ONLY pattern, while `app/Models/Utility.php` writes
+     * `"Manage Products"` in DOUBLE quotes -- at `:2941` in `$arrPermissions` (rows created at
+     * `:3156-3163`) and at `:3271` in `$companyNewPermission` (granted to the global `admin` role
+     * every merchant holds, at `:3377-3378`). `"Create Product"` and `"Edit Products"` are there the same way. A single-quoted
+     * search finds `'Manage Customer'` and misses all three, which is exactly the reading that
+     * produced the false claim. `AdminApiPermissionExposureTest:566-577` already measured the truth
+     * by running `Utility::addNewData()` and asserting `hasPermission('Manage Products')`, and
+     * `DashboardPermissionNamesTest:162` says the seeded name is the plural in its own failure
+     * message. Caught by the independent review of this slice; the gap row was withdrawn.
+     *
+     * The gate's correctness never depended on that question -- `callerMayActInStore()` tries the
+     * STORE-OWNER limb first and then `MerchantPermissions::allowsAny()`, which answers `WILDCARD`
+     * for the platform operator, so the owner and the operator pass regardless. But the ARGUMENT
+     * was weaker than the truth: staff really can be granted this name, on the web and here, so
+     * this is a delegable right rather than one carried only by the owner and operator limbs.
+     */
+    if (! $this->callerMayActInStore(['Manage Products'], $store->id)) {
+        return $this->storePermissionDenied();
     }
 
     $rules = [
@@ -8243,7 +10058,40 @@ public function getCurrencyRatesApi(Request $request)
             ->orderBy('currency_code')
             ->get();
 
-        if ($currencyRates->isEmpty()) {
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- THE WRITE SIDE OF A GET, SAID OUT LOUD.
+         * =========================================================================================
+         *
+         * THIS IS A READ ENDPOINT THAT WRITES. The branch below SEEDS THIRTEEN ROWS into a money
+         * table -- USD, EUR, SYP, LBP, IQD, EGP, JOD, SAR, AED, KWD, QAR, BHD, OMR, each
+         * `rate_per_usd = 1` and `is_active = 1`, stamped `created_by` = the caller. `rate_per_usd`
+         * is the divisor every displayed price is converted through, so before this gate a GET by a
+         * principal holding nothing ESTABLISHED the store's FX table, with the Syrian pound at
+         * parity with the dollar. Measured by the behavioural route census with a real bearer token
+         * held by a staff member of the owning store holding no permission at all.
+         *
+         * THE SAME PREDICATE ITS OWN WRITE TWINS USE: `updateCurrencyRateApi` and
+         * `toggleCurrencyStatusApi` in this file, and the web `CurrencyRateController::update()`, are
+         * all `StoreSettingsAccess::permits()` (operator first, then the tenant owner, then
+         * `Manage Setting`). Establishing the table is the same kind of decision as changing a rate
+         * in it, so it asks the same question.
+         *
+         * `permits()` AS A BOOLEAN RATHER THAN `refuseUnlessMayAdministerStoreSettings()`, BECAUSE
+         * THE READ IS DELIBERATELY NOT REFUSED. The web twin of this read,
+         * `CurrencyRateController::index()` (`routes/web.php:201`), carries `auth` and NO permission
+         * at all, so a 403 here would make the API narrower than a screen the merchant's staff can
+         * already open -- on a path the shipped Flutter app calls uncommented. Withdrawing a live
+         * capability is a separate product decision that must not ride on a security fix, and the
+         * payload discloses nothing the storefront does not already show a shopper (rate, symbol,
+         * store name). So an unpermissioned caller reads the table exactly as it stands and
+         * establishes nothing; for every store created through the product the rows already exist
+         * (`StoreController:211` and `:367` seed the same thirteen at creation), which is the state a
+         * real caller meets. Both halves are pinned by
+         * `AdminApiCatalogueDeletePermissionTest::test_get_currency_rates_*`.
+         *
+         * BELOW the tenancy refusal above, so a foreign tenant keeps the answer it already gets.
+         */
+        if ($currencyRates->isEmpty() && \App\Services\StoreSettingsAccess::permits($user)) {
             $defaultCurrencies = [
                 ['USD', 'US Dollar', '$', 1],
                 ['EUR', 'Euro', '€', 1],
@@ -8524,6 +10372,33 @@ public function updateStoreLanguage(Request $request)
                 'message' => 'fail',
                 'data' => ['message' => 'You do not have permission to access this store.']
             ], 403);
+        }
+
+        /*
+         * WITHIN-TENANT PERMISSION AXIS [2026-11-25] -- WHO INSIDE THE STORE MAY SWITCH THE
+         * STOREFRONT'S LANGUAGE.
+         *
+         * MEASURED: an unpermissioned staff member of the owning store wrote
+         * `stores.default_language`, which decides what every shopper reads -- while every OTHER
+         * settings door in this controller (`stripe-payment`, `testmail`, `updateCurrencyApi`,
+         * `toggle-currency-status`, `update-currency-rate`) goes through
+         * `refuseUnlessMayAdministerStoreSettings()`.
+         *
+         * `permitsStoreScreen()` AND NOT `permits()`, because that is the WIDER of the two web
+         * twins and a gate must not refuse somebody a web screen admits. Two web handlers write
+         * this same column: `SettingController::SystemSettings()` / `BusinessSettings()`, behind
+         * `StoreSettingsAccess::permits()` (operator, tenant owner, `Manage Setting`), and
+         * `AppSettingController::ThemeSettings()` -- the Store Setting screen -- behind
+         * `permitsStoreScreen()`, which is that same predicate OR `Manage Store Setting`. A staff
+         * member holding only `Manage Store Setting` may change the language on the web, so they
+         * keep it here.
+         *
+         * BELOW the tenancy refusal above, so a foreign tenant's answer is unchanged. 403 through
+         * `storePermissionDenied()`, the shape this controller uses for a permission refusal;
+         * never 401, which force-logs-out the shipped app.
+         */
+        if (! \App\Services\StoreSettingsAccess::permitsStoreScreen($user)) {
+            return $this->storePermissionDenied();
         }
 
         $validator = \Validator::make($request->all(), [
@@ -9014,11 +10889,41 @@ public function getCustomerOrdersApi(Request $request)
             ], 401);
         }
 
-        $id = $request->query('id');
-        \Validator::make(['id' => $id], ['id' => 'required|integer|exists:customers,id'])->validate();
-
         $storeId = $request->query('store_id');
         \Validator::make(['store_id' => $storeId], ['store_id' => 'required|integer|exists:stores,id'])->validate();
+
+        /*
+         * GAP-249 — THE `exists` RULE IS SCOPED TO THE STORE, AND THE TWO VALIDATORS SWAPPED ORDER.
+         *
+         * This was `exists:customers,id` — unscoped, and ABOVE the store validator. So it answered a
+         * question about the WHOLE `customers` table before the caller had been shown to own
+         * anything, and the two answers were distinguishable: MEASURED, a foreign tenant's customer
+         * id came back **404** (it passed the validator, then the handler's own
+         * `where('store_id', $storeId)` found nothing) while an id existing nowhere came back
+         * **422** from the validator. Any admin-API token holder could walk the id space — an
+         * unpermissioned staff member of a one-customer store, or a merchant of an unrelated
+         * tenant. Only a boolean crossed, so this is hardening rather than a disclosure, and it was
+         * pre-existing: the permission limb below neither worsened nor closed it.
+         *
+         * THE ORDERING OF THE GATES IS UNCHANGED, deliberately. The tempting fix — hoisting the
+         * permission limb above the validators — would break the refusal a foreign-tenant caller
+         * must keep getting: three shipped suites assert the STORE status, and
+         * `AdminApiCustomerReadPermissionTest::test_another_tenants_staff_still_gets_the_tenancy_refusal`
+         * pins it on the body saying "this store" rather than "perform this action". Only the two
+         * validators swapped, so `$storeId` is known before the customer rule needs it.
+         *
+         * `$storeId` here is the caller's own request value and is NOT relied on as a tenant check —
+         * `resolveOwnedStore()` immediately below still decides ownership. All the scoping does is
+         * stop the validator speaking about rows outside the store named in the same request, which
+         * makes a foreign id and an absent id both 422. Pinned by
+         * `AdminApiCustomerExistenceOracleTest`, whose two defect cases drive BOTH legs in one
+         * assertion because the defect IS the difference between them.
+         */
+        $id = $request->query('id');
+        \Validator::make(
+            ['id' => $id],
+            ['id' => 'required|integer|exists:customers,id,store_id,' . (int) $storeId]
+        )->validate();
 
         $store = $this->resolveOwnedStore($storeId);
         if (!$store) {
@@ -9026,6 +10931,30 @@ public function getCustomerOrdersApi(Request $request)
                 'status' => 0, 'message' => 'fail',
                 'data' => ['message' => 'You do not have permission to access this store.']
             ], 403);
+        }
+
+
+        /*
+         * GAP-142 / P4-F113 (READ HALF) — THE PERMISSION LIMB, BELOW THE TENANCY GATE.
+         *
+         * `resolveOwnedStore()` above already refuses a store this caller does not own, so this is
+         * not a tenancy fix: it is that EVERY MEMBER OF THE STORE read one customer's orders and a FULL DELIVERY ADDRESS whatever they were
+         * granted. Both names are seeded (`Utility.php:3085-3086`, and `:3336-3337` grants them to
+         * the global `admin` role every merchant holds).
+         *
+         * THIS ONE KEEPS THE `Show Customer` PAIR while the two LIST routes were narrowed to
+         * `Manage Customer` alone, and the asymmetry is the web's: this handler's analogue is the
+         * customer DETAIL screen (`CustomerController::show():335`, gated `:339-341`, operator OR
+         * `Show Customer`), not the list (`index():312`, gated `:314`, `Manage Customer` only).
+         * Refusing `Show Customer` here would be stricter than the web, which is a product change
+         * rather than a port.
+         *
+         * BELOW the tenancy gate, not above it: a caller from another tenant must keep getting the
+         * STORE refusal they get today, which shipped suites assert. 403 through
+         * `storePermissionDenied()` -- never 401 (the shipped app force-clears its session on one).
+         */
+        if (! $this->callerMayActInStore(['Manage Customer', 'Show Customer'], $store->id)) {
+            return $this->storePermissionDenied();
         }
 
         $customer = \App\Models\Customer::where('id', $id)->where('store_id', $storeId)->first();
@@ -9952,8 +11881,41 @@ public function getCitiesByState(Request $request)
 public function updateCustomerInfo(Request $request)
 {
     try {
+        /*
+         * P4-F114 / GAP-125. THIS BRANCH USED TO SIGN MERCHANT STAFF OUT OF THE WHOLE APP.
+         * =========================================================================================
+         *
+         * It read:
+         *
+         *     if (!$adminUser || !in_array($adminUser->type, ['admin', 'super admin'])) { ... 401 }
+         *
+         * `users.type` is `'staff'` for every staff member, so the condition was TRUE for all of
+         * them -- and the shipped Flutter admin app maps ANY 401 onto `_handleUnauthorized()`,
+         * which clears preferences and forces a re-login (`repo-B lib/network/network.dart:285-288`).
+         * So a staff member who tapped "save" on a customer was not told they lacked a right: they
+         * were logged out, with no explanation and their draft lost. Measured before the fix: 401
+         * for a staff member holding `Manage Customer` AND for one holding nothing.
+         *
+         * NOT MIDDLEWARE, established by reading rather than assumed. `custom.auth` resolves the
+         * Sanctum token and logs a `User` into the `web` guard, so `auth()->user()` returned the
+         * staff member perfectly well. The refusal was this string comparison, right here.
+         *
+         * **IT WAS A TYPE CHECK STANDING IN FOR A PERMISSION CHECK, AND WRONG IN BOTH DIRECTIONS.**
+         * It admitted every `type = 'admin'` row -- which public registration hands every
+         * self-registered merchant -- whatever they had been granted, and refused every staff member
+         * whatever they had been granted. The one thing it never consulted was the permission. So
+         * correcting only the status would have left half the defect in place; the type limb is
+         * replaced by the real gate below, after the store resolves, because the grant is per store.
+         *
+         * THE `!$adminUser` LIMB STAYS, AND STAYS 401, DELIBERATELY. It is the only branch where the
+         * caller is genuinely not a panel principal, and `custom.auth` makes it reachable: a
+         * `Customer` or `DeliveryBoy` token is logged into a DIFFERENT guard by tokenable class, so
+         * `auth()->user()` is null while the middleware passed. The shipped ADMIN app cannot produce
+         * it -- it only ever holds a `User` token -- and changing it would be a behaviour change on
+         * a path no client in either repository is known to take. Recorded rather than widened.
+         */
         $adminUser = auth()->user();
-        if (!$adminUser || !in_array($adminUser->type, ['admin', 'super admin'])) {
+        if (!$adminUser) {
             return response()->json([
                 'status' => 0,
                 'message' => 'Unauthorized. Valid admin token is required.',
@@ -9987,6 +11949,69 @@ public function updateCustomerInfo(Request $request)
         }
 
         $storeId = $store->id;
+
+        /*
+         * P4-F114 / GAP-125. THE PERMISSION GATE THAT REPLACES THE `users.type` LIMB ABOVE.
+         *
+         * `Manage Customer`, AND THERE IS NO WEB TWIN TO COPY -- measured, not assumed:
+         * `Route::resource('customer', ...)->except(['edit', 'update'])` (`routes/web.php:1420`)
+         * leaves the web update route unregistered because no handler exists for it. So the admin
+         * API is the ONLY customer-update surface on the platform, and the name has to come from
+         * this resource's own siblings, all three of which already say `Manage Customer`:
+         *
+         *   `addCustomer()` (CREATE) gates on `MerchantDashboardAbilities::PERMISSION_CUSTOMERS`
+         *   and admits staff who hold it.
+         *   `destroy()` (DELETE) gates on the same constant since GAP-142's write half.
+         *   `CustomerController::customerStatus()` on the web writes `customers.status` -- one of
+         *   the very columns this handler writes -- gated on `Manage Customer` (`:471`).
+         *
+         * THE SAME CONSTANT, not the literal, so the three halves of one resource cannot drift.
+         *
+         * WHAT MOVES, and the two halves are NOT the same kind of change -- an earlier version of
+         * this note blurred them, and the independent review was right to split them:
+         *
+         *   Staff WITHOUT the name: 401 -> 403, session intact. For them the ACCESS decision really
+         *   is unchanged and only the status moves, which was the user-visible defect.
+         *
+         *   Staff WITH `Manage Customer`: 401 -> 200, AND THE UPDATE NOW RUNS. That is a genuine
+         *   ACCESS WIDENING -- the only one in this slice; every other gate here admits a strict
+         *   subset of who could act before. It is deliberate (the old `in_array($adminUser->type,
+         *   ...)` refused them regardless of what their merchant granted, which is the defect) but
+         *   it must be stated as a widening rather than as a status change, BECAUSE OF WHAT THIS
+         *   HANDLER WRITES: `customers.email` (:10518, applied at :10523). Whoever holds that
+         *   address owns every storefront recovery flow that trusts it, so this is a takeover
+         *   primitive and not a privacy field.
+         *
+         *   WHY IT IS STILL RIGHT: the sibling CREATE already admits the same principal to set a
+         *   customer's `password` and `email_verified_at` (`addCustomer` :9746-9756, both writes
+         *   pinned by its own suite), and the web's `customerStatus()` admits the same name. It
+         *   stays inside the tenant. A merchant who does not want staff rewriting shopper addresses
+         *   withholds `Manage Customer`, which is the control the product already gives them.
+         *
+         * A member of another tenant now gets the ownership 403 above instead of a 401.
+         *
+         * THE OWNER LIMB IN `callerMayActInStore()` IS WHAT KEEPS A BARE MERCHANT WORKING. The old
+         * type check admitted every `type = 'admin'` row unconditionally, so replacing it with a
+         * permission-only gate would refuse a merchant holding no explicit grant --
+         * `AdminApiTenancyTest::test_update_customer_still_works_on_your_own_customer` drives
+         * exactly that principal and was green before this change. The operator keeps working
+         * through `MerchantPermissions` answering `WILDCARD`, which is how the old check's explicit
+         * `'super admin'` entry is preserved; `isAbleTo()` alone would refuse them.
+         *
+         * BELOW THE OWNERSHIP 403 AND ABOVE THE VALIDATOR AND THE CUSTOMER LOOKUP, so the two
+         * refusals are indistinguishable and an unpermitted caller cannot use the 404 branch or the
+         * email-uniqueness rule to probe which customers exist inside the store.
+         */
+        if (! $this->callerMayActInStore(
+            [\App\Support\MerchantDashboardAbilities::PERMISSION_CUSTOMERS],
+            $store->id
+        )) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Permission denied.',
+                'data' => null
+            ], 403);
+        }
 
         $request->validate([
             'customer_id' => 'required|integer|exists:customers,id',
@@ -10145,6 +12170,35 @@ public function searchCustomerByName(Request $request)
             ], 403);
         }
 
+
+        /*
+         * GAP-142 / P4-F113 (READ HALF) — THE PERMISSION LIMB, BELOW THE TENANCY GATE.
+         *
+         * `resolveOwnedStore()` above already refuses a store this caller does not own, so this is
+         * not a tenancy fix: it is that EVERY MEMBER OF THE STORE read the same customer book, with the same money, behind a
+         * search term -- whatever they were
+         * granted.
+         *
+         * `Manage Customer` ALONE, NOT the `Show Customer` pair, AND THAT IS A CORRECTION. The
+         * first version admitted either name on the argument that the web admits either "on a
+         * customer READ". Measured, that is true of the web's DETAIL screen (`CustomerController::
+         * show():335`, gated `:339-341`: operator OR `Show Customer`) and FALSE of its LIST, which
+         * requires `Manage Customer` only (`index():312`, gated `:314`). And the difference is not
+         * cosmetic: the web puts the MONEY COLUMNS on the list behind that name
+         * (`CustomerDataTable:296-297`, `Payments Collected` / `Net Retained`), while the
+         * `Show Customer` detail screen is handed `compact('orders')` and shows none. This payload
+         * carries `total_spend`, `aov`, the whole `ledger` block and the default postal address, so
+         * admitting `Show Customer` here would hand a deliberately-restricted staff member money
+         * the web withholds from them. Found by the independent review of this slice.
+         *
+         * BELOW the tenancy gate, not above it: a caller from another tenant must keep getting the
+         * STORE refusal they get today, which shipped suites assert. 403 through
+         * `storePermissionDenied()` -- never 401 (the shipped app force-clears its session on one).
+         */
+        if (! $this->callerMayActInStore(['Manage Customer'], $store->id)) {
+            return $this->storePermissionDenied();
+        }
+
         $validator = \Validator::make($request->all(), [
             'name' => 'required|string|min:3|max:100',
         ]);
@@ -10284,6 +12338,43 @@ public function searchCustomerByName(Request $request)
         // Use the resolved id from here on, so the scope cannot differ from the thing
         // that was authorised (string-vs-int included).
         $storeId = $store->id;
+
+        /*
+         * GAP-142 / P4-F108. THE PERMISSION AXIS, ON THE ONE ROUTE IN THIS SET THAT MOVES MONEY.
+         *
+         * `resolveOwnedStore()` above settles TENANCY, and the order and the driver are each looked
+         * up with a `store_id` predicate below. None of that asks WHO INSIDE THE STORE may act, and
+         * nothing else did either -- so any authenticated member of the tenant, holding no order
+         * permission of any kind, reached three writes:
+         *
+         *   1. `DeliveryEarning::where('order_id', ...)->delete()` -- the rider's accrued commission
+         *      for that order, destroyed. `delivery_earnings` has no soft delete and no audit row,
+         *      so there is nothing to roll back.
+         *   2. `orders.deliveryboy_id` -- the parcel handed to a different rider.
+         *   3. a fresh `delivery_earnings` insert crediting the NEW rider.
+         *
+         * So an unpermitted staff member could move a commission between riders, or delete one
+         * outright by assigning a rider with commission disabled. Measured before the fix: HTTP 200,
+         * `{"status":"success","message":"Order assigned successfully."}`, and the commission moved.
+         *
+         * `Manage Order` IS THE WEB TWIN'S OWN NAME, not an analogy. `OrderController::order_assign()`
+         * authorises through `$this->authorize('assign', $order)` and `OrderPolicy::assign()` is
+         * `allow($actor, $order, 'Manage Order')` -- the singular merchant family, which is what
+         * every order surface in `app/` reads. (The plural `Manage Orders` is seeded too and no gate
+         * anywhere reads it.) `Manage Deliveryboy` was considered and rejected: it governs the RIDER
+         * RECORD, so naming it would let a staff member who may edit a rider's phone number move
+         * that rider's commissions.
+         *
+         * AHEAD OF THE VALIDATOR AND OF EVERY LOOKUP, so an unpermitted caller cannot use this
+         * handler's 404s to probe which order ids and which rider ids exist inside the store.
+         *
+         * `callerMayActInStore()` carries the limb ordering and the reasoning for it; `$storeId` is
+         * the RESOLVED id, so the grant is evaluated against the store whose rows are about to
+         * change.
+         */
+        if (! $this->callerMayActInStore(['Manage Order'], $storeId)) {
+            return $this->orderPermissionDenied();
+        }
 
         $validator = Validator::make($request->all(), [
             'order_id'       => 'required|integer|exists:orders,id',

@@ -92,10 +92,17 @@
         transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
     }
     .ss-appearance-toggle:hover { background: var(--ss-surface-hover, #f2f4f7); }
-    /* A VISIBLE focus ring, not the removed default. `:focus-visible` keeps it off mouse clicks. */
+    /* A VISIBLE focus ring, not the removed default. `:focus-visible` keeps it off mouse clicks.
+
+       GAP-095: the token name was `--ss-focus`, which the design system DOES NOT DEFINE (measured:
+       zero occurrences of `--ss-focus:` in `public/css/store-syria-ds.css`). Every paint therefore
+       used the hard-coded fallback #2f6feb and the ring never re-themed -- 4.57:1 on the light page
+       and 3.62:1 on the dark one, so both still cleared WCAG 1.4.11's 3:1 and this was a
+       correctness defect rather than a contrast failure. `--ss-focus-ring` is the real token:
+       --ss-blue-500 (4.44:1 on white) in light, --ss-cyan-400 (8.27:1 on the dark page) in dark. */
     .ss-appearance-toggle:focus-visible {
-        outline: 2px solid var(--ss-focus, #2f6feb);
-        outline-offset: 2px;
+        outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, #4f77c0);
+        outline-offset: var(--ss-focus-offset, 2px);
     }
     .ss-appearance-toggle__icon { inline-size: 1.15rem; block-size: 1.15rem; display: none; }
     [data-ss-theme] .ss-appearance-toggle[data-state="auto"]  .ss-appearance-toggle__icon--auto,

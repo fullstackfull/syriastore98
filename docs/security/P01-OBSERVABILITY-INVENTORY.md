@@ -45,7 +45,7 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 36 lines
+### `critical` — 37 lines
 
 > **[2026-11-01] THIS COUNT WAS STALE, AND NOT BY THIS CHANGE'S DOING.** It read **21** against a
 > table of **28** rows before F241 and F263 added two more; the `warning` heading read **166**
@@ -58,8 +58,6 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 
 | line | message |
 |---|---|
-| `app/Http/Controllers/PaymentCallbackController.php:188` | Paytm plan callback: the payment is verified and the intent consumed, but the purchaser no longer exists. The plan was NOT activated and this needs a human. |
-| `app/Http/Controllers/PaymentCallbackController.php:203` | Paytm plan callback: the payment is verified and the intent consumed, but assignPlan refused. This needs a human. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:346` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:437` | Stock compensation could not determine whether the order row survived; assuming it did and leaving the stock consumed. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:490` | Stock compensation failed: inventory was consumed and could not be returned. |
@@ -94,8 +92,37 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:174` | gateway reference not recorded: the store id or reference is unusable |
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
+| `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 217 lines
+### `warning` — 260 lines
+
+> **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
+> twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
+> message sits on the line *after* the call while the census matched one line at a time. The ratchet
+> is what changed; the section below says why that is the finding.
+>
+> **[2026-11-25, third pass] 237 -> 238.** One `warning` line on the admin order-status door, for a
+> payment status moved on an order that is already cancelled or returned. Its destination and reader
+> are in their own section below.
+>
+> **[2026-11-25, second pass] 235 -> 236.** The independent financial review of #204 found that a
+> refunded Paytm capture still reported `TXN_SUCCESS` and would have been settled days later; the
+> verifier now refuses any refund-shaped field it cannot read as zero, and says so. Its destination
+> and reader are in the same section as the other eighteen.
+>
+> **[2026-11-25] 218 -> 235, and `critical` 36 -> 37 (#204).** Seventeen `warning` lines and one
+> `critical` added by the disabled-application payment boundary and the payment reconciliation
+> surface; six existing rows moved and two were deleted because the lines they named are gone. The
+> moves were re-pointed by (file, message), and the deletions are real: the callback's
+> "the purchaser no longer exists" and "assignPlan refused" lines were replaced by one line that
+> covers every way a verified payment fails to settle, because the settlement is now one
+> transaction and the two cases are no longer distinguishable from outside it. Destination and
+> reader for all eighteen are in their own section below.
+>
+> **[2026-11-24] 217 -> 218.** One line added by the P06-2B review follow-up
+> (`ModuleAvailability could not read the enable flag`, with its destination and reader in its own
+> section below). `resync-observability-inventory.py` REFUSED to write it, correctly and for the
+> third time: the line is NEW, not moved.
 
 > **[2026-11-21] 216 -> 217.** One line added by ANA-009 (`Metric threshold alert could not be recorded`, with its destination
 > and reader in its own section below). `resync-observability-inventory.py` REFUSED to write it, correctly: the line is NEW, not
@@ -139,17 +166,40 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | line | message |
 |---|---|
 | `app/Helper/helper.php:687` | an image upload was refused |
+| `app/Http/Controllers/Api/DeliverySyriaOrderController.php:323` | Delivery Syria order status transition refused |
+| `app/Http/Controllers/Api/DashboardController.php:1044` | Payment status changed on a settled order |
+| `app/Http/Controllers/Api/DashboardController.php:2499` | api category delete refused: products would be cascade-deleted with it |
+| `app/Http/Controllers/Api/DashboardController.php:3333` | api variant delete refused: the variant is still referenced |
+| `app/Http/Controllers/Auth/RegisteredUserController.php:125` | Registration refused: no Role named |
+| `app/Http/Controllers/CategoryController.php:212` | category update refused: the category belongs to another store |
+| `app/Http/Controllers/CategoryController.php:448` | category delete refused: the category belongs to another store |
+| `app/Http/Controllers/CategoryController.php:570` | category delete refused: products would be cascade-deleted with it |
+| `app/Http/Controllers/PaymentController.php:4625` | WhatsApp URL built for a cart line that is short on stock |
+| `app/Http/Controllers/PaymentController.php:4660` | WhatsApp URL built for a cart line that is short on stock |
+| `app/Http/Controllers/ProductController.php:3328` | variant panel refused: the product is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3557` | product image delete refused: the image belongs to another store |
+| `app/Http/Controllers/ProductController.php:3611` | product image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3701` | variant image upload refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3814` | variant image row replaced but the old file was not unlinked: StoredUpload |
+| `app/Http/Controllers/ProductController.php:3877` | variant image delete refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3906` | variant image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3948` | attribute combination edit refused: the product belongs to another store |
+| `app/Http/Controllers/ProductController.php:4114` | product variant delete refused: the variant belongs to another store |
+| `app/Http/Controllers/ProductController.php:4208` | product variant delete refused: the variant is still referenced |
+| `app/Http/Controllers/WoocomProductController.php:418` | woocommerce product edit refused: the mapped product is not in this store |
+| `app/Http/Middleware/BulkDeleteTenantGuard.php:677` | bulk category delete refused: products would be cascade-deleted with the categories |
+| `app/Models/Order.php:1362` | order return refused: the order carries no store_id |
 | `app/Services/PlatformUploadPolicy.php:314` | a platform upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
-| `app/Http/Controllers/ThemeVersionController.php:333` | Theme publication refused. |
+| `app/Http/Controllers/ThemeVersionController.php:341` | Theme publication refused. |
 | `app/Http/Middleware/ThemeEditorAccess.php:59` | Theme editor access refused. |
 | `app/Http/Middleware/ThemeDraftAccess.php:56` | Theme draft access refused. |
-| `app/Http/Controllers/Api/ApiController.php:6363` | shipping quote refused a cart line naming another store |
-| `app/Models/Cart.php:1331` | flat-rate shipping refused a cart line naming another store |
-| `app/Http/Controllers/PaymentCallbackController.php:106` | Paytm plan callback refused: no usable order reference. |
-| `app/Http/Controllers/PaymentCallbackController.php:131` | Paytm plan callback refused: the provider did not confirm the payment. |
-| `app/Http/Controllers/PaymentCallbackController.php:163` | Paytm plan callback refused at the intent. |
+| `app/Http/Controllers/Api/ApiController.php:6542` | shipping quote refused a cart line naming another store |
+| `app/Models/Cart.php:1377` | flat-rate shipping refused a cart line naming another store |
+| `app/Http/Controllers/PaymentCallbackController.php:107` | Paytm plan callback refused: no usable order reference. |
+| `app/Http/Controllers/PaymentCallbackController.php:159` | Paytm plan callback refused: the provider did not confirm the payment. |
+| `app/Http/Controllers/PaymentCallbackController.php:173` | Paytm plan callback refused at the intent. |
 | `app/Http/Controllers/ShippingController.php:148` | shipping class write refused: the platform operator has read rights only |
 | `app/Http/Controllers/TaxMethodController.php:129` | tax method write refused: the platform operator has read rights only |
 | `app/Http/Controllers/PaytmPaymentController.php:270` | Paytm plan purchase refused: the purchase intent could not be recorded. |
@@ -169,38 +219,38 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PlanPurchaseIntent.php:252` | Plan purchase intent not recorded: no usable purchaser or plan. |
 | `app/Services/PlanPurchaseIntent.php:263` | Plan purchase intent not recorded: the expected amount is not numeric. |
 | `app/Services/PlanPurchaseIntent.php:309` | Plan purchase intent not recorded. |
-| `app/Services/PlanPurchaseIntent.php:702` | Plan purchase intent refusal not recorded. |
-| `app/Services/PlanPurchaseIntent.php:741` | Plan purchase intent recoverable refusal not recorded. |
-| `app/Services/PlanPurchaseIntent.php:762` | Plan purchase intent order not attached. |
+| `app/Services/PlanPurchaseIntent.php:783` | Plan purchase intent refusal not recorded. |
+| `app/Services/PlanPurchaseIntent.php:822` | Plan purchase intent recoverable refusal not recorded. |
+| `app/Services/PlanPurchaseIntent.php:843` | Plan purchase intent order not attached. |
 | `app/Http/Controllers/CyberSourceController.php:122` | CyberSource plan purchase refused: the posted plan id matches no plan. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:159` | Plan purchase refused before any write: the provider has no usable credentials. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:179` | stock evidence not attributed: the order carries no usable id or store |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:208` | stock evidence incomplete: fewer movements recorded than stock decrements applied |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:230` | stock evidence not attributed: stock moved for this request and no row now owns the order |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:240` | stock evidence not attributed: the attempt threw |
-| `app/Http/Controllers/Api/ApiController.php:3712` | Storefront order intake refused as a duplicate submission |
-| `app/Http/Controllers/Api/ApiController.php:4292` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
-| `app/Http/Controllers/Api/ApiController.php:4430` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:10352` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
-| `app/Http/Controllers/Api/ApiController.php:10401` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:9605` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:3746` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:4326` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
+| `app/Http/Controllers/Api/ApiController.php:4464` | Storefront intake claim could not be released; it will expire on its own. |
+| `app/Http/Controllers/Api/ApiController.php:10883` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
+| `app/Http/Controllers/Api/ApiController.php:10932` | Storefront intake claim could not be released; it will expire on its own. |
+| `app/Http/Controllers/Api/ApiController.php:10136` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/PaymentController.php:2174` | Web checkout intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:135` | Coupon refused: the basket could not be priced |
-| `app/Http/Controllers/Api/ApiController.php:3519` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7584` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7675` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:8651` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:8677` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9291` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9453` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:3553` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7952` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8043` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:9159` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:9185` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9822` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9984` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
-| `app/Http/Controllers/Api/DeliverySyriaOrderController.php:84` | Delivery Syria invalid credentials |
+| `app/Http/Controllers/Api/DeliverySyriaOrderController.php:153` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:356` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:398` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:262` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:315` | product_cart: refused a product belonging to another store |
-| `app/Http/Controllers/CartController.php:1438` | abandoned-cart e-mail nudge failed |
-| `app/Http/Controllers/CartController.php:1625` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/CartController.php:1581` | abandoned-cart e-mail nudge failed |
+| `app/Http/Controllers/CartController.php:1784` | abandoned-cart WhatsApp nudge failed |
 | `app/Http/Controllers/WishlistController.php:316` | abandoned-wishlist e-mail nudge failed |
 | `app/Http/Controllers/WishlistController.php:734` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Services/Reports/ScheduledReportRunner.php:197` | scheduled analytics report: stored recipient differs from the owner address; using the owner |
@@ -223,7 +273,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:208` | Order cancellation skipped a line the stock record says never took stock out |
 | `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:252` | Order cancellation skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:851` | customer login: refused a social row still holding its module-assigned password |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1113` | Newsletter subscription failed during customer registration |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1193` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
@@ -245,9 +295,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
-| `app/Http/Controllers/OrderRefundController.php:749` | Refund restock skipped a line with an unusable quantity |
-| `app/Http/Controllers/OrderRefundController.php:765` | Refund restock clamped to the units the order lines lost |
-| `app/Http/Controllers/OrderRefundController.php:1177` | Refund settled but the order totals were left unchanged: product_json is unparseable |
+| `app/Http/Controllers/OrderRefundController.php:814` | Refund restock skipped a line with an unusable quantity |
+| `app/Http/Controllers/OrderRefundController.php:830` | Refund restock clamped to the units the order lines lost |
+| `app/Http/Controllers/OrderRefundController.php:1376` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/OzowController.php:217` | Ozow plan return refused: no TransactionId to key on. |
 | `app/Http/Controllers/PaiementProPaymentController.php:357` | PaiementPro return recorded PENDING: this gateway is not provider-verified |
 | `app/Http/Controllers/PaiementProPaymentController.php:488` | Pending partial payment refused: the balance named does not belong to this customer. |
@@ -282,11 +332,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PosController.php:405` | POS sale refused as a duplicate submission |
 | `app/Http/Controllers/PosController.php:664` | POS sale failed after stock may have moved; the claim was released so the till can retry |
 | `app/Http/Controllers/PosController.php:487` | POS sale skipped a line whose product is not this store |
-| `app/Http/Controllers/StoreFinanceController.php:81` | Manual wallet change refused as a duplicate submission |
-| `app/Http/Controllers/StoreFinanceController.php:367` | Financial action refused: operator has selected no merchant store |
+| `app/Http/Controllers/StoreFinanceController.php:79` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:365` | Financial action refused: operator has selected no merchant store |
 | `app/Support/Tenancy/OperatorStoreSelection.php:94` | Report refused: operator has selected no merchant store |
-| `app/Http/Controllers/StoreFinanceController.php:2572` | Manual wallet change refused as a duplicate submission |
-| `app/Http/Controllers/StoreFinanceController.php:2773` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:2529` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:2730` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/SavedViewController.php:117` | Saved view apply refused: not the owner or no such view |
 | `app/Http/Controllers/SavedViewController.php:159` | Saved view delete refused: not the owner or no such view |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |
@@ -301,10 +351,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
-| `app/Models/Order.php:1099` | Order return refused: the order carries no readable product_json |
-| `app/Models/Order.php:1110` | Order return refused: the order lines are not in a shape this workflow can return |
-| `app/Models/Utility.php:2272` | New Order webhook skipped: no store could be resolved for the order |
-| `app/Models/Utility.php:2282` | New Order webhook skipped: the resolved store does not exist |
+| `app/Models/Order.php:1248` | Order return refused: the order carries no readable product_json |
+| `app/Models/Order.php:1259` | Order return refused: the order lines are not in a shape this workflow can return |
+| `app/Models/Utility.php:2318` | New Order webhook skipped: no store could be resolved for the order |
+| `app/Models/Utility.php:2328` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
 | `app/Providers/PackageServiceProvider.php:144` | addon loader: a module failed to load and its features are absent |
 | `app/Services/CodCollectionService.php:161` | COD collection refused: the event is not verifiable |
@@ -353,16 +403,166 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StoredUpload.php:117` | a stored upload path names another tenant |
 | `app/Support/StoreBoundFilesystem.php:170` | a delete outside the current store was refused |
 | `app/Support/Security/ObjectFreeEncrypter.php:59` | a decrypted payload was not plain data and was refused |
+| `app/Support/Modules/ModuleAvailability.php:99` | ModuleAvailability could not read the enable flag; treating the module as available. |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:685` | OTP test failed with an exception. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:361` | Customer OTP send did not succeed. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:404` | Customer OTP send threw. |
+| `app/Http/Controllers/PaymentCallbackController.php:243` | Paytm plan callback refused at the intent. |
+| `app/Http/Controllers/PaymentCallbackController.php:260` | Paytm plan callback refused at the intent. |
+| `app/Http/Controllers/PaymentCallbackController.php:274` | Paytm plan callback refused at the intent. |
+| `app/Http/Middleware/DisabledModuleRouteGuard.php:220` | Disabled-module payment return refused: no initiation record is installed and the session holds none of the vendored payment state. |
+| `app/Http/Middleware/DisabledModuleRouteGuard.php:228` | Disabled-module payment return passed through on the vendored session state: the initiation record is not installed. |
+| `app/Http/Middleware/DisabledModuleRouteGuard.php:297` | Disabled-module payment return was allowed and then refused downstream; the initiation was put back. |
+| `app/Http/Middleware/DisabledModuleRouteGuard.php:322` | Disabled-module payment return refused. |
+| `app/Services/ModulePaymentLedger.php:164` | Module payment initiation not recorded. |
+| `app/Services/ModulePaymentLedger.php:187` | Module payment initiation could not be marked abandoned. |
+| `app/Services/ModulePaymentLedger.php:237` | Module payment initiation could not be completed. |
+| `app/Services/ModulePaymentLedger.php:276` | Module payment initiation could not be reopened after a refused request. |
+| `app/Services/ModulePaymentLedger.php:371` | Module payment refusal not stored: the hourly bound for this module is reached. |
+| `app/Services/ModulePaymentLedger.php:392` | Module payment refusal not recorded. |
+| `app/Services/PaytmTransactionVerifier.php:242` | Paytm transaction status answered for a different order than the one asked about. |
+| `app/Services/PaytmTransactionVerifier.php:248` | Paytm transaction status answered for a different merchant than the one asked about. |
+| `app/Services/PaytmTransactionVerifier.php:311` | Paytm reported a successful transaction that also mentions a refund; not verifying it. |
+| `app/Services/PlatformContentWriteGuard.php:83` | Refused a non-operator write to the official website content |
 
 <!-- counts: error=95 info=22 debug=1 -->
 
 ---
+
+### The twenty-one rows added 2026-11-26 — and the ratchet hole that hid them
+
+**These are not new log lines. They are old ones this document never knew about**, and that is the
+finding rather than the rows. `SecurityLogInventoryTest` claims to census every `critical` and
+`warning` in `app/`, in both directions. It matched its pattern against **one line at a time**, so
+every call written as `Log::warning(` with the message on the following line matched the level, found
+no opening quote, and was **silently skipped**. Twenty-one call sites across nine files were
+accountable to nothing — including one added on 2026-11-25, which is the only reason this came to
+light. Formatting decided whether a log line had a stated destination.
+
+**A wider match was the wrong fix and was tried first:** joining every line with the two after it and
+making the pattern dot-all reported **591** undeclared lines, because each call then matched from
+three overlapping windows and absorbed its neighbours' messages. The fix is an *opener-only*
+lookahead — the next line is consulted only when the current one ends in `Log::level(` with nothing
+after the parenthesis. Unambiguous, keeps the **call's** line number (what this table keys on), and
+cannot double-count.
+
+**Destination.** The default channel, as every other row here.
+
+**Reader, and why these twenty-one share one section rather than having twenty-one.** Nineteen are
+*refusals by a tenant or integrity guard* — "belongs to another store", "products would be
+cascade-deleted with it", "the variant is still referenced" — written where a door declines to act on
+another store's row, or on a row something else still points at. Their reader is the merchant's own
+operator asking **why an action was refused**, and the platform operator asking **whether a refusal
+is a misconfiguration or an attempt**. `warning` and not `critical` because each is a control
+working: the refusal is correct behaviour and the line is its audit trail.
+
+Two groups are different and worth reading first:
+
+- **`ProductController.php:3611`, `:3814`, `:3906` — the row was deleted and the FILE WAS NOT.** The
+  database no longer references an image still on disk. Nobody is harmed and nothing is exposed, but
+  storage grows silently and a later integrity sweep finds orphans it cannot attribute. The reader is
+  whoever runs that sweep.
+- **`PaymentController.php:4625` and `:4660` — a WhatsApp checkout URL built for a line short on
+  stock.** The one pair here that is **not** a refusal: the URL is still built and the shopper still
+  sends it, so a merchant may receive an order they cannot fulfil. The reader is the merchant, and it
+  is the only entry with money behind it.
+
+**Not changed, and said because the next reader will wonder:** none of the twenty-one was reworded or
+re-levelled to suit this table. They are recorded as they stand.
+
+### The eighteen rows added 2026-11-25 (#204), with their destination and reader
+
+**One `critical`** — `app/Http/Controllers/PaymentCallbackController.php:280`, *Paytm plan callback:
+the payment is verified but could not be settled. Nothing was activated and this needs a human.*
+
+**Seventeen `warning`** — three more refusal lines in the same controller, four in
+`DisabledModuleRouteGuard`, six in `ModulePaymentLedger`, and two in `PaytmTransactionVerifier`.
+
+**Where they land:** the application log, via `Log::warning` / `Log::critical`.
+
+**WHAT NONE OF THEM CONTAINS, and it is the reason to read this section rather than skim it:** no
+payment reference, no card data, no provider credential and no driver message. The ledger's catch
+blocks log the exception CLASS and not `getMessage()`, because a `QueryException` renders the SQL
+with its bindings — and one of those bindings is the 128-bit reference that authenticates a payer's
+return, so the message would have put a live credential in the log. Independent review found that;
+the context keys are the module, the route PATTERN and a boolean.
+
+**Who reads them, and what they do:**
+
+| line | what it means | the action |
+|---|---|---|
+| `PaymentCallbackController:280` (`critical`) | a Paytm plan payment is **verified by the provider** and could not be settled — a purchaser or plan that no longer exists, a transaction already recorded as somebody's order, or a settlement that raised. Nothing was activated and the intent was left open | the platform operator, and it is **never expected**. `payments:reconcile` lists the same purchase with its reason; the money is real and the entitlement is not |
+| `PaymentCallbackController:107`, `:159`, `:173`, `:221`, `:238`, `:252` | the callback refused: no reference, a provider that did not confirm, or an intent that does not match. Routine for an unopened gate and for probes | nobody, in volume. Read when a buyer reports a Paytm purchase that did not activate — the reason says which of the six it was |
+| `DisabledModuleRouteGuard:322` | a payment return to a **switched-off** application was refused for want of an initiation. **May be a payer whose money was taken and whose session expired** | the operator, through `payments:reconcile`, which lists these with their repeat counts. Caller-driven volume, so the row is what to read, not the log |
+| `DisabledModuleRouteGuard:297` | a return this boundary allowed was then refused further down, so the initiation was put back | the operator. Expected for Campaigns while that module is off (its writer is behind its own entitlement gate) and worth investigating for the other two |
+| `DisabledModuleRouteGuard:220` | a return was refused because **neither** this host's initiation record nor the vendored session state was present | the operator. On an installation where `module_payment_initiations` has not been migrated this is the only control, so a burst means somebody is probing a disabled module's return URL |
+| `DisabledModuleRouteGuard:228` | a return was allowed on the vendored session state alone, because the initiation record is not installed | the operator, **once**: it says the boundary is running in its weaker mode and the migration is outstanding |
+| `ModulePaymentLedger:164`, `:187`, `:237`, `:276`, `:392` | the record could not be written. Every one of these **fails open on purpose** — a failure to record must never become a failure to pay | the operator. Each means the boundary has lost part of its evidence while the payment path keeps working; the action is to make the table readable, not to change any module's flag. Never expected |
+| `ModulePaymentLedger:371` | the hourly bound on stored refusals for one module is reached, so further distinct refusals that hour are logged and not stored | the operator. It means anonymous traffic is hitting a disabled module's return URL hard enough to matter, and that a genuine refused payer in that window may be in the log rather than in the list |
+| `PaytmTransactionVerifier:242`, `:248` | the provider's status response was **about a different order or a different merchant** than the one asked about | the operator, and it is never expected behind a validated certificate: it needs Paytm itself to answer the wrong question. Nothing was activated |
+| `PaytmTransactionVerifier:311` | a successful transaction whose response **also mentions a refund**. Nothing was activated, and the intent is left open | the operator. This is how a payment the operator refunded in the Paytm dashboard stops being settled by a later reconciliation run — so it is EXPECTED for a refunded sale, and worth reading because it names the purchase a person has to decide about. It also fires if Paytm ever sends a refund-shaped field this server cannot interpret, which is deliberate: no contract for reading one is established here |
+
+### The row added 2026-11-25 (the settled-order payment echo fix / GAP-257), with its destination and reader
+
+`app/Http/Controllers/Api/DashboardController.php:1044` —
+*Payment status changed on a settled order.*
+
+**Why it exists at all, and why it is a log rather than a refusal.** `updateStatus` now lets an
+echoed `delivered_status` through, because the shipped app sends the order's own value on every
+payment-only change and two guards were reading that echo as a transition — so a merchant could not
+record a payment on a cancelled or returned order at all. The request that is now permitted can
+also move money: `payment_status` reaches `OrderFinancialService::syncFromOrder()` through
+`OrderObserver`, and a `Paid` there runs `markFinancialAsPaid()`.
+
+P4-F124's guard already covers the common case — it returns early when the financial row is already
+`cancelled` or `refunded` — but **not every case**: a RETURNED order's row is moved to `refunded`
+only by the refund door, so a returned-but-unrefunded order's `Paid` credits the full
+`customer_total`. A refusal here would re-break the regression the fix closes, and would leave the
+web twin open regardless: `OrderController::order_payment_status` writes `payment_status` with no
+`delivered_status` predicate of any kind, behind the same `Manage Order` ability. **So the rule
+question is registered as `GAP-257` for an owner decision, and this line is what makes the interval
+reconstructible.**
+
+**Destination.** The default channel, as every other row in this inventory — so whatever
+`LOG_CHANNEL` resolves to on the host, which §2 of this document measures rather than assumes.
+
+**Reader: the merchant's own operator, after the fact, not an alert.** It carries the actor, the
+store, the order both ways round and both payment values, which is exactly the set needed to decide
+whether a credit was legitimate. It is **expected to fire occasionally** — a COD bag handed over on
+a returned order and a bank transfer clearing after a cancellation are ordinary — so it is
+deliberately `warning` and not `critical`: it is the audit trail for a permitted action, not a
+report of a fault. If it fires on an order whose financial row is non-terminal, that is the
+GAP-257 shape and the wallet is worth checking against `payments:reconcile`.
+
+### The row added 2026-11-24 (P06-2B review F9), with its destination and reader
+
+`app/Support/Modules/ModuleAvailability.php:99` —
+*ModuleAvailability could not read the enable flag; treating the module as available.*
+
+**Why it exists at all.** `ModuleAvailability::isDisabled()` is the predicate behind
+`DisabledModuleRouteGuard`: it answers whether an application has been switched off, and the guard
+refuses that application's authenticated routes when it says yes. It is deliberately **fail-open** —
+a database that cannot be read must not make every module's routes refuse — and until this row it
+swallowed its `Throwable` with **no log at all**.
+
+Independent review named the shape: its sibling at `PackageServiceProvider` logs `critical` for the
+same class of failure, and this project's own P1-PLT-04 lesson was that a broken install *did not
+fail, it DISAPPEARED*. An availability control that silently stops controlling is exactly that, so
+it now says so while keeping the open direction.
+
+**Where it lands:** the application log, via `Log::warning`, with `module` and `exception` so the
+reader knows which application stopped being gated and why.
+
+**Who reads it, and what they do.** The platform operator. This line means route-level enforcement
+of the disabled-application boundary is **not happening** for the named module — the module's
+authenticated routes are being served whatever its `add_on_managers.is_enable` says. The action is
+to check that `add_on_managers` is readable (the message carries the database error), not to change
+the module's flag. **It is never expected in normal operation**, so one occurrence is worth
+investigating; it cannot be caused by a module simply having no row, which is a separate, silent and
+correct "not disabled".
 
 ### The row added 2026-11-21 (ANA-009), with its destination and reader
 
@@ -407,7 +607,7 @@ which selects no rows, and this line is what distinguishes that deliberate refus
 that genuinely has no data.
 
 **Where it lands:** the application log, via `Log::warning` — the same channel and the same message
-text as its finance sibling at `StoreFinanceController:367`, deliberately, so a reader grepping one
+text as its finance sibling at `StoreFinanceController:365`, deliberately, so a reader grepping one
 finds both halves of the same rule.
 
 **Who reads it, and what to do when it fires:** nobody needs to act on a single occurrence — it is

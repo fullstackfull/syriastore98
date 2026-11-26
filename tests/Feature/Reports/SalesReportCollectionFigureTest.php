@@ -103,9 +103,15 @@ class SalesReportCollectionFigureTest extends SecurityTestCase
         return $store;
     }
 
+    /**
+     * `->toArray()` BECAUSE GAP-152 MADE A TILE A `CaveatedFigure`. The wire form is what
+     * `ReportController::salesCollectionTile()` passes on, so these assertions keep reading exactly
+     * what the sales export is handed -- and it now carries the figure's caveat keys beside its
+     * value, so a dropped caveat would be visible here too.
+     */
     private function figure(Store $store, ?MetricWindow $window, ?string $label = null): array
     {
-        return FinanceLedgerFigures::forStore($store->id, 'USD', $window, $label)['payments'];
+        return FinanceLedgerFigures::forStore($store->id, 'USD', $window, $label)['payments']->toArray();
     }
 
     /** `ReportController::salesCollectionTile()`, which is private and whose handlers the suite cannot reach. */

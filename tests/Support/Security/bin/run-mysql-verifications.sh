@@ -59,6 +59,8 @@ echo
 
 declare -a FAILED=()
 declare -a PASSED=()
+declare -a INVOKED=()
+declare -a SKIPPED=()
 
 # THE EXIT CODE ALONE IS NOT ENOUGH, and this runner reported nine passes while one of the scripts
 # was dying halfway through. Found by reading the log of a script this runner had just called
@@ -84,9 +86,44 @@ run_one() {
   local log="/tmp/mysqlverify-${label}.log"
   echo "---------------------------------------------------------------------------"
   echo ">>> ${label}"
+  INVOKED+=("${label}")
+
+  # Env assignments first, then `--`, then the script's own CLI arguments. About a third of these
+  # scripts take `--socket=` / `--user=` / `--pass=` flags and read NO environment at all, so
+  # before this they could not be placed on the roster without being handed a connection they
+  # would silently ignore -- part of why fourteen of them sat off it.
+  local envs=() args=()
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--" ]; then shift; args=("$@"); break; fi
+    envs+=("$1"); shift
+  done
 
   local status=0
-  env "$@" php "tests/Support/Security/bin/${label}.php" >"${log}" 2>&1 || status=$?
+  env "${envs[@]}" php "tests/Support/Security/bin/${label}.php" "${args[@]}" >"${log}" 2>&1 || status=$?
+
+  # A SCRIPT THAT MEASURED NOTHING MUST NOT READ AS EVIDENCE. Several of these print their own
+  # "SKIP" / "PRECONDITION NOT MET" banner and then exit 0 -- correct of them, and this roster
+  # counted it as PASS. Measured: verify-reserved-role-name-collation-on-mysql reported PASS while
+  # printing "SKIP: no MySQL reachable at 127.0.0.1 -- Access denied", i.e. asserting nothing at
+  # all. A skip is now its own verdict, counted apart from the passes.
+  #
+  # TWO CONDITIONS, NOT ONE, AND THE SECOND WAS ADDED AFTER THE FIRST DRAFT GOT IT WRONG. Matching
+  # the banner alone marked verify-empty-variant-name-wipe-on-mysql (13 checks, 0 failures) and
+  # verify-setting-name-writer-on-mysql ("every check held") as having measured nothing, because
+  # somewhere in their output sits the PROSE "skipped because its covered set was empty (C)" --
+  # a sentence ABOUT a sub-case, not a verdict on the run. That is the census trap CLAUDE.md
+  # records in three other syntaxes, reproduced here in a fourth: a scan satisfied or broken by
+  # prose about the thing it measures. So a run counts as a skip only if it ALSO recorded no
+  # check at all, and the banner must start the line rather than sit inside a sentence.
+  if [ "${status}" -eq 0 ] \
+     && grep -qE '^(SKIP|SKIPPED)\b|PRECONDITION (NOT MET|FAILED)' "${log}" \
+     && ! grep -qiE '^[[:space:]]*(ok\b|\[ *OK *\]|\[PASS\]|PASS\b)|checks?[^0-9]{0,12}[1-9]' "${log}"; then
+    echo "    SKIPPED  -- the script declined to measure (see ${log})"
+    grep -iE '^[[:space:]]*(SKIP|SKIPPED|PRECONDITION (NOT MET|FAILED))' "${log}" | head -2 | sed 's/^/    /'
+    SKIPPED+=("${label}")
+    echo
+    return 0
+  fi
 
   local reason=""
   if [ "${status}" -ne 0 ]; then
@@ -203,6 +240,21 @@ run_one verify-reserved-role-name-collation-on-mysql \
 run_one verify-refund-freshness-lock-and-limiter-keys-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=fresh_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# P01-E3 / P1-INV-05 / GAP-016 -- the LAST-UNIT OVERSELL, which §E row E3 names the engine for:
+# shown by "P1-INV-05, **on MySQL** (SQLite cannot show it)". It is the only script on this roster
+# that FORKS. The others open two named connections in one process, which is the right instrument
+# for stepping through a check-then-act window and the wrong one here: ten "concurrent" checkouts
+# issued sequentially from one process are ten statements in a row, so a row lock taken and
+# released between them is never contended and "the lock works" is asserted rather than measured.
+# Ten children, each its own PDO connection, all parked on a file barrier and released together --
+# measured at 0.5ms spread, and the script FAILS if that spread says they were not simultaneous.
+# Its §B races the read-subtract-write the service replaced and requires it to OVERSELL, so a pass
+# in §C cannot be the instrument being blind. Needs the pcntl extension and exits 2 without it.
+run_one verify-last-unit-oversell-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=last_unit_oversell_verify" \
+  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
 # P1-SEC-23. whatsapp() queued a guest's basket clear as `customer_id = ''`; guest rows carry customer_id 0 and
 # are told apart only by cookie_session_id. SQLite reads `'' = 0` as false (nothing cleared), MySQL in
@@ -391,6 +443,29 @@ run_one verify-plan-purchase-intent-on-mysql \
   "F229_MYSQL_SOCKET=${SOCK}" "F229_MYSQL_HOST=${HOST}" "F229_MYSQL_PORT=${PORT}" \
   "F229_MYSQL_DATABASE=f229_verify" "F229_MYSQL_USERNAME=${USER_NAME}" "F229_MYSQL_PASSWORD=${PASS}"
 
+# #204. The plan-payment settlement, driven through the REAL service against a database built by
+# the project's own migrations. It exists because the independent financial review found a defect
+# here that no SQLite test can see: under REPEATABLE READ the loser of a real race read its own
+# transaction snapshot, the intent still looked `pending`, and a lost race was reported AND AUDITED
+# as a mismatching AMOUNT -- a false record, and an exit 1. `lockForUpdate()` is what makes that
+# re-read current, and on SQLite it compiles to nothing, so the suite passes with the fix and
+# without it. The script also caught a defect in the fix for another finding on its first run.
+run_one verify-plan-payment-reconciliation-on-mysql \
+  "PPR_MYSQL_SOCKET=${SOCK}" "PPR_MYSQL_HOST=${HOST}" "PPR_MYSQL_PORT=${PORT}" \
+  "PPR_MYSQL_DATABASE=ppr_verify" "PPR_MYSQL_USERNAME=${USER_NAME}" "PPR_MYSQL_PASSWORD=${PASS}"
+
+# #204. The disabled-application payment boundary. The owner's rule has the word IDEMPOTENT in it,
+# and what makes a payment return idempotent is ONE conditional UPDATE from `initiated` -- which
+# only means something where two writers can really contend. SQLite :memory: is one connection in
+# one process, so the suite can show the claim holds sequentially and cannot show it holds under a
+# race. THIS SCRIPT ALSO FOUND A REAL DEFECT AND CHANGED THE CODE: under `utf8mb4_general_ci` -- the
+# collation the server actually reports -- the completion claim matched a reference differing only in
+# letter case, the P1-INV-18 shape again. `ModulePaymentLedger::isWellFormedReference()` and the
+# column's own collation now close it, and the script asserts the engine-independent half.
+run_one verify-module-payment-boundary-on-mysql \
+  "MPB_MYSQL_SOCKET=${SOCK}" "MPB_MYSQL_HOST=${HOST}" "MPB_MYSQL_PORT=${PORT}" \
+  "MPB_MYSQL_DATABASE=mpb_verify" "MPB_MYSQL_USERNAME=${USER_NAME}" "MPB_MYSQL_PASSWORD=${PASS}"
+
 # E13-F. Two concurrent replacement attempts on one order, which the handoff listed as NOT RUN and
 # which the Feature suite cannot run: SQLite has no row locks worth the name and one PHP process
 # cannot hold two statements in flight. The property under test is narrow and load-bearing --
@@ -409,9 +484,11 @@ run_one verify-order-replacement-concurrency-on-mysql \
 # under the stricter mode is the only direction safe to be wrong in. It also drives a genuinely
 # NULL `orders.currency_code` row -- the shape `2026_10_12_000102` deliberately left unbackfilled --
 # and proves `total()` really throws before the fold, which is the HTTP 500 that P5-3a prevents.
-run_one verify-metric-layer-on-mysql \
-  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
-  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+# (The duplicate `run_one verify-metric-layer-on-mysql` that stood here until 2026-11-25 has been
+# removed. It ran the same script a second time without `FRESH_MYSQL_DATABASE`, so the two
+# invocations differed only in which database they created and dropped; the surviving registration
+# further down names `metriclayer_verify` explicitly and is the one kept. Found by the Phase 05
+# workstream, which also showed the later block's comment was wrong about this -- see there.)
 
 # P5-3b -- the merchant sales report's month window. THIS ONE IS NOT A CONVENIENCE: ReportController
 # calls MONTH() 36 times and YEAR() 9 times inside selectRaw and SQLite has neither, so every
@@ -420,6 +497,7 @@ run_one verify-metric-layer-on-mysql \
 # shown for "last month" and keeps negative controls for an out-of-period order and another
 # tenant's order, so a widened bound cannot pass it.
 run_one verify-report-window-boundary-on-mysql \
+  "SESSION_DRIVER=array" \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
@@ -429,6 +507,7 @@ run_one verify-report-window-boundary-on-mysql \
 # correct top five must exclude two, and spells one payment method four ways so a case-sensitive
 # grouping shows up as four bars competing for five slots.
 run_one verify-top-five-reports-on-mysql \
+  "SESSION_DRIVER=array" \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
@@ -472,8 +551,14 @@ run_one verify-gap223-lastmonth-window-on-mysql \
 run_one verify-ana009-alert-key-on-mysql \
   "ANA009_MYSQL_SOCKET=${SOCK}" "ANA009_MYSQL_USERNAME=${USER_NAME}" "ANA009_MYSQL_PASSWORD=${PASS}"
 
-# P5-2. THE WHOLE METRIC LAYER, and it was NOT registered here until 2026-11-24 -- so a green run of
-# this runner never covered Phase 05's financial evidence at all. Every metric aggregates with a
+# P5-2. THE WHOLE METRIC LAYER.
+#
+# THIS COMMENT USED TO SAY "it was NOT registered here until 2026-11-24 -- so a green run of this
+# runner never covered Phase 05's financial evidence at all", AND THAT WAS FALSE: a second
+# registration of this same script already stood earlier in this file, so the runner did cover it.
+# The duplicate has been removed (see the note above where it was) and this claim corrected, both
+# on 2026-11-25. Recorded rather than deleted because a runner that silently ran one script twice
+# is the kind of thing a reader needs to be told once. Every metric aggregates with a
 # GROUP BY over a currency column written through selectRaw, which ONLY_FULL_GROUP_BY can reject and
 # SQLite cannot; and the net-receipts agreement in its §6 is between two DECIMAL(15,2) computations
 # that SQLite turns into floats, so on SQLite they agree for the wrong reason. 65 checks.
@@ -498,10 +583,197 @@ run_one verify-loyalty-redemption-currency-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=loyaltyredemption_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# ANA-005 -- "Payments received" on the sales report. REGISTERED 2026-11-25, and `GAP-171` named its
+# absence by name: "57 MySQL harnesses exist, the runner registers 42, the ANA-005 one is among the
+# fifteen it does not, and CI runs none." The script itself has existed and passed since the slice
+# shipped; nothing but this line was missing, so a green run of this runner never covered it. 22
+# checks: the clamp to the ledger's verified coverage, the refusal for a window that ends before the
+# records begin, and a second tenant's decoy ledger.
+#
+# `SESSION_DRIVER=array` IS LOAD-BEARING HERE, and this is why the registration is not a one-word
+# change. The script signs a principal in to drive the report handler; `config/session.php` defaults
+# to the `database` driver, and in an environment with no `.env` that driver resolves against the
+# DEFAULT connection -- still sqlite at the moment `Auth::login()` migrates the session -- so the
+# run dies with "Database file at path [database/database.sqlite] does not exist" after two of its
+# twenty-two checks. MEASURED both ways on MariaDB 10.11: without the override, 2 checks / 1 failed;
+# with it, 22 / 0.
+run_one verify-ana005-sales-collection-on-mysql \
+  "SESSION_DRIVER=array" \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=ana005_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# GAP-154 / GAP-171 -- the merchant analytics screen's three grouped reads, which `GAP-154` asks for
+# as "a MySQL harness for the screen's GROUP BY reads" and `GAP-171` lists among five items with no
+# MySQL evidence at all. It forces `ONLY_FULL_GROUP_BY` on, which this container's server does not
+# enable by default, because a query that passes under the stricter mode cannot be broken by a
+# stricter server.
+#
+# IT FOUND A LIVE DEFECT ON ITS FIRST RUN, which is the reason to run it rather than to trust the
+# suite: `GROUP BY order_source` is case-INSENSITIVE on this engine, so three orders spelled
+# `POS`, `pos`, `pos` are ONE group represented by whichever row the engine reached first -- and
+# `Order::orderSourceLabel()` is a `match` on lower-case constants, so the whole group was shown to
+# the merchant as "POS (not a source this version knows)" with a correct count. SQLite's BINARY
+# collation makes that two groups and hides it. 12 checks; with the fold reverted, 2 of them fail.
+#
+# Like the two scripts above it prints `  FAIL  <what>`, which `run_one`'s `[FAIL]` grep does not
+# match, so the EXIT CODE is the live detector -- measured: the reverted fold exits 1.
+run_one verify-analytics-breakdowns-on-mysql \
+  "SESSION_DRIVER=array" \
+  "BREAKDOWN_MYSQL_SOCKET=${SOCK}" "BREAKDOWN_MYSQL_HOST=${HOST}" "BREAKDOWN_MYSQL_PORT=${PORT}" \
+  "BREAKDOWN_MYSQL_DATABASE=breakdowns_verify" "BREAKDOWN_MYSQL_USERNAME=${USER_NAME}" "BREAKDOWN_MYSQL_PASSWORD=${PASS}"
+
+# GAP-192 / SAAS-007 -- the PLATFORM's own revenue (what merchants pay Store Syria), which was the
+# one financial surface in this repository with no MySQL harness beside it. An independent financial
+# review said so; this is that evidence. Its receipts half groups `plan_orders` in the database on
+# `payment_status`, `price_currency` and `is_refund`, and all three behave differently on the two
+# engines.
+#
+# IT REFUTED ITS OWN AUTHOR'S FINDING ON THE FIRST RUN, which is the reason to run it rather than to
+# reason about it: `plan_orders.price` is declared `$table->float('price')`, so a money figure summed
+# off it looked like GAP-217's float-precision basis, and `MetricCaveat::FLOAT_PRECISION` had already
+# been attached to the figure. Laravel 11's `float()` emits a MySQL **`double`** -- `2500000.49` at
+# SYP scale stores and reads back exactly, while a hand-written `float` column on the same server
+# loses the minor units. The caveat came back out. Check [6] carries both halves so the next reader
+# does not repeat it.
+#
+# It also measures, side by side on the same rows in one run, that MySQL folds `Succeeded` and
+# `succeeded` into ONE group where SQLite returns TWO -- the claim `planOrderGroups()`'s docblock
+# makes in prose and nothing executed.
+#
+# Like its neighbours it prints `  FAIL  <what>`, which `run_one`'s `[FAIL]` grep does not match, so
+# the EXIT CODE is the live detector.
+run_one verify-saas-revenue-on-mysql \
+  "SESSION_DRIVER=array" \
+  "SAASREV_MYSQL_SOCKET=${SOCK}" "SAASREV_MYSQL_HOST=${HOST}" "SAASREV_MYSQL_PORT=${PORT}" \
+  "SAASREV_MYSQL_DATABASE=saasrev_verify" "SAASREV_MYSQL_USERNAME=${USER_NAME}" "SAASREV_MYSQL_PASSWORD=${PASS}"
+
+# GAP-150 / `P05-02` -- the store's inventory valuation, moved out of `StoreFinanceController::index()`
+# into the metric layer. Its precision disclosure is a CLAIM ABOUT COLUMN TYPES, and those differ by
+# engine: `products.cost_price` is `decimal(15,2)` (exact, no caveat) while `products.price`,
+# `sale_price` and `product_variants.price` are all `double` (caveat). The tables here are built from
+# the MEASURED production types rather than from the migration text -- which matters because
+# Laravel's `float()` emits a MySQL `double`, and reading the migration instead of the server
+# attached a precision caveat elsewhere in this repository that had to be withdrawn the same day.
+#
+# It also drives the two cases most likely to diverge by engine: the operator's TWO-STORE scope with
+# a variant row of store B hanging off store A's product, which must be excluded; and cost 0.10
+# against retail 0.30, where the profit must be 0.20 and not 0.19999999999999998.
+run_one verify-store-inventory-valuation-on-mysql \
+  "SESSION_DRIVER=array" \
+  "INVMETRIC_MYSQL_SOCKET=${SOCK}" "INVMETRIC_MYSQL_HOST=${HOST}" "INVMETRIC_MYSQL_PORT=${PORT}" \
+  "INVMETRIC_MYSQL_DATABASE=inv_metric_verify" "INVMETRIC_MYSQL_USERNAME=${USER_NAME}" "INVMETRIC_MYSQL_PASSWORD=${PASS}"
+
+# ===========================================================================================
+# THE FOURTEEN THAT WERE OFF THIS ROSTER UNTIL 2026-11-26, and the two that still are.
+#
+# Measured: 64 `*-on-mysql.php` scripts exist under this directory and this roster invoked 52.
+# The twelve-plus-two difference was not a decision -- every one of them was written, committed
+# and then never run by the only thing that runs them. The roster reported
+# "every MySQL verification script reported all assertions held", which was true of the roster
+# and false of the directory. The completeness check at the bottom of this file now makes that
+# divergence fail instead of read as success.
+#
+# Most of these take CLI FLAGS rather than environment variables, which is why they could not
+# simply be appended before `run_one` learned to pass script arguments after `--`.
+#
+# ONE OF THEM WAS ALSO MEASURING THE WRONG MIGRATION. verify-theme-order-theme-id-migration
+# rolled back with `migrate:rollback --step=1`, i.e. "the most recent migration" -- correct only
+# while 2026_11_15_000100 WAS the most recent. Ten migrations have landed since, so it reverted
+# `add_acknowledgement_to_plan_purchase_intents_table` instead and reported 3 FAILs that read as
+# "this migration's down() leaves its column behind". It does not: by path, 20 checks, 0 failed,
+# 0 inconclusive on 10.11.14-MariaDB.
+if [ -n "${SOCK}" ]; then
+  CLI_CONN=(--socket="${SOCK}" --user="${USER_NAME}" --pass="${PASS}")
+else
+  CLI_CONN=(--host="${HOST}" --port="${PORT}" --user="${USER_NAME}" --pass="${PASS}")
+fi
+
+for label in \
+  verify-gate-f-migrations-on-mysql \
+  verify-interrupted-theme-migration-on-mysql \
+  verify-theme-cache-flush-after-commit-on-mysql \
+  verify-theme-order-theme-id-migration-on-mysql \
+  verify-theme-publish-concurrency-on-mysql \
+  verify-theme-version-concurrency-on-mysql \
+  verify-theme-version-integrity-on-mysql \
+  verify-pos-sale-claim-concurrency-on-mysql \
+  verify-store-wallet-provisioning-on-mysql \
+  verify-dashboard-top-sales-scope-on-mysql
+do
+  run_one "${label}" "SESSION_DRIVER=array" -- "${CLI_CONN[@]}"
+done
+
+# Its own CEU_* convention, and it DOES speak unix socket.
+run_one verify-customer-email-uniqueness-on-mysql \
+  "CEU_MYSQL_SOCKET=${SOCK}" "CEU_MYSQL_HOST=${HOST}" "CEU_MYSQL_PORT=${PORT}" \
+  "CEU_MYSQL_USERNAME=${USER_NAME}" "CEU_MYSQL_PASSWORD=${PASS}"
+
+# THESE TWO ARE TCP-ONLY AND WILL REPORT **SKIPPED**, NOT PASSED, AGAINST A DEFAULT MariaDB.
+# Neither accepts a socket, and MariaDB's root authenticates through `unix_socket`, which PDO
+# cannot use over TCP -- verify-dashboard-rankings' own docblock says so and asks for a dedicated
+# account. To make them measure something, create one on the throwaway server and point them at it:
+#
+#   mysql -u root -e "CREATE USER 'ssprobe'@'127.0.0.1' IDENTIFIED BY 'ssprobe'; \
+#                     GRANT ALL PRIVILEGES ON *.* TO 'ssprobe'@'127.0.0.1'; FLUSH PRIVILEGES;"
+#   SS_PROBE_USER=ssprobe SS_PROBE_PASS=ssprobe MYSQL_USER_NAME=ssprobe MYSQL_PASS=ssprobe \
+#     tests/Support/Security/bin/run-mysql-verifications.sh
+#
+# Verified that way on 10.11.14-MariaDB: rankings 13 checks 0 failed; reserved-role-name all
+# checks passed. Left as a documented SKIP by default rather than creating an account as a side
+# effect of running the suite.
+run_one verify-dashboard-rankings-on-mysql \
+  "SS_PROBE_USER=${SS_PROBE_USER:-ssprobe}" "SS_PROBE_PASS=${SS_PROBE_PASS:-ssprobe}"
+
+# NOTE: verify-reserved-role-name-collation-on-mysql is NOT added here -- it was already on the
+# roster further up, and adding it again ran it twice and listed it twice in the summary. Its
+# collation fix (it asked for MySQL 8's `utf8mb4_0900_ai_ci`, which MariaDB does not implement,
+# instead of the `utf8mb4_unicode_ci` this application actually configures) is in the script.
+# To make it MEASURE rather than skip on MariaDB, give the run the probe account described above.
+
 echo "==========================================================================="
-echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
+echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}   skipped: ${#SKIPPED[@]}"
+if [ "${#SKIPPED[@]}" -gt 0 ]; then
+  printf '  SKIPPED (measured nothing): %s\n' "${SKIPPED[@]}"
+fi
+
+# ===========================================================================================
+# COMPLETENESS. EVERY SCRIPT ON DISK IS EITHER INVOKED ABOVE OR NAMED HERE WITH A REASON.
+#
+# Without this, a script could be written, committed and never run, while this roster went on
+# printing "every MySQL verification script reported all assertions held" -- which is what
+# happened to fourteen of them. The roster is hand-written on purpose (each script has its own
+# env prefix and its own prose explaining why it exists), so the guard against drift has to be a
+# check rather than a convention.
+#
+# The two exemptions need a RESTORED PRODUCTION DATABASE, which this container must not contain:
+# incident #120 is an exposed database dump, and committing or restoring one here is forbidden.
+# They are not skippable-by-connection like the TCP pair above -- they have no input at all.
+declare -a NOT_RUNNABLE_WITHOUT_A_PRODUCTION_RESTORE=(
+  verify-gate-f-schema-on-mysql          # takes a restored database NAME to inspect; no name, no subject
+  verify-p1sec44-reconciliation-on-mysql # wants a production-shaped dump at storesyria_ecommercego.sql
+)
+
+declare -a UNACCOUNTED=()
+for f in tests/Support/Security/bin/*-on-mysql.php; do
+  base="$(basename "${f}" .php)"
+  seen=0
+  for inv in "${INVOKED[@]}"; do [ "${inv}" = "${base}" ] && seen=1 && break; done
+  for ex in "${NOT_RUNNABLE_WITHOUT_A_PRODUCTION_RESTORE[@]}"; do [ "${ex}" = "${base}" ] && seen=1 && break; done
+  [ "${seen}" -eq 0 ] && UNACCOUNTED+=("${base}")
+done
+
+if [ "${#UNACCOUNTED[@]}" -gt 0 ]; then
+  echo
+  echo "INCOMPLETE ROSTER: these scripts exist and this runner never invokes them."
+  printf '  %s\n' "${UNACCOUNTED[@]}"
+  echo "Add a run_one call for each, or name it in NOT_RUNNABLE_WITHOUT_A_PRODUCTION_RESTORE with"
+  echo "a reason. A script nobody runs is not evidence."
+  exit 1
+fi
+
 if [ "${#FAILED[@]}" -gt 0 ]; then
   printf '  FAILED: %s\n' "${FAILED[@]}"
   exit 1
 fi
-echo "every MySQL verification script reported all assertions held."
+echo "every MySQL verification script on disk is accounted for, and every script that measured"
+echo "anything reported all assertions held."

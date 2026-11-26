@@ -38,7 +38,26 @@
         </div>
         <div class="ss-field col-md-12">
             <span class="ss-label-line">{{ Form::label('role',__('User Role'),array('class'=>'ss-label')) }}<span class="ss-label__required" aria-hidden="true">*</span></span>
-            {{ Form::select('role',$roles,null,array('class'=>'ss-select','id'=>'role','placeholder'=>__('Select Role'),'required'=>'required')) }}
+            {{ Form::select('role',$roles,null,array('class'=>'ss-select','id'=>'role','aria-describedby'=>'role-help','placeholder'=>__('Select Role'),'required'=>'required')) }}
+            {{-- GAP-060 / P02-I4. THREE THINGS A MERCHANT CANNOT SEE FROM THIS CONTROL, each read
+                 off the write path rather than inferred.
+
+                 1. THE LIST IS SCOPED TO THE STORE THEY ARE IN. `UserController::create():59` is
+                    `Role::where('created_by', creatorId())->where('store_id', getCurrentStore())`,
+                    and `store():139-142` re-scopes the same way before writing. So a role created
+                    in another store is simply absent, and an empty list means "no role exists in
+                    THIS store yet" rather than "no roles exist".
+                 2. THE ROLE BECOMES THE ACCOUNT TYPE. `store():155` writes
+                    `$user->type = $role_r->name`, which is the column every policy in this
+                    codebase compares against.
+                 3. THE MEMBER IS TIED TO THAT STORE. `store():157` writes
+                    `is_assign_store = $objUser->current_store`.
+
+                 `x-ss.field-help` AND NOT `x-ss.choice-group`: one `<select>` is ONE control in
+                 the accessibility tree, so a fieldset would be the wrong association rather than
+                 a stricter one. The component owns the `id`; this call site owns the
+                 `aria-describedby`, and an orphan hint is decoration. --}}
+            <x-ss.field-help for="role">{{ __('Only roles you created in the store you are working in are listed, so a role added in another store will not appear here. The role becomes this member\'s account type and decides which screens they can open, and the member is assigned to the store you are working in.') }}</x-ss.field-help>
         </div>
         <div class="ss-dialog__footer modal-footer pb-0">
             <input type="button" value="{{__('Cancel')}}" class="ss-btn ss-btn--secondary ss-btn--sm" data-bs-dismiss="modal">

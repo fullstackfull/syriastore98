@@ -1337,24 +1337,86 @@ if (!function_exists('metaKeywordSetting')) {
         $metadesc = $metadesc ?? config('app.name');
         $metaimage = $metaimage ?? config('app.name');
         $slug = $slug ?? config('app.name');
+        // GAP-118 / P03-MP-02, TWO defects in the statement below. See
+        // tests/Unit/Security/MetaKeywordSettingEscapingTest.
+        //
+        // 1. ESCAPE ON OUTPUT. Every value here was interpolated raw into a single-quoted HTML
+        //    attribute, and all four storefront layouts print this string with `{!! !!}`. An
+        //    apostrophe terminates the attribute: `XSS-1' onerror='XSS-1` put a handler on three
+        //    of these elements, and `'><img src=x onerror=…>` closed the tag and injected three
+        //    images -- measured. `e()` is ENT_QUOTES (the apostrophe is the character that
+        //    matters) and ENT_SUBSTITUTE, so a bad byte becomes U+FFFD instead of blanking the
+        //    whole value; Arabic codepoints are untouched. The `(string)` cast is deliberate:
+        //    `e()` returns a Htmlable's markup UNESCAPED, and the cast matches what interpolation
+        //    already did for every other type.
+        //
+        //    The merchant half of this feature is live (`POST /seo-setting` stores metakeyword /
+        //    metadesc / metaimage per store) but NOTHING reads those values back into this helper
+        //    today, so the three arguments are always null and the injection is not reachable by a
+        //    real request yet. Wiring the read-back is Phase 03 SEO scope, deliberately not done
+        //    here; this is so the plumbing connects to a sink that is already safe.
+        //
+        // 2. THE FORMAT STRING, which IS reachable today and is an ARABIC defect. The return was
+        //    `sprintf($script)` -- the fully interpolated markup passed as the FORMAT argument
+        //    with nothing after it, so any `%` in a value is read as a conversion specification.
+        //    `$url` comes from `route('landing_page', $slug)`, which percent-encodes, and
+        //    `User::slugs()` keeps `\p{L}`, so an Arabic store name yields an Arabic slug:
+        //    `متجر-سوريا` becomes `%D9%85%D8%AA…` and PHP 8 raised
+        //    `ArgumentCountError: 37 arguments are required, 1 given` -- HTTP 500 in the `<head>`
+        //    of every storefront page of that store. `e()` does not neutralise `%`, so the
+        //    escaping above is only a fix with this line changed too. `sprintf()` returned its
+        //    format unchanged whenever it did not throw, so returning the string directly is
+        //    behaviour-preserving for every input that worked.
         $script = "
-        <meta name='title' content='$metakeyword'>
-        <meta name='description' content='$metadesc'>
+        <meta name='title' content='" . e((string) $metakeyword) . "'>
+        <meta name='description' content='" . e((string) $metadesc) . "'>
 
         <meta property='og:type' content='website'>
-        <meta property='og:url' content='$url'>
-        <meta property='og:title' content=' $metakeyword'>
-        <meta property='og:description' content='$metadesc'>
-        <meta property='og:image' content=' $metaimage'>
+        <meta property='og:url' content='" . e((string) $url) . "'>
+        <meta property='og:title' content=' " . e((string) $metakeyword) . "'>
+        <meta property='og:description' content='" . e((string) $metadesc) . "'>
+        <meta property='og:image' content=' " . e((string) $metaimage) . "'>
 
         <meta property='twitter:card' content='summary_large_image'>
-        <meta property='twitter:url' content='$url'>
-        <meta property='twitter:title' content=' $metakeyword'>
-        <meta property='twitter:description' content=' $metadesc'>
-        <meta property='twitter:image' content=' $metaimage'>
+        <meta property='twitter:url' content='" . e((string) $url) . "'>
+        <meta property='twitter:title' content=' " . e((string) $metakeyword) . "'>
+        <meta property='twitter:description' content=' " . e((string) $metadesc) . "'>
+        <meta property='twitter:image' content=' " . e((string) $metaimage) . "'>
         ";
 
-        return sprintf($script);
+        /*
+         * GAP-117 / P03-MP-01 — THE CANONICAL URL, THE INDEXING DIRECTIVE AND THE STRUCTURED DATA.
+         *
+         * Appended here, and the reason is the four-copy problem rather than a preference. The
+         * owner-approved plan's Phase 03 bullet (`master-plan/MASTER-PRODUCT-PLAN-v1.0-BASE.md:222`,
+         * "تحسين SEO والفهرسة والأداء والصور والبيانات المنظمة") was never built; measured before
+         * this line, a storefront page carried zero `rel=canonical`, zero `<meta name="robots">`
+         * and zero `application/ld+json`.
+         *
+         * THIS FUNCTION IS THE ONLY SEAM CALLED BY ALL FOUR COPIES of
+         * `front_end/layouts/app.blade.php` — line 12 of each of the stylique, greentic and
+         * techzonix copies and of the `resources/views` fallback. The other candidate,
+         * `@include('front_end.partials.appearance')`, is in only THREE of the four (the fallback
+         * copy omits it, recorded in its own header). CLAUDE.md records that a layout-level
+         * storefront change made in fewer than four places silently does nothing for the other
+         * themes, so the four-of-four seam is the one to use — and it keeps the change out of
+         * `themes/`. `StorefrontSeoIndexingTest::test_every_theme_emits_the_seo_block` drives each
+         * installed theme so that is measured rather than reasoned.
+         *
+         * The function's NAME is now narrower than what it emits. That is the acknowledged cost of
+         * the above; the SEO facts themselves live in `App\Support\Storefront\StorefrontSeo`, which
+         * is where to read and change them.
+         *
+         * IT TAKES ITS STORE FROM THE ROUTE AND NOT FROM THIS FUNCTION'S ARGUMENTS OR FROM THE
+         * GUARD. `$slug` here is whatever the layout passed; `getCurrentStore()` reads the DEFAULT
+         * (`web`) guard, which for a visitor holding a merchant panel login answers for THAT
+         * merchant on every storefront request. Either would have published store A's canonical URL
+         * and organization name inside store B's `<head>`. It returns '' for any render that is not
+         * a storefront request, so a console or panel render emits nothing.
+         */
+        $script .= \App\Support\Storefront\StorefrontSeo::markupForCurrentRequest();
+
+        return $script;
     }
 }
 

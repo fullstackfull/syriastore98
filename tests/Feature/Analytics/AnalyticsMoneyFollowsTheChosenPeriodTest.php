@@ -145,7 +145,12 @@ final class AnalyticsMoneyFollowsTheChosenPeriodTest extends SecurityTestCase
         $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now, null, false);
 
         foreach (['payments', 'profit'] as $tile) {
-            $this->assertSame($expected[$tile], $figures[$tile],
+            /* `->toArray()` ON BOTH SIDES, because GAP-152 made a tile a `CaveatedFigure`: two
+               objects built from the same figures are equal and not identical, and `assertSame`
+               asks about identity for an object and about deep value for an array. Comparing the
+               wire form keeps the strict deep comparison this pin has always made -- and it now
+               covers the CAVEAT LIST too, so a change that silently dropped one would fail here. */
+            $this->assertSame($expected[$tile]->toArray(), $figures[$tile]->toArray(),
                 "Adding the period control changed the unfiltered {$tile} figure, so every existing "
                 . 'reader now sees a different number without having asked for one.');
         }
@@ -167,7 +172,9 @@ final class AnalyticsMoneyFollowsTheChosenPeriodTest extends SecurityTestCase
         $asTheRunnerCallsIt = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now, $stored, false);
         $unfiltered = FinanceLedgerFigures::forStore((int) $store->id, 'USD');
 
-        $this->assertSame($unfiltered['payments'], $asTheRunnerCallsIt['payments'],
+        /* `->toArray()`: see the note in the test above -- a tile is a `CaveatedFigure` since
+           GAP-152, and the wire form is what keeps this a deep value comparison. */
+        $this->assertSame($unfiltered['payments']->toArray(), $asTheRunnerCallsIt['payments']->toArray(),
             'A scheduled report narrowed its money tile on a stored period, which the row cannot '
             . 'show the merchant ever chose.');
 

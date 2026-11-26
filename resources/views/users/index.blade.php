@@ -178,7 +178,7 @@ $logo = asset(Storage::url('uploads/profile/'));
                     </div>
                     <div class="card-body">
                         <div class="img-fluid rounded-circle card-avatar pb-4   ">
-                            <a href="{{ !empty($user->profile_image) ? asset('uploads/profile/' . $user->profile_image) : asset('storage/uploads/profile/avatar.png') }}"
+                            <a href="{{ !empty($user->profile_image) ? get_file($user->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                 target="_blank">
                                 {{-- P2.5 staff-card-a11y (b). THIS `<img>` HAD NO `alt` ATTRIBUTE AT
                                      ALL -- not `alt=""`, absent -- and it is the ONLY content of
@@ -198,7 +198,7 @@ $logo = asset(Storage::url('uploads/profile/'));
                                      NOT REPAIRED HERE, reported instead: the anchor opens a raw
                                      image in a new tab with no warning to the user (SC 3.2.5
                                      advisory). That is a behaviour change, not a naming one. --}}
-                                <img src="{{ !empty($user->profile_image) ? asset('uploads/profile/' . $user->profile_image) : asset('storage/uploads/profile/avatar.png') }}"
+                                <img src="{{ !empty($user->profile_image) ? get_file($user->profile_image) : asset('images/avatar-placeholder.svg') }}"
                                     alt="{{ __('Profile photo of :name', ['name' => $user->name]) }}"
                                     class="img-user wid-100 round-img rounded-circle">
                             </a>
@@ -226,7 +226,7 @@ $logo = asset(Storage::url('uploads/profile/'));
             @permission('Create User')
             <a class="btn-addnew-project" data-url="{{ route('users.create') }}" data-title="{{ __('Add User') }}"
                 data-ajax-popup="true" style="cursor: pointer;">
-                <div class="btn btn-sm btn-primary btn-badge" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Add User') }}">
+                <div class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Add User') }}">
                     <i class="ti ti-plus" aria-hidden="true"></i>
                 </div>
                 {{-- P2.5 staff-card-a11y (c), the half the finding did not mention. Repairing only

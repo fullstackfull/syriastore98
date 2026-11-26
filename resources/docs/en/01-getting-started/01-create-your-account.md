@@ -3,6 +3,8 @@ title: Create your account
 order: 1
 summary: Register as a merchant and confirm your email address.
 related: getting-started/choose-a-plan, getting-started/create-your-first-store
+updated: 2026-11-25
+status: published
 ---
 
 ## What you need

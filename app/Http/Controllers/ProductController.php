@@ -813,7 +813,7 @@ class ProductController extends Controller
                             $Product->preview_content = $request->preview_iframe;
                         }
                         $Product->tax_status = $request->tax_status;
-                        $Product->shipping_id = $request->shipping_id;
+                        $Product->shipping_id = \App\Support\Commerce\ShippingClassOwnership::keepOwned($request->shipping_id, getCurrentStore(), null);
                         $Product->product_weight = $request->product_weight;
                         $Product->variant_product = $request->variant_product;
                         // F61. `trending` is NOT in store()'s rules, and on an INSERT an
@@ -1088,7 +1088,7 @@ $Product->cost_price = $request->cost_price;
                             }
                         }
                         $product->tax_status = $request->tax_status;
-                        $product->shipping_id = $request->shipping_id;
+                        $product->shipping_id = \App\Support\Commerce\ShippingClassOwnership::keepOwned($request->shipping_id, getCurrentStore(), null);
                         $product->status = $request->status;
                         $product->description = $request->description;
                         $product->specification = $request->specification;
@@ -1168,7 +1168,7 @@ $Product->cost_price = $request->cost_price;
                         $product->product_attribute = $input['attribute_options'];
                         // $product->product_option = json_encode($option_array);
                         // $product->product_option_api = json_encode($option_array_api);
-                        $product->shipping_id = $request->shipping_id;
+                        $product->shipping_id = \App\Support\Commerce\ShippingClassOwnership::keepOwned($request->shipping_id, getCurrentStore(), null);
                         $product->store_id = getCurrentStore();
                         $product->created_by = \Auth::user()->id;
                         if ($request->custom_field_status == '1') {
@@ -1405,7 +1405,7 @@ $Product->cost_price = $request->cost_price;
 
                                         $product_stock->description = !empty($request['product_description_' . str_replace('.', '_', $str)]) ? $request['product_description_' . str_replace('.', '_', $str)] : '';
 
-                                        $product_stock->shipping = !empty($request['shipping_id_' . str_replace('.', '_', $str)]) ? $request['shipping_id_' . str_replace('.', '_', $str)] : 'same_as_parent';
+                                        $product_stock->shipping = \App\Support\Commerce\ShippingClassOwnership::keepOwned(!empty($request['shipping_id_' . str_replace('.', '_', $str)]) ? $request['shipping_id_' . str_replace('.', '_', $str)] : 'same_as_parent', getCurrentStore(), 'same_as_parent');
 
                                         $product_stock->store_id = getCurrentStore();
 
@@ -2063,7 +2063,7 @@ $Product->cost_price = $request->cost_price;
                 $product->preview_content = $request->preview_iframe;
             }
             $product->variant_product = $request->variant_product;
-            $product->shipping_id = $request->shipping_id;
+            $product->shipping_id = \App\Support\Commerce\ShippingClassOwnership::keepOwned($request->shipping_id, $product->store_id, $product->shipping_id);
             $product->status = $request->status;
             // F61, third of its kind. `products.trending` is `integer NOT NULL DEFAULT '0'`
             // and is in neither rule set. The edit form always posts it -- a hidden
@@ -2533,7 +2533,7 @@ $Product->cost_price = $request->cost_price;
                 if (!empty($request->preview_iframe)) {
                     $product->preview_content = $request->preview_iframe;
                 }
-                $product->shipping_id = $request->shipping_id;
+                $product->shipping_id = \App\Support\Commerce\ShippingClassOwnership::keepOwned($request->shipping_id, $product->store_id, $product->shipping_id);
                 if ($request->custom_field_status == '1') {
                     $product->custom_field = json_encode($request->custom_field_repeater_basic);
                 } else {
@@ -2847,7 +2847,7 @@ $Product->cost_price = $request->cost_price;
                                 /* The shipping select's first entry is the prepended '' meaning
                                    "Same as parent", so a blank is a real choice here too -- it just
                                    stores as the literal the rest of the application reads. */
-                                $ssShipping = $this->ssVariantValue($request, 'shipping_id_' . $ssKey, $product_stock->shipping, 'same_as_parent', $ssIsNewVariant, true);
+                                $ssShipping = \App\Support\Commerce\ShippingClassOwnership::keepOwned($this->ssVariantValue($request, 'shipping_id_' . $ssKey, $product_stock->shipping, 'same_as_parent', $ssIsNewVariant, true), $product->store_id, $product_stock->shipping);
                                 $product_stock->shipping = ($ssShipping === '' || $ssShipping === null) ? 'same_as_parent' : $ssShipping;
 
                                 /* THE SKU IS THE ONE COLUMN THIS WRITER CHANGED ON EVERY SINGLE

@@ -637,7 +637,37 @@ class CartController extends Controller
             $response = Cart::cart_list_cookie($request->all(), $store->id);
             $response = json_decode(json_encode($response));
         } else {
-            $address = DeliveryAddress::find($request->billing_address_id);
+            /*
+             * GAP-243 / P3-F116 — THE ADDRESS MUST BE THE AUTHENTICATED SHOPPER'S OWN.
+             *
+             * This was `DeliveryAddress::find($request->billing_address_id)`: a liveness check on
+             * an id the caller chose, not an identity check. `DeliveryAddress` is NOT in
+             * `config/tenancy.php`'s `scoped_models` and carries no scope, so EVERY address row in
+             * the database answered -- another shopper's in this store, or another tenant's
+             * customer's. The three merged values then feed `cart_list()`, which selects the
+             * merchant's tax methods BY JURISDICTION, so the quote's tax block reads the foreign
+             * row's country/state/city back out.
+             *
+             * Found by the independent review of the API fix (GAP-235,
+             * `ApiController::apply_coupon:5447`), which went looking for the same statement
+             * elsewhere: this is it, byte-for-byte, on the web storefront.
+             *
+             * THE PREDICATE IS THE CUSTOMER, NOT THE STORE. This statement is inside the `else` arm
+             * of `auth('customers')->guest()`, so a Customer is on the guard by construction -- the
+             * next line already dereferences `auth('customers')->user()->id` to key `cart_list()`,
+             * which is the identity the quote is computed for. A `store_id` predicate would be
+             * weaker: `delivery_addresses.store_id` is nullable, and a NEIGHBOUR IN THE SAME STORE
+             * is this store's row, so a store predicate admits it. Same shape as
+             * `ApiController::update_address()`/`delete_address()`.
+             *
+             * Only the lookup changes: the merge, and everything after it, is untouched, so a
+             * client sending its own address id is unaffected. Pinned by
+             * `StorefrontShippingMethodAddressTenancyTest` (cross-tenant, same-store neighbour, and
+             * the shopper's own address as the control).
+             */
+            $address = DeliveryAddress::where('id', $request->billing_address_id)
+                ->where('customer_id', auth('customers')->user()->id)
+                ->first();
             if ($address) {
                 $parms['billing_info']['delivery_country'] = $address->country_id;
                 $parms['billing_info']['delivery_state'] = $address->state_id;
@@ -818,7 +848,7 @@ foreach ($response->data->product_list as $item) {
         $Product = Product::find($Products);
 
         $store = getStore($slug);
-        $CURRENCY = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $store->id);
+        $CURRENCY = \App\Support\Money\OrderCurrencyStamp::symbolFor($store->id); // GAP-143: the name this used to read has no default in Utility::Setting, so this field was null for every store StoreController did not create. P5-R14's chain decides a store's symbol in one place. Kept to ONE line: P01-OBSERVABILITY-INVENTORY.md anchors this file at :1581 and :1784. Full reasoning in Gap143ShippingTaxOrderTotalsTest.
         $code = trim($request->coupon_code);
         // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
         $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
@@ -847,7 +877,15 @@ foreach ($response->data->product_list as $item) {
                     $country = !empty($Delivery_Address->country_id) ? $Delivery_Address->country_id : '';
                     $state_id = !empty($Delivery_Address->state_id) ? $Delivery_Address->state_id : '';
 
-                    $Address = DeliveryAddress::find($User_address);
+                    /*
+                     * GAP-144 / P4-F021 [2026-11-25]: `$Address = DeliveryAddress::find($User_address);`
+                     * stood here -- UNSCOPED, on the same id the scoped read two lines above had
+                     * already resolved, and assigned to a variable **nothing in this method ever
+                     * read**. It is the leftover of the GAP-243 fix: the scoped version was added
+                     * and the old statement was not deleted. Harmless as it stood, and removed
+                     * rather than scoped because the risk was never the read -- it is that the next
+                     * person to need an address here copies the line that has no predicate.
+                     */
                     $Shipping_zone = ShippingZone::where('store_id', $store->id)->where('country_id', $country)->where('state_id', $state_id)->first();
                 }
                 if(empty($Shipping_zone)){
@@ -1043,7 +1081,7 @@ foreach ($response->data->product_list as $item) {
         $code = trim($request->coupon_code);
         // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
         $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
-        $CURRENCY = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $store->id);
+        $CURRENCY = \App\Support\Money\OrderCurrencyStamp::symbolFor($store->id); // GAP-143: the name this used to read has no default in Utility::Setting, so this field was null for every store StoreController did not create. P5-R14's chain decides a store's symbol in one place. Kept to ONE line: P01-OBSERVABILITY-INVENTORY.md anchors this file at :1581 and :1784. Full reasoning in Gap143ShippingTaxOrderTotalsTest.
         $tax_option = TaxOption::where('store_id', $store->id)
             ->pluck('value', 'name')->toArray();
         if ($Product == null) {
@@ -1060,7 +1098,27 @@ foreach ($response->data->product_list as $item) {
             $other_info = $request['billing_info'];
 
             if ($address_id) {
-                $billing_address  = DeliveryAddress::find($address_id);
+                /*
+                 * GAP-144 / P4-F021 [2026-11-25] -- SCOPED TO THE AUTHENTICATED SHOPPER, and it is
+                 * worth saying why this one was NOT a live defect, because the finding's first
+                 * reading called it a second instance and its reviewer corrected that.
+                 *
+                 * `DeliveryAddress::find($address_id)` read any customer's address on a
+                 * caller-supplied id -- `DeliveryAddress` carries no `StoreScope` and is not in
+                 * `config/tenancy.php`'s `scoped_models`, so every row in the database answered.
+                 * But `$country`, `$state_id` and `$city_id` are **unconditionally reassigned**
+                 * below from `$request['countryId']` / `$other_info` before anything reads them,
+                 * and this method never merges the address into the request -- so the foreign
+                 * values could not survive. Measured, not assumed.
+                 *
+                 * Scoped regardless: an inert read becomes a live one the moment somebody deletes
+                 * a reassignment three lines down, and the predicate costs nothing. This is the
+                 * same statement that WAS live at `get_shipping_method` (GAP-243) and in
+                 * `ApiController::apply_coupon` (GAP-235); this is the last copy.
+                 */
+                $billing_address  = DeliveryAddress::where('id', $address_id)
+                    ->where('customer_id', auth('customers')->user()->id)
+                    ->first();
                 $country = !empty($billing_address->country_id) ? $billing_address->country_id : $other_info['delivery_country'];
                 $state_id = !empty($billing_address->state_id) ? $billing_address->state_id : $other_info['delivery_state'];
                 $city_id = !empty($billing_address->city_id) ? $billing_address->city_id : $other_info['delivery_city'];
@@ -1261,6 +1319,27 @@ foreach ($response->data->product_list as $item) {
     public function abandon_carts_show($customerId)
     {
         if (auth()->user()->isAbleTo('Show Cart')) {
+            /*
+             * GAP-077 / GAP-223(b). `empty($storeId)` CANNOT FIRE FOR AN UNSELECTED OPERATOR, which
+             * is why this is a separate guard and not a tightening of the one below:
+             * `getCurrentStore()` hands that principal the hard-coded literal 1
+             * (`app/Helper/helper.php:888-889`), and 1 is not empty -- so this handler served store
+             * 1's cart lines to somebody who chose no store. Measured: HTTP 200 with the store-1
+             * product's name in the body.
+             *
+             * The owner's rule is already recorded (`OperatorStoreSelection:17-19`, 2026-11-21) and
+             * the LIST leg of this same screen has enforced it since GAP-218, through
+             * `MarketingScreenAccess`. This is the refusal half of that predicate and ONLY that
+             * half: `MarketingScreenAccess` also ADMITS an operator holding no permission, and
+             * whether the operator belongs on this leg is the owner's question, so the
+             * `isAbleTo()` check above is left exactly as it was. Every outcome here is narrower.
+             */
+            if (\App\Support\Tenancy\OperatorStoreSelection::unchosen()) {
+                \App\Support\Tenancy\OperatorStoreSelection::logRefusal('CartController::abandon_carts_show');
+
+                return redirect()->back()->with('error', __(\App\Services\MarketingScreenAccess::NO_STORE));
+            }
+
             $storeId = getCurrentStore();
 
             // No resolved store means no rows this caller may see -- not "every row with a NULL
@@ -1297,7 +1376,53 @@ foreach ($response->data->product_list as $item) {
     public function abandon_carts_destroy($customerId)
     {
         if (auth()->user()->isAbleTo('Delete Cart')) {
-            $store = Store::find(getCurrentStore());
+            /*
+             * GAP-077 / GAP-223(b), AND THIS IS THE LEG THAT MATTERED MOST: it had no store guard
+             * of ANY kind, and it deletes. `Store::find(getCurrentStore())` resolves the literal 1
+             * for an operator who chose no store, `$store->id` becomes the predicate, and a real
+             * merchant's abandoned carts were destroyed. Measured: store 1's cart rows 1 -> 0.
+             *
+             * Refusal only -- the `isAbleTo('Delete Cart')` check above is untouched, so this
+             * grants nobody anything. See `abandon_carts_show()` for why the operator's ADMISSION
+             * to this leg is a separate, owner-level question.
+             */
+            if (\App\Support\Tenancy\OperatorStoreSelection::unchosen()) {
+                \App\Support\Tenancy\OperatorStoreSelection::logRefusal('CartController::abandon_carts_destroy');
+
+                return redirect()->back()->with('error', __(\App\Services\MarketingScreenAccess::NO_STORE));
+            }
+
+            /*
+             * AND NO STORE AT ALL IS A REFUSAL, NOT A CRASH. This leg was the only one of the four
+             * with no store guard, so two principals reached `$store->id` on a null: a merchant who
+             * owns no store, and a staff member whose `current_store` is unset -- both resolve null
+             * from `getCurrentStore()`, `Store::find(null)` compiles to `stores.id is null`, and the
+             * read on null is an HTTP 500. `AbandonedCartSendStoreScopeTest:30` records the same
+             * shape on the sibling send leg. It failed CLOSED, so nothing was deleted; it is still a
+             * 500 where a refusal belongs, and a 500 is the shape that lets a regression test pass
+             * for the wrong reason.
+             *
+             * `$store?->id` IS THE TRAP AND IS NOT WHAT THIS DOES. `carts.store_id` is nullable, so
+             * `where('store_id', null)` compiles to `store_id IS NULL` and would DELETE EVERY
+             * ORPHANED NULL-STORE CART ROW IN THE TABLE, across every tenant, for a caller who
+             * resolves no store. There is a standing report script for those rows
+             * (`report-null-store-orders.php`), so they are not hypothetical, and the read side of
+             * this exact trap is already pinned at `AbandonedCartShowIdentifierTest:362-389`.
+             * Refusing explicitly does not depend on reading `where(null)` correctly. Raised by the
+             * tenant-authz review of this change.
+             */
+            $storeId = getCurrentStore();
+
+            if (empty($storeId)) {
+                return redirect()->back()->with('error', __('Data not found.'));
+            }
+
+            $store = Store::find($storeId);
+
+            if (! $store) {
+                return redirect()->back()->with('error', __('Data not found.'));
+            }
+
             $carts = Cart::where('customer_id', $customerId)->where('store_id',$store->id)->get();
             foreach ($carts as $cart) {
                 $cart->delete();
@@ -1325,6 +1450,24 @@ foreach ($response->data->product_list as $item) {
              * a configured store it would have texted another tenant's customer about another tenant's
              * products. Found by the tenant-authz review of the neighbouring identifier repair.
              */
+            /*
+             * GAP-077 / GAP-223(b). The guard below reads `empty($storeId)` and the literal 1 an
+             * unselected operator receives is not empty, so this leg accepted a cart id and would
+             * have EMAILED a real merchant's shopper about that merchant's products. Measured:
+             * HTTP 200. Refusal only; the `isAbleTo('Abandon Cart')` check above is untouched.
+             *
+             * The existing no-store shape is reused deliberately rather than inventing a status:
+             * the same JSON keys and the same 404, with the message naming the real reason.
+             */
+            if (\App\Support\Tenancy\OperatorStoreSelection::unchosen()) {
+                \App\Support\Tenancy\OperatorStoreSelection::logRefusal('CartController::abandon_carts_emailsend');
+
+                return response()->json([
+                    'is_success' => false,
+                    'message' => __(\App\Services\MarketingScreenAccess::NO_STORE),
+                ], 404);
+            }
+
             $storeId = getCurrentStore();
             if (empty($storeId)) {
                 return response()->json(['is_success' => false, 'message' => __('Cart not found.')], 404);
@@ -1480,6 +1623,22 @@ foreach ($response->data->product_list as $item) {
          */
         if (! auth()->user() || ! auth()->user()->isAbleTo('Abandon Cart')) {
             return response()->json(['is_success' => false, 'message' => __('Permission denied.')], 403);
+        }
+
+        /*
+         * GAP-077 / GAP-223(b). Same as the mail leg beside it: the `empty($storeId)` guard below
+         * cannot fire for an operator who chose no store, because the literal 1 they receive is not
+         * empty -- and this is the leg that reaches `Utility::SendMsgs()`, so on a configured store
+         * it would have TEXTED a real merchant's shopper. Refusal only; the permission check above
+         * is untouched.
+         */
+        if (\App\Support\Tenancy\OperatorStoreSelection::unchosen()) {
+            \App\Support\Tenancy\OperatorStoreSelection::logRefusal('CartController::abandon_carts_messsend');
+
+            return response()->json([
+                'is_success' => false,
+                'message' => __(\App\Services\MarketingScreenAccess::NO_STORE),
+            ], 404);
         }
 
         /*

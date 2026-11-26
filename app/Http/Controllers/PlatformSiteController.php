@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Plan;
 use App\Support\Platform\PlatformCapabilities;
+use App\Support\Platform\PlatformContent;
 
 /**
  * PHASE 03 M5 — THE OFFICIAL STORE SYRIA WEBSITE.
@@ -42,6 +43,22 @@ use App\Support\Platform\PlatformCapabilities;
  * actually billed and the drift would stay invisible until somebody complained.
  *
  * Capability copy is governed the same way, by `App\Support\Platform\PlatformCapabilities`.
+ *
+ * -------------------------------------------------------------------------------------------------
+ * GAP-104 / P03-C-05 -- THE COPY IS NOW OPERATOR-EDITABLE, AND THE SENTENCE ABOVE STILL HOLDS.
+ *
+ * Every action passes `c`, a RESOLVED array of this page's editable text from
+ * `App\Support\Platform\PlatformContent`. For each key that is the operator's override where one
+ * has been supplied, and `__()` on the same literal the view used to carry where none has -- so an
+ * un-overridden page renders byte for byte what it rendered before the capability existed, in both
+ * languages. The views take a resolved array rather than calling the registry, so the
+ * override/default/owed decision happens in one place a test can drive.
+ *
+ * WHAT IS STILL NOT EDITABLE, deliberately, because the two rules above are the reason this
+ * controller exists: PRICES AND PLAN LIMITS (they come from `plans`, which the subscription flow
+ * charges against) and CAPABILITY CLAIMS (anchored to a module on disk or a theme in `themes/`,
+ * which is what makes `P03-C-04` verifiable). Page titles and meta descriptions are also left in
+ * code. `PlatformContent`'s docblock lists the exclusions and the reason for each.
  */
 class PlatformSiteController extends Controller
 {
@@ -49,6 +66,7 @@ class PlatformSiteController extends Controller
     public function home()
     {
         return view('platform.home', [
+            'c'      => PlatformContent::resolved('home'),
             'plans'  => $this->publishedPlans(),
             'themes' => PlatformCapabilities::themes(),
         ]);
@@ -63,6 +81,7 @@ class PlatformSiteController extends Controller
     public function features()
     {
         return view('platform.features', [
+            'c'      => PlatformContent::resolved('features'),
             'groups' => array_combine(
                 PlatformCapabilities::groupNames(),
                 array_map(
@@ -78,6 +97,7 @@ class PlatformSiteController extends Controller
     public function onboarding()
     {
         return view('platform.onboarding', [
+            'c'     => PlatformContent::resolved('onboarding'),
             'plans' => $this->publishedPlans(),
         ]);
     }
@@ -91,18 +111,24 @@ class PlatformSiteController extends Controller
     public function pricing()
     {
         return view('platform.pricing', [
+            'c'     => PlatformContent::resolved('pricing'),
             'plans' => $this->publishedPlans(),
         ]);
     }
 
     public function faq()
     {
-        return view('platform.faq');
+        return view('platform.faq', [
+            'c'    => PlatformContent::resolved('faq'),
+            'faqs' => PlatformContent::faqs(),
+        ]);
     }
 
     public function contact()
     {
-        return view('platform.contact');
+        return view('platform.contact', [
+            'c' => PlatformContent::resolved('contact'),
+        ]);
     }
 
     /**
@@ -115,7 +141,9 @@ class PlatformSiteController extends Controller
      */
     public function legal()
     {
-        return view('platform.legal');
+        return view('platform.legal', [
+            'c' => PlatformContent::resolved('legal'),
+        ]);
     }
 
     /**

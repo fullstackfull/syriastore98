@@ -838,7 +838,7 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
      *         /dashboard  operator, no selection   -> 500   (REPAIRED 2026-11-22: now 200)
      *         /dashboard  operator, store selected -> 200
      *         /dashboard  merchant, store resolved -> 200
-     *         /dashboard  merchant, no store       -> 500   (STILL OPEN, and now a different defect)
+     *         /dashboard  merchant, no store       -> 500   (REPAIRED 2026-11-26: now 302 -> /login)
      *
      *       REPAIRED FOR THE OPERATOR ON 2026-11-22, AS THIS NOTE ASKED WHOEVER DID IT TO RECORD.
      *       The row above and everything below it describe the state this case was written
@@ -849,13 +849,19 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
      *       branch never reads. So the refusal below now lands on a page that renders, and THE
      *       REFUSAL REACHES THE EYE, which is the thing this paragraph said it could not do.
      *
-     *       THE STORELESS MERCHANT'S 500 IS NOT REPAIRED AND IS NO LONGER "THE SAME 500". With the
-     *       operator's cause removed, what is left is a second one: a merchant with no resolvable
-     *       store is signed out by `APP_THEME()` / `getOrderChart()`, the redirect those return is
-     *       assigned and never sent, and `handleRegularUser()` carries on to dereference the store
-     *       it does not have. That is recorded on the gap register with its root cause -- store
-     *       deletion re-points only the DELETING user's `current_store` -- and is asserted below as
-     *       the open finding it still is.
+     *       THE STORELESS MERCHANT'S 500 WAS NEVER "THE SAME 500", AND IT IS NOW REPAIRED TOO
+     *       (2026-11-26, GAP-013). With the operator's cause removed, what was left was a second
+     *       one: a merchant with no resolvable store is signed out by `APP_THEME()` /
+     *       `getOrderChart()`, the redirect those return is assigned and never sent, and
+     *       `handleRegularUser()` carried on to dereference the store it does not have.
+     *       `handleRegularUser()` now refuses that principal at the `getStoreById()` line: it signs
+     *       them out (idempotently -- `/login` bounces an authenticated visitor back to
+     *       `/dashboard`, so leaving the session alive would make the refusal a ring) and returns
+     *       the sign-in redirect, which is the answer `getOrderChart()` had already chosen for
+     *       them. The case below asserts that, as the paragraph after it asked whoever repaired it
+     *       to do. The ROOT CAUSE is untouched and still on the gap register: store deletion
+     *       re-points only the DELETING user's `current_store` (`GAP-162`), so a merchant can
+     *       still arrive here storeless -- they now get sign-in instead of an error page.
      *
      *       AND THE CAUSE IS NOT THE ONE THE NULL-STORE SLICE RECORDED. That slice attributes the
      *       storeless `/dashboard` 500 to `partision/header.blade.php` handing a null store to
@@ -879,10 +885,13 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
      *       documented loop for a GET on this handler), so a landing page that works for this
      *       principal does not exist inside the decision's scope. It is REPORTED.
      *
-     *       The 500 is asserted here as a MEASUREMENT, in the shape this repository already uses
+     *       The 500 WAS asserted here as a MEASUREMENT, in the shape this repository already uses
      *       for a recorded open finding (`EloquentScopeBypassInventoryTest`'s "and that is an open
-     *       finding" cases). WHOEVER FIXES THE CHROME OR DECLARES `users.total_user` SHOULD CHANGE
-     *       THIS CASE rather than delete it.
+     *       finding" cases), with an instruction to CHANGE the case rather than delete it when the
+     *       cause was repaired. Both legs of it have been: the operator's on 2026-11-22 (200), the
+     *       storeless merchant's on 2026-11-26 (302 -> /login). Both are now asserted as
+     *       requirements below, and the end-to-end coverage for the merchant leg is
+     *       `StorelessMerchantDashboardTest`.
      *
      *   (b) THE OPERATOR CAN FIX IT THEMSELVES AND THEN PROCEED, which is what makes this a gate
      *       and not a lockout. `POST /change-store/{id}` (`StoreController::changeStore`, route
@@ -928,20 +937,35 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
             . 'assertion above proves nothing about the message being delivered.'
         );
 
-        // A STORELESS MERCHANT STILL GETS A 500, AND IT IS A RECORDED OPEN FINDING, NOT A
-        // REQUIREMENT. It used to be asserted as "the same 500" to show the operator's was not
-        // created by this guard. It is no longer the same: the operator's cause is gone and this
-        // one -- a sign-out whose redirect is assigned and never sent -- is what remains.
+        /*
+         * A STORELESS MERCHANT IS NOW SENT TO SIGN-IN, AND THAT IS THE REPAIR THIS CASE ASKED FOR.
+         *
+         * This was `assertSame(500, ...)` with the recorded instruction: "If this now answers a
+         * redirect to sign-in, that is the repair: change this assertion and close the gap-register
+         * lead that records it." Done 2026-11-26 under GAP-013.
+         * `HomeController::handleRegularUser()` was discarding the redirect `getOrderChart()`
+         * returns for this principal and then dereferencing the null store at :637
+         * (`ErrorException: Attempt to read property "slug" on null`); it now signs them out and
+         * sends them to sign-in, which is the answer `getOrderChart()` had already chosen.
+         *
+         * THE SIGN-OUT IS ASSERTED TOO, because the redirect alone is not the repair: `/login`
+         * answers an authenticated visitor with a redirect back to `/dashboard`, so a redirect
+         * that left the session alive would be a ring rather than a terminus
+         * (`FinanceNullStoreGuardTest` walks exactly that chain).
+         *
+         * IT IS STILL EVIDENCE FOR THIS CASE'S OWN POINT: the operator's 200 above and this
+         * merchant's redirect have different causes, so neither was created by this guard.
+         */
         $storelessMerchant = User::find($this->makeMerchant(['current_store' => null])->id);
         $this->assertSame(0, DB::table('stores')->where('created_by', $storelessMerchant->id)->count(),
             'premise: this merchant owns a store, so they are not storeless');
-        $this->assertSame(500,
-            $this->actingAs($storelessMerchant)->get(route('dashboard'))->getStatusCode(),
-            'RECORDED OPEN FINDING, NOT A REQUIREMENT. A merchant who resolves no store was '
-            . 'measured as signed out AND answered 500, because HomeController::handleRegularUser() '
-            . 'ignores the redirect getOrderChart() returns and dereferences a null store. If this '
-            . 'now answers a redirect to sign-in, that is the repair: change this assertion and '
-            . 'close the gap-register lead that records it.');
+        $storelessLanding = $this->actingAs($storelessMerchant)->get(route('dashboard'));
+        $storelessLanding->assertRedirect(route('login'));
+        $this->assertFalse(
+            auth('web')->check(),
+            'the storeless merchant was redirected to sign-in but left signed in, so /login will '
+            . 'bounce them back to /dashboard and the refusal is an infinite redirect.'
+        );
 
         // Re-authenticate: the storeless merchant's request above ended that session.
 
