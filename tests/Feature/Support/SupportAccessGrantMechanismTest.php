@@ -171,18 +171,25 @@ class SupportAccessGrantMechanismTest extends SecurityTestCase
     /**
      * A NULL EXPIRY MEANS EXPIRED, NOT "NEVER EXPIRES".
      *
-     * THE DATABASE WILL NOT PRODUCE THIS STATE, AND THAT WAS MEASURED HERE RATHER THAN ASSUMED.
-     * The first version of this case wrote `expires_at = null` with `DB::table()->update()` and the
-     * test ERRORED: `SQLSTATE[23000] NOT NULL constraint failed: support_access_grants.expires_at`.
-     * So the column really is NOT NULL on the suite's SQLite as well as on MySQL, and a permanent
-     * grant cannot be written through the table at all — which is a stronger result than the
-     * assertion was reaching for, and is recorded here because it is the schema half of the
-     * temporary clause.
+     * NEITHER ENGINE WILL STORE A NULL HERE, BUT FOR TWO DIFFERENT REASONS, AND BOTH WERE MEASURED.
      *
-     * What remains reachable is a grant OBJECT with no expiry — a model built in memory, or one
-     * hydrated from a future query that does not select the column. `hasExpired()` is therefore
-     * asserted directly, on the unit that can actually be in that state. The DIRECTION is the whole
-     * point: read the other way, an absent expiry becomes "no opinion" and then "forever".
+     * On the suite's SQLite, writing `expires_at = null` ERRORS:
+     * `SQLSTATE[23000] NOT NULL constraint failed: support_access_grants.expires_at` — discovered
+     * by the first draft of this file, which tried to set up exactly that state.
+     *
+     * On MariaDB 10.11 it does NOT error: assigning NULL to a `TIMESTAMP NOT NULL` column stores
+     * **the current timestamp**. Measured by
+     * `tests/Support/Security/bin/verify-support-access-grants-on-mysql.php`, which is where an
+     * engine-specific fact belongs — a conditionally-skipped test would break
+     * `.github/known-test-outcomes.json`'s declared skip set. An earlier version of this docblock
+     * claimed the column "really is NOT NULL on the suite's SQLite as well as on MySQL", which
+     * described the test database and not production.
+     *
+     * SO THE NULL BRANCH IN `hasExpired()` IS NOT DEAD CODE. A grant OBJECT with no expiry is
+     * reachable — a model built in memory, or one hydrated from a query that does not select the
+     * column — and that is what is asserted here, directly, on the unit that can be in that state.
+     * The DIRECTION is the whole point: read the other way, an absent expiry becomes "no opinion"
+     * and then "forever".
      */
     public function test_a_grant_object_with_no_expiry_reads_as_expired_rather_than_permanent(): void
     {
@@ -215,25 +222,69 @@ class SupportAccessGrantMechanismTest extends SecurityTestCase
     }
 
     /**
-     * THE SCHEMA ITSELF REFUSES A PERMANENT GRANT. Separated from the case above because it is a
-     * claim about the TABLE, and because the first draft discovered it by accident: an assertion
-     * that meant to set up a null expiry got a NOT NULL violation instead. Asserted deliberately
-     * now, so that a future migration relaxing the column fails here and says why.
+     * `expires_at` CANNOT BE EMPTIED INTO A LIVE GRANT — AND THE TWO ENGINES DO IT DIFFERENTLY.
+     * =============================================================================================
+     *
+     * THIS CASE USED TO ASSERT THAT THE TABLE REFUSES THE WRITE, AND THAT IS A SQLITE-ONLY
+     * PROPERTY. Measured on a real server by
+     * `tests/Support/Security/bin/verify-support-access-grants-on-mysql.php` (31 checks, 0 failed)
+     * against MariaDB 10.11 with `STRICT_TRANS_TABLES` set:
+     *
+     *     UPDATE support_access_grants SET expires_at = NULL WHERE id = ?;
+     *     -- succeeds, no warning; the column then holds '2026-11-26 20:57:08'
+     *
+     * Assigning NULL to a `TIMESTAMP NOT NULL` column on MySQL/MariaDB sets it to **the current
+     * timestamp**. It is neither an error nor NULL. So the old assertion described the test
+     * database and not production — CLAUDE.md's "SQLite's type affinity hides real MySQL defects",
+     * which is how P01-SEC-13 survived.
+     *
+     * IT FAILS CLOSED, AND THAT IS THE PROPERTY WORTH ASSERTING. NOW() is not in the future, so
+     * `hasExpired()` reads the coerced row as EXPIRED and the gate refuses it. A permanent grant
+     * cannot be written this way on EITHER engine — SQLite refuses the write, MariaDB turns it into
+     * an immediate expiry — so the assertion here is the OUTCOME ("the grant is not live
+     * afterwards") rather than the mechanism, and it holds on both.
+     *
+     * The engine-specific mechanism is measured in the MySQL script, where it belongs: a
+     * conditionally-skipped test would break `.github/known-test-outcomes.json`'s declared skip set.
      */
-    public function test_the_table_refuses_a_grant_with_no_expiry(): void
+    public function test_emptying_the_expiry_cannot_produce_a_live_grant_on_either_engine(): void
     {
         $grant = $this->liveSupportGrant();
 
+        $this->assertTrue(
+            SupportAccessGate::allows($this->operator, (int) $this->store->id, SupportAccessScope::FULL),
+            'PREMISE: the grant was not live before the expiry was emptied'
+        );
+
+        $refused = false;
+
         try {
             \DB::table('support_access_grants')->where('id', $grant->id)->update(['expires_at' => null]);
-            $this->fail(
-                'support_access_grants.expires_at accepted NULL -- the temporary clause of '
-                . 'SUPPORT-004 is no longer enforced by the schema, and a permanent support grant '
-                . 'can now be written with one UPDATE'
-            );
         } catch (\Illuminate\Database\QueryException $e) {
+            // SQLite's path: a NOT NULL constraint violation. The grant is untouched and still live,
+            // which is why the branch below re-asserts rather than returning.
+            $refused = true;
             $this->assertStringContainsString('NOT NULL', $e->getMessage());
         }
+
+        if ($refused) {
+            // The write never landed, so the original future expiry is intact.
+            $this->assertFalse(
+                SupportAccessGrant::query()->find($grant->id)->hasExpired(),
+                'the engine refused the write yet the row changed anyway'
+            );
+
+            return;
+        }
+
+        // MySQL/MariaDB's path: the NULL became NOW(), so the grant is expired rather than permanent.
+        $this->assertFalse(
+            SupportAccessGate::allows($this->operator, (int) $this->store->id, SupportAccessScope::FULL),
+            'emptying expires_at left the grant LIVE. On MySQL a NULL into a TIMESTAMP NOT NULL '
+            . 'column becomes the current timestamp, which is an immediate expiry; if this fails, '
+            . 'the column has been made nullable or given a future default, and SUPPORT-004\'s '
+            . 'temporary clause can be defeated with one UPDATE.'
+        );
     }
 
     public function test_a_grant_longer_than_the_configured_ceiling_is_refused_at_creation(): void

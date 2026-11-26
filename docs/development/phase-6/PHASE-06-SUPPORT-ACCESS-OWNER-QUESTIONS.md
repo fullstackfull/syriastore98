@@ -160,6 +160,27 @@ refusal with a positive control), `SupportAccessEnforcementTest.php` (the real d
 modes), `SupportAccessGrantStructureTest.php` (the three structural properties),
 `SupportAccessOwnerQuestionsTest.php` (this document against the config file).
 
+**Verified on a real server.**
+`tests/Support/Security/bin/verify-support-access-grants-on-mysql.php` — 31 checks, 0 failed,
+against MariaDB 10.11. It creates and drops its own throwaway database. Two results worth the
+owner's attention:
+
+- **The hazard it was written for did not occur, and the setting is printed so the reading is
+  interpretable.** With `explicit_defaults_for_timestamp = OFF`, MySQL gives the *first*
+  `TIMESTAMP NOT NULL` column in a table an implicit `ON UPDATE CURRENT_TIMESTAMP`. This table has
+  two NOT NULL timestamps, `requested_at` and `expires_at`. Had that applied, **recording a use
+  would have extended the grant** — the temporary clause undone by the act of using the access.
+  Measured: no column on either table carries `ON UPDATE`, and both columns survive an unrelated
+  UPDATE unchanged. SQLite cannot show this either way: it has no `TIMESTAMP` type and no
+  `ON UPDATE` semantics.
+- **One suite assertion was describing SQLite rather than production, and has been corrected.**
+  `UPDATE support_access_grants SET expires_at = NULL` is *refused* by SQLite (NOT NULL violation)
+  but *accepted* by MariaDB, which stores the **current timestamp** instead — neither an error nor
+  a NULL. It fails closed (NOW() is not in the future, so the grant reads as expired, not
+  permanent), so there is no defect; but the test now asserts the *outcome* that holds on both
+  engines rather than the SQLite-only mechanism. This is CLAUDE.md's "SQLite's type affinity hides
+  real MySQL defects", caught in the harmless direction and recorded rather than dropped.
+
 **24 mutations, all caught — after four survivors were repaired by strengthening the tests.** The
 most useful was collapsing the gate's two paths into `isConsented() || emergencyIsApproved()`,
 which survived all 52 tests because both "the paths are separate" cases measured the *writer* (which
