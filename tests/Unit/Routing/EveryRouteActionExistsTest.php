@@ -49,7 +49,7 @@ class EveryRouteActionExistsTest extends TestCase
 {
 
     /**
-     * THE MEASURED BACKLOG. 73 at the first run of this test; 14 now.
+     * THE MEASURED BACKLOG. 73 at the first run of this test; 10 now.
      *
      * Every one of these is an HTTP 500 for any request that reaches it, and they are PRE-EXISTING:
      * the original list was what the first run found, not breakage it allows. It is asserted in
@@ -76,11 +76,7 @@ class EveryRouteActionExistsTest extends TestCase
      * @var list<string>
      */
     private const KNOWN_BROKEN = [
-        'App\Http\Controllers\Api\ApiController@random_product',
         'App\Http\Controllers\AppSettingController@image_delete',
-        'App\Http\Controllers\ModuleController@AddOnSessionSave',
-        'App\Http\Controllers\ModuleController@AddOnSessioncreate',
-        'App\Http\Controllers\OrderController@allOrders',
         'App\Http\Controllers\OrderController@place_order',
         'Workdo\LandingPage\Http\Controllers\BuiltTechSectionController@store',
         'Workdo\LandingPage\Http\Controllers\DedicatedSectionController@store',

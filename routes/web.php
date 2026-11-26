@@ -459,9 +459,17 @@ Route::middleware(['web'])->group(function () {
   });
   Route::get('pricing', [HomeController::class, 'Pricing'])->name('apps.pricing');
 
-  // Session Save Addon Routes
-  Route::get('add-on/session/create', [ModuleController::class, 'AddOnSessioncreate'])->name('add-on.session.create');
-  Route::post('add-on/session/save', [ModuleController::class, 'AddOnSessionSave'])->name('add-on.session.save');
+  // GAP-268. THE "Session Save Addon Routes" PAIR WAS HERE AND IS DELETED:
+  //   GET  add-on/session/create  ->  ModuleController@AddOnSessioncreate
+  //   POST add-on/session/save    ->  ModuleController@AddOnSessionSave
+  // Neither method exists -- `ModuleController` defines index, enable, remove,
+  // Check_Child_Module, Check_Parent_Module, install, add, moveExtractedFiles and
+  // deleteDirectory -- so both were an HTTP 500 for any request that reached them. Deleted
+  // rather than implemented: the names `add-on.session.create` and `add-on.session.save` are
+  // referenced NOWHERE outside their own declarations (measured across app/, resources/,
+  // routes/, packages/, themes/, config/, database/ and bootstrap/), there is no view to
+  // render and no "addon session" concept anywhere else in the application, so there is no
+  // intent to implement against. 404 is the honest answer.
 
   Route::middleware(['auth', 'xss', 'setlocate', 'verified'])->group(function () {
 
@@ -1616,7 +1624,14 @@ Route::get(
     // GAP-268. MEASURED: OrderController has no `edit` or `update` -- the order screens use
     // `order_view`, `updateStatus` and the named routes below. The other five exist.
     Route::resource('order', OrderController::class)->except(['edit', 'update']);
-    Route::get('order/all', [OrderController::class, 'allOrders']);
+    // GAP-268. `Route::get('order/all', [OrderController::class, 'allOrders'])` WAS HERE and is
+    // deleted. `OrderController` has no `allOrders`, and the route was additionally UNREACHABLE:
+    // the resource above declares `GET order/{order}` first, Laravel matches in declaration
+    // order, so `GET /order/all` bound `{order} = 'all'` and dispatched `OrderController@show`.
+    // Measured against the booted router, and still asserted -- that URI must keep resolving to
+    // `order/{order}`, or this deletion was not the no-op it is described as. The route was also
+    // unnamed and referenced nowhere.
+    // Pinned by DeadControllerRoutesWithdrawnTest::test_premise_order_all_is_shadowed_by_the_resource_show_route.
     // GATE C, limb 1 -- NEW-order-view-auth-shadowed-by-duplicate-registration.
     //
     // THIS registration was DEAD. `order-view/{id}` was declared twice: here,
