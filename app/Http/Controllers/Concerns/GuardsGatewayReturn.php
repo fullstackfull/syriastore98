@@ -491,12 +491,20 @@ trait GuardsGatewayReturn
      *             docblock whose whole claim is "taken from this repository's own code" is worth
      *             correcting in place rather than quietly.)
      *
-     * THE OTHER FOUR SUPPLY NOTHING, and that is a finding rather than a gap in this census.
-     * authorizenet, easebuzz, paiementpro and the storefront return read no transaction identifier
-     * from their return at all -- paiementpro branches on `responsecode`, which says only "the
-     * browser claims this succeeded". That is the unverified-payment exposure recorded as an owner
-     * blocker, and the honest statement is that for those four this control is the checkout nonce
-     * only.
+     *   storefront-return  `tap_id` -- GAP-285, added 2026-11-26. PaymentController::getProductStatus
+     *             hands exactly this value to Tap's own `getCharge()` to verify the capture, so it
+     *             is the reference that gateway settles against. It covers the Tap/Benefit rail
+     *             only; the twenty-odd other rails on that handler carry no `tap_id` and are
+     *             unaffected.
+     *
+     * THE OTHER THREE SUPPLY NOTHING, and that is a finding rather than a gap in this census.
+     * authorizenet, easebuzz and paiementpro read no transaction identifier from their return at
+     * all -- paiementpro branches on `responsecode`, which says only "the browser claims this
+     * succeeded". That is the unverified-payment exposure recorded as an owner blocker, and the
+     * honest statement is that for those three this control is the checkout nonce only. (This
+     * paragraph read "THE OTHER FOUR" and named the storefront return among them until GAP-285
+     * gave that rail a reference; the count is part of the claim, so it is corrected rather than
+     * left.)
      *
      * A missing field yields NULL and therefore no key, so a gateway that stops sending one loses
      * the payment key and keeps the checkout key. It never produces a WRONG key.
@@ -510,6 +518,46 @@ trait GuardsGatewayReturn
             $raw = is_array($payload) ? ($payload['token'] ?? null) : null;
         } elseif ($gateway === 'cinetpay') {
             $raw = $request->input('cpm_trans_id');
+        } elseif ($gateway === self::MULTI_RAIL_RETURN) {
+            /*
+             * GAP-285 -- `tap_id`, the Tap/Benefit charge id, read from the storefront return.
+             *
+             * `PaymentController::getProductStatus` verifies this charge is `CAPTURED` by calling
+             * Tap's own API (`\App\Package\Payment::getCharge()`), and then bound it to NOTHING:
+             * no order, no amount, no single-use claim. The checkout nonce cannot cover it, because
+             * a SECOND checkout mints a fresh nonce -- so one real charge id authorised unlimited
+             * orders, repeatably. MEASURED on the real route before this entry existed: one charge
+             * id wrote TWO orders.
+             *
+             * IT IS THE RIGHT KIND OF VALUE FOR THIS KEY, on the same test the two entries above
+             * are held to: it is Tap's own per-charge identifier (`chg_...`, the value
+             * `getCharge($charge_id)` looks up), not a merchant-chosen or reused constant -- so
+             * keying on it refuses a replay without refusing a legitimate second purchase, which
+             * mints its own charge. The constant `reference` block `processBenefit()` sends
+             * (`"transaction" => "txn_01"`) is NOT used here for exactly that reason: it is the
+             * same for every checkout and would deny every second Benefit order on the platform.
+             *
+             * WHY HERE RATHER THAN A FRESH `Cache::add` IN THE HANDLER. This is the one place that
+             * answers "what is this gateway's own identifier for the payment", and the caller
+             * already takes a claim below its finality checks. Reading it here inherits the store
+             * scoping, the TTL, the fail-closed partial-claim rule, the refusal text, the log line
+             * and the release path, instead of becoming a second copy of a control this codebase
+             * has twice recorded as a drift hazard.
+             *
+             * SCOPE, SAID PLAINLY: this is a REPLAY control, not a verification. It does not bind
+             * the charge to an AMOUNT -- `serverPayableAmount()` rounds the server's figure to 2
+             * decimals while `OrderTotalReconciler::amountsMatch()` compares exactly at SCALE 4, so
+             * a genuine 3-decimal charge (BHD, which `processBenefit()` DEFAULTS to) would be
+             * refused rather than rounded. That half is an owner question about supported
+             * currencies and is escalated with its figures, not guessed at here. See
+             * `BenefitChargeClaimTest`.
+             *
+             * The twenty-odd other rails on this handler carry no `tap_id`, so they get NULL and no
+             * payment key, which is this method's documented "a missing field never produces a
+             * WRONG key" behaviour -- asserted, because an absent id that minted a key would make
+             * every one of them share it.
+             */
+            $raw = $request->input('tap_id');
         }
 
         if (! is_string($raw) && ! is_int($raw)) {
