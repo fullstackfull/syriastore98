@@ -77,6 +77,62 @@ class RegisteredUserController extends Controller
             'store_name' => ['required', 'string', 'max:255'],
         ]+$validation);
 
+        /*
+         * GAP-014 -- THE ROLE IS LOOKED UP BEFORE ANYTHING IS WRITTEN, AND ITS ABSENCE REFUSES
+         * THE WHOLE REGISTRATION.
+         *
+         * This lookup used to sit at the END of each provisioning branch, immediately above
+         * `addRole()`, with a tolerant `if ($role_r)` around it (the two sites were :179 and
+         * :310). That guard was a correct first move -- `addRole()` is typed
+         * `array|string|int|Model|UuidInterface|BackedEnum`, so `addRole(null)` is an immediate
+         * TypeError -- but it only moved the damage. By the time either site ran, the method had
+         * already created the user row and the store row, provisioned the store wallet, written
+         * `users.current_store`, called `Auth::login()` and run `defaultSetting()` /
+         * `pageDefaultData()`, NONE of it in a transaction. So a missing role stopped being a 500
+         * and became worse: registration reported SUCCESS and committed a merchant with a real
+         * store, a live session and no role at all. MEASURED on a fresh database (`roles` holds 0
+         * rows, because `RefreshDatabase` runs migrations and not seeders): 302, authenticated,
+         * users +1, stores +1, store_wallets +1, role_user 0.
+         *
+         * THE GAP REGISTER'S WORDS ARE "the half-provisioned row should not survive", and the
+         * traceability row's expected behaviour is "a merchant who registers is provisioned with a
+         * role, or registration fails loudly". Checking first satisfies both without a
+         * transaction around a verification e-mail and a session login: when the role is absent
+         * nothing is created, nobody is signed in, no mail is sent, and the visitor is told. The
+         * half-provisioned merchant cannot survive because it is never born.
+         *
+         * IT DELIBERATELY DOES NOT CREATE THE ROLE. The `admin` role is ONE SHARED GLOBAL row
+         * with a null `store_id` that every self-registered merchant is attached to -- see the
+         * note at the first `User::create()` below -- so inventing one here would make that
+         * hazard worse, and granting privileges is an owner decision rather than an engineering
+         * one. Giving each store its own admin role is still the root-cause fix and is still a
+         * `role_user` + `permission_role` data migration against the live database.
+         *
+         * ONE COPY, ABOVE THE BRANCH SPLIT. `$role_r` now reaches both `addRole()` calls proven
+         * non-null, so neither tolerates a null any more and there is no second copy of the
+         * condition to drift out of step with the first -- which is how :179 and :310 came to
+         * hold byte-identical tolerant guards.
+         *
+         * LATENT IN PRODUCTION, REACHABLE ON A BROKEN INSTALL. `PermissionTableSeeder` creates
+         * the role, so a seeded install never takes this path. It is reachable where the seeder
+         * has not run or the role was renamed, and the log line is what makes that visible to an
+         * operator instead of showing up later as a merchant who cannot do anything.
+         * Pinned by `tests/Feature/Auth/RegistrationRoleProvisioningTest`.
+         */
+        $role_r = Role::where('name', 'admin')->first();
+
+        if (! $role_r) {
+            \Illuminate\Support\Facades\Log::warning(
+                'Registration refused: no Role named "admin" exists, so a merchant could only be '
+                . 'created with no permissions. Nothing was provisioned. Run the permission '
+                . 'seeder or restore the role.'
+            );
+
+            return redirect('/register')
+                ->withInput($request->except(['password', 'password_confirmation', 'g-recaptcha-response']))
+                ->with('status', __('Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator.'));
+        }
+
         if(isset($settings['email_verification']) && $settings['email_verification'] == "on")
         {
             try {
@@ -168,42 +224,21 @@ class RegisteredUserController extends Controller
                 Auth::login($user);
                 defaultSetting($store->id, 'admin', $user);
                 pageDefaultData($store->id);
-                $role_r = Role::where('name', 'admin')->first();
 
-                // NEW-registration-addrole-null-deref -- the null-guard defect named in the
-                // brief, same class as get_file() (app/Helper/helper.php:143-145, where
-                // User::where('type','super admin')->first() feeds ->current_store with no
-                // check).
+                // GAP-014. THE TOLERANT `if ($role_r)` THAT USED TO BE HERE IS GONE, and the
+                // lookup it guarded has moved to the top of this method, above every write.
                 //
-                // Laratrust's addRole() signature is
-                //   addRole(array|string|int|Model|UuidInterface|BackedEnum $role, ...)
-                // (vendor/santigarcor/laratrust/src/Traits/HasRolesAndPermissions.php:375-378).
-                // It is a TYPED parameter with no null in the union, so passing null is an
-                // immediate TypeError, not a quiet no-op.
-                //
-                // WHY THAT MATTERS MORE THAN AN ORDINARY 500. By the time this line runs the
-                // method has ALREADY created the User row, created the Store row, written
-                // users.current_store, called Auth::login() and run defaultSetting() /
-                // pageDefaultData(). None of that is in a transaction. So a missing `admin`
-                // role does not merely fail the request -- it leaves a HALF-REGISTERED
-                // merchant: a real user, a real store, a live session, and no role at all.
-                // That is a data-integrity defect, and it is reachable on any install where
-                // PermissionTableSeeder has not run, or where the role was renamed.
-                //
-                // The guard lets registration COMPLETE instead of dying mid-way, and logs
-                // the condition so a roleless merchant is visible rather than silent. It
-                // deliberately does NOT create the role: the missing global `admin` role is
-                // the shared-role problem described above, and inventing a row here would
-                // make that worse, not better. No secret is logged -- only the user id.
-                if ($role_r) {
-                    $user->addRole($role_r);
-                } else {
-                    \Illuminate\Support\Facades\Log::warning(
-                        'Registration completed without a role: no Role named "admin" exists. '
-                        . 'The new merchant has no permissions until one is assigned.',
-                        ['user_id' => $user->id]
-                    );
-                }
+                // What stood here was a null guard with a Log::warning in its else-branch. It
+                // stopped the TypeError that `addRole(null)` raises -- the parameter is typed
+                // `array|string|int|Model|UuidInterface|BackedEnum` with no null in the union
+                // (vendor/santigarcor/laratrust/src/Traits/HasRolesAndPermissions.php:375-378)
+                // -- but by this line the User row, the Store row, the store wallet,
+                // users.current_store, Auth::login() and defaultSetting() have all happened
+                // outside a transaction, so tolerating the null committed a HALF-PROVISIONED
+                // merchant and reported success. The gap register's instruction is that such a
+                // row must not survive, so the absence is now refused before the first write
+                // and `$role_r` arrives here proven non-null. See the block at the lookup.
+                $user->addRole($role_r);
                 if($user->type == 'admin')
                 {
                     $plan = Plan::find($user->plan_id);
@@ -306,42 +341,21 @@ class RegisteredUserController extends Controller
             $user->save();
             Auth::login($user);
             defaultSetting($store->id, 'admin', $user);
-            $role_r = Role::where('name', 'admin')->first();
 
-            // NEW-registration-addrole-null-deref -- the null-guard defect named in the
-            // brief, same class as get_file() (app/Helper/helper.php:143-145, where
-            // User::where('type','super admin')->first() feeds ->current_store with no
-            // check).
+            // GAP-014. THE TOLERANT `if ($role_r)` THAT USED TO BE HERE IS GONE, and the
+            // lookup it guarded has moved to the top of this method, above every write.
             //
-            // Laratrust's addRole() signature is
-            //   addRole(array|string|int|Model|UuidInterface|BackedEnum $role, ...)
-            // (vendor/santigarcor/laratrust/src/Traits/HasRolesAndPermissions.php:375-378).
-            // It is a TYPED parameter with no null in the union, so passing null is an
-            // immediate TypeError, not a quiet no-op.
-            //
-            // WHY THAT MATTERS MORE THAN AN ORDINARY 500. By the time this line runs the
-            // method has ALREADY created the User row, created the Store row, written
-            // users.current_store, called Auth::login() and run defaultSetting() /
-            // pageDefaultData(). None of that is in a transaction. So a missing `admin`
-            // role does not merely fail the request -- it leaves a HALF-REGISTERED
-            // merchant: a real user, a real store, a live session, and no role at all.
-            // That is a data-integrity defect, and it is reachable on any install where
-            // PermissionTableSeeder has not run, or where the role was renamed.
-            //
-            // The guard lets registration COMPLETE instead of dying mid-way, and logs
-            // the condition so a roleless merchant is visible rather than silent. It
-            // deliberately does NOT create the role: the missing global `admin` role is
-            // the shared-role problem described above, and inventing a row here would
-            // make that worse, not better. No secret is logged -- only the user id.
-            if ($role_r) {
-                $user->addRole($role_r);
-            } else {
-                \Illuminate\Support\Facades\Log::warning(
-                    'Registration completed without a role: no Role named "admin" exists. '
-                    . 'The new merchant has no permissions until one is assigned.',
-                    ['user_id' => $user->id]
-                );
-            }
+            // What stood here was a null guard with a Log::warning in its else-branch. It
+            // stopped the TypeError that `addRole(null)` raises -- the parameter is typed
+            // `array|string|int|Model|UuidInterface|BackedEnum` with no null in the union
+            // (vendor/santigarcor/laratrust/src/Traits/HasRolesAndPermissions.php:375-378)
+            // -- but by this line the User row, the Store row, the store wallet,
+            // users.current_store, Auth::login() and defaultSetting() have all happened
+            // outside a transaction, so tolerating the null committed a HALF-PROVISIONED
+            // merchant and reported success. The gap register's instruction is that such a
+            // row must not survive, so the absence is now refused before the first write
+            // and `$role_r` arrives here proven non-null. See the block at the lookup.
+            $user->addRole($role_r);
             if($user->type == 'admin')
             {
                 $plan = Plan::find($user->plan_id);

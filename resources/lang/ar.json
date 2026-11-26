@@ -4668,5 +4668,6 @@
     "Move :option up": "نقل :option إلى أعلى",
     "Move :option down": "نقل :option إلى أسفل",
     ":option moved to position :n of :total": "تم نقل :option إلى الموضع :n من :total",
-    "Drag an option, or use its move buttons, to change the order customers see it in.": "اسحب أي خيار، أو استخدم أزرار النقل الخاصة به، لتغيير ترتيب ظهوره للعملاء."
+    "Drag an option, or use its move buttons, to change the order customers see it in.": "اسحب أي خيار، أو استخدم أزرار النقل الخاصة به، لتغيير ترتيب ظهوره للعملاء.",
+    "Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator.": "التسجيل غير متاح حالياً لأن دور التاجر الافتراضي غير موجود. يرجى التواصل مع مدير الموقع."
 }

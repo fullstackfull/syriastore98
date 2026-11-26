@@ -296,14 +296,21 @@ class StoreWalletProvisioningTest extends SecurityTestCase
     /**
      * THE DEFECT, at the registration door.
      *
-     * `Tests\Feature\Auth\RegistrationTest::test_new_users_can_register` is a DECLARED failure in
-     * `.github/known-test-outcomes.json`, and its reason is unrelated to this one: `roles` is empty
-     * under `RefreshDatabase` so the merchant never gets the `admin` role. Its own message records
-     * that the request still returns 302 and "the user, the store and the login are all committed",
-     * which is what makes this door drivable here.
+     * THE ROLE FIXTURE IS NOW PART OF THE PRECONDITION, and so is the reason. This case used to
+     * rely on `Tests\Feature\Auth\RegistrationTest::test_new_users_can_register` being a DECLARED
+     * failure in `.github/known-test-outcomes.json`: `roles` is empty under `RefreshDatabase`, the
+     * merchant never got the `admin` role, and that entry's own message recorded that the request
+     * "still returns 302 and the user, the store and the login are all committed" -- which is what
+     * made this door drivable. GAP-014 (2026-11-25) closed that: a missing `admin` role now
+     * REFUSES the registration before anything is written, precisely so a half-provisioned
+     * merchant cannot survive, and the manifest entry is deleted. So this case seeds the role the
+     * way `PermissionTableSeeder` does -- the production state -- and the door opens again.
+     * Without it, `$user` below is null and the premise assertion says so.
      */
     public function test_registration_provisions_a_wallet_for_the_new_store(): void
     {
+        \App\Models\Role::create(['name' => 'admin', 'created_by' => null]);
+
         $email = 'merchant-' . uniqid() . '@example.test';
 
         $this->post('/register', [

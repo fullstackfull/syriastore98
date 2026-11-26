@@ -6,9 +6,11 @@ use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Tests\Support\StripsSourceComments;
 
 /**
- * NEW-registration-addrole-null-deref.
+ * NEW-registration-addrole-null-deref -- AND ITS SECOND HALF, GAP-014.
  *
  * Auth/RegisteredUserController::store did
  *   $role_r = Role::where('name', 'admin')->first();
@@ -23,10 +25,36 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
  * users.current_store, Auth::login() and defaultSetting() have all already
  * happened, none of it in a transaction. So the failure mode is not a clean
  * 500 -- it is a half-registered merchant with a live session and no role.
+ *
+ * ========================================================================================
+ * TWO OF THE THREE ASSERTIONS BELOW ARE INVERTED, 2026-11-25, AND THE REASON IS THE WHOLE
+ * POINT OF THIS SLICE'S SECOND HALF.
+ * ========================================================================================
+ *
+ * This file's original fix was a tolerant `if ($role_r)` at each call site, and its first case
+ * asserted that "registration must still COMPLETE rather than TypeError". That removed the
+ * TypeError and kept the half-registered merchant the paragraph above names as the real failure
+ * mode -- it just stopped reporting it: 302, authenticated, user row, store row, store wallet,
+ * `users.current_store`, and no role.
+ *
+ * `GAP-014` / `P01-DEFECT-REG` is that residue, and its instruction is explicit: "the
+ * half-provisioned row should not survive". Its traceability row states the expected behaviour as
+ * "a merchant who registers is provisioned with a role, or registration fails loudly". So the
+ * lookup has moved ABOVE the first write and its absence refuses the registration outright.
+ *
+ * BOTH PROPERTIES THIS FILE WAS WRITTEN FOR STILL HOLD, which is why the cases are inverted
+ * rather than deleted: there is still no TypeError (asserted below -- the role is proven to exist
+ * before `addRole` is reached, so null cannot get there), and a merchant with a role still gets
+ * it (unchanged, below). What changed is the answer to "and what if the role is absent": not
+ * "finish anyway", but "write nothing".
+ *
+ * The behavioural coverage is `tests/Feature/Auth/RegistrationRoleProvisioningTest`, which drives
+ * both branches and also asserts what the refused visitor is told.
  */
 class RegistrationRoleGuardTest extends SecurityTestCase
 {
     use RefreshDatabase;
+    use StripsSourceComments;
 
     private function registrationPayload(string $email): array
     {
@@ -40,12 +68,18 @@ class RegistrationRoleGuardTest extends SecurityTestCase
     }
 
     /**
-     * THE DEFECT. With no `admin` Role row -- the state of any install where
-     * PermissionTableSeeder has not run, or where the role was renamed --
-     * registration must still complete rather than TypeError after having
-     * already written the user and the store.
+     * THE DEFECT, AND THE RESIDUE OF ITS FIRST FIX. With no `admin` Role row -- the state of any
+     * install where PermissionTableSeeder has not run, or where the role was renamed --
+     * registration must raise no TypeError AND must leave nothing behind.
+     *
+     * The first limb is this file's original assertion, kept verbatim in spirit: the 500 that
+     * `addRole(null)` used to raise after the user and the store were already written.
+     *
+     * The second limb is GAP-014 and it is the INVERSION: this used to assert that the user, the
+     * store and `users.current_store` were all present, i.e. that the half-registered merchant
+     * survived. It must not.
      */
-    public function test_registration_completes_when_no_admin_role_exists(): void
+    public function test_registration_is_refused_rather_than_half_completed_when_no_admin_role_exists(): void
     {
         $this->assertSame(
             0,
@@ -64,18 +98,27 @@ class RegistrationRoleGuardTest extends SecurityTestCase
             . 'user and the store, leaving a half-registered merchant.'
         );
 
-        $user = User::where('email', $email)->first();
+        $this->assertNull(
+            User::where('email', $email)->first(),
+            'The merchant row survives a registration that could not give it a role. GAP-014: '
+            . 'the half-provisioned row must not survive -- an account with a store, a session '
+            . 'and no permissions, reported to its owner as a successful signup.'
+        );
 
-        $this->assertNotNull($user, 'The merchant row was not created.');
-        $this->assertNotNull(
-            Store::where('created_by', $user->id)->first(),
-            'The merchant has no store, so registration did not finish.'
+        $this->assertSame(
+            0,
+            Store::where('email', $email)->count(),
+            'The store row survives a registration that could not give its owner a role, so the '
+            . 'tenant exists with nobody able to administer it.'
         );
-        $this->assertNotNull(
-            $user->current_store,
-            'users.current_store was never written, so the tenant discriminator is '
-            . 'unset and every store-scoped query would resolve to nothing.'
+
+        $this->assertSame(
+            0,
+            DB::table('store_wallets')->count(),
+            'A store wallet survives a refused registration, so the refusal is partial.'
         );
+
+        $this->assertGuest();
     }
 
     /**
@@ -106,15 +149,23 @@ class RegistrationRoleGuardTest extends SecurityTestCase
     }
 
     /**
-     * The guard must exist at BOTH call sites, not just the one the brief
-     * named. The two branches of store() are near-duplicates and a fix applied
-     * to one of them leaves the other live.
+     * NO CALL SITE CAN RECEIVE A NULL ROLE -- the same property this case always asserted, now
+     * held by a different mechanism and so asserted differently.
+     *
+     * It used to require TWO `if ($role_r) {` guards, one per branch, because the two branches of
+     * `store()` are near-duplicates and a fix applied to one left the other live. GAP-014 removed
+     * the need for either: there is now ONE lookup, above every write, and it refuses. So the
+     * assertion is that there is no tolerant branch left and that the single lookup dominates the
+     * first row the method writes -- a guard that refused correctly but sat below `User::create()`
+     * would be the original defect with a new message.
+     *
+     * COMMENTS ARE STRIPPED. The docblocks in this file and in the controller both quote
+     * `if ($role_r)` while explaining that it is gone, and CLAUDE.md records four censuses in one
+     * day that a comment about the thing being measured satisfied or broke.
      */
-    public function test_both_addrole_call_sites_are_guarded(): void
+    public function test_neither_addrole_call_site_can_receive_a_null_role(): void
     {
-        $source = file_get_contents(
-            base_path('app/Http/Controllers/Auth/RegisteredUserController.php')
-        );
+        $source = $this->sourceWithoutComments('app/Http/Controllers/Auth/RegisteredUserController.php');
 
         $this->assertSame(
             2,
@@ -124,13 +175,29 @@ class RegistrationRoleGuardTest extends SecurityTestCase
         );
 
         $this->assertSame(
-            2,
-            substr_count($source, 'if ($role_r) {'),
-            'Both addRole($role_r) call sites must sit behind a null check. '
-            . 'RegisteredUserController::store has TWO near-identical branches '
-            . '(the email-verification path and the plain path) and guarding only '
-            . 'one leaves the other able to TypeError after the user and store rows '
-            . 'are already written.'
+            0,
+            substr_count($source, 'if ($role_r)'),
+            'A call site tolerates a null role again. Tolerating it is what GAP-014 refuses: it '
+            . 'removes the TypeError and keeps the half-provisioned merchant, silently. The role '
+            . 'must be proven to exist before the first write instead.'
+        );
+
+        $lookupAt = strpos($source, "Role::where('name', 'admin')->first()");
+        $firstWriteAt = strpos($source, 'User::create([');
+
+        $this->assertNotFalse($lookupAt, 'The admin-role lookup is gone from the controller.');
+        $this->assertNotFalse($firstWriteAt, 'The user row is no longer created here.');
+        $this->assertSame(
+            1,
+            substr_count($source, "Role::where('name', 'admin')->first()"),
+            'There is more than one admin-role lookup again, so the two branches can drift apart '
+            . '-- which is how they came to hold byte-identical tolerant guards.'
+        );
+        $this->assertLessThan(
+            $firstWriteAt,
+            $lookupAt,
+            'The admin-role lookup happens AFTER the first row is written, so a missing role '
+            . 'still leaves a half-provisioned merchant behind.'
         );
     }
 }

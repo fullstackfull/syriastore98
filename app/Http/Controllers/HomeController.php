@@ -218,6 +218,18 @@ class HomeController extends Controller
             return view('superadmin.dashboard', $data);
         } else {
             $data = $this->handleRegularUser($user);
+
+            /*
+             * GAP-013. `handleRegularUser()` answers a RESPONSE, not a data array, when the
+             * merchant resolves no store -- see the guard at its `$store = getStoreById(...)`
+             * line and `StorelessMerchantDashboardTest` for why the page cannot be rendered for
+             * that principal at all. Handing a Response to `view()` would be a second fault on
+             * the same path, so the branch is explicit rather than implied.
+             */
+            if ($data instanceof \Symfony\Component\HttpFoundation\Response) {
+                return $data;
+            }
+
             return view('dashboard', $data);
         }
     }
@@ -633,7 +645,55 @@ class HomeController extends Controller
         $chartData = $this->getOrderChart(['duration' => 'week']);
 
         $store = getStoreById(getCurrentStore());
-       
+
+        /*
+         * GAP-013 -- NO STORE, NO MERCHANT DASHBOARD.
+         *
+         * `$slug = $store->slug;` below was the LAST unguarded dereference of
+         * `getStoreById(getCurrentStore())` in this file, and the gap's own two lines (:610 and
+         * :612, both `route('landing_page', $store->slug)` inside `getThemeUrl()`) were only its
+         * siblings. Fixing those on 2026-11-20 made the shared CHROME render; it did not make
+         * this screen render, and `GET /dashboard` stayed an `ErrorException: Attempt to read
+         * property "slug" on null` for any merchant or staff member whose store does not
+         * resolve. `StoreFinanceController` had written that down twice (:806, :1639) while
+         * routing its own refusals here.
+         *
+         * THE ANSWER IS THIS REDIRECT BECAUSE LINE 633 ALREADY CHOSE IT. `getOrderChart()`
+         * answers a non-operator with no resolvable store by `auth()->logout()` plus
+         * `redirect()->route('login')`, and this method was discarding that into `$chartData` and
+         * carrying on -- so every principal who can arrive here with a null store has already
+         * been signed out. Rendering was never an option anyway: with only the dereference
+         * guarded, the request dies in `dashboard.blade.php` instead, on
+         * `route('theme.pages', $theme_name)` with a null `$theme_name`.
+         *
+         * THE TEST IS ON THE STORE, NOT ON `$chartData` BEING A REDIRECT. Reading another
+         * function's return type would make this screen's tenant safety a side effect of a chart
+         * helper. `config/tenancy.php` sets `null_tenant => 'open'`, so an unresolved tenant adds
+         * no predicate anywhere: a null store has to be refused where it is read.
+         *
+         * `! $store` AND NOTHING WEAKER. A falsy test on the slug or the name would refuse a
+         * store that exists and works -- see the two premise cases in
+         * `StorelessMerchantDashboardTest`, and the same correction forced by review on
+         * `getThemeUrl()` (`StorelessChromeRendersTest`).
+         *
+         * THE SIGN-OUT IS REPEATED HERE RATHER THAN ASSUMED, and that is not belt-and-braces --
+         * it is what stops this redirect becoming an infinite one. `/login` answers an
+         * AUTHENTICATED visitor with a redirect to `/dashboard`, so a dashboard that redirects to
+         * sign-in without ending the session is a two-page ring in a real browser.
+         * `FinanceNullStoreGuardTest` exists for exactly that hazard ("A 302 chain is worse than
+         * the 500 it replaces") and routes its own storeless refusals here. `logout()` is
+         * idempotent, so doing it twice when `getOrderChart()` already did costs nothing;
+         * depending on it having happened would make this screen's termination a side effect of a
+         * chart helper. MEASURED: `GET /login` after this answers 200, not a redirect.
+         */
+        if (! $store) {
+            if (auth()->check()) {
+                auth()->logout();
+            }
+
+            return redirect()->route('login')->with('message', __('You have been logged out.'));
+        }
+
         $slug = $store->slug;
         $storage_limit = 0;
         $users = User::find($user->id);

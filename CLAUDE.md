@@ -161,8 +161,9 @@ php artisan test --testsuite=Feature     # 12500 tests, ~32 min. SKIPPED ENTIREL
 /tenant-check                            # tenancy + security suites (see .claude/commands)
 ```
 
-**The Feature suite is not green and is not meant to be.** It has **1 accepted failure and 1
-accepted skip** (2 until 2026-11-20, 17 until GATE F closed), declared by name in `.github/known-test-outcomes.json`,
+**The Feature suite is not green and is not meant to be.** It has **0 accepted failures and 1
+accepted skip** (the failure set emptied 2026-11-25 when GAP-014 closed the registration defect its
+last entry recorded; an empty set is NOT a licence to park the next red test there) (2 until 2026-11-20, 17 until GATE F closed), declared by name in `.github/known-test-outcomes.json`,
 which *requires* a resolved entry to be deleted. The gate asserts the
 outcome *set* in both directions — an undeclared failure *and* an unexpectedly-passing declared
 failure both fail it:

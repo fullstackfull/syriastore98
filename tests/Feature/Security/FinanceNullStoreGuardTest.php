@@ -415,19 +415,33 @@ class FinanceNullStoreGuardTest extends SecurityTestCase
      * So this walks each of the four refusals to its end and asserts it reaches one. It also pins
      * that the dashboard, the chain's terminus, is NOT a finance route -- which is the structural
      * property that makes the other three safe to keep their own targets.
+     *
+     * EACH HOP CARRIES THE SESSION THE PREVIOUS ONE LEFT BEHIND, and it did not: every hop was
+     * `actingAs($staff)->get($next)`, which re-authenticates the principal before each request.
+     * CORRECTED 2026-11-25 while closing GAP-013, because that made this case report a loop a
+     * browser cannot have. `/dashboard` now answers a storeless principal with
+     * `auth()->logout()` plus a redirect to sign-in -- the answer `getOrderChart()` has always
+     * chosen for them and `HomeController::handleRegularUser()` used to discard into `$chartData`
+     * before dereferencing a null store (the 500 the paragraph above compares against).
+     * MEASURED, same fixture, after that repair:
+     *
+     *     GET /dashboard                     302 -> /login
+     *     GET /login   (session as left)     200          <- the chain ends here
+     *     GET /login   (actingAs re-forced)  302 -> /dashboard
+     *
+     * so the third line -- the harness's own re-login, not the product -- was what closed the
+     * ring. The property is unchanged and still asserted in both directions: a refusal that
+     * genuinely returns to its own URL still revisits one and still fails here, because the
+     * principal in those chains is never signed out and stays authenticated across the hops
+     * (`actingAs()` sets the user on the guard instance, which outlives a single request within
+     * one test). What is gone is only the forced re-authentication of a principal the product has
+     * just signed out.
      */
     public function test_every_finance_refusal_chain_terminates_outside_the_finance_surface(): void
     {
         $wallet = $this->wallet();
         $financialId = $this->financial($wallet);
         $staff = $this->storelessPrincipal();
-
-        /*
-         * THE PRECONDITION THAT MAKES `back()` LOOP, established rather than assumed: the
-         * previous URL must already be /finance. A GET that answers a 302 still records itself,
-         * so one refused visit is enough to set it.
-         */
-        $this->actingAs($staff)->get(route('finance.index'));
 
         $chains = [
             'finance.index' => fn () => $this->actingAs($staff)->get(route('finance.index')),
@@ -449,6 +463,24 @@ class FinanceNullStoreGuardTest extends SecurityTestCase
         ];
 
         foreach ($chains as $name => $start) {
+            /*
+             * THE PRECONDITION THAT MAKES `back()` LOOP, established rather than assumed, AND
+             * ESTABLISHED PER CHAIN: the previous URL must already be /finance. A GET that answers
+             * a 302 still records itself, so one refused visit is enough to set it.
+             *
+             * MOVED INSIDE THE LOOP 2026-11-25 (GAP-013). It used to run once, above, and the
+             * walk below then carried the LAST chain's terminus into the next chain as its
+             * previous URL. That was harmless only while `/dashboard` answered this principal with
+             * a 500 and every walk stopped there. Now that `/dashboard` signs them out and sends
+             * them to `/login`, a walk ends on `/login` -- so `back()` in the fourth chain
+             * returned `/login`, and the case reported a 3-cycle (`/login` -> `/dashboard` ->
+             * `/login`) that exists only because a POST to a finance route was made from the
+             * sign-in page. Re-establishing the precondition is what the paragraph above always
+             * said this line was for, and it also re-authenticates a principal a previous chain's
+             * refusal signed out.
+             */
+            $this->actingAs($staff)->get(route('finance.index'));
+
             $response = $start();
             $seen = [];
             $hops = 0;
@@ -462,7 +494,10 @@ class FinanceNullStoreGuardTest extends SecurityTestCase
                     . 'replaced. Visited: ' . implode(' -> ', $seen));
 
                 $seen[] = $next;
-                $response = $this->actingAs($staff)->get($next);
+                // NOT `actingAs($staff)->get($next)` -- see the docblock. A hop follows the
+                // session the previous response left, so a sign-out ends the chain here exactly
+                // as it ends it in a browser.
+                $response = $this->get($next);
                 $hops++;
             }
 

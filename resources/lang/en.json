@@ -4674,5 +4674,6 @@
     "Move :option up": "Move :option up",
     "Move :option down": "Move :option down",
     ":option moved to position :n of :total": ":option moved to position :n of :total",
-    "Drag an option, or use its move buttons, to change the order customers see it in.": "Drag an option, or use its move buttons, to change the order customers see it in."
+    "Drag an option, or use its move buttons, to change the order customers see it in.": "Drag an option, or use its move buttons, to change the order customers see it in.",
+    "Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator.": "Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator."
 }
