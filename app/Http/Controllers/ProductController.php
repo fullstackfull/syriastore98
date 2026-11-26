@@ -1394,7 +1394,7 @@ $Product->cost_price = $request->cost_price;
                                         if ($variation_option) {
                                             if (in_array('manage_stock', $variation_option)) {
                                                 /* INV-006 (GAP-182). This defaulted to the INTEGER 0, which
-                                                   `ProductStockService::forbidsOversell()` reads as "allow". */
+                                                   `ProductStockService::mustNotOversell()` reads as "allow". */
                                                 $product_stock->stock_order_status = \App\Support\Commerce\BackorderPolicy::forCreate($request['stock_order_status_' . str_replace('.', '_', $str)] ?? null);
 
                                                 $product_stock->stock = !empty($request['product_stock_' . str_replace('.', '_', $str)]) ? $request['product_stock_' . str_replace('.', '_', $str)] : 0;
@@ -2852,7 +2852,7 @@ $Product->cost_price = $request->cost_price;
                                  *
                                  * The `0` this argument used to be is not one of the three recognised
                                  * backorder words, so a NEW variant was created oversellable with no choice
-                                 * made (`ProductStockService::forbidsOversell()` reads anything but
+                                 * made (`ProductStockService::mustNotOversell()` reads anything but
                                  * `not_allow` as "allow"). The 4th argument IS the new-variant default, so
                                  * naming the strict choice there is the whole fix for that.
                                  *

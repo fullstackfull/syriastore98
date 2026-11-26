@@ -3925,7 +3925,7 @@ public function AddProduct(Request $request)
             /*
              * INV-006 (GAP-182). THIS METHOD WROTE `stock_order_status` NOWHERE, so every product
              * the shipped Flutter admin app has created carries NULL -- and
-             * `ProductStockService::forbidsOversell()` reads anything but the exact word
+             * `ProductStockService::mustNotOversell()` reads anything but the exact word
              * `not_allow` as "oversell permitted". The app's products therefore oversold with no
              * merchant decision anywhere, which is INV-004's "by default" inverted and INV-006's
              * "explicit" absent. The default written here is the one

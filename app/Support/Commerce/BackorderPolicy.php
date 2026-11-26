@@ -30,7 +30,7 @@ namespace App\Support\Commerce;
  * -------------------------------------------------------------------------------------------------
  * THE READER THIS EXISTS FOR, QUOTED, BECAUSE IT IS WHY AN UNRECOGNISED VALUE IS NOT HARMLESS.
  *
- * `App\Services\ProductStockService::forbidsOversell()`:
+ * `App\Services\ProductStockService::mustNotOversell()`:
  *
  *     return ($model->stock_order_status ?? null) === 'not_allow';
  *

@@ -27,7 +27,7 @@ use Tests\Feature\Security\SecurityTestCase;
  * `products.stock_order_status` and `product_variants.stock_order_status` carry a three-way merchant
  * choice — `not_allow` / `notify_customer` / `allow` — rendered as the "Allow BackOrders:" radio
  * group in `resources/views/product/{create,edit}.blade.php` and in both variant-combination views.
- * `ProductStockService::forbidsOversell()` is the single reader that matters for a decrement:
+ * `ProductStockService::mustNotOversell()` is the single reader that matters for a decrement:
  *
  *     return ($model->stock_order_status ?? null) === 'not_allow';
  *
@@ -60,7 +60,7 @@ use Tests\Feature\Security\SecurityTestCase;
  * -------------------------------------------------------------------------------------------------
  * WHAT THIS FILE DELIBERATELY DOES NOT ASSERT, because it is an owner decision and not engineering's.
  *
- *   * **Existing rows are not touched.** Making `forbidsOversell()` answer true for a stored NULL
+ *   * **Existing rows are not touched.** Making `mustNotOversell()` answer true for a stored NULL
  *     would change the behaviour of every product already created through the admin app — a live
  *     stock-rule change on real data, which CLAUDE.md §2 reserves to the owner. The fix under test
  *     is on the WRITE side only: a product written from here on carries one of the three words.
@@ -244,7 +244,7 @@ class BackorderChoiceIsExplicitTest extends SecurityTestCase
             (string) $created->stock_order_status,
             'THE ADMIN API CREATED A STOCK-TRACKED PRODUCT WITH NO BACKORDER CHOICE. '
             . '`Api\DashboardController::AddProduct()` never writes `stock_order_status`, and '
-            . '`ProductStockService::forbidsOversell()` reads anything but the word `not_allow` as '
+            . '`ProductStockService::mustNotOversell()` reads anything but the word `not_allow` as '
             . '"allow" — so this product oversells, with nobody having decided that. Master plan '
             . 'INV-004 (prevent selling above available BY DEFAULT) and INV-006 (pre-order is '
             . 'OPTIONAL AND EXPLICIT), GAP-182.'
@@ -322,7 +322,7 @@ class BackorderChoiceIsExplicitTest extends SecurityTestCase
             (string) $created->stock_order_status,
             BackorderPolicy::CHOICES,
             'an unrecognised backorder word was stored verbatim. Every value but `not_allow` reads '
-            . 'as "allow" at ProductStockService::forbidsOversell(), so an unrecognised word is a '
+            . 'as "allow" at ProductStockService::mustNotOversell(), so an unrecognised word is a '
             . 'silent permission to oversell that no merchant chose — INV-006, GAP-182.'
         );
         $this->assertSame(BackorderPolicy::NOT_ALLOW, (string) $created->stock_order_status,
@@ -482,7 +482,7 @@ class BackorderChoiceIsExplicitTest extends SecurityTestCase
 
         $this->assertSame(BackorderPolicy::NOT_ALLOW, (string) $variants['S']->stock_order_status,
             'a stock-managed VARIANT was created with no backorder choice. This writer defaulted '
-            . 'the column to the integer `0`, which `ProductStockService::forbidsOversell()` reads '
+            . 'the column to the integer `0`, which `ProductStockService::mustNotOversell()` reads '
             . 'as "oversell permitted" — INV-006, GAP-182.');
 
         $this->assertSame(BackorderPolicy::ALLOW, (string) $variants['M']->stock_order_status,
@@ -627,7 +627,7 @@ class BackorderChoiceIsExplicitTest extends SecurityTestCase
         $this->assertSame(BackorderPolicy::NOT_ALLOW, (string) $stored['M']->stock_order_status,
             'A NEW VARIANT WAS CREATED WITH NO BACKORDER CHOICE. `ssVariantValue()`\'s 4th argument '
             . 'is the new-variant default and it was the integer `0`, which '
-            . '`ProductStockService::forbidsOversell()` reads as "oversell permitted" — INV-006, '
+            . '`ProductStockService::mustNotOversell()` reads as "oversell permitted" — INV-006, '
             . 'GAP-182.');
 
         $this->assertSame('0', (string) $stored['S']->stock_order_status,
