@@ -12,7 +12,15 @@ class Testimonial extends Model
     use HasFactory, Cachable;
 
     protected $fillable = [
-        'user_id', 'category_id', 'product_id', 'rating_no', 'title', 'description', 'status', 'avatar', 'username'
+        'user_id', 'category_id', 'product_id', 'rating_no', 'title', 'description', 'status', 'avatar', 'username',
+        /*
+         * `CUST-005`. REQUIRED here even though the two storefront writers assign these as
+         * properties rather than through `create()`: Laravel SILENTLY DISCARDS an unfillable key,
+         * which is the trap `App\Models\Order`'s own `$fillable` records twice in comments
+         * (`created_by`, `order_source`). A future `Testimonial::create([...])` would otherwise
+         * drop the verification without erroring, and the badge would simply never appear.
+         */
+        'verified_purchase', 'verified_order_id',
     ];
 
     public function MainCategoryData()

@@ -61,7 +61,7 @@ final class DataTableRawColumnsTest extends TestCase
         // structure and the same `rawColumns` SET, and runs the data through `e()`; the status cell is
         // markup built here from an integer, with the module's own label escaped and a missing-key guard.
         'app/DataTables/TenantScopedCampaignsData.php' => ['product' => ['E'], 'status' => ['E', 'a badge built here from the integer status, with the module\'s own label through e() and a guard for a status outside its four'], 'store' => ['E'], 'user' => ['E']],
-        'app/DataTables/TestimonialDataTable.php' => ['avatar' => ['E'], 'rating_no' => ['S', 'five icons built from an integer']],
+        'app/DataTables/TestimonialDataTable.php' => ['avatar' => ['E'], 'rating_no' => ['S', 'five icons built from an integer'], 'verified_purchase' => ['B', 'CUST-005. DsBadge for the two assessed states; the NULL state is a literal dash with an e()d title, and no stored text reaches either branch -- the cell is built from a 0/1/NULL column alone']],
         'app/DataTables/UserCouponDataTable.php' => ['product_order_id' => ['E']],
         'app/DataTables/UserDataTable.php' => ['avatar' => ['E'], 'type' => ['B']],
         'app/DataTables/WishlistDataTable.php' => ['customer_id' => ['E'], 'email' => ['E'], 'product' => ['V']],
