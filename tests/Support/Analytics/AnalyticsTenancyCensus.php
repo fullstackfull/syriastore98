@@ -63,6 +63,12 @@ namespace Tests\Support\Analytics;
  * branch-aware scoping and is a slice of its own. An independent review predicted this survivor
  * before it was run; it is declared in that file rather than retired.
  *
+ * AND IT IS RUN EVERY TIME THAT BATTERY RUNS, not re-run on request. `run_declared()` applies the
+ * mutation, measures that the totals test still passes with the gate call deleted -- so "moves no
+ * census number" is EXECUTED rather than asserted -- and fails in two directions: if the survivor
+ * is ever CAUGHT the limit has been fixed and the DECLARATION is the stale thing, and if the anchor
+ * no longer applies the declaration proves nothing. Both exit non-zero, measured.
+ *
  * LIMIT 2. THE STATEMENT IS A TEXT WINDOW: the matched line plus following lines to the first `;`,
  * capped at 40 -- AND, when the matched line assigns a builder to a variable, the following lines
  * that call a method on that same variable, with their continuations, up to a reassignment of it

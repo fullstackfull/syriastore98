@@ -40,6 +40,8 @@ Run: python3 tests/Support/bin/mutate-gap167.py   (from the repository root)
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 
@@ -120,9 +122,14 @@ MUTATIONS = [
 # scoping, which is a slice of its own; until then the limit is quantified here instead of asserted
 # in prose, and the dispositions for those twenty-one sites say the same.
 #
-# It is listed separately so that running this file reports FIVE CAUGHT AND ONE DECLARED SURVIVOR
-# rather than a clean sweep. A battery that prints a perfect score it has not earned is the thing
-# CLAUDE.md records as the most dangerous result a harness can produce.
+# It is listed separately so that running this file reports the caught mutations AND one DECLARED
+# SURVIVOR rather than a clean sweep. A battery that prints a perfect score it has not earned is the
+# thing CLAUDE.md records as the most dangerous result a harness can produce.
+#
+# AND IT IS RUN, NOT ASSERTED. `run_declared()` below applies it, measures that the totals test
+# still passes with the gate call deleted, and fails if it is ever CAUGHT -- because then the limit
+# has been fixed and the DECLARATION is the stale thing. "Re-runnable on request" made the weakest
+# part of this evidence conversational; running it every time makes LIMIT 1 self-documenting.
 
     Mutation(
         '7. OrderCouponDetail stops being watched (the coupon-discount source)',
@@ -178,13 +185,87 @@ DECLARED_SURVIVORS = [
 ]
 
 
+def run_declared(mutations: list[Mutation]) -> int:
+    """
+    RUN each declared survivor and assert it STILL survives. Returns a process exit code.
+
+    WHY IT RUNS RATHER THAN PRINTS. The first version of this file listed the survivor and said it
+    was "re-runnable on request", which made the weakest part of the evidence conversational: a
+    reader had to take on trust that deleting one gate call still moves no number. Now the claim is
+    executed every time the battery runs, so LIMIT 1 is self-documenting.
+
+    IT REUSES `run()` RATHER THAN REIMPLEMENTING THE APPLY AND RESTORE. That function is the audited
+    path: it refuses an anchor that does not occur exactly once, preserves the mtime so a reverted
+    Blade cannot leave a compiled view newer than its source, restores from a copy in a `finally`,
+    and refuses a filter that matched no test. CLAUDE.md records a harness that reported six
+    mutations as surviving when its pattern had never matched, which is why none of that is rewritten
+    here -- only the words and the EXPECTATION are inverted, by capturing `run()`'s own output.
+
+    THE EXPECTATION IS INVERTED IN BOTH DIRECTIONS, which is the whole point of declaring a survivor
+    rather than deleting the mutation:
+
+      * STILL SURVIVES  -> the declaration holds. Reported, and NOT counted as a failure.
+      * NOW CAUGHT      -> the limit has been FIXED, so the DECLARATION is stale and this fails.
+                           That is the `.github/known-test-outcomes.json` rule applied to a
+                           mutation: an undeclared failure and an unexpectedly-passing declared
+                           failure both fail the gate. Good news still has to be acted on.
+      * DID NOT APPLY   -> proves nothing and fails. A declared survivor whose anchor has moved is
+                           the "reported as surviving when it never ran" trap wearing a label.
+    """
+    stale: list[str] = []
+    broken: list[str] = []
+
+    for m in mutations:
+        captured = io.StringIO()
+
+        with contextlib.redirect_stdout(captured):
+            run([m])
+
+        body = captured.getvalue()
+
+        if '!!' in body:
+            print(f'  BROKEN   {m.name}')
+            print('           the mutation did not apply, so the declaration proves nothing:')
+            print('           ' + ' '.join(line.strip() for line in body.splitlines() if '!!' in line))
+            broken.append(m.name)
+
+            continue
+
+        measured = next((line.split('->')[-1].strip() for line in body.splitlines() if '->' in line), '(no summary)')
+
+        if 'CAUGHT' in body:
+            print(f'  NO LONGER A SURVIVOR  {m.name}  ->  {measured}')
+            stale.append(m.name)
+
+            continue
+
+        print(f'  DECLARED SURVIVOR  {m.name}')
+        print(f'           moves no census number -- see LIMIT 1 in AnalyticsTenancyCensus. Measured: {measured}')
+
+    print()
+
+    if broken:
+        print('DECLARED SURVIVORS THAT DID NOT APPLY: ' + '; '.join(broken))
+        print('A declaration whose anchor has moved proves nothing. Re-anchor it or delete it.')
+
+    if stale:
+        print('STALE DECLARATIONS -- THESE ARE NOW CAUGHT: ' + '; '.join(stale))
+        print('That is good news and it still fails: the limit they declare has been fixed, so the')
+        print('declaration is a claim about code that no longer behaves that way. Move the mutation')
+        print('into MUTATIONS, delete it from DECLARED_SURVIVORS, and re-point LIMIT 1 and the two')
+        print('`ownership_checked` dispositions that cite it.')
+
+    if not broken and not stale:
+        print('EVERY DECLARED SURVIVOR STILL SURVIVES, for the reason declared.')
+
+    return 1 if (broken or stale) else 0
+
+
 if __name__ == '__main__':
     code = run(MUTATIONS)
 
     print()
-    print('DECLARED SURVIVOR, re-runnable on request and NOT counted above:')
+    print('DECLARED SURVIVORS -- RUN, not asserted, and NOT counted above:')
+    declared = run_declared(DECLARED_SURVIVORS)
 
-    for m in DECLARED_SURVIVORS:
-        print(f'  -- {m.name}: moves no census number. See the block above this list for why.')
-
-    sys.exit(code)
+    sys.exit(code or declared)

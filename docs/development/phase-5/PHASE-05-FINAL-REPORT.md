@@ -500,7 +500,13 @@ is on the second. That is §9c's item-2 defect one level up. Capturing the whole
 recognising the inline ownership predicate as the third spelling of a gate moved **9 sites from
 `request` to `principal` (20 → 11)**.
 
-`tests/Support/bin/mutate-gap167.py` is now ten mutations: **nine caught, one declared survivor.**
+`tests/Support/bin/mutate-gap167.py` is now ten mutations: **nine caught, one declared survivor —
+and the survivor is RUN, not asserted.** `run_declared()` applies it and measures that the totals
+test still passes with the gate call deleted, so "moves no census number" is executed every time the
+battery runs; it fails if the survivor is ever caught (the limit has been fixed, so the declaration
+is the stale thing) and if the anchor no longer applies (the declaration proves nothing). Both
+directions were falsified: exit 1 with `STALE DECLARATIONS` and exit 1 with `BROKEN … proves
+nothing`, against exit 0 and `EVERY DECLARED SURVIVOR STILL SURVIVES` when the declaration holds.
 
 ---
 
