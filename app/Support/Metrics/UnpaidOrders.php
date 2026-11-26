@@ -197,8 +197,37 @@ final class UnpaidOrders extends Metric implements MultiFigureMetric
         return $query->count();
     }
 
+    /**
+     * `DB::raw()` over a `string` parameter -- so the parameter comes from a closed set.
+     *
+     * The one entry is `normalisedPaymentTypeSql('orders.payment_type')`'s output, which is the
+     * only thing either caller passes. Writing it out rather than calling that method here keeps
+     * the check a comparison against a constant: a guard that computed its own allowed value from
+     * the same code path it is guarding would admit whatever that path produced.
+     *
+     * The refusal precedes `DB::raw()`, not the query that would execute it.
+     */
     private function rawColumn(string $expression): \Illuminate\Contracts\Database\Query\Expression
     {
+        if (! in_array($expression, self::RAW_COLUMN_EXPRESSIONS, true)) {
+            throw new InvalidArgumentException(
+                'The unpaid-orders metric cannot read "' . $expression . '" as a column. That '
+                . 'text would be concatenated into raw SQL, so the expression is chosen from a '
+                . 'closed set: ' . implode(', ', self::RAW_COLUMN_EXPRESSIONS) . '.'
+            );
+        }
+
         return \Illuminate\Support\Facades\DB::raw($expression);
     }
+
+    /**
+     * `rawColumn()`'s closed set, kept next to its only consumer.
+     *
+     * Position is style here and nothing more -- no document or test cites a line number in this
+     * file (measured). `Metric`'s equivalents are at the foot of THAT class because two documents
+     * cite lines in it, which is a different reason.
+     */
+    private const RAW_COLUMN_EXPRESSIONS = [
+        'LOWER(TRIM(orders.payment_type))',
+    ];
 }

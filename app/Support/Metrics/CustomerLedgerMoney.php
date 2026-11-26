@@ -560,6 +560,18 @@ final class CustomerLedgerMoney extends Metric
         string $currencyColumn,
         string $amountExpression,
     ): array {
+        /*
+         * THE SAME TWO CLOSED SETS `Metric::sumByCurrency()` USES, and deliberately not a second
+         * pair here: this method takes the same two parameter kinds, over the same tables, and
+         * two lists that are supposed to agree are two lists that will drift. The assertions are
+         * `final` on `Metric`, so no subclass can replace them with a looser pair either.
+         *
+         * Before the first SQL construction, not before its execution -- `selectRaw()` and
+         * `groupBy(DB::raw(...))` below both only store text on the builder.
+         */
+        self::assertCurrencyColumn($currencyColumn);
+        self::assertAmountExpression($amountExpression);
+
         $rows = $query
             ->selectRaw(
                 'orders.customer_id as metric_customer, '
