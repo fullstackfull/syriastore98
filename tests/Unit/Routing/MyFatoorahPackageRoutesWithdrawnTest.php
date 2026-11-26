@@ -215,9 +215,69 @@ class MyFatoorahPackageRoutesWithdrawnTest extends TestCase
         $this->assertSame(
             404,
             $response->getStatusCode(),
-            'POST myfatoorah/webhook answered ' . $response->getStatusCode() . '. 500 means the '
-            . 'missing method is still routed; 419 means the web group\'s CSRF middleware answered '
-            . 'first and the declared 404 is a fiction.'
+            'POST myfatoorah/webhook answered ' . $response->getStatusCode() . ', not 404.'
+            . "\n  419 — the web group's CSRF middleware answered first, so the declared 404 is a"
+            . " fiction: `withoutMiddleware('web')` has been dropped."
+            . "\n  500 — EITHER the route points at `MyFatoorahController::webhook()` again, which"
+            . ' does not exist (that is the original defect, and the shape of the pre-fix'
+            . ' measurement, because the package declares these routes with NO middleware at all),'
+            . ' OR the route has been put back inside the `web` group and one of its ~34 middleware'
+            . ' failed before CSRF could answer — this case runs without `RefreshDatabase`, so any'
+            . ' group middleware that queries the database throws here. Both readings are real'
+            . ' failures; read the response body to tell them apart, and check'
+            . ' `test_the_withdrawn_routes_run_outside_the_web_group_and_the_live_one_does_not`,'
+            . ' which distinguishes them directly.'
+        );
+    }
+
+    /**
+     * THE WITHDRAWN FOUR CARRY NO MIDDLEWARE, AND THE LIVE ONE STILL CARRIES THE WEB GROUP.
+     *
+     * `withoutMiddleware('web')` resolves the group to its members and excludes each at GATHER
+     * time, so `$route->middleware()` still reports `['web']` and only
+     * `Router::gatherRouteMiddleware()` shows the truth — a snapshot of declared middleware reads
+     * as though the group were still attached. MEASURED here instead: 0 for each withdrawn route,
+     * which reproduces the package's own declarations exactly (they carried none), and non-zero
+     * for the live callback so this case also fails if the `web` group is ever stripped off the
+     * real integration.
+     *
+     * This is an invariant worth asserting rather than a detail: the routes answer `abort(404)` and
+     * touch nothing, so running them outside the group is safe — but only while that stays true.
+     */
+    #[Test]
+    public function test_the_withdrawn_routes_run_outside_the_web_group_and_the_live_one_does_not(): void
+    {
+        $router = app('router');
+        $counts = [];
+
+        foreach (Route::getRoutes() as $route) {
+            $name = (string) $route->getName();
+
+            if (! array_key_exists($name, self::PACKAGE_ROUTES) && $name !== 'myfatoorah.call_back') {
+                continue;
+            }
+
+            $counts[$name] = count($router->gatherRouteMiddleware($route)) === 0
+                ? 'no middleware'
+                : 'inside the web group';
+        }
+
+        ksort($counts);
+
+        $this->assertSame(
+            [
+                'myfatoorah' => 'no middleware',
+                'myfatoorah.call_back' => 'inside the web group',
+                'myfatoorah.callback' => 'no middleware',
+                'myfatoorah.cardView' => 'no middleware',
+                'myfatoorah.webhook' => 'no middleware',
+            ],
+            $counts,
+            'If a WITHDRAWN route is now "inside the web group", its `withoutMiddleware(\'web\')` '
+            . 'was dropped and a provider\'s tokenless POST gets 419 from CSRF instead of the '
+            . 'declared 404. If `myfatoorah.call_back` is now "no middleware", the LIVE plan '
+            . 'payment callback has lost authentication, `xss` and CSRF — that is a real hole, not '
+            . 'a tidy-up.'
         );
     }
 
