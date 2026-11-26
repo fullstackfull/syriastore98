@@ -16,7 +16,37 @@
             </div>
         </div>
         @if ($themeSettings['header_status'] && $themeSettings['header_status'] == '1')
-        <div id="mobile-menu" class="mobile-menu fixed inset-y-0 right-0 z-50 bg-white shadow-xl transform translate-x-full transition-transform duration-300 ease-in-out overflow-y-auto">
+        {{-- GAP-095 / P03-A-04. THE CLOSED OFF-CANVAS MENU WAS IN THE TAB ORDER ON EVERY PAGE.
+
+             MEASURED, in a real browser, over 5 surfaces x 3 themes x 2 languages: the last three
+             tab stops of every single one of the 30 pages were this panel's logo link, its Close
+             button and its language button, at x=1456..1744 in a 1440px viewport. A sighted
+             keyboard user tabs past the footer and focus leaves the visible page -- no ring, however
+             well it contrasts, helps when the focused element is 300px beyond the right edge. WCAG
+             2.4.3 (Focus Order) and 2.4.7 (Focus Visible). 90 stops, 3 per page, every page.
+
+             WHY IT HAPPENED: `translate-x-full` moves the panel off-screen but leaves it RENDERED,
+             and the engine keeps a rendered element tabbable. The panel is `fixed inset-y-0` at
+             every width, so this was never a mobile-only problem -- it was on the desktop page too.
+
+             THE FIX IS THE THEMES' OWN CONVENTION, NOT A NEW ONE. All three themes' `custom.js`
+             open the panel with `mobileMenu.classList.remove('hidden')` and close it with
+             `setTimeout(() => mobileMenu.classList.add('hidden'), 300)` -- stylique:138/149,
+             greentic:585/594, techzonix:87/99, read in all three. So `hidden` IS the closed state
+             and the server-rendered markup simply never declared it; adding it makes the initial
+             state byte-identical to the state the theme's own close handler produces, and the open
+             handler removes it exactly as before.
+
+             VISUALLY INERT, and that was checked rather than assumed: `.mobile-menu` is
+             `transform: translateX(100%)` until `.show` is added (`main-style.css:346-353` in each
+             theme), so the panel is off-screen at every width in the closed state either way.
+             `hidden` changes what the KEYBOARD can reach, not what anyone can see.
+
+             ONE EDIT COVERS ALL FOUR LAYOUT COPIES, which is unusual here and worth saying: this
+             partial has no theme override -- `front_end/jQueryRoute.blade.php` exists only under
+             `resources/views/` and all four copies of `front_end/layouts/app.blade.php` include
+             it. The four-copies rule still applies to the layouts themselves. --}}
+        <div id="mobile-menu" class="mobile-menu hidden fixed inset-y-0 right-0 z-50 bg-white shadow-xl transform translate-x-full transition-transform duration-300 ease-in-out overflow-y-auto">
             <div class="flex justify-between items-center p-4 border-b">
             <a href="{{ route('landing_page', $slug) }}" class="block max-w-[110px] w-full">
                 <img src="{{ get_file($themeSettings['header_logo'] ?? '') }}" alt="logo" class="logo-img">
