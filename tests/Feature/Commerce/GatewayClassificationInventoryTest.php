@@ -48,7 +48,7 @@ use Tests\TestCase;
  *     section 8;
  *   - `AuthorizeNetPaymnetController.php:1183` and `KhaltiPaymnetController.php:1037` both name
  *     `recordVerification()` in prose about where the call must NOT be placed;
- *   - `PaymentController.php:4958` says "no `claimGatewayReturn`, no `Cache::lock`, no
+ *   - `PaymentController.php:5231` says "no `claimGatewayReturn`, no `Cache::lock`, no
  *     `Cache::add`" -- a sentence that would satisfy a grep for all three.
  *
  * So: `sourceWithoutComments()` everywhere, and every `file:line` assertion reads THAT ONE LINE
@@ -888,7 +888,7 @@ class GatewayClassificationInventoryTest extends TestCase
             $this->assertNotNull($needle,
                 $type . ' cites ' . $row['replay'] . ' as its replay claim, and that line of '
                 . $file . ' holds no claim construct at all. Comment-stripped it reads: '
-                . trim($line) . ' -- note that PaymentController.php:4958 is PROSE saying "no '
+                . trim($line) . ' -- note that PaymentController.php:5231 is PROSE saying "no '
                 . 'claimGatewayReturn, no Cache::lock, no Cache::add", so a citation that drifted '
                 . 'onto it would have satisfied a census that read comments.');
 

@@ -14,7 +14,7 @@
                         <span>{{ $payment_data->name_string }}</span>
                         <div class="center-descrp"> {{ $payment_data->detail }} </div>
                         <div class="radio-right">
-                            <img src="{{ asset($payment_data->image) }}" alt="{{ $payment_data->name ?? 'cod'}}" class="paymentimag{{ $payment_data->name }}">
+                            <img loading="lazy" decoding="async" src="{{ asset($payment_data->image) }}" alt="{{ $payment_data->name ?? 'cod'}}" class="paymentimag{{ $payment_data->name }}">
                         </div>
                     </label>
                     @if($payment_data->name == 'whatsapp')

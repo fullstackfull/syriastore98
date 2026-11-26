@@ -33,13 +33,13 @@
                             </p>
                         </div>
                         <div class="rounded-lg overflow-hidden relative pt-[60%] w-full">
-                            <img src="{{ get_file($themeSettings['abouts_us_full_image'] ?? '') }}"
+                            <img loading="eager" src="{{ get_file($themeSettings['abouts_us_full_image'] ?? '') }}"
                                 alt="about-image" class="w-full h-full object-cover absolute inset-0" />
                         </div>
                     </div>
                     <div class="lg:grid lg:grid-cols-2 lg:gap-12 gap-6 items-center lg:pb-20 pb-5">
                         <div class="rounded-lg overflow-hidden relative pt-[60%] w-full">
-                            <img src="{{ get_file($themeSettings['abouts_us_full_image_second'] ?? '') }}" alt="about-image"
+                            <img loading="lazy" decoding="async" src="{{ get_file($themeSettings['abouts_us_full_image_second'] ?? '') }}" alt="about-image"
                                 class="w-full h-full object-cover absolute inset-0" />
                         </div>
                         <div class="mt-6 lg:mt-0">
@@ -93,7 +93,7 @@
                                         @foreach($teamMembers as $abouts_counter)
                                             <div class="swiper-slide">
                                                 <div class="text-center h-full">
-                                                    <img src="{{ asset($abouts_counter->image) }}" 
+                                                    <img loading="lazy" decoding="async" src="{{ asset($abouts_counter->image) }}" 
                                                         alt="{{ $abouts_counter->big_text }}"
                                                         class="w-48 h-48 rounded-full mx-auto mb-4 object-cover" />
                                                     <h3 class="font-heading font-semibold text-xl mb-1">{{ $abouts_counter->big_text }}</h3>

@@ -70,8 +70,8 @@
               class="md:mt-10 mt-6 pt-6 border-t border-gray-800 text-center text-gray-400 text-sm flex flex-wrap gap-4 sm:justify-between justify-center">
               <p>{{ $themeSettings['copy_right_description'] ?? __('© 2025, eCommerce Theme Powered by:workdo.io') }}</p>
               <div class="flex justify-center gap-2">
-              <img src="{{ get_file($themeSettings['copy_right_footer_image_1']) }}" alt="Visa" class="h-6 object-cover" />
-              <img src="{{ get_file($themeSettings['copy_right_footer_image_2']) }}" alt="Mastercard" class="h-6 object-cover" />
+              <img src="{{ get_file($themeSettings['copy_right_footer_image_1']) }}" alt="Visa" loading="lazy" decoding="async" class="h-6 object-cover" />
+              <img src="{{ get_file($themeSettings['copy_right_footer_image_2']) }}" alt="Mastercard" loading="lazy" decoding="async" class="h-6 object-cover" />
               
               </div>
           </div>

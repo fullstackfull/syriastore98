@@ -467,8 +467,20 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            for this table -- every statement against it belongs to the service that owns it, so the
            table has exactly ONE class that queries it -- and put the table into the per-table
            exposure map as a literal for the first time. Moved here instead of declared there. */
+        /* 69 -> 70, AND THE WHOLE OF THE +1 IS SCOPED -- `app/Services/RefundPolicy.php:164`,
+           added by GAP-140 (`cb2282588`/`68153d34b`) and NOT noticed then, because that package's
+           blast radius was chosen by subject and this census is keyed on a DIRECTORY. The same root
+           cause as GAP-334 one commit earlier in this branch, which is why it is worth saying twice:
+           a census over `app/Services` is reached by any change to any file in it, whatever the
+           change was about.
+
+           The statement is
+               DB::table('order_refund_settings')->where('store_id', $storeId)->where('name', $name)
+           so it lands in `$scoped` (31 -> 32) and `$storeLess` is UNCHANGED at 38. That split is the
+           evidence this added no cross-tenant exposure: the totals would have moved either way, and
+           the store-less count is the one that would have risen if the predicate were missing. */
         $this->assertSame(
-            69,
+            70,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -487,7 +499,7 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            `plan_purchase_intents`, which has no `store_id` and could not have one, and every one
            addresses its row by primary key or the server-minted reference rather than by anything a
            caller supplied. */
-        $this->assertSame(31, $scoped, 'statements naming store_id');
+        $this->assertSame(32, $scoped, 'statements naming store_id');
         $this->assertCount(38, $storeLess, 'statements naming store_id nowhere');
     }
 

@@ -12,7 +12,7 @@ use App\Models\BlogCategory;
 use App\Models\Blog;
 use App\Models\Product;
 use App\Models\ProductVariant;
-use App\Models\{FlashSale, ProductQuestion, Testimonial, Wishlist, TaxOption};
+use App\Models\{FlashSale, ProductQuestion, Testimonial, TaxOption};
 use Qirolab\Theme\Theme;
 use App\Http\Controllers\Api\ApiController;
 use Shetabit\Visitor\VisitorFacade as Visitor;
@@ -2332,14 +2332,42 @@ class HomeController extends Controller
         return view('front_end.pages.error', compact('store'));
     }
 
+    /**
+     * THE PUBLIC WISHLIST PAGE. GAP-286.
+     *
+     * WHAT WAS HERE: a commented-out `auth('customers')` guard, a commented-out scoped query, and
+     * live beneath them `Wishlist::with('ProductData')->get()` -- every wishlist row belonging to
+     * every customer of every store, each with its product eager-loaded, on a route that carries no
+     * `auth` (`routes/customer.php:123`). `Wishlist` is in no `scoped_models` entry and carries no
+     * global scope, so nothing narrowed it.
+     *
+     * MEASURED, on two stores each holding one wishlist row: an anonymous request collected BOTH.
+     *
+     * THE DEAD QUERY IS REMOVED RATHER THAN THE GUARD RESTORED, and that is the part worth reading
+     * before changing this again.
+     *
+     *   - NOTHING EVER READ `$wishlists`. `front_end/pages/wishlist.blade.php` is the only copy of
+     *     that view -- no theme override exists in any of the four theme roots -- and it references
+     *     the variable zero times. The page is a shell: its `.wishlist-table-section` div is empty
+     *     and `public/assets/js/front-theme.js:1108` fills it by AJAX.
+     *   - THAT AJAX PATH IS THE REAL ONE AND IT IS ALREADY CORRECT. `WishlistController` reads
+     *     `where('customer_id', auth('customers')->user()->id)->where('store_id', $store->id)` and
+     *     hands an anonymous caller an empty collection.
+     *   - SO RESTORING THE COMMENTED-OUT GUARD WOULD REMOVE A WORKING PAGE. This route is public by
+     *     design; an anonymous visitor is meant to see the shell and an empty list. A redirect would
+     *     be a user-visible regression dressed as a security fix, and
+     *     `PublicWishlistQueryScopeTest::test_control_an_anonymous_visitor_still_gets_the_page`
+     *     fails if anyone tries it.
+     *
+     * WHAT THE DEFECT ACTUALLY WAS, stated precisely because GAP-286 was dispatched as a cross-tenant
+     * DISCLOSURE: there was no disclosure -- the rows were loaded and discarded. The live problem
+     * was the READ: an unbounded, unauthenticated, platform-wide query with an eager load, on a URL
+     * anyone can request as often as they like, growing with every wishlist ever saved. Removing it
+     * costs nothing a visitor can see, because nothing a visitor sees came from it.
+     */
     public function wishlist(Request $request)
     {
-        // if (! auth('customers')->user()) {
-        //     return redirect()->back()->with('error', __('Permission denied'));
-        // }
-        // $wishlists = Wishlist::with('ProductData')->where('customer_id', auth('customers')->id())->get();
-        $wishlists = Wishlist::with('ProductData')->get();
-        return view('front_end.pages.wishlist', compact('wishlists'));
+        return view('front_end.pages.wishlist');
     }
 
     public function showCategory(Request $request, $slug)

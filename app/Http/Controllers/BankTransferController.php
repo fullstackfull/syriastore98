@@ -139,8 +139,41 @@ class BankTransferController extends Controller
      *     between them left an order marked Approved with no plan granted.
      *   - Nothing was audited, on the one surface that converts money into entitlement.
      */
+    /**
+     * REFUSE ANYTHING THAT IS NOT THE PLATFORM OPERATOR. GAP-307.
+     *
+     * `orderapprove()`'s own docblock said verbatim that it carried no in-handler check, and it is
+     * the one in this bucket that matters most: it sets `payment_status = 'Approved'` and calls
+     * `assignPlan()`, so it turns money into an entitlement. `PlatformOperatorOnly` was the SOLE
+     * control on it, and neither route uses route-model binding, so `SubstituteBindings` could not
+     * answer 404 ahead of the gate either.
+     *
+     * `instanceof User` BEFORE `isOperator()`, the same order `PlatformOperatorOnly:113` uses:
+     * `isOperator()` reads `->type` off whatever it is handed and `'type'` is in
+     * `Customer::$fillable`. And `isOperator()` rather than a raw `!==` comparison, because it
+     * normalises a trailing space the way MySQL's PAD SPACE comparison does.
+     *
+     * `abort(403)` matches what the middleware already answers, so no principal that succeeds
+     * today sees a different response.
+     */
+    private function refuseUnlessPlatformOperator()
+    {
+        $actor = auth()->user();
+
+        if (! $actor instanceof \App\Models\User || ! \App\Policies\UserPolicy::isOperator($actor)) {
+            abort(403, __('Permission denied.'));
+        }
+
+        return null;
+    }
+
     public function orderapprove($id)
     {
+        // GAP-307: the gate is no longer the only control on this write.
+        if ($refusal = $this->refuseUnlessPlatformOperator()) {
+            return $refusal;
+        }
+
         $order = PlanOrder::find($id);
 
         if (! $order) {
@@ -188,6 +221,11 @@ class BankTransferController extends Controller
      */
     public function orderreject($id)
     {
+        // GAP-307: the gate is no longer the only control on this write.
+        if ($refusal = $this->refuseUnlessPlatformOperator()) {
+            return $refusal;
+        }
+
         $order = PlanOrder::find($id);
 
         if (! $order) {

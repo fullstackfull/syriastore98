@@ -34,7 +34,7 @@
                             @elseif(isset($childGroup['image']))
                                 <div class="megamenu-card-inner rounded-lg bg-white shadow-md border">
                                     <a href="{{ $childGroup['url'] ?? '#' }}" class="relative block w-full pt-[70%]">
-                                        <img src="{{ $childGroup['image'] }}"
+                                        <img src="{{ $childGroup['image'] }}" loading="lazy" decoding="async"
                                             class="absolute top-0 left-0 h-full w-full object-contain"
                                             alt="megamenu-image">
                                     </a>

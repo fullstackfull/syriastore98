@@ -5,7 +5,7 @@ namespace Tests\Feature\Commerce;
 use App\Models\Order;
 use App\Models\OrderCouponDetail;
 use App\Models\Product;
-use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
@@ -46,6 +46,45 @@ use Tests\TestCase;
  * operator — all of whom pass `resolveViewableOrder` — plus a third caller in the vendored
  * `LotteryPrizes` module.
  *
+ * GAP-331 -- THIS SUITE USED TO BUILD ITS OWN TABLES, AND THEY WERE NOT THE ONES THAT SHIP.
+ * =================================================================================================
+ *
+ * It created `stores`, `settings`, `products`, `product_variants`, `orders` and
+ * `order_coupon_details` for itself and dropped them again, so sixteen green cases were green
+ * against a schema no migration produces. That is how a residual figure came to be derived
+ * off-schema and then quoted (`GAP-261`). It now runs under `RefreshDatabase`.
+ *
+ * IT DID NOT NEED TO. Measured column by column against the migrated schema before converting:
+ * every table and every column it built exists, with ONE exception -- so this was a near-copy of
+ * the real thing plus an invention, not a state the migrations make unreachable. The conversion
+ * changed no fixture value and no assertion; all sixteen cases pass unaltered.
+ *
+ * THREE DIVERGENCES, NOT THE ONE THAT WAS REPORTED:
+ *
+ *   1. `orders.order_status`, which NO migration creates. In this codebase `order_status` is an
+ *      output alias for `delivered_status` (`app/Models/Order.php:455`) and an INPUT parameter
+ *      name (`:698`) -- never a column. The fixture set it to 1 beside `delivered_status => 1`,
+ *      so it was duplicating the real column; dropping it is a semantic no-op. Against the
+ *      migrated schema the old fixture died with "table orders has no column named order_status".
+ *
+ *   2. MONEY TYPE. It declared `final_price`/`return_price` as `decimal(15, 2)`; the migration
+ *      declares `$table->float()` (`2024_01_23_061635_create_orders_table.php:26-27`), which
+ *      CLAUDE.md records emits a MySQL `double`. On SQLite both carry NUMERIC/REAL affinity and
+ *      neither enforces a scale, which is why the figures did not move when this converted -- so
+ *      this divergence was INERT HERE and would have bitten on MySQL. Stated at that strength and
+ *      no higher.
+ *
+ *   3. NULLABILITY, and this one was NOT inert. The hand-built columns were NOT NULL; the shipped
+ *      ones are nullable with a default of 0. MEASURED, both shapes on sqlite in one run: the
+ *      migrated `orders` ACCEPTS a null `final_price`, the hand-built shape REFUSES it with a NOT
+ *      NULL constraint violation. So the state `GAP-294` measured in production -- orders whose
+ *      total is null -- was STRUCTURALLY UNREACHABLE in this suite, which is a return-arithmetic
+ *      suite that computes from exactly that column. `GAP-316` is the refusal path for it.
+ *
+ * `test_premise_every_money_column_this_suite_reasons_about_is_in_the_migrated_schema` now asserts
+ * the premise rather than manufacturing it. Adding `order_status` back to `MONEY_COLUMNS` reds it,
+ * which is the finding in one line.
+ *
  * WHAT THIS SUITE DOES NOT CLAIM. It drives `Order::product_return()` directly rather than through
  * the two HTTP routes. The routes' authorization is already covered by `OrderReturnOwnershipTest`
  * and `StorefrontOrderMutationAuthorizationTest`; what was uncovered is the arithmetic, which is
@@ -54,6 +93,8 @@ use Tests\TestCase;
  */
 class SecondReturnTotalTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const STORE = 31;
 
     /** 90.00 + 40.00 of goods, plus 17.50 of tax. */
@@ -62,26 +103,57 @@ class SecondReturnTotalTest extends TestCase
     private const TAX = 17.50;
     private const ORDER_TOTAL = 147.50;
 
+    /**
+     * The money columns this suite's arithmetic is about.
+     *
+     * Asserted to exist rather than created, which is the whole point of GAP-331: a figure derived
+     * from a table this file built itself is a figure about nothing that ships.
+     *
+     * @var list<string>
+     */
+    private const MONEY_COLUMNS = [
+        'product_price', 'tax_price', 'delivery_price', 'coupon_price',
+        'final_price', 'return_price', 'delivered_status', 'return_status', 'product_json',
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
 
+        /* KEPT FROM THE HAND-BUILT VERSION, and still earning its place: `RefreshDatabase` runs
+           `migrate:fresh` on whatever connection it is given, so pointing this suite at a real
+           database would drop it. The guard is cheaper than the mistake. */
         $this->assertSame(
             ':memory:',
             config('database.connections.sqlite.database'),
             'this suite must only ever run against sqlite :memory:'
         );
-
-        $this->createSchema();
     }
 
-    protected function tearDown(): void
+    /**
+     * GAP-331's OWN PREMISE: the schema this suite reasons about is the one the migrations ship.
+     *
+     * Under `RefreshDatabase` a missing column is already a hard error on the first insert, so this
+     * is belt-and-braces -- but it names the columns, so a failure says WHICH money column moved
+     * instead of surfacing as "no such column" from inside a fixture.
+     */
+    public function test_premise_every_money_column_this_suite_reasons_about_is_in_the_migrated_schema(): void
     {
-        foreach (['order_coupon_details', 'orders', 'product_variants', 'products', 'settings', 'stores'] as $table) {
-            Schema::dropIfExists($table);
-        }
+        $this->assertTrue(Schema::hasTable('orders'), 'premise: `orders` is a migrated table');
 
-        parent::tearDown();
+        $missing = array_values(array_filter(
+            self::MONEY_COLUMNS,
+            static fn (string $column): bool => ! Schema::hasColumn('orders', $column)
+        ));
+
+        $this->assertSame(
+            [],
+            $missing,
+            'this suite computes returns from columns the migrated `orders` table does not have: '
+            . implode(', ', $missing) . '. Before GAP-331 this file CREATED its own `orders`, so a '
+            . 'column that does not ship could not be noticed -- and one was not: `order_status`, '
+            . 'which no migration creates. Do not answer this by building the table here again.'
+        );
     }
 
     /**
@@ -616,99 +688,10 @@ class SecondReturnTotalTest extends TestCase
             'return_price' => 0,
             'payment_type' => 'cod',
             'payment_status' => 'Unpaid',
-            'order_status' => 1,
             'delivered_status' => 1,
             'return_status' => 0,
         ])->save();
 
         return $order;
-    }
-
-    private function createSchema(): void
-    {
-        foreach (['order_coupon_details', 'orders', 'product_variants', 'products', 'settings', 'stores'] as $table) {
-            Schema::dropIfExists($table);
-        }
-
-        Schema::create('stores', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('email');
-            $table->string('theme_id');
-            $table->string('slug');
-            $table->unsignedBigInteger('created_by');
-            $table->timestamps();
-        });
-
-        /* `Order::order_status_change()` reaches Utility::GetValueByName() on the way in
-           (app/Models/Order.php:174 -> Utility.php:221), which reads this table. Without it the
-           whole suite erred before its first assertion. */
-        Schema::create('settings', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->text('value')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable();
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('products', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->integer('track_stock')->default(0);
-            $table->string('stock_order_status')->default('not_allow');
-            $table->decimal('price', 15, 2)->default(0);
-            $table->integer('product_stock')->default(0);
-            $table->integer('variant_product')->default(0);
-            $table->unsignedBigInteger('store_id')->nullable();
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('product_variants', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('product_id');
-            $table->integer('stock')->default(0);
-            $table->unsignedBigInteger('store_id')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('orders', function (Blueprint $table) {
-            $table->id();
-            $table->string('product_order_id')->nullable();
-            $table->unsignedBigInteger('customer_id')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable();
-            $table->text('product_json')->nullable();
-            $table->decimal('product_price', 15, 2)->default(0);
-            $table->decimal('tax_price', 15, 2)->default(0);
-            $table->decimal('delivery_price', 15, 2)->default(0);
-            $table->decimal('coupon_price', 15, 2)->default(0);
-            $table->decimal('final_price', 15, 2)->default(0);
-            $table->decimal('return_price', 15, 2)->default(0);
-            $table->string('payment_type')->nullable();
-            $table->string('payment_status')->nullable();
-            $table->integer('order_status')->default(0);
-            $table->integer('delivered_status')->default(0);
-            $table->integer('return_status')->default(0);
-            /* An Order observer/booted hook stamps these on every insert, so the table needs them
-               or the fixture dies before the method under test is ever called. */
-            $table->string('currency_code')->nullable();
-            $table->string('currency_symbol')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('order_coupon_details', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('order_id');
-            $table->string('product_order_id')->nullable();
-            $table->unsignedBigInteger('coupon_id')->nullable();
-            $table->string('coupon_name')->nullable();
-            $table->string('coupon_code')->nullable();
-            $table->string('coupon_discount_type')->nullable();
-            $table->decimal('coupon_discount_number', 15, 2)->default(0);
-            $table->decimal('coupon_discount_amount', 15, 2)->default(0);
-            $table->decimal('coupon_final_amount', 15, 2)->default(0);
-            $table->timestamps();
-        });
     }
 }
