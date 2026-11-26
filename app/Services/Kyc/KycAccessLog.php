@@ -164,6 +164,65 @@ final class KycAccessLog
     }
 
     /**
+     * WHO TO SAY DID IT, ON A MERCHANT'S OWN ACCESS-LOG SCREEN — AND WHEN NOT TO SAY A NAME.
+     *
+     * A DEFECT IN THE FIRST VERSION OF THIS WORKSTREAM'S OWN SCREEN, found by reviewing the change
+     * against `.claude/agents/tenant-authz-reviewer.md` rather than by a failing test. The view
+     * printed `$actor->name` for any non-operator actor. Attribution files a row against the
+     * SUBJECT's store, so a REFUSED access by a stranger — a merchant of another tenant who guessed
+     * a document id — is filed against the victim's store with the STRANGER'S `user_id`. The screen
+     * would therefore have told merchant A the full name of a user in tenant B.
+     *
+     * That is a cross-tenant disclosure arriving through a compliance feature, and the fix is not to
+     * hide the event: the merchant must still see that somebody tried. What they do not need is the
+     * stranger's identity, which is the platform's to act on.
+     *
+     *   the platform operator      "Store Syria". Never an account name: a merchant does not need
+     *                              the name of the staff member who opened their passport scan, and
+     *                              printing it would turn a compliance screen into a staff
+     *                              directory.
+     *   this store's own tenant     their name. The merchant, and their own staff, are people the
+     *                              merchant already knows and manages.
+     *   anybody else                a neutral label. Somebody asked; who they are is not this
+     *                              merchant's to read.
+     *   nobody                      "the system" — a console sweep (`kyc:expire`) or a queue job.
+     *
+     * THE TENANT TEST IS `UserPolicy::merchantTenantRoot()` AND NOT `created_by`, for the reason
+     * that helper exists: for a user rooted at the platform — a merchant who demoted their own
+     * `type`, or staff the operator created — `creatorId()` is the OPERATOR'S id, and a bare
+     * comparison would call them a member of whichever tenant the operator's id matched.
+     */
+    public static function actorLabel(mixed $userId, int $storeId): string
+    {
+        $id = (int) $userId;
+
+        if ($id <= 0) {
+            return (string) __('The system');
+        }
+
+        $actor = User::withoutGlobalScopes()->whereKey($id)->first();
+
+        if ($actor === null) {
+            return (string) __('The system');
+        }
+
+        if (\App\Policies\UserPolicy::isOperator($actor)) {
+            return (string) __('Store Syria');
+        }
+
+        $root = \App\Policies\UserPolicy::merchantTenantRoot($actor);
+
+        if ($root !== null && \App\Models\Store::query()
+            ->where('id', $storeId)
+            ->where('created_by', $root)
+            ->exists()) {
+            return (string) $actor->name;
+        }
+
+        return (string) __('Another account');
+    }
+
+    /**
      * The trail for a whole verification record: its own rows and its documents'.
      *
      * @return Builder<AuditLog>

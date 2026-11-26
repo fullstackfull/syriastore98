@@ -80,21 +80,17 @@
                                 <tr>
                                     <td>{{ optional($entry->created_at)->toDateTimeString() }}</td>
                                     <td>{{ $actionLabels[$entry->action] ?? $entry->action }}</td>
-                                    <td>
-                                        @php
-                                            $actor = $entry->user_id
-                                                ? \App\Models\User::withoutGlobalScopes()->whereKey($entry->user_id)->first()
-                                                : null;
-                                        @endphp
-
-                                        @if ($actor === null)
-                                            {{ __('The system') }}
-                                        @elseif (\App\Policies\UserPolicy::isOperator($actor))
-                                            {{ __('Store Syria') }}
-                                        @else
-                                            {{ $actor->name }}
-                                        @endif
-                                    </td>
+                                    {{--
+                                        THE LABEL IS DECIDED IN `KycAccessLog::actorLabel()`, NOT
+                                        HERE, and that is not tidiness. The first version of this
+                                        cell printed `$actor->name` for any non-operator, and a
+                                        REFUSED access by a stranger is filed against the VICTIM's
+                                        store with the stranger's user id — so this screen would
+                                        have told one merchant the full name of a user in another
+                                        tenant. The rule has a tenancy test in it, so it belongs
+                                        where a test can drive it.
+                                    --}}
+                                    <td>{{ \App\Services\Kyc\KycAccessLog::actorLabel($entry->user_id, (int) $document->store_id) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>

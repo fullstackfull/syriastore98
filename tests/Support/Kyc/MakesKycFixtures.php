@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Storage;
 /**
  * Fixtures for the KYC family, written so a test cannot pass for the wrong reason.
  *
- * THREE DELIBERATE CHOICES, each one a failure this project has already had:
+ * FOUR DELIBERATE CHOICES, each one a failure this project has already had:
  *
  *  1. A MERCHANT IS A TYPE-`admin` ROW AND OWNS THEIR STORE. `UserPolicy::merchantTenantRoot()`
  *     returns null for anything else, so a fixture merchant typed `'user'` would make every
@@ -22,7 +22,13 @@ use Illuminate\Support\Facades\Storage;
  *     `storage/framework/testing/disks/`, which is SHARED by every PHPUnit process in one worktree
  *     (CLAUDE.md records a measured cross-process collision reading exactly like a regression), so
  *     which tests fake which disk stays visible in the test rather than hidden in a trait.
- *  3. AN UPLOADED FILE IS A REAL PNG (`UploadedFile::fake()->image()`), because
+ *  3. EVERY FIXTURE NAME IS UNIQUE, and that is not cosmetic. With every merchant called
+ *     "KYC Merchant", `test_a_strangers_refusal_appears_without_their_name` FAILED against correct
+ *     code: the stranger's name and the victim's name were the same string, so the victim's own
+ *     legitimate row looked like a disclosure of the stranger's identity. A fixture must not be
+ *     able to cause -- or to mask -- the defect the test hunts for, which is
+ *     `SecurityTestCase::uniqueFixtureRef()`'s own stated principle.
+ *  4. AN UPLOADED FILE IS A REAL PNG (`UploadedFile::fake()->image()`), because
  *     `PlatformUploadPolicy` checks the file's SIGNATURE with `mimes:`. A zero-byte
  *     `fake()->create('x.png')` is refused by the real rule, so a test built on one would prove
  *     only that the refusal works.
@@ -33,7 +39,7 @@ trait MakesKycFixtures
     protected function kycMerchantWithStore(): array
     {
         $merchant = User::create([
-            'name' => 'KYC Merchant',
+            'name' => 'KYC Merchant ' . bin2hex(random_bytes(4)),
             'email' => 'kyc-merchant-' . bin2hex(random_bytes(5)) . '@example.test',
             'password' => bcrypt('secret-' . bin2hex(random_bytes(4))),
             'type' => 'admin',
@@ -59,7 +65,7 @@ trait MakesKycFixtures
     protected function kycOperator(): User
     {
         return User::create([
-            'name' => 'Platform Operator',
+            'name' => 'Platform Operator ' . bin2hex(random_bytes(4)),
             'email' => 'kyc-operator-' . bin2hex(random_bytes(5)) . '@example.test',
             'password' => bcrypt('secret-' . bin2hex(random_bytes(4))),
             'type' => 'super admin',
@@ -71,7 +77,7 @@ trait MakesKycFixtures
     protected function kycStaff(User $merchant, Store $store): User
     {
         return User::create([
-            'name' => 'KYC Staff',
+            'name' => 'KYC Staff ' . bin2hex(random_bytes(4)),
             'email' => 'kyc-staff-' . bin2hex(random_bytes(5)) . '@example.test',
             'password' => bcrypt('secret-' . bin2hex(random_bytes(4))),
             'type' => 'user',
@@ -142,7 +148,7 @@ trait MakesKycFixtures
         return $role;
     }
 
-    /** A real PNG the platform uploader rule accepts. See choice 3 above. */
+    /** A real PNG the platform uploader rule accepts. See choice 4 above. */
     protected function kycPngUpload(string $name = 'passport.png'): UploadedFile
     {
         return UploadedFile::fake()->image($name, 40, 40);

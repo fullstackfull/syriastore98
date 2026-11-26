@@ -266,7 +266,21 @@ final class KycDocumentStore
                 $document->authority = (string) $profile->authority;
                 $document->disk = $disk;
                 $document->storage_name = $directory . '/' . $name;
-                $document->mime = (string) ($file->getClientMimeType() ?: 'application/octet-stream');
+                /*
+                 * `getMimeType()`, NOT `getClientMimeType()`, AND THE FIRST VERSION HAD THE WRONG
+                 * ONE. `getClientMimeType()` is the BROWSER'S CLAIM — attacker-controlled, and the
+                 * validator never looked at it: `mimes:` reads the file's own signature. So the
+                 * column would have held a stranger's string, and the download door was handing it
+                 * straight back as `Content-Type`. Found by reviewing this change against
+                 * `.claude/agents/tenant-authz-reviewer.md`'s shape 6 ("obscurity and
+                 * caller-supplied values are not controls"), not by a failing test.
+                 *
+                 * `getMimeType()` guesses from the bytes on disk, which is the same thing `mimes:`
+                 * judged. The download door does not trust even this one — it maps the extension to
+                 * a fixed type from a whitelist — so this column is a record of what was received
+                 * rather than an instruction to a browser.
+                 */
+                $document->mime = (string) ($file->getMimeType() ?: 'application/octet-stream');
                 $document->size_bytes = (int) $file->getSize();
                 $document->sha256 = $sha256;
                 $document->status = KycDocument::PENDING;

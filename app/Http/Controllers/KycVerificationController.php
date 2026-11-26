@@ -69,6 +69,28 @@ use Illuminate\Support\Facades\Auth;
 class KycVerificationController extends Controller
 {
     /**
+     * THE `Content-Type` THIS DOOR WILL SEND, BY EXTENSION. A FIXED MAP, NOT THE STORED COLUMN.
+     *
+     * `kyc_documents.mime` records what was received; it is not an instruction to a browser. Even
+     * now that it is guessed from the bytes rather than taken from the client's claim, serving a
+     * stored string as a response header would mean one row in a database decides what a reviewer's
+     * browser does with a stranger's file. The map is the whole vocabulary this door can speak, and
+     * anything outside it is `application/octet-stream` — which, with `attachment` and `nosniff`, is
+     * a download and nothing else.
+     *
+     * Keyed on `config('kyc.accepted_extensions')`'s members. An extension the owner adds without a
+     * row here is served as a download rather than rendered, which is the safe direction.
+     *
+     * @var array<string, string>
+     */
+    private const SERVED_TYPES = [
+        'pdf' => 'application/pdf',
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+    ];
+
+    /**
      * THE MERCHANT'S OWN VERIFICATION SCREEN — one card per authority, which is KYC-003 on screen.
      */
     public function index(Request $request)
@@ -208,7 +230,7 @@ class KycVerificationController extends Controller
             . (in_array($extension, $accepted, true) ? '.' . $extension : '');
 
         return response($bytes, 200, [
-            'Content-Type' => (string) $found->mime,
+            'Content-Type' => self::SERVED_TYPES[in_array($extension, $accepted, true) ? $extension : ''] ?? 'application/octet-stream',
             'Content-Length' => (string) strlen($bytes),
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
             'X-Content-Type-Options' => 'nosniff',

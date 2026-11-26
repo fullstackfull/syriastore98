@@ -146,6 +146,32 @@ class KycDoorsTest extends SecurityTestCase
         );
     }
 
+    /**
+     * THE SERVED `Content-Type` COMES FROM A FIXED MAP, NOT FROM THE STORED COLUMN.
+     *
+     * `kyc_documents.mime` is a record of what was received. Serving it would let one database row
+     * decide what a reviewer's browser does with a stranger's file — and the first version of the
+     * store wrote `getClientMimeType()` into that column, which is the BROWSER'S CLAIM and was
+     * never what the validator judged (`mimes:` reads the signature). Both halves are driven here:
+     * the column is poisoned raw and the response is unmoved.
+     */
+    public function test_the_served_content_type_is_not_the_stored_column(): void
+    {
+        [$merchant, $store] = $this->kycMerchantWithStore();
+        $record = $this->kycRecord($store, KycAuthority::STORE_SYRIA);
+        $document = KycDocumentStore::store($record, $this->kycPngUpload('scan.png'), 'commercial_register', $merchant);
+
+        $this->assertSame('image/png', (string) $document->mime, 'guessed from the bytes, not claimed');
+
+        DB::table('kyc_documents')->where('id', $document->id)->update(['mime' => 'text/html']);
+
+        $response = $this->actingAs($merchant)->get('/verification/documents/' . $document->id . '/download');
+
+        $response->assertStatus(200);
+        $response->assertHeader('Content-Type', 'image/png');
+        $response->assertHeader('X-Content-Type-Options', 'nosniff');
+    }
+
     /** THE SECRET NAME IS NOT IN THE RESPONSE, headers included. */
     public function test_the_download_never_discloses_the_storage_name(): void
     {
@@ -378,7 +404,7 @@ class KycDoorsTest extends SecurityTestCase
         $customer = Customer::create([
             'name' => 'Shopper',
             'email' => 'shopper-' . bin2hex(random_bytes(4)) . '@example.test',
-            'password' => bcrypt('secret'),
+            'password' => bcrypt('secret-' . bin2hex(random_bytes(6))),
             'store_id' => $store->id,
             'type' => 'super admin',        // the `plan.disable` shape: typed, but not a `User`
         ]);

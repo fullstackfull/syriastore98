@@ -285,6 +285,72 @@ class KycAccessLogTest extends TestCase
     }
 
     /**
+     * THE ACTOR LABEL NEVER NAMES ANOTHER TENANT'S USER ON A MERCHANT'S SCREEN.
+     *
+     * The defect this closes was in the first version of `kyc/access-log.blade.php`: it printed
+     * `$actor->name` for any non-operator actor, and attribution files a row against the SUBJECT's
+     * store — so a stranger's refused attempt appeared on the victim's screen with the stranger's
+     * full name. The merchant must still see the attempt; the stranger's identity is the platform's
+     * to act on, not this merchant's to read.
+     */
+    public function test_the_actor_label_names_only_people_this_merchant_already_knows(): void
+    {
+        [$merchant, $store, , $document] = $this->storedDocument();
+        $staff = $this->kycStaff($merchant, $store);
+        $operator = $this->kycOperator();
+        [$stranger] = $this->kycMerchantWithStore();
+
+        $storeId = (int) $store->id;
+
+        $this->assertSame($merchant->name, KycAccessLog::actorLabel($merchant->id, $storeId));
+        $this->assertSame($staff->name, KycAccessLog::actorLabel($staff->id, $storeId));
+
+        $this->assertSame(
+            'Store Syria',
+            KycAccessLog::actorLabel($operator->id, $storeId),
+            'the operator is the platform, never a named account'
+        );
+
+        $this->assertSame(
+            'Another account',
+            KycAccessLog::actorLabel($stranger->id, $storeId),
+            'another tenant\'s user must not be named on this merchant\'s screen'
+        );
+        $this->assertStringNotContainsString(
+            (string) $stranger->name,
+            KycAccessLog::actorLabel($stranger->id, $storeId)
+        );
+
+        foreach ([null, 0, -1, 999999] as $nobody) {
+            $this->assertSame('The system', KycAccessLog::actorLabel($nobody, $storeId));
+        }
+    }
+
+    /** And the screen really uses it: a stranger's refusal shows the event, not the name. */
+    public function test_a_strangers_refusal_appears_without_their_name(): void
+    {
+        [$merchant, $store, , $document] = $this->storedDocument();
+        [$stranger] = $this->kycMerchantWithStore();
+
+        KycDocumentStore::refuse($document, 'not_this_store', $stranger);
+
+        $entries = KycAccessLog::forDocument($document)->get();
+
+        $this->assertContains(
+            KycAccessLog::REFUSED,
+            $entries->pluck('action')->all(),
+            'the merchant must be able to see that somebody asked'
+        );
+
+        foreach ($entries as $entry) {
+            $this->assertStringNotContainsString(
+                (string) $stranger->name,
+                KycAccessLog::actorLabel($entry->user_id, (int) $store->id)
+            );
+        }
+    }
+
+    /**
      * EVERY ACTION IN THE VOCABULARY FITS THE COLUMN. `audit_logs.action` is `varchar(100)`; a
      * longer name would be silently truncated on MySQL in a non-strict mode and would then never
      * match a query. Cheap to assert, impossible to notice otherwise.
