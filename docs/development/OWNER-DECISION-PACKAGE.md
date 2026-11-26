@@ -481,6 +481,23 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **The closing condition is executable** | The pinning test fails the moment the focus layer declares a `box-shadow`, so whichever remedy you choose announces itself rather than needing to be noticed. |
 | **Blocked** | Nothing. The measurement, the fix to the menu, and the declarations all ship without you. |
 
+### J16 — `GAP-257`: may a `Paid` on a CANCELLED or RETURNED order credit the merchant's wallet?
+
+**This entry exists because the decision was named and never asked.** `GAP-257`'s disposition has
+said "both are a change to a money rule and belong with an owner decision" since it was raised, and
+it was not in this file — so the one place the owner reads did not contain it. Added 2026-11-26 by
+the workstream sent to fix it, which found the money half reserved and the cases unmeasured.
+
+| | |
+|---|---|
+| **Where** | `GAP-257`; `OrderFinancialService::syncFromOrder()`'s P4-F124 guard. Both doors: `OrderController::order_payment_status` (panel) and `Api\DashboardController` (app), each behind `Manage Order`. |
+| **The choice** | Treat `delivered_status` 2 (cancelled) and 3 (returned) as terminal for the `paid` direction regardless of the financial row's state — or route a settled-order payment correction through the finance surface on both doors — or leave both as they are. |
+| **Why it is yours** | It decides whether a merchant is credited for an order the customer cancelled or returned, and the opposite error is already on record: refusing at the door is the regression the settled-order echo fix exists to close, because a genuine late payment on a settled order has to be recordable. |
+| **MEASURED 2026-11-26, through the real panel route, not traced** | `tests/Feature/Commerce/SettledOrderPaymentCreditTest` drives all four cases and reads the raw wallet row. The guard COVERS a cancellation and a refund whose reversal ran (financial row terminal): wallet stays **0.00**, no credit. It MISSES two. **(C) a RETURNED order** — nothing calls `OrderEntitlementReversal` for a return, so the row sits at `unpaid` and a `Paid` moves the wallet **0.00 → 100.00** on a fixture whose goods came back. **(D) a cancellation whose row is non-terminal** (a reversal that threw, or one predating P4-F124, whose unconditional update wrote the row back after the debit): the ledger ends holding **two `order_paid` credits and one `order_cancelled` debit for one order**, and the wallet keeps **100.00** of a cancelled order's value. That is the "credit the merchant a second time" P4-F124's own docblock names, now measured rather than inferred. |
+| **One correction to the row** | Case (D) needs the order's OWN `payment_status` column to move, because `OrderObserver::updated()` returns early unless `wasChanged('payment_status')`. A `Paid` posted onto an order already reading `Paid` moves nothing — the first draft of the test read 0.00 for exactly that reason, which is a request that did nothing, not a defect that is absent. |
+| **What engineering did ship, because it is not a money rule** | The register's stated mitigation — "an audit line already ships, so a double credit is reconstructible in the meantime" — was true of **one of the two doors**. `Log::warning('Payment status changed on a settled order')` existed only in `Api\DashboardController`, whose own comment names the panel door as the older and wider one. The panel door now carries the identical line and predicate, so a credit on a settled order names the actor on both. Nothing refuses, no figure moves. |
+| **Blocked** | Nothing is waiting on you. The behaviour is pinned in both directions, so whichever way you decide shows as a failing test rather than as silence. **Also not answered here:** a `Paid` after a return credits the financial row's `customer_total`, which is the ORIGINAL total — `Order::product_return()` has by then written `orders.final_price` down — so the figure credited can exceed what the order is now worth. Same decision, stated so it is not discovered separately. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to
