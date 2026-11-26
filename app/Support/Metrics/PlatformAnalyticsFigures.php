@@ -67,6 +67,13 @@ final class PlatformAnalyticsFigures
 
     /**
      * @return array<string, mixed> tiles for resources/views/platform/analytics.blade.php
+     *
+     * GAP-152 / P05-04: `stores`, `orders`, `visits`, `buyers` and `retention` are each a
+     * `CaveatedFigure`, whose words are derived from its caveat list. `payments`, `profit`,
+     * `devices` and `sources` are NOT single figures -- they are `rows` blocks, and the carrier
+     * holds one value -- so they keep the three-key array shape `FigureCsv::currencyRows()` and
+     * `breakdownRows()` read. That remainder is deliberate and is named rather than left to be
+     * rediscovered.
      */
     public static function forPlatform(?CarbonInterface $now = null): array
     {
@@ -141,19 +148,25 @@ final class PlatformAnalyticsFigures
     }
 
     /** @param array{included: list<int>, excluded: list<int>, verifiedFrom: ?CarbonImmutable, allComplete: bool, undatedWithoutRow: int} $coverage */
-    private static function stores(array $storeIds, array $coverage): array
+    private static function stores(array $storeIds, array $coverage): CaveatedFigure
     {
         $excluded = count($coverage['excluded']);
 
-        return [
-            'value' => self::ltr(number_format(count($storeIds))),
-            'period' => __('now'),
-            'hint' => $excluded === 0
-                ? __('Every store on the platform. All of them have a financial record that can be read.')
-                : __('Every store on the platform. :count of them have no financial record this view can read, so they are left out of the money figures below rather than counted as zero.', [
-                    'count' => self::ltr(number_format($excluded)),
-                ]),
-        ];
+        /* A COUNT OF STORES, so no caveat in the vocabulary describes a known limit of it: every
+           one of the twelve keys qualifies a money or a records-based figure. What this tile has to
+           say is which stores the money figures below it leave out, and that is its meaning. */
+        return CaveatedFigure::of(
+            self::ltr(number_format(count($storeIds))),
+            __('now'),
+            [],
+            [
+                $excluded === 0
+                    ? __('Every store on the platform. All of them have a financial record that can be read.')
+                    : __('Every store on the platform. :count of them have no financial record this view can read, so they are left out of the money figures below rather than counted as zero.', [
+                        'count' => self::ltr(number_format($excluded)),
+                    ]),
+            ],
+        );
     }
 
     /** How many stores each currency's list shows -- the panel has always been a top five. */
@@ -493,7 +506,7 @@ final class PlatformAnalyticsFigures
     }
 
     /** @param list<int> $storeIds */
-    private static function orders(array $storeIds, CarbonImmutable $now): array
+    private static function orders(array $storeIds, CarbonImmutable $now): CaveatedFigure
     {
         if ($storeIds === []) {
             return self::nothingYet(__('No store exists yet, so there is nothing to count.'));
@@ -504,11 +517,24 @@ final class PlatformAnalyticsFigures
             self::recentWindow($now)
         );
 
-        return [
-            'value' => self::ltr(number_format($result->rowCount())),
-            'period' => self::recentPeriod(),
-            'hint' => __('Orders placed in every store, whatever their payment status. A count of orders is not a count of sales: an unpaid or cancelled order is counted here.'),
-        ];
+        /*
+         * GAP-152 — `CaveatedFigure::of()` AND NOT `::from($result, ...)`, WHICH WOULD BE WRONG HERE.
+         *
+         * The figure is `rowCount()`: a COUNT of orders. `GrossMerchandiseValue` attaches
+         * `MetricCaveat::FLOAT_PRECISION` because the SUM it computes comes off `orders.final_price`,
+         * and `MetricResult::make()` adds `MIXED_CURRENCY` when the rows span currencies -- both
+         * qualify the money, neither qualifies the count, and this tile prints no money at all.
+         * `from()` would therefore tell an operator that a whole number of orders "is stored at
+         * limited precision", which is a caveat the figure's own basis does not support. GAP-217
+         * made the same call for `_sales_stats`: "`Orders` and `Items ordered` are counts and
+         * correctly carry no money caveat."
+         */
+        return CaveatedFigure::of(
+            self::ltr(number_format($result->rowCount())),
+            self::recentPeriod(),
+            [],
+            [__('Orders placed in every store, whatever their payment status. A count of orders is not a count of sales: an unpaid or cancelled order is counted here.')],
+        );
     }
 
     /**
@@ -532,7 +558,7 @@ final class PlatformAnalyticsFigures
      *
      * @param  list<int>  $storeIds
      */
-    private static function buyers(array $storeIds, CarbonImmutable $now): array
+    private static function buyers(array $storeIds, CarbonImmutable $now): CaveatedFigure
     {
         if ($storeIds === []) {
             return self::nothingYet(__('No store exists yet, so there is nothing to count.'));
@@ -543,7 +569,8 @@ final class PlatformAnalyticsFigures
             self::recentWindow($now)
         );
 
-        $hint = __('People who can be recognised again, counted once each across the whole platform. Every order is counted whatever its payment status. One person with accounts in two stores is counted in each, because nothing links the two accounts.');
+        $meaning = [__('People who can be recognised again, counted once each across the whole platform. Every order is counted whatever its payment status. One person with accounts in two stores is counted in each, because nothing links the two accounts.')];
+        $statedAs = [];
 
         if (($unattributed = (int) ($figures->notes()['orders_without_identifiable_customer'] ?? 0)) > 0) {
             /*
@@ -563,16 +590,30 @@ final class PlatformAnalyticsFigures
              * declared key rather than fixing the wording of a new one also means the two tiles
              * cannot drift apart again.
              */
-            $hint .= ' '.__('Orders with no customer account, excluded: :count.', [
+            $excluded = __('Orders with no customer account, excluded: :count.', [
                 'count' => self::ltr(number_format($unattributed)),
             ]);
+
+            $meaning[] = $excluded;
+
+            /* GAP-152: `CustomerRetention` attaches `UNIDENTIFIED_CUSTOMERS_EXCLUDED` on exactly
+               this count, and this sentence says HOW MANY where the vocabulary says "some". Guarded
+               because a statement for a caveat the figure does not carry is an exception. */
+            if (in_array(MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED, $figures->caveats(), true)) {
+                $statedAs[MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED] = $excluded;
+            }
         }
 
-        return [
-            'value' => self::ltr(number_format($figures->identifiedCustomers())),
-            'period' => self::recentPeriod(),
-            'hint' => $hint,
-        ];
+        /* The metric's own list, WHOLE -- `CustomerRetention` is not a `MetricResult`, so this is
+           `of()`'s documented second door, and hand-picking a subset here is the per-view omission
+           the carrier exists to prevent. */
+        return CaveatedFigure::of(
+            self::ltr(number_format($figures->identifiedCustomers())),
+            self::recentPeriod(),
+            $figures->caveats(),
+            $meaning,
+            $statedAs,
+        );
     }
 
     /**
@@ -605,14 +646,14 @@ final class PlatformAnalyticsFigures
      *
      * @param  array{included: list<int>, excluded: list<int>, verifiedFrom: ?CarbonImmutable, allComplete: bool, undatedWithoutRow: int}  $coverage
      */
-    private static function retention(array $coverage): array
+    private static function retention(array $coverage): CaveatedFigure
     {
         if ($coverage['included'] === []) {
-            return [
-                'value' => null,
-                'period' => __('not yet available'),
-                'hint' => __('Repeat purchase is measured over the period the financial record can vouch for, and no store has such a period yet. Nothing is reconstructed.'),
-            ];
+            /* No metric ran, so there are no caveats to carry -- only the reason there is no
+               figure, which is itself the whole disclosure. */
+            return CaveatedFigure::of(null, __('not yet available'), [], [
+                __('Repeat purchase is measured over the period the financial record can vouch for, and no store has such a period yet. Nothing is reconstructed.'),
+            ]);
         }
 
         $window = $coverage['verifiedFrom'] === null
@@ -626,12 +667,13 @@ final class PlatformAnalyticsFigures
             ? __('all time')
             : __('from :date', ['date' => $coverage['verifiedFrom']->isoFormat('D MMM YYYY')]);
 
+        /* The metric's own list, WHOLE -- `of()`'s second door, as `buyers()` above. */
+        $caveats = $figures->caveats();
+
         if ($rate === null) {
-            return [
-                'value' => null,
-                'period' => $period,
-                'hint' => __('No order in this period belongs to a customer who could be recognised again, so there is nothing to divide by. Orders placed without a customer account cannot be attributed to a person.'),
-            ];
+            return CaveatedFigure::of(null, $period, $caveats, [
+                __('No order in this period belongs to a customer who could be recognised again, so there is nothing to divide by. Orders placed without a customer account cannot be attributed to a person.'),
+            ]);
         }
 
         $notes = [
@@ -653,23 +695,39 @@ final class PlatformAnalyticsFigures
             $notes[] = __('The period shown is the latest start among the stores included, because a rate across stores is only as complete as its least complete contributor.');
         }
 
+        $statedAs = [];
+
         if (($unattributed = (int) ($figures->notes()['orders_without_identifiable_customer'] ?? 0)) > 0) {
-            $notes[] = __('Orders with no customer account, excluded: :count.', [
+            $excluded = __('Orders with no customer account, excluded: :count.', [
                 'count' => self::ltr(number_format($unattributed)),
             ]);
+
+            $notes[] = $excluded;
+
+            if (in_array(MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED, $caveats, true)) {
+                $statedAs[MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED] = $excluded;
+            }
         }
 
         if (($unrowed = (int) ($figures->notes()['orders_without_ledger_row'] ?? 0)) > 0) {
-            $notes[] = __('Orders with no financial record, which this basis cannot see: :count.', [
+            $missing = __('Orders with no financial record, which this basis cannot see: :count.', [
                 'count' => self::ltr(number_format($unrowed)),
             ]);
+
+            $notes[] = $missing;
+
+            if (in_array(MetricCaveat::ENTITLEMENT_RECORD_INCOMPLETE, $caveats, true)) {
+                $statedAs[MetricCaveat::ENTITLEMENT_RECORD_INCOMPLETE] = $missing;
+            }
         }
 
-        return [
-            'value' => self::ltr(number_format($rate * 100, 2).'%'),
-            'period' => $period,
-            'hint' => implode(' ', $notes),
-        ];
+        return CaveatedFigure::of(
+            self::ltr(number_format($rate * 100, 2).'%'),
+            $period,
+            $caveats,
+            $notes,
+            $statedAs,
+        );
     }
 
     private static function payments(array $coverage): array
@@ -907,9 +965,8 @@ final class PlatformAnalyticsFigures
      * that ships without one.
      *
      * @param  list<int>  $storeIds
-     * @return array{value: ?string, period: string, hint: string}
      */
-    private static function visits(array $storeIds, CarbonImmutable $now): array
+    private static function visits(array $storeIds, CarbonImmutable $now): CaveatedFigure
     {
         if ($storeIds === []) {
             return self::nothingYet(__('No store exists yet, so there is nothing to count.'));
@@ -963,11 +1020,16 @@ final class PlatformAnalyticsFigures
             ]);
         }
 
-        return [
-            'value' => self::ltr(number_format($visits)),
-            'period' => self::recentPeriod(),
-            'hint' => implode(' ', $notes),
-        ];
+        /* A COUNT OF REQUESTS, so no money caveat applies; the two things that limit it -- when
+           attribution began, and the stores that have logged nothing -- are stated above and are
+           not `MetricCaveat` keys, because the vocabulary has none for page-view coverage. Adding
+           one would be a claim this slice has not measured a basis for. */
+        return CaveatedFigure::of(
+            self::ltr(number_format($visits)),
+            self::recentPeriod(),
+            [],
+            $notes,
+        );
     }
 
     /**
@@ -1260,9 +1322,16 @@ final class PlatformAnalyticsFigures
         return __('last :count days', ['count' => number_format(self::RECENT_DAYS)]);
     }
 
-    private static function nothingYet(string $why): array
+    /**
+     * GAP-152 / P05-04 — a carrier, like every other single figure on this screen.
+     *
+     * No metric ran, so there are no caveats to carry: only the reason there is no figure, which is
+     * itself the whole disclosure. `FinanceLedgerFigures::tile()` says the same of its own
+     * no-window branch, in those words.
+     */
+    private static function nothingYet(string $why): CaveatedFigure
     {
-        return ['value' => null, 'period' => __('not yet available'), 'hint' => $why];
+        return CaveatedFigure::of(null, __('not yet available'), [], [$why]);
     }
 
     /**

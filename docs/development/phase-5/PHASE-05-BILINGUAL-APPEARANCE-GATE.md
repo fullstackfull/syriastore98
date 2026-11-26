@@ -165,11 +165,28 @@ The count matters as much as the set. Re-pointing an existing screen at the metr
 what `P5-3` does, adds no file and no `view()` call; it adds a reference. A changed number is a red
 test naming the file and asking what it now puts on a screen.
 
+**2026-11-26 (GAP-152 / P05-04, the adoption half). A ROW WAS DELETED AND TWO COUNTS MOVED, and the
+deletion is the interesting one.** `resources/views/dashboard/overview.blade.php` no longer reads
+the metric layer at all: the merchant dashboard's `Order value` tile composed its hint inside a
+thirty-line raw-PHP block in the view, which read the `MetricResult`'s `currencies()` and
+`totalIn()` and never its `caveats()` -- so `GrossMerchandiseValue`'s own `FLOAT_PRECISION`
+(measured: GMV is the one money metric that cannot read `store_order_financials`' DECIMAL and must
+come off `orders.final_price`, which is FLOAT) reached the busiest money figure in the product on no
+screen. The composition moved to `App\Support\Metrics\DashboardOrderValueFigure`, beside the
+metric, and the view renders `<x-ss.figure>`, which has no `hint` prop to forget. **The view reading
+the layer FEWER times is the improvement**, not a regression: it now reads no figure logic at all.
+`HomeController.php` 7 -> 8 for the new producer call, and
+`app/Support/Reports/ReportFigureNote.php` 1 -> 2, because its five composites now derive their
+words from one declared caveat list through `CaveatedFigure` instead of each ending with its own
+`MetricCaveat::message(FLOAT_PRECISION)` literal. The surface is unchanged -- `merchant-dashboard`
+is still the screen and its four-combination evidence still covers it -- so no SURFACES row moves.
+Pinned by `DashboardOrderValueStatesItsPrecisionTest` and `AnalyticsTilesCarryTheirCaveatsTest`.
+
 <!-- GATE-TABLE: READERS -->
 
 | file | references | feeds |
 |---|---|---|
-| `app/Http/Controllers/HomeController.php` | 7 | `merchant-dashboard`, `operator-dashboard` |
+| `app/Http/Controllers/HomeController.php` | 8 | `merchant-dashboard`, `operator-dashboard` |
 | `app/Http/Controllers/MerchantAnalyticsController.php` | 2 | `analytics`; `GET /analytics/export` (CSV, no rendered page) |
 | `app/Http/Controllers/PlatformAnalyticsController.php` | 6 | `platform-analytics`; `GET /platform/analytics/export` (CSV, no rendered page) |
 | `app/Http/Controllers/ReportController.php` | 3 | `finance-reports`; the period window and sales tile it shares with report surfaces `P5-3` has not re-pointed yet |
@@ -182,10 +199,9 @@ test naming the file and asking what it now puts on a screen.
 | `app/Support/Customers/CustomerMoneyFigures.php` | 4 | the customer detail money tiles: **Phase 02 / 2.5** surface; and `Api\DashboardController` (JSON) |
 | `app/Support/Customers/CustomerMoneyTiles.php` | 5 | as above |
 | `app/Support/Reports/DimensionPeriodRevenue.php` | 1 | the by-dimension report bodies (`ReportController`) |
-| `app/Support/Reports/ReportFigureNote.php` | 1 | the disclosure note under a report figure |
+| `app/Support/Reports/ReportFigureNote.php` | 2 | the disclosure note under a report figure, and the carrier its five composites now derive their words from |
 | `app/Support/TopSellersByRevenue.php` | 1 | the top-sellers panel shared by the dashboards and the reports |
 | `resources/views/components/ss/figure.blade.php` | 2 | the shared figure component rendered on `analytics`, `finance` and the dashboards |
-| `resources/views/dashboard/overview.blade.php` | 1 | included by `dashboard.blade.php` — part of `merchant-dashboard` |
 | `resources/views/finance/index.blade.php` | 3 | `finance` |
 | `resources/views/order/brand_category_chart.blade.php` | 1 | the brand/category chart body (AJAX fragment of the order reports) |
 | `resources/views/reports/order_brand_chart.blade.php` | 1 | the brand sales chart body (AJAX fragment) |

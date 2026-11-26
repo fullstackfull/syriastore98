@@ -68,6 +68,26 @@ final class AnalyticsComparisonTest extends SecurityTestCase
     }
 
     /**
+     * ONE TILE'S TREND. GAP-152 made every single-figure tile a `CaveatedFigure`, whose wire form
+     * is `value/period/hint/caveats/authoritative` and nothing else -- so the trend no longer lives
+     * inside the tile and is returned beside it, keyed by the figure it qualifies. An array read
+     * for `comparison` ON a carrier answers null rather than throwing, which is exactly how this
+     * change could have deleted three trend lines in silence; reading them through one named helper
+     * is what makes that impossible here.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function comparisonOf($store, string $key): ?array
+    {
+        $figures = $this->figures($store);
+
+        $this->assertArrayHasKey('comparisons', $figures,
+            'the figures class returns no `comparisons` map, so no trend can be read at all');
+
+        return $figures['comparisons'][$key] ?? null;
+    }
+
+    /**
      * A STORE WHOSE PAGE-VIEW HISTORY PREDATES EVERY WINDOW THESE TESTS LOOK AT.
      *
      * The comparison tiles withhold their delta when the EARLIER window straddles the day page
@@ -92,11 +112,11 @@ final class AnalyticsComparisonTest extends SecurityTestCase
         $figures = $this->figures($store);
 
         foreach (['orders', 'visits'] as $key) {
-            $this->assertArrayHasKey('comparison', $figures[$key],
+            $this->assertNotNull($figures['comparisons'][$key] ?? null,
                 "The {$key} tile has no comparison, so nothing below this test measures anything.");
 
             foreach (['direction', 'change', 'baseline', 'period', 'percent', 'note'] as $field) {
-                $this->assertArrayHasKey($field, $figures[$key]['comparison'],
+                $this->assertArrayHasKey($field, $figures['comparisons'][$key],
                     "The {$key} comparison is missing `{$field}`.");
             }
         }
@@ -141,22 +161,24 @@ final class AnalyticsComparisonTest extends SecurityTestCase
         // Outside BOTH: 60 days back is one day before the baseline begins.
         $this->orderDaysAgo($store, 60);
 
-        $orders = $this->figures($store)['orders'];
+        $figures = $this->figures($store);
+        $orders = $figures['orders'];
+        $trend = $figures['comparisons']['orders'];
 
         $this->assertStringContainsString('2', $orders['value'],
             'The current window should hold the two orders placed 0 and 29 days ago.');
 
-        $this->assertStringContainsString('3', $orders['comparison']['baseline'], sprintf(
+        $this->assertStringContainsString('3', $trend['baseline'], sprintf(
             'The baseline should hold exactly the three orders placed 30, 31 and 59 days ago. It '
             . 'reported %s. An order 60 days back belongs to neither period: the baseline is the '
             . 'thirty days ENDING the day before the window begins, so a fourth order here means '
             . 'the baseline is 31 days long and every percentage computed from it is wrong.',
-            $orders['comparison']['baseline']
+            $trend['baseline']
         ));
 
-        $this->assertSame('down', $orders['comparison']['direction'],
+        $this->assertSame('down', $trend['direction'],
             'Two against three is a decrease.');
-        $this->assertStringContainsString('1', $orders['comparison']['change']);
+        $this->assertStringContainsString('1', $trend['change']);
     }
 
     public function test_growth_is_reported_as_up_with_a_percentage(): void
@@ -169,7 +191,7 @@ final class AnalyticsComparisonTest extends SecurityTestCase
         $this->orderDaysAgo($store, 35);
         $this->orderDaysAgo($store, 40);
 
-        $comparison = $this->figures($store)['orders']['comparison'];
+        $comparison = $this->comparisonOf($store, 'orders');
 
         $this->assertSame('up', $comparison['direction']);
         $this->assertStringContainsString('1', $comparison['change'], '3 against 2 is a change of 1.');
@@ -187,7 +209,7 @@ final class AnalyticsComparisonTest extends SecurityTestCase
         $this->orderDaysAgo($store, 5);
         $this->orderDaysAgo($store, 45);
 
-        $comparison = $this->figures($store)['orders']['comparison'];
+        $comparison = $this->comparisonOf($store, 'orders');
 
         $this->assertSame('same', $comparison['direction']);
         $this->assertStringContainsString('0.0%', $comparison['percent']);
@@ -205,7 +227,7 @@ final class AnalyticsComparisonTest extends SecurityTestCase
         $this->orderDaysAgo($store, 1);
         $this->orderDaysAgo($store, 2);
 
-        $comparison = $this->figures($store)['orders']['comparison'];
+        $comparison = $this->comparisonOf($store, 'orders');
 
         $this->assertSame('up', $comparison['direction']);
         $this->assertStringContainsString('2', $comparison['change'],
@@ -229,7 +251,7 @@ final class AnalyticsComparisonTest extends SecurityTestCase
     {
         [, $store] = $this->makeTenant();
 
-        $comparison = $this->figures($store)['orders']['comparison'];
+        $comparison = $this->comparisonOf($store, 'orders');
 
         $this->assertSame('same', $comparison['direction']);
         $this->assertStringContainsString('0.0%', (string) $comparison['percent'],
@@ -250,7 +272,7 @@ final class AnalyticsComparisonTest extends SecurityTestCase
         $this->logVisit($store->id, $this->now()->subDays(4));
         $this->logVisit($store->id, $this->now()->subDays(40));
 
-        $comparison = $this->figures($store)['visits']['comparison'];
+        $comparison = $this->comparisonOf($store, 'visits');
 
         $this->assertSame('up', $comparison['direction']);
         $this->assertStringContainsString('1', $comparison['baseline']);
@@ -275,15 +297,15 @@ final class AnalyticsComparisonTest extends SecurityTestCase
         $this->orderDaysAgo($other, 45);
         $this->logVisit($other->id, $this->now()->subDays(40));
 
-        $orders = $this->figures($store)['orders'];
+        $trend = $this->comparisonOf($store, 'orders');
 
-        $this->assertStringContainsString('0', $orders['comparison']['baseline'], sprintf(
+        $this->assertStringContainsString('0', $trend['baseline'], sprintf(
             "This store placed no orders in the baseline period; the other store placed two. The "
             . "baseline reported %s, so it is reading across the tenant boundary.",
-            $orders['comparison']['baseline']
+            $trend['baseline']
         ));
 
-        $this->assertStringContainsString('0', $this->figures($store)['visits']['comparison']['baseline'],
+        $this->assertStringContainsString('0', $this->comparisonOf($store, 'visits')['baseline'],
             'The visits baseline is reading another store\'s visits.');
     }
 

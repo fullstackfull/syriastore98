@@ -71,14 +71,24 @@ class VisitCoverageStartTest extends SecurityTestCase
      * compares against something the screen never produces. Stripping the isolates here keeps the
      * assertions about the ARITHMETIC rather than about the wrapper.
      */
-    private function rate(array $conversion): ?string
+    private function rate(\App\Support\Metrics\CaveatedFigure $conversion): ?string
     {
-        return $conversion['value'] === null
-            ? null
-            : str_replace(["\u{2066}", "\u{2069}"], '', $conversion['value']);
+        return $this->plain($conversion['value']);
     }
 
-    private function conversionOver($store, string $from, string $to): array
+    /**
+     * The same stripping, for a case that asserts on ONE value rather than on a tile.
+     *
+     * GAP-152 made the tiles carriers, and the type hint above then refused a hand-made
+     * `['value' => ...]` array that one case was passing in to reuse `rate()`. That fake tile was
+     * indirection rather than coverage, so the case asks about the value it means.
+     */
+    private function plain(?string $value): ?string
+    {
+        return $value === null ? null : str_replace(["\u{2066}", "\u{2069}"], '', $value);
+    }
+
+    private function conversionOver($store, string $from, string $to): \App\Support\Metrics\CaveatedFigure
     {
         return MerchantAnalyticsFigures::forStore(
             $store->id,
@@ -209,7 +219,7 @@ class VisitCoverageStartTest extends SecurityTestCase
             ], now()->parse('2026-02-28')->endOfDay())
         );
 
-        $this->assertSame('20', $this->rate(['value' => $figures['visits']['value']]),
+        $this->assertSame('20', $this->plain($figures['visits']['value']),
             'Premise: the visits tile is not showing the truncated count this test is about.');
 
         $this->assertStringContainsString('10 Feb 2026', $figures['visits']['hint'],
@@ -292,11 +302,19 @@ class VisitCoverageStartTest extends SecurityTestCase
 
         $figures = MerchantAnalyticsFigures::forStore($store->id, $store->currency ?? 'USD');
 
-        $this->assertNull($figures['visits']['comparison'],
+        /* GAP-152: the trend is returned beside the figure, in `comparisons`, because a carrier's
+           wire form carries no `comparison` key -- and an array read for one on a carrier answers
+           null, which would make this very assertion pass for the wrong reason. */
+        $this->assertNull($figures['comparisons']['visits'],
             'The page-views tile compared against a half-covered earlier window, so it can report '
             . 'a rise or a fall that is an artefact of when logging started.');
-        $this->assertNull($figures['conversion']['comparison'],
+        $this->assertNull($figures['comparisons']['conversion'],
             'The conversion rate compared against a half-covered earlier window.');
+
+        /* THE PREMISE THIS CASE NEEDS, because `assertNull` is satisfied by a missing key. The
+           orders tile has no coverage question, so its trend must still be there. */
+        $this->assertNotNull($figures['comparisons']['orders'],
+            'no trend survived at all, so the two nulls above say nothing about coverage');
 
         $this->assertStringContainsString('No change against the earlier period is shown',
             $figures['visits']['hint'],
@@ -325,11 +343,11 @@ class VisitCoverageStartTest extends SecurityTestCase
 
         $figures = MerchantAnalyticsFigures::forStore($store->id, $store->currency ?? 'USD');
 
-        $this->assertNotNull($figures['visits']['comparison'],
+        $this->assertNotNull($figures['comparisons']['visits'],
             'The deliberate zero-baseline answer was suppressed, which replaces a stated result '
             . 'with silence.');
         $this->assertSame('0', str_replace(["\u{2066}", "\u{2069}"], '',
-            $figures['visits']['comparison']['baseline']));
+            $figures['comparisons']['visits']['baseline']));
     }
 
     /**

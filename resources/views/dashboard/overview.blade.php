@@ -387,66 +387,27 @@
                  when there is not. Replacing the literal wholesale would have dropped the F257
                  disclosure with the Feature gate green; `DashboardOrderValueCurrencyTest` now
                  pins it, because nothing did before. --}}
-            @php
-                /* `unknown` is a BUCKET KEY, not a currency -- `orders.currency_code` is not
-                   backfilled, so it holds every order placed before the stamp landed. The
-                   controller folds it into the store's currency when there is one; when there
-                   is not, nothing can be assumed, and naming it here would print "1,250.00
-                   unknown" to the merchant as though it were a currency they trade in. */
-                $ssRevenueCurrencies = $totalRevenueResult?->currencies() ?? [];
+            {{-- GAP-152 / P05-04. THE THIRTY-LINE RAW-PHP BLOCK THAT COMPOSED THIS HINT IS GONE,
+                 and its sentences are unchanged -- owner-decision text included.
 
-                /* WHICH CURRENCY THE HEADLINE IS IN -- null when there is no headline. The
-                   "others" list is then exactly the money the headline LEAVES OUT, which is the
-                   only list a merchant can act on. Deriving it from `$storeCurrencyCode` alone
-                   was wrong in both directions: a store whose `defult_currancy` is a symbol
-                   normalises to '' and would have seen its own single currency listed back as
-                   "another currency", and a mixed store with no configured currency shows no
-                   headline at all, where the word "Also" claims one. */
-                $ssIncludedCurrency = $storeCurrencyCode !== ''
-                    ? $storeCurrencyCode
-                    : (count($ssRevenueCurrencies) === 1 ? ($ssRevenueCurrencies[0] ?? null) : null);
+                 THE DIRECTIVE THAT OPENED THAT BLOCK IS NOT NAMED IN THIS COMMENT, and that is
+                 CLAUDE.md's measured trap rather than fussiness: `compileString()` runs
+                 `storeUncompiledBlocks()` BEFORE `compileComments()`, both non-greedy over the
+                 whole file, so the directive's NAME inside a Blade comment opens a raw block that
+                 runs to the next closing directive. Writing it here took the whole dashboard down
+                 with "unexpected token endforeach, expecting endif" -- 17 tests, and nothing in the
+                 message mentioned a comment.
 
-                /* THE `unknown` BUCKET STAYS IN THIS LIST, and that is deliberate.
-                   `orders.currency_code` is not backfilled, so it holds every order placed
-                   before the stamp landed. The controller folds it into the store's currency
-                   when there is one; when there is NOT, nothing can be assumed and the money
-                   reaches here unattributed. Filtering it out would drop it from the merchant's
-                   view silently -- the defect this tile exists to fix, arriving by the other
-                   door. `MoneyText::currencyLabel()` already renders the bucket as "Currency
-                   not recorded" rather than offering the internal token as a currency, so it is
-                   disclosed honestly instead. That method is the single definition; a second
-                   guard here would only hide which one is load-bearing. */
-                $ssRevenueOthers = array_values(array_filter(
-                    $ssRevenueCurrencies,
-                    fn ($c) => $c !== '' && $c !== $ssIncludedCurrency
-                ));
-
-                $ssRevenueHint = $storeCurrencyCode === ''
-                    ? __('The total value of orders placed, excluding orders that were cancelled. Returned orders are still included. This is not payments received, and not profit.')
-                    : __('The total value of orders placed, counted in :code, excluding orders that were cancelled. Returned orders are still included. This is not payments received, and not profit.', ['code' => $storeCurrencyCode]);
-
-                if ($ssRevenueOthers !== []) {
-                    $ssRevenueAmounts = implode(', ', array_map(
-                        fn ($c) => \App\Support\Metrics\MoneyText::amount($totalRevenueResult->totalIn($c), $c),
-                        $ssRevenueOthers
-                    ));
-
-                    /* "Also" presupposes a headline. When there is none -- more than one
-                       currency and no configured store currency to pick between them -- the
-                       honest sentence is the one the rest of the codebase already uses for
-                       exactly this state, so no new string is introduced. */
-                    $ssRevenueHint .= ' ' . ($total_revenues === null
-                        ? __('These amounts are in more than one currency and are not combined: :amounts.', ['amounts' => $ssRevenueAmounts])
-                        : __('Also ordered in another currency, which is not added in and not converted: :amounts.', ['amounts' => $ssRevenueAmounts]));
-                }
-            @endphp
-
-            <x-ss.stat :label="__('Order value')"
-                       :value="$total_revenues === null
-                           ? null
-                           : currency_format_with_sym($total_revenues, getCurrentStore())"
-                       :period="__('all time, gross, excluding cancelled')"
-                       :hint="$ssRevenueHint" />
+                 It read the
+                 result's `currencies()` and `totalIn()` and never its `caveats()`, so
+                 `GrossMerchandiseValue`'s own `FLOAT_PRECISION` (GMV is the one money metric that
+                 cannot read `store_order_financials`' DECIMAL and must come off
+                 `orders.final_price`, which is FLOAT) reached the busiest money figure in the
+                 product on no screen at all. The composition is now
+                 `App\Support\Metrics\DashboardOrderValueFigure`, beside the metric, and
+                 `<x-ss.figure>` has NO `hint` prop to forget: the words are computed from the
+                 figure's caveat list. Pinned by DashboardOrderValueStatesItsPrecisionTest. --}}
+            <x-ss.figure :label="__('Order value')" :figure="$ssRevenueFigure" />
         @endif
 
         <x-ss.stat :label="__('Customers')"

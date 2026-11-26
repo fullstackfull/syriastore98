@@ -79,24 +79,32 @@ final class MerchantAnalyticsFigures
     /**
      * @return array{
      *     coverage: LedgerCoverage,
-     *     payments: array<string, mixed>,
-     *     profit: array<string, mixed>,
-     *     orders: array{value: ?string, period: string, hint: string},
-     *     visits: array{value: ?string, period: string, hint: string},
-     *     conversion: array{value: ?string, period: string, hint: string},
-     *     customers: array{value: ?string, period: string, hint: string},
-     *     redemptions: array{value: ?string, period: string, hint: string},
-     *     retention: array{value: ?string, period: string, hint: string},
+     *     payments: CaveatedFigure,
+     *     profit: CaveatedFigure,
+     *     orders: CaveatedFigure,
+     *     visits: CaveatedFigure,
+     *     conversion: CaveatedFigure,
+     *     customers: CaveatedFigure,
+     *     redemptions: CaveatedFigure,
+     *     retention: CaveatedFigure,
      *     devices: array{rows: list<array{label: string, count: string}>, period: string, hint: string},
      *     channels: array{rows: list<array{label: string, count: string}>, period: string, hint: string},
-     *     sources: array{rows: list<array{label: string, count: string}>, period: string, hint: string}
+     *     sources: array{rows: list<array{label: string, count: string}>, period: string, hint: string},
+     *     comparisons: array<string, ?array<string, mixed>>
      * }
      *
-     * THE TWO BREAKDOWNS ARE PART OF THIS CONTRACT, not an extra. They are NOT the figure shape:
-     * a figure is one `value`, a breakdown is a `rows` list, and `FigureCsv::rows()` skips any entry
-     * with no `value` key -- so an export that forgot `breakdownRows()` would drop them in SILENCE
-     * rather than fail. `PlatformAnalyticsFigures` already carries the same three-key shape for its
-     * currency block, and that symmetry is what the Blade and the CSV both rely on.
+     * GAP-152 / P05-04 — EVERY SINGLE FIGURE IS A `CaveatedFigure` AND THE BREAKDOWNS ARE NOT, and
+     * that split is this class's own distinction rather than a half-finished conversion: a figure is
+     * one `value`, a breakdown is a `rows` list, and the carrier holds exactly one value. A
+     * breakdown cannot be a carrier without either losing its rows or making `FigureCsv::rows()`
+     * write a bogus single-figure row for it, so the four `rows` blocks keep the three-key array and
+     * are named here as the deliberate remainder.
+     *
+     * THE BREAKDOWNS ARE PART OF THIS CONTRACT, not an extra. `FigureCsv::rows()` skips any entry
+     * with no `value` SLOT -- it asks `hasValueSlot()`, because `array_key_exists()` is a TypeError
+     * on a carrier -- so an export that forgot `breakdownRows()` would drop them in SILENCE rather
+     * than fail. `PlatformAnalyticsFigures` carries the same three-key shape for its currency
+     * block, and that symmetry is what the Blade and the CSV both rely on.
      */
     public static function forStore(
         int $storeId,
@@ -265,24 +273,44 @@ final class MerchantAnalyticsFigures
             'coverage' => $money['coverage'],
             'payments' => $money['payments'],
             'profit' => $money['profit'],
-            'orders' => [
-                'value' => self::ltr(number_format($orders)),
-                'period' => $period,
-                'hint' => __('Orders placed in this period, whatever their payment status. It is not a money figure and does not exclude orders later cancelled or refunded.'),
-                'comparison' => self::comparison($orders, $baselineOrders, $baselinePeriod),
-            ],
-            'visits' => [
-                'value' => self::ltr(number_format($visits)),
-                'period' => $period,
-                // The count itself is short by whatever happened before logging began, so the note
-                // belongs here too and not only on the rate derived from it.
-                'hint' => self::visitsMeaning().$visitCoverageNote
-                    .($baselineCovered ? '' : ' '.self::baselineUncoveredNote()),
-                'comparison' => $baselineCovered
-                    ? self::comparison($visits, $baselineVisits, $baselinePeriod)
-                    : null,
-            ],
-            'conversion' => self::conversion($orders, $visits, $period, $baselineOrders, $baselineVisits, $baselinePeriod, $visitCoverageNote, $baselineCovered),
+            /*
+             * GAP-152 / P05-04 — EVERY SINGLE-FIGURE TILE IS A `CaveatedFigure`, so its words are
+             * DERIVED from its caveat list and no surface can compose a hint that omits one.
+             *
+             * `orders`, `visits` and `conversion` carry NO caveat, and that is a measurement rather
+             * than an omission: they are COUNTS and a ratio of counts, none of it accumulated off a
+             * money column, so none of the twelve `MetricCaveat` keys describes a known limit of
+             * them. What they do carry is their meaning, which is the other half of what a merchant
+             * reads. `_sales_stats` makes the same call for its own two count tiles, in GAP-217's
+             * words: "`Orders` and `Items ordered` are counts and correctly carry no money caveat".
+             *
+             * THE COMPARISONS MOVE TO THEIR OWN MAP, and that is forced rather than chosen. A
+             * carrier's wire form is `value/period/hint/caveats/authoritative` and nothing else --
+             * `offsetSet()` throws, because a surface that could add a key to a figure would be
+             * back to a per-view caveat with extra steps. An array read for `comparison` on a
+             * carrier answers null, which would have deleted the three trend lines SILENTLY, so the
+             * comparison is returned beside the figure where both the Blade and a test must name it.
+             * `<x-ss.figure>` already has a `:comparison` prop for exactly this shape.
+             */
+            'orders' => CaveatedFigure::of(
+                self::ltr(number_format($orders)),
+                $period,
+                [],
+                [__('Orders placed in this period, whatever their payment status. It is not a money figure and does not exclude orders later cancelled or refunded.')],
+            ),
+            'visits' => CaveatedFigure::of(
+                self::ltr(number_format($visits)),
+                $period,
+                [],
+                [
+                    self::visitsMeaning(),
+                    // The count itself is short by whatever happened before logging began, so the
+                    // note belongs here too and not only on the rate derived from it.
+                    trim($visitCoverageNote),
+                    $baselineCovered ? '' : self::baselineUncoveredNote(),
+                ],
+            ),
+            'conversion' => self::conversion($orders, $visits, $period, $visitCoverageNote, $baselineCovered),
             'customers' => self::customers($storeId, $from, $to, $period),
             'redemptions' => self::redemptions($storeId, $storeCurrency, $from, $to, $period),
             'retention' => self::retention($storeId),
@@ -304,6 +332,26 @@ final class MerchantAnalyticsFigures
                 'to' => $chosen->to()->toDateString(),
                 'days' => $chosen->days(),
                 'clamped' => $chosen->clampNote(),
+            ],
+
+            /*
+             * THE TRENDS, keyed by the figure each one qualifies. A null entry is the DELIBERATE
+             * suppression described above `$baselineCovered`: the earlier window reaches back past
+             * page-view coverage, so its figure would be understated and the delta would report a
+             * trend that did not happen. The reason is in the figure's own hint, so a reader who
+             * sees no trend is told why a few pixels away.
+             *
+             * The three keys are exactly the three tiles that have a baseline. The money tiles
+             * deliberately have none (see `$baseline` above) and the breakdowns are not figures.
+             */
+            'comparisons' => [
+                'orders' => self::comparison($orders, $baselineOrders, $baselinePeriod),
+                'visits' => $baselineCovered
+                    ? self::comparison($visits, $baselineVisits, $baselinePeriod)
+                    : null,
+                'conversion' => ($baselineCovered && $visits > 0)
+                    ? self::rateComparison(($orders / $visits) * 100, $baselineOrders, $baselineVisits, $baselinePeriod)
+                    : null,
             ],
         ];
     }
@@ -329,7 +377,7 @@ final class MerchantAnalyticsFigures
         CarbonInterface $from,
         CarbonInterface $to,
         string $period,
-    ): array {
+    ): CaveatedFigure {
         $result = (new CouponRedemption())->for(
             MetricScope::store($storeId),
             MetricWindow::between(CarbonImmutable::instance($from), CarbonImmutable::instance($to)),
@@ -338,16 +386,38 @@ final class MerchantAnalyticsFigures
         if (! $result->isAuthoritative()) {
             $coverage = CouponRedemptionCoverage::forStore($storeId);
 
-            return [
-                'value' => null,
-                'period' => $period,
-                'hint' => $coverage->hasNothingComplete()
-                    ? __('No coupon redemption in this store has a complete record, so this figure cannot be shown. Redemptions are recorded in full for orders placed from now on; earlier ones are not reconstructed.')
-                    : __('Coupon redemptions are recorded in full only from :date, which is after this period began, so this figure cannot be shown. Earlier redemptions are not reconstructed. Orders in this store with a discount but no redemption record: :count.', [
-                        'date' => self::day($coverage->completeFrom()),
-                        'count' => number_format($coverage->ordersWithoutRow()),
-                    ]),
-            ];
+            $reason = $coverage->hasNothingComplete()
+                ? __('No coupon redemption in this store has a complete record, so this figure cannot be shown. Redemptions are recorded in full for orders placed from now on; earlier ones are not reconstructed.')
+                : __('Coupon redemptions are recorded in full only from :date, which is after this period began, so this figure cannot be shown. Earlier redemptions are not reconstructed. Orders in this store with a discount but no redemption record: :count.', [
+                    'date' => self::day($coverage->completeFrom()),
+                    'count' => number_format($coverage->ordersWithoutRow()),
+                ]);
+
+            /*
+             * THE METRIC'S OWN LIST, WHOLE, EVEN ON A WITHHELD FIGURE -- and that is the carrier's
+             * rule rather than a preference. `CaveatedFigure::of()`'s docblock: "Hand-picking a
+             * subset per tile is the per-view omission this class exists to prevent, wearing the
+             * carrier's clothes." The blocking caveat is answered by the reason above, which is a
+             * truer sentence than the vocabulary's; the precision caveat the same result carries
+             * then gets its generic sentence, which reads oddly beside "cannot be shown" and is
+             * still the right trade: the KEY has to survive so an export or a gate can see the
+             * figure is qualified and by what, and the carrier refuses silence by design.
+             *
+             * GUARDED, for the reason `FinanceLedgerFigures::tile()` states at its own
+             * `MIXED_CURRENCY` declaration: the carrier REFUSES a statement for a caveat the figure
+             * does not carry, and on a merchant money screen that refusal is an HTTP 500. Only
+             * `COUPON_REDEMPTION_UNRELIABLE` is blocking today, so this branch always carries it --
+             * but a second blocking caveat added tomorrow would otherwise take the screen down.
+             */
+            return CaveatedFigure::from(
+                $result,
+                null,
+                $period,
+                [$reason],
+                $result->hasCaveat(MetricCaveat::COUPON_REDEMPTION_UNRELIABLE)
+                    ? [MetricCaveat::COUPON_REDEMPTION_UNRELIABLE => $reason]
+                    : [],
+            );
         }
 
         /*
@@ -416,14 +486,30 @@ final class MerchantAnalyticsFigures
                 $listed[] = MoneyText::amount((float) $bucketAmount, (string) $bucketCurrency);
             }
 
-            return [
-                'value' => null,
-                'period' => $period,
-                'hint' => __('Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.')
-                    . ' ' . __('These amounts are in more than one currency and are not combined: :amounts.', [
-                        'amounts' => implode(', ', $listed),
-                    ]),
-            ];
+            $listedNote = __('These amounts are in more than one currency and are not combined: :amounts.', [
+                'amounts' => implode(', ', $listed),
+            ]);
+
+            /*
+             * GAP-152: THIS BRANCH USED TO DROP EVERY CAVEAT THE RESULT CARRIED, and it is the
+             * worse half of the omission this conversion closes. It returned two hand-written
+             * sentences, so the coverage caveat AND the precision caveat vanished for exactly the
+             * store the figure is hardest to read for -- one that has changed currency. The
+             * mixed-currency caveat is answered by the listed amounts, as the sibling tile does,
+             * and guarded for the same reason.
+             */
+            return CaveatedFigure::from(
+                $result,
+                null,
+                $period,
+                [
+                    __('Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.'),
+                    $listedNote,
+                ],
+                $result->hasCaveat(MetricCaveat::MIXED_CURRENCY)
+                    ? [MetricCaveat::MIXED_CURRENCY => $listedNote]
+                    : [],
+            );
         }
 
         /*
@@ -488,10 +574,17 @@ final class MerchantAnalyticsFigures
             __('It counts coupons on orders placed in this period whatever their payment status, and does not exclude orders later cancelled or refunded.'),
         ];
 
+        $statedAs = [];
+
         if ($result->hasCaveat(MetricCaveat::CURRENCY_UNRECORDED)) {
-            $notes[] = __('Includes :amount from records that carry no currency, counted in your store currency.', [
+            $assumed = __('Includes :amount from records that carry no currency, counted in your store currency.', [
                 'amount' => MoneyText::amount((float) ($result->notes()['currency_assumed_amount'] ?? 0.0), $currency),
             ]);
+
+            $notes[] = $assumed;
+            /* The vocabulary says "some of these orders predate currency recording"; this says how
+               much money that is, which is the sibling tile's reason for the same declaration. */
+            $statedAs[MetricCaveat::CURRENCY_UNRECORDED] = $assumed;
         }
 
         $settingCode = CurrencySymbol::code($storeCurrency);
@@ -503,11 +596,29 @@ final class MerchantAnalyticsFigures
             ]);
         }
 
-        return [
-            'value' => MoneyText::amount($amount, $currency),
-            'period' => $period,
-            'hint' => implode(' ', $notes),
-        ];
+        /*
+         * GAP-152 / P05-04 — THE CARRIER, AND THE CAVEAT THIS TILE HAD NEVER STATED.
+         *
+         * MEASURED FROM SOURCE before anything changed: `CouponRedemption.php:152` attaches
+         * `MetricCaveat::FLOAT_PRECISION` UNCONDITIONALLY, with its reason on the line above --
+         * "coupon_discount_amount is FLOAT on order_coupon_details". The hint composed here stated
+         * the recording coverage, the payment-status basis, the assumed currency and the bucket /
+         * setting mismatch, and said nothing about precision -- on three surfaces: `/analytics`,
+         * `/analytics/export` and the scheduled-report mail. That is the payment-fee omission
+         * GAP-152 closed on `/finance`, in a second place and on a second money tile.
+         *
+         * `from()` takes the caveats off the result, so the sentence arrives without this method
+         * naming it and a caveat added to `CouponRedemption` tomorrow arrives the same way.
+         *
+         * THE COVERAGE CAVEAT IS ANSWERED BY THE FIRST NOTE, which carries the actual date and the
+         * fact that history is not reconstructed -- strictly more than the vocabulary's "from the
+         * date shown". Declaring it records WHERE it is discharged; `hint()` prints it once.
+         */
+        if ($result->hasCaveat(MetricCaveat::COUPON_REDEMPTION_COVERAGE)) {
+            $statedAs[MetricCaveat::COUPON_REDEMPTION_COVERAGE] = $notes[0];
+        }
+
+        return CaveatedFigure::from($result, MoneyText::amount($amount, $currency), $period, $notes, $statedAs);
     }
 
 
@@ -533,17 +644,18 @@ final class MerchantAnalyticsFigures
      * that costs -- `orders_without_ledger_row` and the unidentified-customer count -- and those
      * disclosures are carried onto the tile rather than summarised away.
      */
-    private static function retention(int $storeId): array
+    private static function retention(int $storeId): CaveatedFigure
     {
         $coverage = LedgerCoverage::forStore($storeId);
         $window = $coverage->window();
 
         if ($window === null) {
-            return [
-                'value' => null,
-                'period' => __('not yet available'),
-                'hint' => __('Repeat purchase is measured over the period the financial record can vouch for, and this store has no such period yet. No order has a financial record, so there is nothing to measure and nothing is reconstructed.'),
-            ];
+            /* No metric ran, so there are no caveats to carry -- only the reason there is no
+               figure, which is itself the whole disclosure. `FinanceLedgerFigures::tile()` says
+               the same of its own no-window branch, in those words. */
+            return CaveatedFigure::of(null, __('not yet available'), [], [
+                __('Repeat purchase is measured over the period the financial record can vouch for, and this store has no such period yet. No order has a financial record, so there is nothing to measure and nothing is reconstructed.'),
+            ]);
         }
 
         $period = $coverage->isComplete()
@@ -553,12 +665,18 @@ final class MerchantAnalyticsFigures
         $figures = (new CustomerRetention())->for(MetricScope::store($storeId), $window);
         $rate = $figures->repeatRate();
 
+        /*
+         * GAP-152 — `CustomerRetention` IS NOT A `MetricResult`, so the list is passed rather than
+         * read off one. That is `CaveatedFigure::of()`'s documented second door, the same one
+         * `StoreInventoryValuation` goes through, and the rule it carries is that the list is the
+         * metric's OWN and WHOLE: `$figures->caveats()`, never a subset chosen here.
+         */
+        $caveats = $figures->caveats();
+
         if ($rate === null) {
-            return [
-                'value' => null,
-                'period' => $period,
-                'hint' => __('No order in this period belongs to a customer who could be recognised again, so there is nothing to divide by. Orders placed without a customer account cannot be attributed to a person.'),
-            ];
+            return CaveatedFigure::of(null, $period, $caveats, [
+                __('No order in this period belongs to a customer who could be recognised again, so there is nothing to divide by. Orders placed without a customer account cannot be attributed to a person.'),
+            ]);
         }
 
         $notes = [
@@ -568,23 +686,48 @@ final class MerchantAnalyticsFigures
             ]),
         ];
 
+        $statedAs = [];
+
         if (($unattributed = (int) ($figures->notes()['orders_without_identifiable_customer'] ?? 0)) > 0) {
-            $notes[] = __('Orders with no customer account, excluded: :count.', [
+            $excluded = __('Orders with no customer account, excluded: :count.', [
                 'count' => self::ltr(number_format($unattributed)),
             ]);
+
+            $notes[] = $excluded;
+
+            /*
+             * `UNIDENTIFIED_CUSTOMERS_EXCLUDED` IS ANSWERED BY THE COUNTED LINE. `CustomerRetention`
+             * attaches the caveat exactly when `orders_without_identifiable_customer > 0`, which is
+             * exactly this condition, so the two cannot come apart -- and if they ever did, the
+             * generic sentence appears instead of nothing. Guarded all the same, because a
+             * statement for a caveat the figure does not carry is an exception on a merchant screen.
+             */
+            if (in_array(MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED, $caveats, true)) {
+                $statedAs[MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED] = $excluded;
+            }
         }
 
         if (($unrowed = (int) ($figures->notes()['orders_without_ledger_row'] ?? 0)) > 0) {
-            $notes[] = __('Orders with no financial record, which this basis cannot see: :count.', [
+            $missing = __('Orders with no financial record, which this basis cannot see: :count.', [
                 'count' => self::ltr(number_format($unrowed)),
             ]);
+
+            $notes[] = $missing;
+
+            /* Same shape: `ENTITLEMENT_RECORD_INCOMPLETE` is attached on this very count, and this
+               sentence says how many rather than "some orders in this period". */
+            if (in_array(MetricCaveat::ENTITLEMENT_RECORD_INCOMPLETE, $caveats, true)) {
+                $statedAs[MetricCaveat::ENTITLEMENT_RECORD_INCOMPLETE] = $missing;
+            }
         }
 
-        return [
-            'value' => self::ltr(number_format($rate * 100, 2) . '%'),
-            'period' => $period,
-            'hint' => implode(' ', $notes),
-        ];
+        return CaveatedFigure::of(
+            self::ltr(number_format($rate * 100, 2) . '%'),
+            $period,
+            $caveats,
+            $notes,
+            $statedAs,
+        );
     }
 
     /** A date a merchant reads, or the word for "the beginning" when the record covers everything. */
@@ -692,42 +835,41 @@ final class MerchantAnalyticsFigures
      * visit log is empty (a brand-new store, or one whose theme is unset so `ActiveTheme` never logs)
      * would otherwise be told its conversion is 0%, which reads as a failure rather than as no data.
      *
-     * @return array{value: ?string, period: string, hint: string}
+     * GAP-152: a `CaveatedFigure`, and the baseline is no longer computed in here. `forStore()`
+     * holds all four counts and builds the trend beside the figure, so the rate and its comparison
+     * cannot be derived from two different pairs of numbers.
      */
     private static function conversion(
         int $orders,
         int $visits,
         string $period,
-        int $baselineOrders,
-        int $baselineVisits,
-        string $baselinePeriod,
         string $coverageNote = '',
         bool $baselineCovered = true
-    ): array {
-        $meaning = __('Orders divided by storefront page views in this period.').' '.self::visitsMeaning().$coverageNote
-            .($baselineCovered ? '' : ' '.self::baselineUncoveredNote());
+    ): CaveatedFigure {
+        $meaning = [
+            __('Orders divided by storefront page views in this period.'),
+            self::visitsMeaning(),
+            trim($coverageNote),
+            $baselineCovered ? '' : self::baselineUncoveredNote(),
+        ];
 
         if ($visits <= 0) {
-            return [
-                'value' => null,
-                'period' => $period,
-                'hint' => $meaning.' '.__('No page views were recorded in this period, so there is nothing to divide by.'),
-            ];
+            return CaveatedFigure::of(null, $period, [], array_merge($meaning, [
+                __('No page views were recorded in this period, so there is nothing to divide by.'),
+            ]));
         }
 
         $rate = ($orders / $visits) * 100;
 
-        return [
+        return CaveatedFigure::of(
             // Two decimals, because a real storefront rate is commonly under 5% and whole numbers hide it.
-            'value' => self::ltr(number_format($rate, 2).'%'),
-            'period' => $period,
-            'hint' => $orders > $visits
-                ? $meaning.' '.__('There are more orders than recorded page views, so some orders arrived by a route that logs no page view.')
+            self::ltr(number_format($rate, 2).'%'),
+            $period,
+            [],
+            $orders > $visits
+                ? array_merge($meaning, [__('There are more orders than recorded page views, so some orders arrived by a route that logs no page view.')])
                 : $meaning,
-            'comparison' => $baselineCovered
-                ? self::rateComparison($rate, $baselineOrders, $baselineVisits, $baselinePeriod)
-                : null,
-        ];
+        );
     }
 
     /**
@@ -788,9 +930,14 @@ final class MerchantAnalyticsFigures
      * A guest order with no `customer_id` cannot be attributed to a person and is excluded from both, with
      * the count stated rather than folded into "new".
      *
-     * @return array{value: ?string, period: string, hint: string}
+     * GAP-152: the guest-order exclusion is `MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED` and now
+     * travels as that KEY rather than only as prose. The basis is this method's own second query --
+     * `customer_id IS NULL OR customer_id <= 0`, which is the vocabulary's own definition of
+     * unidentifiable, down to the `<= 0` comparison its docblock insists on -- so the caveat is
+     * attached exactly when those rows exist, and answered by the sentence that says HOW MANY.
+     * `CustomerRetention` attaches the same key on the same condition, so the two agree.
      */
-    private static function customers(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period): array
+    private static function customers(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period): CaveatedFigure
     {
         $buyers = Order::query()
             ->where('store_id', $storeId)
@@ -817,22 +964,32 @@ final class MerchantAnalyticsFigures
 
         $new = max(0, count($buyers) - $returning);
 
-        $hint = __('Buyers in this period, split by whether they had ordered from this store before it. A buyer is counted once however many orders they placed.');
+        $meaning = [__('Buyers in this period, split by whether they had ordered from this store before it. A buyer is counted once however many orders they placed.')];
+        $caveats = [];
+        $statedAs = [];
 
         if ($guestOrders > 0) {
-            $hint .= ' '.__('Orders placed without a customer account cannot be attributed to a person and are counted in neither: :count.', [
+            $excluded = __('Orders placed without a customer account cannot be attributed to a person and are counted in neither: :count.', [
                 'count' => number_format($guestOrders),
             ]);
+
+            $meaning[] = $excluded;
+            $caveats[] = MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED;
+            /* The vocabulary says "Orders with no customer attached are not counted"; this says how
+               many, which is what lets a merchant judge whether the split is worth reading. */
+            $statedAs[MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED] = $excluded;
         }
 
-        return [
-            'value' => self::ltr(__(':new new · :returning returning', [
+        return CaveatedFigure::of(
+            self::ltr(__(':new new · :returning returning', [
                 'new' => number_format($new),
                 'returning' => number_format($returning),
             ])),
-            'period' => $period,
-            'hint' => $hint,
-        ];
+            $period,
+            $caveats,
+            $meaning,
+            $statedAs,
+        );
     }
 
     /**

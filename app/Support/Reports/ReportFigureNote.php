@@ -2,6 +2,7 @@
 
 namespace App\Support\Reports;
 
+use App\Support\Metrics\CaveatedFigure;
 use App\Support\Metrics\MetricCaveat;
 
 /**
@@ -42,6 +43,91 @@ use App\Support\Metrics\MetricCaveat;
 final class ReportFigureNote
 {
     /**
+     * GAP-152 / P05-04 — THE CAVEAT LIST THESE FIGURES CARRY, DECLARED ONCE.
+     * =============================================================================================
+     *
+     * Before this, every one of the five composites below ended with its own
+     * `MetricCaveat::message(MetricCaveat::FLOAT_PRECISION)`. That is five literals naming one
+     * claim, which is the shape GAP-217's own next action warned about in terms -- "never a fresh
+     * literal, since one literal duplicated across four blades is what let two of them diverge in
+     * the first place". The sentences moved here and the CAVEAT did not: it was still composed per
+     * method. Now the list is declared once and the words are DERIVED from it by
+     * `CaveatedFigure`, whose `hint()` is computed from `caveats()`, so a caveat added here reaches
+     * every screen and every export without a composite changing.
+     *
+     * WHY `FLOAT_PRECISION` AND NOTHING ELSE, unchanged and still measured: every money figure on
+     * these report screens is accumulated in PHP as `+= (float) $order->...` off
+     * `orders.final_price`, `delivery_price` and `coupon_price`. `payment_status` appears ZERO
+     * times in the controller's report handlers, so a settlement caveat would be an invented
+     * inclusion rule -- the owner's D1/D2 territory.
+     *
+     * @return list<string>
+     */
+    private static function moneyCaveats(): array
+    {
+        return [MetricCaveat::FLOAT_PRECISION];
+    }
+
+    /**
+     * ONE MONEY FIGURE ON A REPORT SCREEN, as a carrier: its definition, and the caveats derived
+     * from the one list above.
+     *
+     * THE PERIOD IS THE CALLER'S, AND AN EMPTY ONE IS NOT AN OVERSIGHT. The five `*Hint()`
+     * composites are read as TEXT by surfaces that state the period themselves -- `<x-ss.stat>`
+     * makes `period` a required prop, and the exports write a Period column of their own -- so a
+     * carrier built only to be asked for `hint()` makes no period claim, and nothing renders one.
+     * A caller with a real period (`_sales_stats` has `$periodLabel`) passes it and gets a carrier
+     * `<x-ss.figure>` can render whole.
+     */
+    public static function figure(?string $value, string $period, string ...$meaning): CaveatedFigure
+    {
+        return CaveatedFigure::of($value, $period, self::moneyCaveats(), $meaning);
+    }
+
+    /** The "Order value" figure, whole: value, period and the words derived from the caveat list. */
+    public static function orderValueFigure(?string $value, string $period): CaveatedFigure
+    {
+        return self::figure($value, $period, self::orderValue());
+    }
+
+    public static function grossOrderValueFigure(?string $value, string $period): CaveatedFigure
+    {
+        return self::figure($value, $period, self::grossOrderValue());
+    }
+
+    public static function shippingChargedFigure(?string $value, string $period): CaveatedFigure
+    {
+        return self::figure($value, $period, self::shippingCharged());
+    }
+
+    public static function couponValueAppliedFigure(?string $value, string $period): CaveatedFigure
+    {
+        return self::figure($value, $period, self::couponValueApplied());
+    }
+
+    /**
+     * THE NINE-COLUMN ROW'S DISCLOSURE: a set, not a figure, and `CaveatedFigure::forFigures()` is
+     * the carrier shape for exactly that -- caveats qualifying SEVERAL figures, with no value of
+     * its own, so `isSingleFigure()` is false and a tile component refuses it rather than printing
+     * "Not available" where a number belongs.
+     *
+     * `MONEY_FLOAT_PRECISION` rather than `FLOAT_PRECISION`: the same measured claim, pluralised,
+     * because "This figure" leaves the reader of a six-money-column row guessing which.
+     *
+     * @param  list<string>  $meaning
+     * @param  array<string, string>  $statedAs
+     */
+    public static function moneyRowFigures(string $period = '', array $meaning = [], array $statedAs = [], array $extraCaveats = []): CaveatedFigure
+    {
+        return CaveatedFigure::forFigures(
+            $period,
+            array_merge([MetricCaveat::MONEY_FLOAT_PRECISION], $extraCaveats),
+            $meaning,
+            $statedAs,
+        );
+    }
+
+    /**
      * What "Order value" is, and -- the load-bearing half -- what it is not.
      *
      * The literal is kept verbatim from the four blades it replaces so that `en.json` and
@@ -68,13 +154,13 @@ final class ReportFigureNote
      */
     public static function orderValueHint(): string
     {
-        return self::orderValue() . ' ' . MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+        return self::orderValueFigure(null, '')->hint();
     }
 
     /** The same composition for the gross figure. */
     public static function grossOrderValueHint(): string
     {
-        return self::grossOrderValue() . ' ' . MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+        return self::grossOrderValueFigure(null, '')->hint();
     }
 
     /**
@@ -97,7 +183,7 @@ final class ReportFigureNote
     /** The same composition for shipping: its definition and the one caveat that applies. */
     public static function shippingChargedHint(): string
     {
-        return self::shippingCharged() . ' ' . MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+        return self::shippingChargedFigure(null, '')->hint();
     }
 
     /**
@@ -110,8 +196,13 @@ final class ReportFigureNote
      */
     public static function couponValueAppliedHint(): string
     {
-        return __('The amount discounted by coupons, already deducted from order value.')
-            . ' ' . MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+        return self::couponValueAppliedFigure(null, '')->hint();
+    }
+
+    /** The coupon tile's existing definition, kept verbatim so both language files keep resolving it. */
+    public static function couponValueApplied(): string
+    {
+        return __('The amount discounted by coupons, already deducted from order value.');
     }
 
     /**
@@ -126,7 +217,7 @@ final class ReportFigureNote
      */
     public static function moneyRowHint(): string
     {
-        return MetricCaveat::message(MetricCaveat::MONEY_FLOAT_PRECISION);
+        return self::moneyRowFigures('')->hint();
     }
 
     /**
@@ -150,21 +241,90 @@ final class ReportFigureNote
      * locale and cannot drift from the page. `$tile['value']` is already a formatted money string
      * carrying its own currency; it is not re-formatted here and no arithmetic is done on it.
      *
-     * @param array{value: ?string, period?: string, hint?: string}|null $tile
+     * GAP-152 / P05-04 — AND THE LEDGER FIGURE'S OWN CAVEATS, WHICH THIS CELL USED TO DROP.
+     *
+     * MEASURED FROM SOURCE before this change: the cell was `moneyRowHint() . ' ' . <the value>`.
+     * It read `$tile['value']` and nothing else -- not `$tile['hint']`, not `$tile['caveats']` --
+     * so the file carried the ledger NUMBER with none of the disclosures the screen prints beside
+     * the same number: the orders with no financial record, the amount assumed into the store
+     * currency, the two-currency refusal. Phase 05's rule is that an export which drops a caveat is
+     * a defect, and `ReportController::salesCollectionTile()` had already flattened a
+     * `CaveatedFigure` with `->toArray()`, whose wire form carries `caveats` for precisely this
+     * reason ("so a gate can assert the mechanism GENERICALLY" -- `CaveatedFigure::toArray()`).
+     * The list was in this method's hand and it composed a sentence instead of deriving one.
+     *
+     * THE TILE'S CAVEATS ARE ANSWERED BY THE TILE'S OWN HINT, which is `FinanceLedgerFigures`'
+     * pattern rather than a shortcut: that hint is itself DERIVED from the same caveat list and
+     * already holds one sentence per caveat, several of them quantified in ways the vocabulary's
+     * generic sentence cannot be ("At least 3 paid orders have no product cost on record"). So
+     * declaring it as the answer to each of the tile's caveats records where they are discharged,
+     * `hint()` collapses the duplicate, and the reader sees the screen's own words once. The
+     * generic sentence would be a second, weaker wording of the same facts.
+     *
+     * A TILE WITH NO `caveats` KEY IS NOT AN ERROR. A session saved before GAP-152, and every
+     * fixture written against the old shape, holds `value`/`period`/`hint` only; the cell then says
+     * what it said before plus whatever hint it was given, and nothing throws.
+     *
+     * @param array{value: ?string, period?: string, hint?: string, caveats?: list<string>}|\App\Support\Metrics\CaveatedFigure|null $tile
      */
-    public static function salesRowHint(?array $tile): string
+    public static function salesRowHint($tile): string
     {
-        $note = self::moneyRowHint();
+        return self::salesRowFigures($tile)->hint();
+    }
 
+    /**
+     * The same disclosure as a carrier, so a caller or a gate can read the caveat KEYS the cell's
+     * words came from rather than matching sentences.
+     *
+     * @param array{value: ?string, period?: string, hint?: string, caveats?: list<string>}|\App\Support\Metrics\CaveatedFigure|null $tile
+     */
+    public static function salesRowFigures($tile = null): CaveatedFigure
+    {
         /* NULL IS "the question cannot be asked" -- no store chosen, or a window the report
            cannot express -- and a null `value` is the same thing one level in. Neither is zero,
            so neither gets a figure: the file simply says what it said before. */
         if ($tile === null || ($tile['value'] ?? null) === null) {
-            return $note;
+            return self::moneyRowFigures();
         }
 
-        return $note . ' ' . __('Payments received over this report\'s period, from the payment ledger: :value. This is one total for the whole period, not a figure for each row.', [
+        $meaning = [__('Payments received over this report\'s period, from the payment ledger: :value. This is one total for the whole period, not a figure for each row.', [
             'value' => (string) $tile['value'],
-        ]);
+        ])];
+
+        $tileHint = trim((string) ($tile['hint'] ?? ''));
+        $tileCaveats = [];
+        $statedAs = [];
+
+        foreach ((array) ($tile['caveats'] ?? []) as $caveat) {
+            $caveat = (string) $caveat;
+
+            /* AN UNKNOWN KEY IS SKIPPED RATHER THAN PASSED ON. `CaveatedFigure` throws on one, and
+               this list can come out of a SESSION written by an earlier revision of the product --
+               a stale key would turn a merchant's download into an HTTP 500. */
+            if (! MetricCaveat::exists($caveat)) {
+                continue;
+            }
+
+            $tileCaveats[] = $caveat;
+
+            /*
+             * THE ROW'S OWN CAVEAT KEEPS ITS OWN SENTENCE. If a future ledger metric ever attaches
+             * `MONEY_FLOAT_PRECISION` too, `array_unique` in the carrier would collapse the two
+             * keys into one and this declaration would REPLACE the plural precision statement with
+             * the tile's hint -- silently deleting from the file the one sentence GAP-217 added to
+             * it. Not live today (`CollectedCustomerPayments` attaches no caveat of its own and the
+             * tile's come from `MetricResult::make()` and `assumingUnknownCurrencyIs()`), which is
+             * exactly why it is guarded now rather than after.
+             */
+            if ($tileHint !== '' && $caveat !== MetricCaveat::MONEY_FLOAT_PRECISION) {
+                $statedAs[$caveat] = $tileHint;
+            }
+        }
+
+        if ($tileHint !== '') {
+            $meaning[] = $tileHint;
+        }
+
+        return self::moneyRowFigures('', $meaning, $statedAs, $tileCaveats);
     }
 }
