@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 278 lines
+### `warning` — 282 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -164,6 +164,19 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 > rows that MOVED and will not invent a destination for a row that is NEW. That is the right
 > division: the tool can follow code, only a person can say who reads a line.
 
+> **[2026-11-26] 278 -> 282. MARKET-004, the module trust boundary.** Four lines in
+> `App\Support\Modules\ModuleTrust`, which is the gate that stops an uploaded package's
+> providers being registered before anybody has reviewed it (`GAP-348`). They are the only
+> record that a package was refused, or that the register could not be read and the package
+> was therefore trusted — so they are the trail for the one failure direction that fails
+> OPEN by design. **Re-pointing note:** the same resync moved **21** existing rows whose
+> `file:line` keys had drifted when thirteen workstream branches merged. That is the
+> instrument working as intended, and it is also the standing argument against a `file:line`
+> key: `SecurityLogInventoryTest` diffs by key, so a drifted row reads as an undocumented
+> line, while `resync-observability-inventory.py` matches by MESSAGE and can repair it. The
+> two disagree about what a row is, which is why the tool refuses to write while any row is
+> genuinely missing — it will not paper over a new line by re-pointing an old one.
+>
 > **[2026-11-26] 272 -> 278. RET-002, the condition of a returned item.** Six lines, and the three
 > that say *"withheld a line from sale"* are the ones a reader will want: one per restock door
 > (`OrderRefundController::RefundStock()`, `Order::performProductReturn()`,
@@ -193,17 +206,17 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/CategoryController.php:570` | category delete refused: products would be cascade-deleted with it |
 | `app/Http/Controllers/PaymentController.php:4898` | WhatsApp URL built for a cart line that is short on stock |
 | `app/Http/Controllers/PaymentController.php:4933` | WhatsApp URL built for a cart line that is short on stock |
-| `app/Http/Controllers/ProductController.php:3361` | variant panel refused: the product is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3590` | product image delete refused: the image belongs to another store |
-| `app/Http/Controllers/ProductController.php:3644` | product image row deleted but the file was not unlinked: StoredUpload refused |
-| `app/Http/Controllers/ProductController.php:3734` | variant image upload refused: the variant is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3847` | variant image row replaced but the old file was not unlinked: StoredUpload |
-| `app/Http/Controllers/ProductController.php:3910` | variant image delete refused: the variant is missing or belongs to another store |
-| `app/Http/Controllers/ProductController.php:3939` | variant image row deleted but the file was not unlinked: StoredUpload refused |
-| `app/Http/Controllers/ProductController.php:3981` | attribute combination edit refused: the product belongs to another store |
-| `app/Http/Controllers/ProductController.php:4147` | product variant delete refused: the variant belongs to another store |
-| `app/Http/Controllers/ProductController.php:4241` | product variant delete refused: the variant is still referenced |
-| `app/Http/Controllers/WoocomProductController.php:418` | woocommerce product edit refused: the mapped product is not in this store |
+| `app/Http/Controllers/ProductController.php:3511` | variant panel refused: the product is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3740` | product image delete refused: the image belongs to another store |
+| `app/Http/Controllers/ProductController.php:3794` | product image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:3884` | variant image upload refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:3997` | variant image row replaced but the old file was not unlinked: StoredUpload |
+| `app/Http/Controllers/ProductController.php:4060` | variant image delete refused: the variant is missing or belongs to another store |
+| `app/Http/Controllers/ProductController.php:4089` | variant image row deleted but the file was not unlinked: StoredUpload refused |
+| `app/Http/Controllers/ProductController.php:4131` | attribute combination edit refused: the product belongs to another store |
+| `app/Http/Controllers/ProductController.php:4297` | product variant delete refused: the variant belongs to another store |
+| `app/Http/Controllers/ProductController.php:4391` | product variant delete refused: the variant is still referenced |
+| `app/Http/Controllers/WoocomProductController.php:452` | woocommerce product edit refused: the mapped product is not in this store |
 | `app/Http/Middleware/BulkDeleteTenantGuard.php:677` | bulk category delete refused: products would be cascade-deleted with the categories |
 | `app/Models/Order.php:1405` | order return refused: the order carries no store_id |
 | `app/Services/PlatformUploadPolicy.php:314` | a platform upload was refused |
@@ -375,13 +388,13 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/FlashedMessageSafety.php:74` | an exception object was flashed to a session and was replaced before it could be rendered |
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
-| `app/Http/Middleware/ModuleResourceOwnershipGuard.php:661` | module resource mutation refused |
+| `app/Http/Middleware/ModuleResourceOwnershipGuard.php:701` | module resource mutation refused |
 | `app/Models/Order.php:1291` | Order return refused: the order carries no readable product_json |
 | `app/Models/Order.php:1302` | Order return refused: the order lines are not in a shape this workflow can return |
-| `app/Models/Utility.php:2318` | New Order webhook skipped: no store could be resolved for the order |
-| `app/Models/Utility.php:2328` | New Order webhook skipped: the resolved store does not exist |
-| `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
-| `app/Providers/PackageServiceProvider.php:144` | addon loader: a module failed to load and its features are absent |
+| `app/Models/Utility.php:2374` | New Order webhook skipped: no store could be resolved for the order |
+| `app/Models/Utility.php:2384` | New Order webhook skipped: the resolved store does not exist |
+| `app/Providers/PackageServiceProvider.php:107` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
+| `app/Providers/PackageServiceProvider.php:171` | addon loader: a module failed to load and its features are absent |
 | `app/Services/CodCollectionService.php:161` | COD collection refused: the event is not verifiable |
 | `app/Services/CodCollectionService.php:176` | COD collection refused: the amount collected does not settle the order |
 | `app/Services/CodCollectionService.php:187` | COD collection cannot be recorded: cod_collection_events has no table |
@@ -412,7 +425,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:221` | Variant stock decrement rejected: insufficient stock |
 | `app/Services/ProductStockService.php:452` | Could not flush the model cache after a stock change |
 | `app/Services/RefundIntegrityService.php:147` | Refund recorded as approved but NOT settled: no gateway refund was made |
-| `app/Services/RefundIntegrityService.php:234` | Refunds awaiting settlement could not be listed. |
+| `app/Services/RefundIntegrityService.php:247` | Refunds awaiting settlement could not be listed. |
 | `app/Services/ShopifyAdminApi.php:137` | a Shopify Admin API address was refused before the request was made |
 | `app/Services/ShopifyAdminApi.php:173` | a Shopify Admin API call answered with a redirect, which was not followed |
 | `app/Services/SocialIdentity/JwksProvider.php:74` | social-identity: provider key fetch failed |
@@ -423,13 +436,17 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StockMovement.php:257` | stock movement not attributed |
 | `app/Services/StoreNotificationService.php:311` | No active Firebase devices found for store. |
 | `app/Services/StoreNotificationService.php:493` | Metric threshold alert could not be recorded |
-| `app/Services/StoredUpload.php:99` | a stored upload path points outside the uploads directory and was not touched |
-| `app/Services/StoredUpload.php:113` | a stored upload path resolved outside the folder its caller confined it to and was not touched |
-| `app/Services/StoredUpload.php:126` | a stored upload path names a platform default and was not touched |
-| `app/Services/StoredUpload.php:144` | a stored upload path names another tenant |
+| `app/Services/StoredUpload.php:101` | a stored upload path points outside the uploads directory and was not touched |
+| `app/Services/StoredUpload.php:115` | a stored upload path resolved outside the folder its caller confined it to and was not touched |
+| `app/Services/StoredUpload.php:128` | a stored upload path names a platform default and was not touched |
+| `app/Services/StoredUpload.php:146` | a stored upload path names another tenant |
 | `app/Support/StoreBoundFilesystem.php:170` | a delete outside the current store was refused |
 | `app/Support/Security/ObjectFreeEncrypter.php:59` | a decrypted payload was not plain data and was refused |
 | `app/Support/Modules/ModuleAvailability.php:99` | ModuleAvailability could not read the enable flag; treating the module as available. |
+| `app/Support/Modules/ModuleTrust.php:132` | module trust: the review register exists and could not be read, so the package is refused |
+| `app/Support/Modules/ModuleTrust.php:176` | module trust: an uploaded package was not loaded because no approved review decision exists for it |
+| `app/Support/Modules/ModuleTrust.php:207` | module trust: an upload could not be recorded because the review register is not migrated |
+| `app/Support/Modules/ModuleTrust.php:244` | module trust: an upload could not be recorded, so nothing holds this package back from loading |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
