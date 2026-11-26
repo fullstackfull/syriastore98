@@ -156,7 +156,7 @@ while the raw table still held it. Assert through `withoutGlobalScopes()`.
 
 ```bash
 php artisan test --testsuite=Unit        # 6524 tests +1 skip, ~2 min. CI RUNS THIS AND BLOCKS
-php artisan test --testsuite=Contract    # 52 tests — the Flutter API contract. Also blocking
+php artisan test --testsuite=Contract    # 58 tests — the Flutter API contract. Also blocking
 php artisan test --testsuite=Feature     # 12500 tests, ~32 min. SKIPPED ENTIRELY if Unit is red
 /tenant-check                            # tenancy + security suites (see .claude/commands)
 ```
@@ -183,7 +183,7 @@ P01-SEC-13 survived. For anything schema-sensitive, use a real MySQL:
 `tests/Support/Security/bin/verify-sec13-migration-on-mysql.php` shows the pattern (it creates and
 drops its own throwaway database).
 
-**A CENSUS THAT READS COMMENTS CAN BE SATISFIED — OR BROKEN — BY PROSE ABOUT THE THING IT MEASURES.** Hit **four times on 2026-11-21 alone**, in three syntaxes: a PHP docblock naming `MerchantPermissions::allowsAny`, a Blade comment containing the literal `` `<a>` `` while explaining that the call was moved *out* of an anchor, and a CSS comment recording that a draft had used `position: relative`. Use `Tests\Support\StripsSourceComments::sourceWithoutComments()` for PHP; strip `{{-- --}}` for Blade and `/* */` for CSS (`ProductActionOverlayTest` has both). **Scope the search to the block too:** an assertion over a whole 7,000-line stylesheet answers "does this string exist anywhere", and a mutation dropping one component's 44px target survived because another component had the same rule.
+**A CENSUS THAT READS COMMENTS CAN BE SATISFIED — OR BROKEN — BY PROSE ABOUT THE THING IT MEASURES.** Hit **eight times**, four on 2026-11-21 alone, in three syntaxes: a PHP docblock naming `MerchantPermissions::allowsAny`, a Blade comment containing the literal `` `<a>` `` while explaining that the call was moved *out* of an anchor, and a CSS comment recording that a draft had used `position: relative`. Use `Tests\Support\StripsSourceComments::sourceWithoutComments()` for PHP; strip `{{-- --}}` for Blade and `/* */` for CSS (`ProductActionOverlayTest` has both). **Scope the search to the block too:** an assertion over a whole 7,000-line stylesheet answers "does this string exist anywhere", and a mutation dropping one component's 44px target survived because another component had the same rule. **AND AN ABSOLUTE LINE CITATION GOES STALE ON ANY INSERTION ABOVE IT — only the ones a TEST covers will say so.** A 14-line guard at `Setting.php:29` (2026-11-26) broke all eight `Setting.php:<n>` citations in docs and comments; the gateway table's ratchet caught the one it tests, 35 minutes into a REQUIRED CI job, and the other seven were silent. Measure drift against the commit's own parent (`git show <sha>^:<file>`) — `HEAD~1` is past it once later commits leave the file alone.
 
 Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as an executable script stating its own preconditions — a conditionally-skipped test would break the declared set.
 
@@ -240,7 +240,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
-| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **179 verified complete, 171 not, +20 recovered and untracked = 191 open** |
+| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **180 verified complete, 170 not, +20 recovered and untracked = 190 open** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |

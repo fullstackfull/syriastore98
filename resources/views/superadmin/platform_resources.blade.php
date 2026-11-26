@@ -148,7 +148,13 @@
             <div class="col-12">
                 <h2 class="h5 mb-1">{{ $disk['label'] }}</h2>
 
-                <p class="ss-muted mb-3">{{ __('Path') }}: <code>{{ $disk['path'] }}</code></p>
+                {{-- GAP-179 / P06-06. `.ss-code` AND NOT A BARE `<code>`, measured rather than
+                     preferred: Bootstrap paints an unclassed `<code>` at #e83e8c, which on this
+                     screen measures 3.65:1 in the light admin and 4.05:1 in the dark one. Both
+                     fail 4.5:1, and the dark figure failing by LESS is why it lasted -- it reads
+                     as merely dim. `.ss-code` takes `--ss-fg` over `--ss-surface-sunken`, a pair
+                     that re-themes, so it is correct in both without a second measurement. --}}
+                <p class="ss-muted mb-3">{{ __('Path') }}: <code class="ss-code">{{ $disk['path'] }}</code></p>
 
                 <div class="table-responsive">
                     <table class="table">

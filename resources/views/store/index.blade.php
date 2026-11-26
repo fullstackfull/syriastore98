@@ -4,16 +4,16 @@
 
 @section('action-button')
     <div class="text-end d-flex flex-wrap all-button-box align-items-center btn-badge justify-content-md-end justify-content-center gap-1">
-        <a href="{{ route('store.subdomain') }}" class="btn btn-sm btn-primary btn-icon" data-bs-toggle="tooltip"
+        <a href="{{ route('store.subdomain') }}" class="ss-btn ss-btn--primary ss-btn--sm" data-bs-toggle="tooltip"
             data-bs-placement="top" title="{{ __('Sub Domain') }}">{{ __('Sub Domain') }}</a>
 
-        <a href="{{ route('store.customdomain') }}" class="btn btn-sm btn-primary btn-badge btn-icon" data-bs-toggle="tooltip"
+        <a href="{{ route('store.customdomain') }}" class="ss-btn ss-btn--primary ss-btn--sm" data-bs-toggle="tooltip"
             data-bs-placement="top" title="{{ __('Custom Domain') }}">{{ __('Custom Domain') }}</a>
 
-        <a href="{{ route('store.list') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon " aria-label="{{ __('List View') }}">
+        <a href="{{ route('store.list') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon" aria-label="{{ __('List View') }}">
             <i class="ti ti-list"></i>
         </a>
-        <a href="javascript::void(0)" class="btn btn-sm btn-primary btn-badge btn-icon" data-ajax-popup="true" data-size="md"
+        <a href="javascript::void(0)" class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon" data-ajax-popup="true" data-size="md"
             data-title="{{ __('Create New User') }}" data-url="{{ route('store.user.create') }}" data-bs-toggle="tooltip"
             title="{{ __('Add New User') }}" aria-label="{{ __('Create New User') }}">
             <i class="ti ti-plus"></i>
@@ -197,7 +197,7 @@
                     <div class="col-xl-3 col-md-4 col-sm-6 col-12">
                         @permission('Create User')
                             <a class="btn-addnew-project" data-url="{{ route('store.user.create') }}" data-title="{{ __('Create New User') }}" data-ajax-popup="true" style="cursor: pointer;" >
-                                <div class="btn btn-sm btn-primary btn-badge btn-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Add New User') }}">
+                                <div class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Add New User') }}">
                                     <i class="ti ti-plus"></i>
                                 </div>
                                 <h6 class="mt-4 mb-2">{{ __('Create New User') }}</h6>

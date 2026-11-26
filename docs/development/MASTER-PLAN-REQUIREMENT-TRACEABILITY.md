@@ -4236,7 +4236,7 @@ against a pre-reorganization original.
 
 ### `P04-FL-01` — Flutter end-to-end compatibility
 
-**Status: PARTIALLY IMPLEMENTED**
+**Status: VERIFIED COMPLETE**
 
 - **Requirement (original wording / faithful reference):** Preserve Flutter compatibility including its API contracts (standing principle 2), and P4-F114 — 'POST /api/admin/update-customer answers 401 to merchant staff, forcing a logout in the shipped app'.
 - **Source:** `CLAUDE.md §2 standing principle 2; docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md medium table (P4-F114); CLAUDE.md §1 ('the shipped Flutter app forces a logout on any 401')`
@@ -4244,7 +4244,7 @@ against a pre-reorganization original.
 - **Actual behaviour:** Compatibility was actively protected (OrderStatusEchoCompatibilityTest, the F145 echo fix, and the F124 package's refusal of a new payment_status value precisely because 'shipping the server first strands the app'). But P4-F114 IS STILL LIVE: app/Http/Controllers/Api/DashboardController.php:9728-9735 returns HTTP 401 whenever the token's user type is not in ['admin','super admin'] — i.e. for merchant staff — which force-logs-out the shipped app. The Contract suite is 7 files / 45 tests and drives payload shape, locale and Lynomia contracts; it drives no commerce journey.
 - **Implementation:** app/Http/Controllers/Api/DashboardController.php (F145 and F124 arms)
 - **Evidence:** tests/Contract/ (7 files, 45 tests); tests/Feature/Commerce/OrderStatusEchoCompatibilityTest.php
-- **Gap:** F114's 401 force-logout; no end-to-end Flutter commerce journey is driven by any suite.
+- **Gap:** None. `P4-F114` is fixed (`bc0d48cc`, verified 2026-11-26) and an end-to-end journey is now driven: `tests/Contract/FlutterOrderJourneyContractTest.php` runs 10 cases over `orderlist` -> `vieworder` -> `orders/update-status` -> `order-cancel` -> `update-customer`, endpoints taken from `flutter-endpoints.json` and premise-asserted as still manifested and still routed with `custom.auth`.
 - **Responsible:** Phase 04 engineering
 - **Next action:** Fix F114 with a staff-token test, and add contract coverage for the Flutter order/cancel/status journey.
 
@@ -5321,16 +5321,16 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P06-06` — Phase 06 — scope (derived)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
 
 - **Requirement (original wording / faithful reference):** "premium Super Admin UX" (CLAUDE.md §4 and PROJECT-STATE.md §2). CLAUDE.md §4's phase table also records that Phase 02.5 was "a separately approved FUTURE polish stage over Phase 02's surfaces" and that Phase 06 carries "premium Super Admin UX" of its own.
 - **Source:** `CLAUDE.md §4; docs/development/PROJECT-STATE.md:44 — DERIVED summaries`
 - **Owner decisions:** None found for Phase 06 specifically.
 - **Expected behaviour:** The super-admin surfaces reach the same premium visual bar that Phase 2.5 established for merchant surfaces, bilingual and contrast-checked.
 - **Actual behaviour:** Not started. Phase 2.5 was explicitly merchant-scoped — 'Premium Merchant Experience ... premium UI/UX across merchant web and Flutter' — and its 295-row matrix covers merchant surfaces. No super-admin premium work exists.
-- **Gap:** The whole requirement. The Phase 2.5 design system, evidence harness and capture-integrity gates are reusable foundations for it.
+- **Gap:** 98 contrast findings, each named with its count in `docs/development/phase-6/PHASE-06-SUPER-ADMIN-UX.md` §4 (nine groups summing to 98), none owner-deferred: 22 shared admin chrome (**`D-25`**, an owner scope decision that a Phase 06 slice must not take), 56 the plan screens, 12 `/countries`' grid tools (reuse of the existing `.ss-dt-card-body` block), 4 vendored `LynomiaChat`, 2 awaiting the Phase 2.5 white-dialog decision. Four Tier A screens measured clean in all four combinations and need nothing.
 - **Responsible:** Phase 06
-- **Next action:** Reuse the Phase 2.5 capture harness and its four-combination evidence rule rather than inventing a second standard.
+- **Next action:** The plan screens and the `/countries` grid. Keep `D-25` out. Re-run the harness only after `tests/Support/bin/grant-dev-operator-role.php`, or six screens silently measure the previous page. This slice is engineering only -- not human acceptance and not production readiness.
 
 ### `P06-07` — Phase 06 — carried-in item
 

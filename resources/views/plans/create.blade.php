@@ -18,7 +18,7 @@
                 <h3 class="h4 m-0">{{ __('Add Plan') }}</h3>
                 <div class="d-flex align-items-center justify-content-end flex-wrap g-2">
                     @if (auth()->user()->type == 'super admin' && isset($setting['chatgpt_key']))
-                        <a href="#" class="btn btn-primary btn-badge me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate"
+                        <a href="#" class="ss-btn ss-btn--secondary ss-btn--sm me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate"
                             data-ss-panel-url="{{ route('generate', ['plan']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
                             title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
                             <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
@@ -255,7 +255,7 @@
 
                     <div class="modal-footer pb-0">
                         <a href="{{ route('plan.index') }}"class="btn btn-badge btn-secondary">{{ __('Back') }} </a>
-                        <input type="submit" value="{{ __('Create') }}" class="btn btn-badge btn-primary ms-2">
+                        <input type="submit" value="{{ __('Create') }}" class="ss-btn ss-btn--primary ms-2">
                     </div>
                 </div>
             </div>

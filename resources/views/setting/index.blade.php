@@ -280,7 +280,7 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
                 </div>
             </div>
             <div class="col-md-12 text-right">
-                <button type="submit" class="btn btn-primary">{{ __('Save Changes') }}</button>
+                <button type="submit" class="ss-btn ss-btn--primary">{{ __('Save Changes') }}</button>
             </div>
         </form>
     </div>

@@ -5,7 +5,7 @@
 @section('action-button')
     @permission('Create Coupon')
     <div class="text-end d-flex all-button-box justify-content-end">
-        <a href="#" class="btn btn-sm btn-primary" data-ajax-popup="true" data-size="md" data-title="{{__('Add Coupon')}}"
+        <a href="#" class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon" data-ajax-popup="true" data-size="md" data-title="{{__('Add Coupon')}}"
             data-url="{{ route('plan-coupon.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Coupon') }}" aria-label="{{__('Add Coupon')}}">
             <i class="ti ti-plus"></i>
         </a>

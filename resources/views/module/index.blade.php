@@ -131,14 +131,14 @@
                                             </div>
                                             <div class="d-flex  gap-2">
                                                 <div class="price">
-                                                    <a class="btn btn-primary btn-badge" title="{{ __('Buy More Add-on') }}" data-bs-toggle="tooltip"
+                                                    <a class="ss-btn ss-btn--primary" title="{{ __('Buy More Add-on') }}" data-bs-toggle="tooltip"
                                                         href="https://workdo.io/product-category/ecommercego-saas-add-ons/ecommercego-add-ons/?utm_source=demo&utm_medium=ecommercego&utm_campaign=btn"
                                                         target="new">
                                                         {{ __('Buy More Add-on') }}
                                                     </a>
                                                 </div>
                                                 <div title="{{ __('Add More Add-ons') }}" data-bs-toggle="tooltip" class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
-                                                    <a href="{{ route('module.add') }}" class="btn btn-primary btn-badge d-flex align-items-center justify-content-center">
+                                                    <a href="{{ route('module.add') }}" class="ss-btn ss-btn--primary d-flex align-items-center justify-content-center">
                                                         <i class="ti ti-plus"></i>
                                                     </a>
                                                 </div>
@@ -184,13 +184,36 @@
                                                                 style="max-width: 100%">
                                                         </div>
                                                         <div class="center-text">
+                                                            {{-- GAP-179 / P06-06. THE ONE SPAN THAT IS 69% OF EVERY CONTRAST
+                                                                 FAILURE ON THE OPERATOR SURFACE, because it renders once per
+                                                                 module and this instance carries 67 of them.
+
+                                                                 Measured in the running admin as the platform operator:
+                                                                   light  rgb(216,0,39) on rgb(255,222,228)   4.26:1
+                                                                   dark   rgb(216,0,39) on rgb(129,96,108)    1.03:1
+                                                                 -- the host paints `.badge.bg-danger` as a soft tint, and on
+                                                                 the dark card that tint composites to a muddy mauve the red
+                                                                 ink simply disappears into. 134 findings per theme.
+
+                                                                 `bg-danger` / `bg-success` ARE REMOVED RATHER THAN JOINED, and
+                                                                 that is the one place this project's "add a DS class, never
+                                                                 substitute" rule does not apply: those utilities carry
+                                                                 `!important`, so an `.ss-badge--danger` sitting beside one
+                                                                 would change nothing at all and the 1.03:1 would survive a
+                                                                 change that looked complete. store-syria-ds.css:5640 names the
+                                                                 same exception for the same reason. `.badge` goes with them:
+                                                                 `.ss-badge` carries its own pill, padding and type scale.
+
+                                                                 `.ss-badge--danger` is #f3a9a4 on #2c1413 in dark (9.06:1) and
+                                                                 red-800 on red-50 in light -- designed pairs, so both themes
+                                                                 are correct by construction. --}}
                                                             <small class="text-muted">
                                                                 @if ($module->isEnabled())
                                                                     <span
-                                                                        class="badge bg-success">{{ __('Enable') }}</span>
+                                                                        class="ss-badge ss-badge--success">{{ __('Enable') }}</span>
                                                                 @else
                                                                     <span
-                                                                        class="badge bg-danger">{{ __('Disable') }}</span>
+                                                                        class="ss-badge ss-badge--danger">{{ __('Disable') }}</span>
                                                                 @endif
                                                             </small>
                                                             <small class="text-primary">{{ __('V') }}
@@ -497,7 +520,7 @@
                                                     {{ __('+2 Premium Android & iOS Native Apps Addon') }}</div>
                                             </div>
                                             <div class="price text-end">
-                                                <a class="btn btn-primary btn-badge" title="{{ __('Buy More Mobile Apps Add-on') }}" data-bs-toggle="tooltip"
+                                                <a class="ss-btn ss-btn--primary" title="{{ __('Buy More Mobile Apps Add-on') }}" data-bs-toggle="tooltip"
                                                     href="https://workdo.io/product-category/ecommercego-saas-addon/ecommercego-mobile-apps/?utm_source=demo&utm_medium=ecommercego&utm_campaign=btn"
                                                     target="new">
                                                     {{ __('Buy More Mobile Apps Add-on') }}
@@ -546,12 +569,12 @@
                                                             <div class="product-content-bottom d-flex gap-2">
                                                                 <a href="{{ $value[2] }}?utm_source=demo&utm_medium=ecommercego&utm_campaign=btn"
                                                                     target="_new"
-                                                                    class="btn btn-primary w-100 mt-2">{{ __('Mobile App') }}</a>
+                                                                    class="ss-btn ss-btn--primary w-100 mt-2">{{ __('Mobile App') }}</a>
                                                             </div>
                                                         @else
                                                             <a href="{{ $value[2] }}?utm_source=demo&utm_medium=ecommercego&utm_campaign=btn"
                                                                 target="_new"
-                                                                class="btn btn-primary w-100 mt-2">{{ __('Buy Now') }}</a>
+                                                                class="ss-btn ss-btn--primary w-100 mt-2">{{ __('Buy Now') }}</a>
                                                         @endif
                                                     </div>
                                                 </div>

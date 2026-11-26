@@ -7640,3 +7640,47 @@ td.dataTables-empty:has(.ss-empty) {
     outline: 2px solid var(--ss-focus-ring, #4f77c0);
     outline-offset: 2px;
 }
+
+
+/* =================================================================================================
+   GAP-179 / P06-06 — PREMIUM SUPER ADMIN UX, slice 1.
+   =================================================================================================
+
+   `.ss-code` — inline literal text (a filesystem path, a key, a command) that the operator is
+   meant to be able to READ and copy.
+
+   WHY IT EXISTS. `/platform/resources` prints each storage disk's path in a bare `<code>`, and a
+   bare `<code>` is painted by Bootstrap at its default pink. Measured in the running admin as the
+   platform operator, in all four theme and direction combinations:
+
+       light   rgb(232,62,140) on rgb(249,250,251)   3.65:1
+       dark    rgb(232,62,140) on rgb(34,36,44)      4.05:1
+
+   Both fail 4.5:1, and the dark one fails by less -- which is exactly why it survived: a glance at
+   the dark page reads as "a bit low" rather than as unreadable, and the light page was never the
+   one anybody looked at. There is no merchant counterpart to this screen, so Phase 2.5 could not
+   have found it.
+
+   WHAT IT TAKES, AND WHY NO LITERAL APPEARS BELOW. `--ss-fg` over `--ss-surface-sunken` is a
+   designed pair that re-themes: grey-900 on grey-100 in light, and #e8eaed on #1f232a in dark.
+   A hard-coded hex is what the rule above it already is, and a literal that happens to pass in
+   one theme is how the defect this replaces came to exist. SuperAdminPremiumSurfaceTest refuses
+   a hex in this block for that reason.
+
+   A path is not prose, so it keeps a monospaced face and `break-all`: an absolute path in a
+   narrow card otherwise either overflows its box or pushes the card wider than the grid. `dir`
+   is NOT set -- a path is Latin inside an Arabic sentence, and the bidi algorithm already isolates
+   it correctly once `unicode-bidi: isolate` scopes it, which is what stops a trailing slash
+   jumping to the wrong end of the line in the RTL build.
+   ============================================================================================== */
+.ss-code {
+    font-family: var(--ss-font-mono, ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace);
+    font-size: 0.875em;
+    color: var(--ss-fg);
+    background: var(--ss-surface-sunken);
+    border-radius: var(--ss-radius-sm);
+    padding-block: 0.0625rem;
+    padding-inline: var(--ss-space-1);
+    word-break: break-all;
+    unicode-bidi: isolate;
+}

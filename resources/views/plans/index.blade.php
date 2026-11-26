@@ -16,7 +16,7 @@
     @permission('Create Plan')
     @if (auth()->user()->type == 'super admin')
         <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
-            <a href="{{ route('plan.create') }}" class="btn btn-sm btn-badge btn-primary" data-bs-toggle="tooltip"
+            <a href="{{ route('plan.create') }}" class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon" data-bs-toggle="tooltip"
             title="{{ __('Create New Plan') }}" aria-label="{{ __('Create New Plan') }}">
                 <i class="ti ti-plus"></i>
             </a>
@@ -264,7 +264,7 @@
                                                 <div class="row">
                                                     <div class="col-9">
                                                     <a href="{{ route('stripe', \Illuminate\Support\Facades\Crypt::encrypt($plan->id)) }}"
-                                                        class="btn w-100 btn-badge btn-primary d-flex align-items-center gap-2  justify-content-center">{{ __('Subscribe') }}
+                                                        class="ss-btn ss-btn--primary w-100 d-flex align-items-center gap-2 justify-content-center">{{ __('Subscribe') }}
                                                         <i class="fas fa-arrow-right"></i>
                                                     </a>
                                                     </div>  
@@ -273,7 +273,7 @@
                                                         @if ($plan && $plan->id != 1)
                                                             @if (\Auth::user()->requested_plan != $plan->id)
                                                                 <a href="{{ route('send.request', [\Illuminate\Support\Facades\Crypt::encrypt($plan->id)]) }}"
-                                                                    class="btn btn-badge btn-primary btn-icon w-100"
+                                                                    class="ss-btn ss-btn--primary w-100"
                                                                     data-title="{{ __('Send Request') }}" data-bs-toggle="tooltip"
                                                                     data-bs-placement="top" title="{{ __('Send Request') }}">
                                                                     <span class="btn-inner--icon"><i class="fas fa-share"></i></span>
@@ -295,7 +295,7 @@
                                                         @if (\Auth::user()->type != 'super admin' && \Auth::user()->plan_id != $plan->id)
                                                             @if ($plan->price > 0 && \Auth::user()->trial_plan == 0 && \Auth::user()->plan_id != $plan->id && $plan->trial == 1)
                                                                 <a href="{{ route('plan.trial', \Illuminate\Support\Facades\Crypt::encrypt($plan->id)) }}"
-                                                                    class="btn btn-lg btn-primary btn-badge btn-icon m-1 w-100">{{ __('Start Free Trial') }}</a>
+                                                                    class="ss-btn ss-btn--primary ss-btn--lg m-1 w-100">{{ __('Start Free Trial') }}</a>
                                                             @endif
                                                         @endif
                                                     </div>

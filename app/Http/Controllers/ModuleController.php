@@ -69,7 +69,7 @@ class ModuleController extends Controller
      *
      *  1. 'Manage Module', WITH AN EXPLICIT SUPER-ADMIN PATH -- the SAME name index() already
      *     requires, chosen because it is the
-     *     only screen that posts here (resources/views/module/index.blade.php:218) and because
+     *     only screen that posts here (resources/views/module/index.blade.php:241) and because
      *     it is listed in config/superadminaccess.php:10 alongside 'Module Add' and
      *     'Module remove', i.e. module management is platform-operator scope BY THE
      *     APPLICATION'S OWN CONFIGURATION. The name is seeded by Utility::addNewData()

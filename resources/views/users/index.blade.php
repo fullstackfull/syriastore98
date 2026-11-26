@@ -226,7 +226,7 @@ $logo = asset(Storage::url('uploads/profile/'));
             @permission('Create User')
             <a class="btn-addnew-project" data-url="{{ route('users.create') }}" data-title="{{ __('Add User') }}"
                 data-ajax-popup="true" style="cursor: pointer;">
-                <div class="btn btn-sm btn-primary btn-badge" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Add User') }}">
+                <div class="ss-btn ss-btn--primary ss-btn--sm ss-btn--icon" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Add User') }}">
                     <i class="ti ti-plus" aria-hidden="true"></i>
                 </div>
                 {{-- P2.5 staff-card-a11y (c), the half the finding did not mention. Repairing only
