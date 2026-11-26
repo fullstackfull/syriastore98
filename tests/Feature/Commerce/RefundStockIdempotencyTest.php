@@ -65,6 +65,7 @@ class RefundStockIdempotencyTest extends TestCase
 
         $this->createRefundSchema();
         $this->loginMerchantOfStoreA();
+        $this->allowsRestock();
     }
 
     protected function tearDown(): void
@@ -74,6 +75,7 @@ class RefundStockIdempotencyTest extends TestCase
 
         foreach ([
             'order_notes',
+            'order_refund_settings',
             'order_refunds',
             'orders',
             'product_variants',
@@ -544,6 +546,7 @@ class RefundStockIdempotencyTest extends TestCase
     {
         foreach ([
             'order_notes',
+            'order_refund_settings',
             'order_refunds',
             'orders',
             'product_variants',
@@ -656,5 +659,46 @@ class RefundStockIdempotencyTest extends TestCase
             $table->unsignedBigInteger('store_id')->nullable()->index();
             $table->timestamps();
         });
+
+        /*
+         * GAP-140 / P4-F086. `RefundStock()` now reads the store's `manage_stock` refund setting
+         * before it credits anything, so this hand-built schema needs the table the real
+         * application has -- mirroring database/migrations/2024_02_07_090422, minus the foreign
+         * key, exactly as the seven tables above drop theirs.
+         *
+         * MEASURED WHEN THIS WAS ADDED, and it is why the gate no longer throws: without the
+         * table the read raised `no such table: order_refund_settings` out of a GATE and nine
+         * cases here failed as errors rather than assertions. `RefundPolicy::allows()` now fails
+         * CLOSED and logs, so the same omission would answer 403 -- which this file would still
+         * fail, correctly, because it is about the credit and not about the policy.
+         */
+        Schema::create('order_refund_settings', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->integer('is_active')->default(0);
+            $table->unsignedBigInteger('store_id')->nullable()->index();
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * The store under test restocks from refund requests, which is the premise every case here
+     * needs and none of them is about. Store A is this file's only tenant (`loginMerchantOfStoreA`),
+     * and the gate reads `getCurrentStore()`, so the row is written for that store.
+     *
+     * The gate's own off, on and never-configured legs belong to
+     * `Feature\Commerce\RefundPolicyEnforcementTest`.
+     */
+    private function allowsRestock(): void
+    {
+        DB::table('order_refund_settings')->insert([
+            'name' => 'manage_stock',
+            'is_active' => 1,
+            'user_id' => getCurrentStore(),
+            'store_id' => getCurrentStore(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }

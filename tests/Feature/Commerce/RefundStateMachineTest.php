@@ -368,6 +368,7 @@ class RefundStateMachineTest extends TestCase
     {
         $this->createRefundSchema();
         $this->asSuperAdmin();
+        $this->allowsRestock();
 
         $productId = $this->makeProduct(['product_stock' => 5]);
 
@@ -413,6 +414,7 @@ class RefundStateMachineTest extends TestCase
     {
         $this->createRefundSchema();
         $this->asSuperAdmin();
+        $this->allowsRestock();
 
         $productId = $this->makeProduct(['product_stock' => 5]);
 
@@ -807,6 +809,22 @@ class RefundStateMachineTest extends TestCase
         return $code;
     }
 
+    /**
+     * GAP-140 / P4-F086: store 1 -- this suite's only tenant, the one `asSuperAdmin()` points
+     * `current_store` at -- restocks from refund requests. The two cases that expect a CREDIT need
+     * it; the ones that expect a refusal must not have it, or they would stop telling the state
+     * machine's 422 from the policy's 403. The gate's own legs belong to
+     * `RefundPolicyEnforcementTest`.
+     */
+    private function allowsRestock(): void
+    {
+        DB::table('order_refund_settings')->insert([
+            'name' => 'manage_stock', 'is_active' => 1,
+            'user_id' => 1, 'store_id' => 1,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     private function asSuperAdmin(): void
     {
         $id = DB::table('users')->insertGetId([
@@ -838,6 +856,26 @@ class RefundStateMachineTest extends TestCase
             $table->string('type')->nullable();
             $table->unsignedBigInteger('current_store')->nullable();
             $table->rememberToken();
+            $table->timestamps();
+        });
+
+        /*
+         * GAP-140 / P4-F086. `RefundStock()` reads the store's `manage_stock` refund setting, so
+         * this hand-built schema needs the table the real application has -- mirroring
+         * database/migrations/2024_02_07_090422 minus the foreign key, as the tables around it do.
+         *
+         * MEASURED: without it the read raised `no such table: order_refund_settings`. The gate
+         * now fails CLOSED on that rather than throwing, which turned the error into a 403 -- a
+         * refusal for the wrong reason, which is worse, because the two cases that expect a CREDIT
+         * would have looked like policy refusals. `allowsRestock()` supplies the row; the cases
+         * that expect the state machine's 422 deliberately do not call it.
+         */
+        Schema::create('order_refund_settings', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->integer('is_active')->default(0);
+            $table->unsignedBigInteger('store_id')->nullable()->index();
             $table->timestamps();
         });
 
@@ -947,7 +985,7 @@ class RefundStateMachineTest extends TestCase
 
     private function dropRefundSchema(): void
     {
-        foreach (['store_wallet_transactions', 'store_order_financials', 'store_wallets', 'order_notes', 'product_variants', 'products', 'order_refunds', 'orders', 'users'] as $table) {
+        foreach (['store_wallet_transactions', 'store_order_financials', 'store_wallets', 'order_notes', 'product_variants', 'products', 'order_refund_settings', 'order_refunds', 'orders', 'users'] as $table) {
             Schema::dropIfExists($table);
         }
     }

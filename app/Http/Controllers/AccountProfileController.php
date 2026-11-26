@@ -1977,9 +1977,50 @@ public function city_list(Request $request, $slug)
             return redirect()->back()->with('error', __('This order was just updated. Please review it and try again.'));
         }
 
+        /*
+         * THE STORE'S OWN ATTACHMENT POLICY, ENFORCED HERE AND NOT ONLY IN BLADE.
+         * GAP-140 / P4-F086.
+         *
+         * `resources/views/front_end/pages/refund_order.blade.php:156` renders the file input only
+         * when this store's `attachment` refund setting is on, and that was the WHOLE of the
+         * control: measured at HEAD, no writer anywhere consulted the setting, so a request
+         * carrying `attachments[]` was accepted and the files were stored in the store's own
+         * `order_refund` folder for a merchant who had switched attachments off -- and the
+         * merchant's refund screen then rendered them as "Refund Image". The input was hidden and
+         * the uploader was open.
+         *
+         * WHAT THIS CHANGES FOR A MERCHANT WHO HAD IT OFF: files posted to this door are no longer
+         * stored. It touches no money, no stock and no status -- the refund request itself is
+         * still recorded in full, because an intake policy is not a reason to lose a shopper's
+         * return.
+         *
+         * NO FLASH MESSAGE, AND THAT IS A DECISION WITH A MEASUREMENT BEHIND IT RATHER THAN AN
+         * OVERSIGHT. P1-SEC-71's rule is that a shopper must be told when their file was dropped,
+         * and `withTheAttachmentRefusal()` below exists for exactly that. It does not apply here:
+         * with the policy off the form renders NO file input, so no shopper using the product can
+         * attach anything, and a request that carries files did not come from the form. Its two
+         * sentences would also both be false here -- they name the file's type and size, and the
+         * reason is neither. The anomaly goes to the log instead. (The residual, recorded: a
+         * shopper whose page was rendered while the policy was still on loses the file silently.
+         * Telling them needs a new translated sentence in both language files.)
+         */
+        $attachmentsAllowed = \App\Services\RefundPolicy::allows(
+            \App\Services\RefundPolicy::ATTACHMENT,
+            $store->id
+        );
+
+        if (! $attachmentsAllowed
+            && ($request->hasfile('attachments') || $this->rejectedByPhp($request, 'attachments') > 0)) {
+            \Log::warning('A refund request carried attachments to a store that accepts none; nothing was stored', [
+                'store_id' => $store->id,
+                'order_id' => $order->id,
+                'customer_id' => $customer->id,
+            ]);
+        }
+
         $data              = [];
-        $refused           = $this->rejectedByPhp($request, 'attachments');
-        if ($request->hasfile('attachments')) {
+        $refused           = $attachmentsAllowed ? $this->rejectedByPhp($request, 'attachments') : 0;
+        if ($attachmentsAllowed && $request->hasfile('attachments')) {
             foreach ($request->file('attachments') as $filekey => $file) {
                 // P1-SEC-71: a name the server builds. The folder was already this store's, but the name was the client's own, so a second
                 // refund with `proof.png` -- anybody's, in the same store -- replaced the first one's evidence under its database row.

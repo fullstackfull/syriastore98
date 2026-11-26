@@ -193,6 +193,27 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         ]);
     }
 
+    /**
+     * GAP-140 / P4-F086: THE REFUND DOOR NOW ASKS THE STORE WHETHER IT RESTOCKS AT ALL.
+     *
+     * Every case in this file is about WHICH DOOR CREDITS WHICH LINE, never about the policy, and
+     * `order/refund_details.blade.php:224` renders an absent or `0` row as NO BUTTON -- so a store
+     * without this row is one the product never offers the action to. Without it the refund door
+     * answers 403 and twelve cases here assert their stock figures against a refusal, which is the
+     * vacuous pass CLAUDE.md records: "the row didn't change" holds either way.
+     *
+     * Written per case rather than inside `asOperator()` so the premise is visible where it is
+     * relied on; the gate's own legs belong to `RefundPolicyEnforcementTest`.
+     */
+    private function allowsRestock(Store $store): void
+    {
+        DB::table('order_refund_settings')->insert([
+            'name' => 'manage_stock', 'is_active' => 1,
+            'user_id' => $store->created_by, 'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     private function asOperator(Store $store): void
     {
         $this->actingAs($this->makePlatformAdmin(['current_store' => $store->id]), 'web');
@@ -248,6 +269,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         $this->assertGreaterThan(0, $refund, 'premise: no refund request was recorded');
 
         // DOOR 3 -- the merchant accepts and presses "Manage Stock".
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->assertSame(200, $this->accept($refund)->getStatusCode(), 'premise: the refund was not accepted');
         $this->restock($refund);
@@ -285,6 +307,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         $refund = $this->refundId();
         $this->assertGreaterThan(0, $refund, 'premise: no refund request was recorded');
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refund);
         $this->restock($refund);
@@ -331,6 +354,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
 
         $this->assertSame(10, $this->stockOf($product), 'premise: the return door credited units the line no longer holds');
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refund);
         $this->restock($refund);
@@ -366,6 +390,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
 
         $this->assertSame(10, $this->variantStockOf($variant), 'premise: the return door credited units the line no longer holds');
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refund);
         $this->restock($refund);
@@ -398,6 +423,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         ]);
         $refund = $this->handRefund($order, $store, 'Accept', [['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 3]]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
 
         $this->assertSame(200, $this->restock($refund)->getStatusCode(), 'premise: the call did not reach the clamp');
@@ -460,6 +486,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
             ['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 2],
         ]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
 
         $this->assertSame(200, $this->restock($refund)->getStatusCode(),
@@ -494,6 +521,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
             ['product_id' => $product, 'name' => 'Widget', 'variant_id' => 0, 'qty' => 3, 'final_price' => 300, 'return' => 0],
         ]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->post(route('order.return.request'), ['id' => $order->id, 'status' => 2])->assertOk();
 
@@ -506,6 +534,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         $refund = $this->refundId();
         $this->assertGreaterThan(0, $refund, 'premise: no refund request was recorded');
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refund);
         $this->restock($refund);
@@ -542,6 +571,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         // Warm the Eloquent read the next door uses, so the assertion below can see a stale one.
         $this->assertNotNull(Order::find($order->id), 'premise: the order does not resolve through Eloquent');
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refund);
         $this->restock($refund);
@@ -594,6 +624,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         $this->requestRefund($shopper, $store, $order, [(string) $product], [3]);
         $refund = $this->refundId();
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refund);
 
@@ -645,6 +676,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         $lines = $this->lines($order->id);
         $this->assertSame(2, (int) ($lines[0]['qty'] ?? -1), 'premise: the partial request did not leave units on the line');
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refund);
         $this->restock($refund);
@@ -717,6 +749,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         $this->assertSame(11, $this->stockOf($product), 'premise: the return door credited something other than the one remaining unit');
         $this->assertTrue($this->markerOnLine($order->id), 'premise: the return door left no marker, so the residual is not what is being measured');
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refund);
         $this->restock($refund);
@@ -749,6 +782,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         $refund = $this->refundId();
         $this->assertFalse($this->markerOnLine($order->id), 'premise: the line was marked before the refund door ran');
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refund);
         $this->restock($refund);
@@ -780,6 +814,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         ]);
         $refund = $this->handRefund($order, $store, 'Accept', [['product_refund_id' => $credited, 'return_price' => 'x', 'quantity' => 3]]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->restock($refund);
 
@@ -808,6 +843,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         ]);
         $refund = $this->handRefund($order, $store, 'Accept', [['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 3]]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->restock($refund);
 
@@ -910,7 +946,10 @@ class RefundStockCrossDoorTest extends SecurityTestCase
             ['product_refund_id' => $foreignProduct, 'return_price' => 'x', 'quantity' => 3],
         ]);
 
-        // The operator, but working in store A.
+        // The operator, but working in store A -- which restocks, so the ORDER and PRODUCT store
+        // predicates below are what refuses, not the refund policy. Without this row the policy
+        // answered 403 first and every "no stock moved" assertion here held for the wrong reason.
+        $this->allowsRestock($storeA);
         $this->asOperator($storeA);
 
         $this->assertSame(404, $this->restock($foreignRefund)->getStatusCode(), 'a refund outside the caller\'s tenant was resolved');
@@ -939,6 +978,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         ]);
         $refund = $this->handRefund($order, $store, 'Processing', [['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 3]]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
 
         $response = $this->restock($refund);
@@ -967,6 +1007,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         ]);
         $refund = $this->handRefund($order, $store, 'Accept', [['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 500]]);
 
+        $this->allowsRestock($store);
         $this->asOperator($store);
 
         $this->assertSame(200, $this->restock($refund)->getStatusCode(), 'premise: the call did not reach the clamp');
@@ -995,6 +1036,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         $this->returnLine($orderA, $productA);
         $this->requestRefund($shopperA, $store, $orderA, [(string) $productA], [3]);
         $refundA = $this->refundId();
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refundA);
         $this->restock($refundA);
@@ -1007,6 +1049,7 @@ class RefundStockCrossDoorTest extends SecurityTestCase
         ]);
         $this->requestRefund($shopperB, $store, $orderB, [(string) $productB], [3]);
         $refundB = $this->refundId();
+        $this->allowsRestock($store);
         $this->asOperator($store);
         $this->accept($refundB);
         $this->restock($refundB);
