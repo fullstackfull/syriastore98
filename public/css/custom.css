@@ -4769,7 +4769,18 @@ html[data-ss-theme="dark"] body .modal-content h3,
 html[data-ss-theme="dark"] body .modal-content h4,
 html[data-ss-theme="dark"] body .modal-content h5,
 html[data-ss-theme="dark"] body .modal-content h6,
-html[data-ss-theme="dark"] body .modal-content .modal-title {
+html[data-ss-theme="dark"] body .modal-content .modal-title,
+/* GAP-060. A GROUP'S LEGEND IS A LABEL, AND IT WAS THE WORST READING ON THIS SURFACE: 1.21:1.
+   `.ss-choicegroup__legend` takes `var(--ss-fg)`, which inside a dark scope is the DARK-PAGE
+   foreground #e8eaed -- near-white on the white modal, i.e. the same class of defect F126 was
+   opened for and not a milder one. MEASURED in Chromium with the full admin cascade and the
+   `.modal` wrapper in place, at 1280px and 375px, in both directions.
+
+   The bare `legend` is listed beside the class for the reason the headings above are listed:
+   `style-dark.css` styles the ELEMENT, so a fieldset in any of the seventy vendored modules'
+   modals has the same problem whether or not it carries the design system's class. */
+html[data-ss-theme="dark"] body .modal-content legend,
+html[data-ss-theme="dark"] body .modal-content .ss-choicegroup__legend {
     color: var(--ss-grey-900, #1a2322) !important;   /* 16.06:1 on #ffffff */
 }
 
@@ -4777,7 +4788,19 @@ html[data-ss-theme="dark"] body .modal-content .modal-title {
    tier, so the DS grey and Bootstrap's own #6c757d stop sitting next to each other. */
 html[data-ss-theme="dark"] body .modal-content p:not([class^="ss-"]):not([class*=" ss-"]),
 html[data-ss-theme="dark"] body .modal-content .form-text,
-html[data-ss-theme="dark"] body .modal-content small {
+html[data-ss-theme="dark"] body .modal-content small,
+/* GAP-060. `.ss-field__hint` IS THE ONE `ss-`-PREFIXED PARAGRAPH THAT HAS TO BE NAMED HERE, and
+   the `:not([class^="ss-"])` above is precisely why it was not covered: that exclusion hands the
+   paragraph back to the design system's own rule, which forces `--ss-fg-muted` -- and inside a
+   dark scope that is the DARK-PAGE muted #a7abb2, which measured 2.30:1 on this white surface.
+   The exclusion is right in general and wrong for this one class, so the class is named rather
+   than the exclusion loosened.
+
+   P02-I4 is what made this reachable at scale: contextual help had only ever been on PAGE
+   screens (product create/edit), where #a7abb2 on #292A33 is 6.18:1 and correct. Putting it on
+   six modal partials is what moved it onto the white surface. MEASURED in Chromium with the full
+   admin cascade, 1280px and 375px, both directions, before and after. */
+html[data-ss-theme="dark"] body .modal-content .ss-field__hint {
     color: var(--ss-grey-600, #5b6665) !important;   /* 5.94:1 on #ffffff */
 }
 

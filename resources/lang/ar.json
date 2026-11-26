@@ -1564,7 +1564,7 @@
     "Manage your clients, users, and deals from anywhere, and from a single tab. Access a wide range of features, get a graphical representation of your data, and make informed decisions.": "إدارة عملائك والمستخدمين والصفقات من أي مكان، ومن علامة تبويب واحدة. الوصول إلى مجموعة واسعة من الميزات، والحصول على تمثيل رسومي للبيانات الخاصة بك، واتخاذ قرارات مستنيرة.",
     "Manage Your Leads Better. Convert Faster.": "إدارة عملائك بشكل أفضل، تحويل أسرع.",
     "Manage your products with ease": "إدارة منتجاتك بسهولة",
-    "Manual": "دليل",
+    "Manual": "يدوي",
     "Manually": "يدوياً",
     "Manually plan upgraded by super admin": "تم ترقية الخطة يدوياً بواسطة المدير",
     "March": "مارس",
@@ -4692,5 +4692,15 @@
     "Each page of the official website, how many of its texts have been supplied in each language, and how much content is still owed.": "كل صفحة من صفحات الموقع الرسمي، وكم من نصوصها قُدِّم بكل لغة، وكم بقي من المحتوى المطلوب.",
     "A text left empty uses the wording the site ships with. The texts counted as outstanding carry no built-in wording at all, because the owner supplies them: until they do, those pages say so rather than showing anything.": "النص المتروك فارغًا يستخدم الصياغة الأصلية للموقع. أمّا النصوص المحسوبة كمتبقّية فليست لها صياغة أصلية إطلاقًا لأن المالك هو من يقدّمها: وإلى أن يفعل، تذكر تلك الصفحات ذلك بدل عرض أي شيء.",
     "Leave a text empty to use the wording the site ships with. A change is published as soon as it is saved.": "اترك النص فارغًا لاستخدام الصياغة الأصلية للموقع. يُنشر التغيير فور حفظه.",
-    "The site ships with no wording for this. Nothing is published until the approved text is supplied here.": "لا توجد صياغة أصلية لهذا في الموقع. لا يُنشر شيء إلى أن يُقدَّم النص المعتمد هنا."
+    "The site ships with no wording for this. Nothing is published until the approved text is supplied here.": "لا توجد صياغة أصلية لهذا في الموقع. لا يُنشر شيء إلى أن يُقدَّم النص المعتمد هنا.",
+    "Record how the customer is paying. Set the payment status below once the money has reached you.": "سجّل طريقة دفع العميل، ثم اضبط حالة الدفع بالأسفل بعد وصول المبلغ إليك.",
+    "Choose Paid only if the money has already reached you. You can change this later on the order page.": "اختر «مدفوع» فقط إذا وصلك المبلغ فعلاً. يمكنك تغيير ذلك لاحقاً من صفحة الطلب.",
+    "A private note is for your team only. To customer shows the note to the customer on their order page.": "الملاحظة الخاصة لفريقك وحده. أما «إلى العميل» فتظهر للعميل في صفحة طلبه.",
+    "Tick this to add the delivery charge to the refund. The refund total is saved as soon as you tick it.": "حدّد هذا الخيار لإضافة رسوم التوصيل إلى المبلغ المُرجَع. يُحفظ إجمالي الإرجاع فور تحديده.",
+    "Per class charges for each shipping class in the basket. Per order charges once, for the most expensive class.": "«لكل فئة» يحسب رسوماً لكل فئة شحن في السلة. «لكل طلب» يحسب الرسوم مرة واحدة، لأغلى فئة.",
+    "Choose what a customer must do to earn free shipping. Some choices also ask for a minimum order amount.": "اختر ما يجب على العميل فعله للحصول على شحن مجاني. بعض الخيارات تطلب أيضاً حداً أدنى لقيمة الطلب.",
+    "Pick every shipping method a customer in this zone may choose at checkout. You can pick more than one.": "اختر كل طرق الشحن التي يمكن للعميل في هذه المنطقة اختيارها عند إتمام الشراء. يمكنك اختيار أكثر من واحدة.",
+    "How to set the code": "كيفية تحديد الرمز",
+    "Choose Manual to type your own coupon code, or Auto Generate to have one created for you.": "اختر «يدوي» لكتابة رمز القسيمة بنفسك، أو «توليد تلقائي» ليُنشأ لك رمز.",
+    "Tick only what this role needs. Anyone you give this role can do everything ticked here.": "حدّد ما يحتاجه هذا الدور فقط. كل من تمنحه هذا الدور يستطيع تنفيذ كل ما هو محدّد هنا."
 }

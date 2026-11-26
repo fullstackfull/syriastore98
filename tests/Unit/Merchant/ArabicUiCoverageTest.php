@@ -132,6 +132,32 @@ class ArabicUiCoverageTest extends TestCase
         // call the only time the list has ever been widened before a gap existed.
         'resources/views/theme_customize/*.blade.php',
         'resources/views/attribute_option/*.blade.php',
+
+        // ADDED 2026-11-26 WITH GAP-060 / P02-I4, in the same change that put new strings on these
+        // screens -- which this list's own comments call the only honest time to widen it.
+        //
+        // P02-I4 ("short task-oriented instructions") had been delivered on the product editor
+        // only, and the gap sentence names orders, shipping and staff. The instructions now on the
+        // role-permission matrix, the two shipping-method modals, the two shipping-zone modals and
+        // the coupon code group are user-visible sentences on screens NO glob here matched, so
+        // every one of them could have rendered in English for an Arabic merchant with this test
+        // green -- exactly the failure the `theme_customize` note three paragraphs above records.
+        //
+        // MEASURED BEFORE ADDING, with `collectKeys()`'s own extraction: shipping 18 keys,
+        // shipping_method 13, shippingzone 19, roles 23, coupon 44 -- and ZERO of the 117 missing
+        // from ar.json. So these five globs close a LATENT gap and turn nothing red; the one live
+        // Arabic defect on this surface was a WRONG translation rather than a missing one
+        // ('Manual' => 'دليل', a manual as in a handbook, on four coupon-code radios where the word
+        // means by hand), which no key-presence census can see and which is fixed in the same
+        // change.
+        //
+        // `shipping/` carries no choice group and gained no string here; its glob is added anyway
+        // because it is the same merchant surface and was equally unscanned.
+        'resources/views/shipping/*.blade.php',
+        'resources/views/shipping_method/*.blade.php',
+        'resources/views/shippingzone/*.blade.php',
+        'resources/views/roles/*.blade.php',
+        'resources/views/coupon/*.blade.php',
     ];
 
     /**

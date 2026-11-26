@@ -82,7 +82,7 @@ Each of these has produced a real defect. Do not assume the framework default.
 - **No WorkDo module loads in any test run** unless the test inserts an `add_on_managers` row, so
   the suite is structurally blind to module code: a test that "passes" against a module surface may
   never have reached it. Enable it through the production loader and add a premise test.
-- **MOST of `ReportController` cannot run under the suite** — 37 `MONTH(`/10 `YEAR(` in `selectRaw`, absent from SQLite, so those handlers answer **HTTP 500** in a Feature test. That is how 3,660 lines with zero `payment_status` predicates and an 18-site date-boundary bug survived 9,112 tests. **"AT ALL" was too strong and cost a real disposition** (2026-11-21): `order_category_reports` (1893-2360) and `order_brand_reports` (2382-2903) hold **0** MySQL-only constructs, so those two ARE suite-reachable — check your handler's own range before concluding it is untestable.
+- **MOST of `ReportController` cannot run under the suite** — 37 `MONTH(`/10 `YEAR(` in `selectRaw`, absent from SQLite, so those handlers answer **HTTP 500** in a Feature test. That is how 3,660 lines with zero `payment_status` predicates and an 18-site date-boundary bug survived 9,112 tests. **"AT ALL" was too strong and cost a real disposition** (2026-11-21): `order_category_reports` (2281-2797) and `order_brand_reports` (2871-3426) hold **0** MySQL-only constructs, so those two ARE suite-reachable — check your handler's own range before concluding it is untestable.
   Evidence for the unreachable ones goes in `tests/Support/Security/bin/`, never a test.
 
 **Model caching**
@@ -197,7 +197,7 @@ Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as 
 | 02 Merchant Experience | merchant dashboard, product/order UX, preferences, search, notifications, onboarding, web and Flutter parity | **owner authorised isolated engineering (2026-10-25); not authorised to merge/release** |
 | 02.5 Premium Merchant UI/UX | a separately approved FUTURE polish stage over Phase 02's surfaces | **not started — must not be merged into Phase 02** |
 | 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO, **plus a separately scoped Official Website and a bilingual Documentation Center** | engineering under way on the branch; **13 of 36** requirements verified. Not authorised to merge or release |
-| 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | engineering under way on the branch; **17 of 43** requirements verified. Not authorised to merge or release |
+| 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | engineering under way on the branch; **18 of 43** requirements verified. Not authorised to merge or release |
 | 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | engineering under way on the branch; counted with 06 below. Not authorised to merge or release |
 | 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin, **plus premium Super Admin UX** | engineering under way on the branch (14 documents under `docs/development/phase-6/`); **05 and 06 together: 1 of 35** requirements verified. Not authorised to merge or release |
 

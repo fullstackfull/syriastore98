@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 179 VERIFIED COMPLETE. 171 are not.**
+**350 requirements recovered. 180 VERIFIED COMPLETE. 170 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 179 verified complete, 191 not.** It read 368/198
+project-wide figure is **370 known requirements, 180 verified complete, 190 not.** It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -143,9 +143,9 @@ against a pre-reorganization original.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **179** |
+| VERIFIED COMPLETE | **180** |
 | PARTIALLY IMPLEMENTED | **101** |
-| NOT IMPLEMENTED | **12** |
+| NOT IMPLEMENTED | **11** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -158,7 +158,7 @@ against a pre-reorganization original.
 | 02 Merchant Experience | 114 | 100 | **14** |
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
 | 03 Storefront, Themes, Official Website and Documentation (M | 36 | 13 | **23** |
-| 04 Commerce (P4-0 .. P4-9) | 43 | 17 | **26** |
+| 04 Commerce (P4-0 .. P4-9) | 43 | 18 | **25** |
 | 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 2 | **33** |
 
 ---
@@ -4919,7 +4919,7 @@ carries a caveat today", and as of P5-10 two do.)*
 - **Owner decisions:** None found.
 - **Expected behaviour:** A merchant sees who their customers are and what they are worth, on figures they can trust.
 - **Actual behaviour:** Pre-existing surfaces partly deliver this and all of them are untrustworthy by the phase's own standard. ReportController::index computes new/returning customer and guest counts per period, store-scoped. Api/DashboardController serves a customer list with lifetime spend as SUM(orders.final_price) per customer (inventory rows: ':6417-6420' and ':8661-8667'), which the inventory marks dependent on F124, F126 and F127 — 'total spend counts cancelled, unpaid and refunded orders'. No Phase 05 work.
-- **Gap:** Every money-bearing customer figure counts cancelled, unpaid and refunded orders. No customer metric is defined in PHASE-05-METRIC-DEFINITIONS.md.
+- **Gap:** One item, and it is an OPEN OWNER DECISION rather than an owner-approved deferral: `Total Spend` and the admin API's `total_spend` still carry their shipped meaning and are not repointed at the ledger, because doing so would silently change which customers a live saved segment returns and would change a public API key the shipped Flutter app reads. Five money-bearing customer surfaces now carry `collected` and `retained` beside an order-value figure that says what it is; the order-value figure itself is unchanged by owner decision Option A (`app/Models/Order.php:731-734`), which forbids a predicate on `orders`. A sixth surface would now fail the Unit suite. Evidence: `CustomerMoneySurfacesTest` and `CustomerMoneyFigureCensusTest`, 37 tests / 5303 assertions.
 - **Responsible:** Phase 05 (P5-4), gated on P5-2
 - **Next action:** Define customer lifetime value against §2 (collected payments) rather than §1 (GMV), then repoint both the web and Flutter surfaces.
 

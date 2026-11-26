@@ -19,6 +19,27 @@
 
     <div class="form-group">
         @if (!empty($permissions))
+            {{-- GAP-060 / WS I4 + I5. THE PERMISSION GRID IS ONE CHOICE GROUP AND HAD NO NAME AND NO
+                 INSTRUCTION.
+
+                 `permissions[]` is a single set of checkboxes spread over a tab per module, and
+                 nothing on this screen said so: a screen reader met a check-all, then a table, then
+                 fifty-odd checkboxes, with no group name and nothing to say what ticking one does.
+                 That is exactly the case `components/ss/choice-group.blade.php` exists for -- the
+                 thing being described is the SET -- so the group gets a `<fieldset>`, a legend, and
+                 the instruction bound to the fieldset with `aria-describedby`.
+
+                 IT GOES INSIDE the `$permissions` guard, deliberately. A fieldset and a legend
+                 rendered around nothing would announce an empty group, which is worse than the
+                 silence it replaces.
+
+                 THE FIELDSET IS NOT GIVEN `disabled` ANYWHERE. That attribute on a fieldset
+                 disables every descendant, so it is the one property of this element that could
+                 turn a presentational wrapper into a functional change. The three `Checkall`,
+                 `CheckModule` and `CheckPermission` handlers address controls by id and by class
+                 and are unaffected by a wrapper. --}}
+            <x-ss.choice-group name="permissions" :legend="__('Permissions')"
+                    :hint="__('Tick only what this role needs. Anyone you give this role can do everything ticked here.')">
             <div class="col-sm-12 col-md-10 col-xxl-12 col-md-12">
                 <div class="p-3 card mb-2">
                     <ul class="nav nav-pills nav-fill gap-2" id="pills-tab" role="tablist">
@@ -157,6 +178,7 @@
                     </div>
                 </div>
             </div>
+            </x-ss.choice-group>
 
 
         @endif

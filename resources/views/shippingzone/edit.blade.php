@@ -32,7 +32,11 @@
     @endif
     <div class="form-group col-md-12">
         {{ Form::label('shipping_method', __('Shipping Method'), ['class' => 'col-form-label']) }}
-        {!! Form::select('shipping_method[]', $shippingMethod, $zone_selected, ['class' => 'form-control select2', 'id' => 'choices-multiple', 'multiple','data-role'=>'tagsinput']) !!}
+        {!! Form::select('shipping_method[]', $shippingMethod, $zone_selected, ['class' => 'form-control select2', 'id' => 'choices-multiple', 'multiple','data-role'=>'tagsinput','aria-describedby'=>'shipping_method-help']) !!}
+        {{-- GAP-060 / WS I4. The same instruction as the create view, which is deliberate: the two
+             forms are the same decision and a merchant who learns it once should not meet
+             different words on edit. --}}
+        <x-ss.field-help for="shipping_method">{{ __('Pick every shipping method a customer in this zone may choose at checkout. You can pick more than one.') }}</x-ss.field-help>
     </div>
     <div class="modal-footer pb-0">
         <input type="button" value="{{__('Cancel')}}" class="btn btn-badge btn-secondary" data-bs-dismiss="modal">

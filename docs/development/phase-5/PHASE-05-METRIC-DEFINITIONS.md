@@ -721,11 +721,40 @@ answers null for any empty ledger — would have dropped exactly the customers a
 segment is looking for. **The filter refuses precisely what the tile refuses**, so the list can
 never select on a number it declines to print.
 
-**Surfaces.** Customer timeline, merchant customer list and its filter, and the admin API's
-`ledger` block on `customerlist` and `/customer/orders`. All four go through
-`CustomerMoneyFigures`, so display and selection cannot drift. `Total Spend` / the API's
-`total_spend` keep their shipped values and now carry a caveat saying they are order value and not
-money received.
+**Surfaces.** Customer timeline, merchant customer list and its filter, the filter fragment at
+`GET /customer-filter-data`, and the admin API's `ledger` block on `customerlist` and
+`/customer/orders`. All of them go through `CustomerMoneyFigures`, so display and selection cannot
+drift. `Total Spend` / the API's `total_spend` keep their shipped values and now carry a caveat
+saying they are order value and not money received.
+
+**THIS PARAGRAPH SAID "ALL FOUR" AND THE FOURTH WAS MISSING, which is worth recording because it is
+the failure this whole section exists to repair, committed again inside the repair.**
+`resources/views/customer/filter.blade.php` is a SECOND copy of the customer list — the `<tr>` rows
+`CustomerController::CustomFilterData()` returns — and it went on printing `total_spend` as a bare,
+unlabelled money cell with neither ledger figure beside it. The duplication is why it was missed,
+and this exact pair had already produced a defect for the same reason: `P2.5-R-06` found all three
+numeric filter faults in *both* `CustomerDataTable::query()` and that method, six instances of three
+bugs, because a reader who repaired one copy had not repaired the screen.
+
+It was also the one place §15.2's own rule did not hold. `CustomerListFilter::NUMERIC_FIELDS`
+carries `Payments Collected` and `Net Retained`, and `apply()` is shared, so that fragment could
+*already* be filtered by a ledger figure while showing only order value — the opposite of "the
+filter refuses precisely what the tile refuses, so the list can never select on a number it
+declines to print".
+
+The fragment has no header of its own and cannot borrow the list's by position
+(`buildDataTableColumn()` prepends a hidden `id` column, and a checkbox column where bulk delete is
+on), so each of its money cells carries its own label, taken from the same words as the list's
+column titles. The full order-value sentence is the cell's `title` rather than a visually hidden
+span: `P5-11` found nine honesty sentences clipped to 1×1 with no reveal rule and ruled that a
+caveat must be **visible**, and on this surface the visible disclosure is the label itself.
+
+**A fifth surface is now a test failure rather than a discovery.**
+`tests/Unit/Metrics/CustomerMoneyFigureCensusTest` counts every call site of the two per-customer
+money methods and every per-customer `SUM(orders.final_price)`, comment-stripped and keyed on the
+call rather than on a word, declares each with what stands beside it, and asserts every printing
+surface still names the resolver. Two of its six cases redden when either half of this repair is
+reverted.
 
 **One attribution question is left open, deliberately.** The two admin API endpoints attribute
 `orders`/`total_spend`/`aov` by `customer_id` alone, while `Customer::ownStoreOrders()` — which
@@ -735,8 +764,12 @@ their own. So those endpoints can report `orders: 0` beside a non-zero collected
 is right is a product question, not a correctness one; the payload states `attribution` rather than
 a guess being made.
 
-**Verification test.** `CustomerMoneySurfacesTest` — the tiles in the customer's own currency and
-not the viewer's; the two figures differing on a refund; an unpaid order as a real zero; an
+**Verification test.** `CustomerMoneySurfacesTest` — the filter fragment carrying both ledger
+figures beside an order value that counts a refunded and a never-paid order, its order-value cell
+stating that it is not money received, and a figure the record cannot produce withheld there rather
+than printed as 0.00 (with a positive control on the same fragment, because "Not available appears"
+is otherwise satisfied by a fragment that prints it for everyone); the tiles in the customer's own
+currency and not the viewer's; the two figures differing on a refund; an unpaid order as a real zero; an
 uncovered order withheld with its count; two currencies listed and never added; a storeless
 customer refused; the wallet divergence withheld and its fully-refunded opposite shown; the filter
 selecting on the printed figure, keeping a never-paid customer in "less than", excluding an unknown

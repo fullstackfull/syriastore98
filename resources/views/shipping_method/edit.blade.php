@@ -16,10 +16,15 @@
     </div>
     <div class="form-group col-md-12">
         {!! Form::label('calculation_type', __('Calculation type'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
+        {{-- GAP-060 / WS I4. The two option TEXTS are WorkDo's and are not wrapped in `__()`, so
+             they render in English on an Arabic screen. That is a separate defect from this row --
+             changing an option label changes what the control says, not what it explains -- and it
+             is reported rather than fixed here. The instruction below is in both languages. --}}
         {{ Form::select('calculation_type',
         ['1'=>'Per class: Charge shipping for each shipping class individually',
         '2'=>'Per order: Charge shipping for the most expensive shipping class'],
-        null, array('class' => 'form-control','required'=>'required','placeholder'=>'Select calculation type')) }}
+        null, array('class' => 'form-control','required'=>'required','placeholder'=>'Select calculation type','aria-describedby'=>'calculation_type-help')) }}
+        <x-ss.field-help for="calculation_type">{{ __('Per class charges for each shipping class in the basket. Per order charges once, for the most expensive class.') }}</x-ss.field-help>
     </div>
     @if($shippings_count != 0)
         @foreach ($shippings as $key => $shipping)

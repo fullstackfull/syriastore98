@@ -781,7 +781,72 @@ public function destroy(Customer $customer)
 
         $customers = $query->get();
 
-        $filter = view('customer.filter', compact('customers', 'activitylog'))->render();
+        /*
+         * GAP-156. THE FOURTH SURFACE, AND THE ONE THE FIRST THREE MISSED.
+         *
+         * `customer/filter.blade.php` is a SECOND copy of the customer list -- the `<tr>` rows this
+         * handler returns -- and it printed `$customer->total_spend()` as a bare, unlabelled money
+         * cell plus an AOV derived from it. That figure sums `orders.final_price` with NO payment
+         * predicate: a cancelled order, a refunded order and an order nobody ever paid for all
+         * count in full. On this surface nothing said so, and nothing stood beside it, so the
+         * number read as what the shopper had paid.
+         *
+         * THE DUPLICATION IS WHY IT WAS MISSED, and this exact pair has already produced a defect
+         * of its own: P2.5-R-06 found all three numeric filter faults in BOTH
+         * `CustomerDataTable::query()` and this method -- six instances of three bugs -- because a
+         * reader who repaired one copy had not repaired the screen. The list acquired the §15
+         * figures and the honest title; this copy did not.
+         *
+         * IT IS ALSO THE HALF THAT CAN SELECT ON WHAT IT WOULD NOT PRINT.
+         * `CustomerListFilter::NUMERIC_FIELDS` now carries `Payments Collected` and `Net Retained`,
+         * and `apply()` above is the shared implementation, so this fragment could ALREADY be
+         * filtered by a ledger figure while showing only order value. PHASE-05-METRIC-DEFINITIONS.md
+         * §15.2 states the rule the other way round -- "the filter refuses precisely what the tile
+         * refuses, so the list can never select on a number it declines to print" -- and this
+         * surface was the one place it did not hold.
+         *
+         * THE BULK PATH, which this handler can use and the DataTable cannot: a yajra row callback
+         * is handed one model and never sees its page, while this method holds the whole
+         * collection. One grouped ledger read for the direct-attribution customers instead of one
+         * per row -- `CustomerMoneyFigures::forCustomers()`'s own reason for existing.
+         *
+         * THE TILES ARE STILL BUILT PER CUSTOMER, and that cost is stated rather than hidden:
+         * `CustomerMoneyTiles::fromFigures()` reads the store's `defult_currancy` setting each
+         * time, so a page of N customers pays N of those reads. That is exactly what the shipped
+         * list already pays (`CustomerDataTable::moneyCell()` memoises per row, not per page), and
+         * the alternative -- a `static` currency memo -- is the thing that file's own comment warns
+         * against, because a static outlives the request under a resident worker and outlives the
+         * TEST under PHPUnit.
+         *
+         * SCOPED TO THE CUSTOMER'S OWN STORE, never to `getCurrentStore()`: the viewer's store is
+         * the wrong tenant to format money in, and `getCurrentStore()` answers the literal 1 for an
+         * operator with no current store. `CustomerMoneyFigures::forCustomers()` groups its reads
+         * by store for that reason, and the store id handed to the tiles below is the row's own.
+         *
+         * KEYED BY CUSTOMER ID ALONE, which is where this differs from `CustomerDataTable`'s memo
+         * and why that difference is safe: that memo keys on store AND customer because it is
+         * filled one row at a time and two stores could present the same customer id. This array
+         * is built from a single `$customers` collection, whose ids are a primary key and therefore
+         * unique within it whatever stores they span.
+         */
+        $customerFigures = \App\Support\Customers\CustomerMoneyFigures::forCustomers($customers);
+        $customerMoney = [];
+
+        foreach ($customers as $listedCustomer) {
+            $listedCustomerId = (int) $listedCustomer->id;
+            $figures = $customerFigures[$listedCustomerId] ?? null;
+
+            if ($figures === null) {
+                continue;
+            }
+
+            $customerMoney[$listedCustomerId] = \App\Support\Customers\CustomerMoneyTiles::fromFigures(
+                $figures,
+                (int) ($listedCustomer->store_id ?? 0),
+            );
+        }
+
+        $filter = view('customer.filter', compact('customers', 'activitylog', 'customerMoney'))->render();
 
         return response()->json($filter);
     }

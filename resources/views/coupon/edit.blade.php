@@ -66,6 +66,25 @@
         {{ Form::date('coupon_expiry_date', null, ['class' => 'form-control', 'required' => 'required', 'placeholder' => 'Select date']) }}
     </div>
     <div class="form-group">
+    {{-- GAP-060 / WS I4 + I5. THE FIELDSET PATTERN, not the single-field one, and the product
+         editor's own component makes the distinction: the thing being described is the SET, and a
+         description hung off one radio is announced only when a reader happens to land on it.
+
+         WHAT WAS HERE: two radios in a bare `<div class="d-flex radio-check">` with NO group name
+         of any kind -- no legend, no label, not even an empty one. A screen reader announced
+         "Manual, radio button 1 of 2" with nothing to say what was being chosen, and nothing on
+         the screen said what either option does.
+
+         `name="coupon_code_mode"` IS THE GROUP'S identifier, NOT the radios'. The inputs keep
+         `name="icon-input"`, which is what gets posted; the component uses its `name` prop only
+         for `data-ss-choicegroup` and the instruction's id. Renaming the radios would be a
+         functional change for a cosmetic reason.
+
+         THE LEGEND IS DELIBERATELY NOT "Coupon Code": that is the LABEL of the text input directly
+         below, and two controls announcing the same name is the defect this component removes
+         rather than a second one to introduce. --}}
+    <x-ss.choice-group name="coupon_code_mode" :legend="__('How to set the code')"
+        :hint="__('Choose Manual to type your own coupon code, or Auto Generate to have one created for you.')">
         <div class="d-flex radio-check">
             <div class="form-check m-1">
                 <input type="radio" id="manual_code" value="manual" name="icon-input" class="form-check-input code"
@@ -77,6 +96,7 @@
                 <label class="form-check-label" for="auto_code">{{ __('Auto Generate') }}</label>
             </div>
         </div>
+    </x-ss.choice-group>
     </div>
     <div class="form-group col-md-12">
         {{-- P2.5 a11y -- THE CREATE VIEW HAS THIS LABEL AND THE EDIT VIEW DID NOT.

@@ -4698,5 +4698,15 @@
     "Each page of the official website, how many of its texts have been supplied in each language, and how much content is still owed.": "Each page of the official website, how many of its texts have been supplied in each language, and how much content is still owed.",
     "A text left empty uses the wording the site ships with. The texts counted as outstanding carry no built-in wording at all, because the owner supplies them: until they do, those pages say so rather than showing anything.": "A text left empty uses the wording the site ships with. The texts counted as outstanding carry no built-in wording at all, because the owner supplies them: until they do, those pages say so rather than showing anything.",
     "Leave a text empty to use the wording the site ships with. A change is published as soon as it is saved.": "Leave a text empty to use the wording the site ships with. A change is published as soon as it is saved.",
-    "The site ships with no wording for this. Nothing is published until the approved text is supplied here.": "The site ships with no wording for this. Nothing is published until the approved text is supplied here."
+    "The site ships with no wording for this. Nothing is published until the approved text is supplied here.": "The site ships with no wording for this. Nothing is published until the approved text is supplied here.",
+    "Record how the customer is paying. Set the payment status below once the money has reached you.": "Record how the customer is paying. Set the payment status below once the money has reached you.",
+    "Choose Paid only if the money has already reached you. You can change this later on the order page.": "Choose Paid only if the money has already reached you. You can change this later on the order page.",
+    "A private note is for your team only. To customer shows the note to the customer on their order page.": "A private note is for your team only. To customer shows the note to the customer on their order page.",
+    "Tick this to add the delivery charge to the refund. The refund total is saved as soon as you tick it.": "Tick this to add the delivery charge to the refund. The refund total is saved as soon as you tick it.",
+    "Per class charges for each shipping class in the basket. Per order charges once, for the most expensive class.": "Per class charges for each shipping class in the basket. Per order charges once, for the most expensive class.",
+    "Choose what a customer must do to earn free shipping. Some choices also ask for a minimum order amount.": "Choose what a customer must do to earn free shipping. Some choices also ask for a minimum order amount.",
+    "Pick every shipping method a customer in this zone may choose at checkout. You can pick more than one.": "Pick every shipping method a customer in this zone may choose at checkout. You can pick more than one.",
+    "How to set the code": "How to set the code",
+    "Choose Manual to type your own coupon code, or Auto Generate to have one created for you.": "Choose Manual to type your own coupon code, or Auto Generate to have one created for you.",
+    "Tick only what this role needs. Anyone you give this role can do everything ticked here.": "Tick only what this role needs. Anyone you give this role can do everything ticked here."
 }

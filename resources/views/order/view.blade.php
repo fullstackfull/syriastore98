@@ -791,7 +791,18 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                         // swapping the two columns would silently drop the id and re-break
                                         // the `for` with no visible change.
                                         'id' => 'note_type',
+                                        // GAP-060 / WS I4. The instruction is bound here; the
+                                        // `x-ss.field-help` below owns only the id.
+                                        'aria-describedby' => 'note_type-help',
                                     ]) !!}
+                                    {{-- GAP-060 / WS I4. MEASURED, not guessed: a `to_customer`
+                                         note is read back by `AccountProfileController::customerorder()`
+                                         and by the storefront order-detail handler, both filtering
+                                         `note_type = 'to_customer'`, and rendered on the shopper's
+                                         own order page. A `private_note` is read by neither. So the
+                                         two options differ in who can see the note, which is the
+                                         one thing this control did not say. --}}
+                                    <x-ss.field-help for="note_type">{{ __('A private note is for your team only. To customer shows the note to the customer on their order page.') }}</x-ss.field-help>
                                 </div>
                                 <div class="form-group col-md-4">
                                     <input type="submit" value="Create" class="btn btn-primary btn-badge">
