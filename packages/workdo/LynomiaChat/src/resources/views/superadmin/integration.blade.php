@@ -110,7 +110,7 @@
                                                  granted and nobody is locked out. --}}
                                             <span class="text-muted">{{ __('Not set — no seats are granted or withheld') }}</span>
                                         @else
-                                            <span class="badge bg-primary">{{ $plan->lynomia_agent_seats }}</span>
+                                            <span class="ss-badge ss-badge--brand">{{ $plan->lynomia_agent_seats }}</span>
                                         @endif
                                     </td>
                                     <td>
@@ -126,7 +126,7 @@
                                                    id="seats-{{ $plan->id }}" name="seats"
                                                    value="{{ $plan->lynomia_agent_seats }}"
                                                    placeholder="{{ __('Not set') }}">
-                                            <button type="submit" class="btn btn-sm btn-primary">{{ __('Save') }}</button>
+                                            <button type="submit" class="ss-btn ss-btn--primary ss-btn--sm">{{ __('Save') }}</button>
                                         </form>
                                     </td>
                                 </tr>
@@ -492,7 +492,7 @@
                                                 @csrf
                                                 <input type="text" name="verification_code" class="form-control form-control-sm"
                                                        placeholder="{{ __('Code from merchant') }}" required style="max-width:180px">
-                                                <button class="btn btn-sm btn-primary">{{ __('Approve') }}</button>
+                                                <button class="ss-btn ss-btn--primary ss-btn--sm">{{ __('Approve') }}</button>
                                             </form>
                                         @elseif ($row->state === \Workdo\LynomiaChat\app\Support\LinkState::ACTIVE)
                                             {{-- Suspend is the reversible hold; revoke withdraws the arrangement.
