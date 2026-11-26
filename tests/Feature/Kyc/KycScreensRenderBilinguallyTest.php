@@ -139,10 +139,26 @@ class KycScreensRenderBilinguallyTest extends SecurityTestCase
 
         $this->assertDirection($locale, $html);
         $this->assertStringContainsString('<table', $html, 'the trail table is absent');
+
+        /*
+         * THE LABEL IS ASSERTED IN THE LOCALE'S OWN WORDS, and the first version of this assertion
+         * looked for the literal `Store Syria` in both. It passed in Arabic too — the LAYOUT prints
+         * the site name — so it was not measuring this screen's cell at all. The label is what the
+         * merchant reads about who opened their passport scan, so it is asserted as rendered.
+         */
+        $expectedLabel = $locale === 'ar' ? 'ستور سوريا' : 'Store Syria';
+
         $this->assertStringContainsString(
-            'Store Syria',
+            '<td>' . $expectedLabel . '</td>',
             $html,
-            'an operator read must be attributed to the platform rather than to an account name'
+            'an operator read must be attributed to the platform, in the reader\'s own language, '
+            . 'and never to a named account'
+        );
+
+        $this->assertStringNotContainsString(
+            (string) $operator->name,
+            $html,
+            'a compliance screen is not a staff directory'
         );
         $this->assertNoRawTranslationKeys($html);
     }
