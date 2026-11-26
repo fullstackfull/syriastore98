@@ -176,6 +176,16 @@ abstract class Metric
         string $currencyColumn,
         string $amountExpression,
     ): array {
+        /*
+         * BEFORE THE FIRST SQL CONSTRUCTION, not before its execution. `selectRaw()` does not run
+         * anything -- it stores a string on the builder -- so a guard placed after it would have
+         * already put the refused text into the statement, where a `count()`, a clone or a
+         * `toSql()` in a log line would carry it. See `assertCurrencyColumn()` at the foot of
+         * this class.
+         */
+        self::assertCurrencyColumn($currencyColumn);
+        self::assertAmountExpression($amountExpression);
+
         $rows = $query
             ->selectRaw(
                 $currencyColumn . ' as metric_currency, '
@@ -208,6 +218,127 @@ abstract class Metric
      */
     protected function normalisedPaymentTypeSql(string $column): string
     {
+        self::assertPaymentTypeColumn($column);
+
         return 'LOWER(TRIM(' . $column . '))';
+    }
+
+    /*
+     * ======================================================================================
+     * THE CLOSED SETS -- every value this layer may concatenate into raw SQL.
+     * ======================================================================================
+     *
+     * WHAT THESE DO AND DO NOT CLOSE. They fix no live defect. A census of every raw-SQL call
+     * site in `app/`, inverted so that STATIC is the whitelist and anything else counts as
+     * dynamic, found 13 sites where the SQL TEXT is not a compile-time literal and 8 where that
+     * text arrives as a PARAMETER rather than as a local. (13, not the 15 the first pass of that
+     * census reported: the two extra were `HostClaims`' `DB::raw(1)`, a NUMERIC literal, which the
+     * inverted rule calls dynamic until numbers are added to the whitelist beside strings.)
+     * Seven of the eight are this layer, and
+     * every caller of all seven was read: each passes a string literal, a class constant, or the
+     * output of another method here that does the same. No request input reaches any of them
+     * today. The eighth -- `ApiController::search()`, which concatenates `$request->rating`
+     * straight into `whereRaw` -- is what this shape looks like once somebody does pass input,
+     * and is why the property is written down instead of left as a property of the call sites.
+     *
+     * THE SHAPE IS `MerchantAnalyticsFigures::groupedVisits()`'s, which already had it: a closed
+     * array of literals, a strict `in_array(..., true)`, a `throw`, and the refusal placed before
+     * the first SQL construction. `ShippingAndTax::subMetric()` and `UnpaidOrders::subMetric()`
+     * carry the same shape over their sub-metric keys, so it is already this layer's house style.
+     *
+     * WHY THEY ARE AT THE FOOT OF THE CLASS. Two documents cite absolute line numbers in this
+     * file, both below line 101, and an insertion above a citation invalidates it whatever its
+     * size. Declaring these here instead of above `key()` moves nothing. A class constant is
+     * legal anywhere in the body.
+     *
+     * ADDING A METRIC MEANS ADDING ITS EXPRESSION HERE, and that is the point rather than a cost:
+     * the set is small, it is reviewable in one place, and `MetricRawSqlAllowlistTest` reads every
+     * call site out of the source and fails if one passes something not listed -- so the omission
+     * surfaces in the suite rather than on a merchant's finance page.
+     */
+
+    /**
+     * The currency columns a metric may GROUP BY.
+     *
+     * One per source table, and they are the same four tables the accessors above name. A fifth
+     * entry would therefore be a currency column on a table this class does not reach -- which is
+     * the thing the class docblock asks to be declared there, so declare it in both places.
+     */
+    private const CURRENCY_COLUMNS = [
+        'orders.currency_code',
+        'store_order_financials.currency_code',
+        'store_wallet_transactions.currency_code',
+        'store_wallets.currency_code',
+    ];
+
+    /**
+     * The amount expressions a metric may SUM.
+     *
+     * NOT A LIST OF COLUMN NAMES, and a guard shaped "must look like `table.column`" would be
+     * wrong rather than merely strict: the last entry is the signed wallet movement, a whole
+     * `CASE WHEN ... END` passed by `NetFinancialReceipts` and by
+     * `CustomerLedgerMoney::netRetainedForCustomers()`. Refusing a legitimate caller is the worse
+     * of the two defects available here, so the set is the exact expressions, verbatim.
+     *
+     * The two `shipping_amount` / `tax_amount` entries arrive through
+     * `ShippingAndTax::COLUMNS[$subMetric]` rather than as literals at the call site -- that
+     * lookup is itself guarded by an `array_key_exists` over a closed const map.
+     */
+    private const AMOUNT_EXPRESSIONS = [
+        'order_coupon_details.coupon_discount_amount',
+        'orders.final_price',
+        'store_order_financials.customer_total',
+        'store_order_financials.gross_profit',
+        'store_order_financials.paid_amount',
+        'store_order_financials.remaining_amount',
+        'store_order_financials.shipping_amount',
+        'store_order_financials.tax_amount',
+        'store_wallet_transactions.amount',
+        'store_wallets.available_balance',
+        "CASE WHEN store_wallet_transactions.direction = 'credit' "
+        . 'THEN store_wallet_transactions.amount '
+        . 'ELSE -store_wallet_transactions.amount END',
+    ];
+
+    /** The columns `normalisedPaymentTypeSql()` may wrap. One caller, one column. */
+    private const PAYMENT_TYPE_COLUMNS = [
+        'orders.payment_type',
+    ];
+
+    /**
+     * `\InvalidArgumentException` is written out rather than imported, for the same reason the
+     * constants are down here: a `use` line is an insertion above every cited line in the file.
+     */
+    final protected static function assertCurrencyColumn(string $column): void
+    {
+        if (! in_array($column, self::CURRENCY_COLUMNS, true)) {
+            throw new \InvalidArgumentException(
+                'A metric cannot group money by "' . $column . '". That text would be '
+                . 'concatenated into raw SQL, so the column is chosen from a closed set: '
+                . implode(', ', self::CURRENCY_COLUMNS) . '.'
+            );
+        }
+    }
+
+    final protected static function assertAmountExpression(string $expression): void
+    {
+        if (! in_array($expression, self::AMOUNT_EXPRESSIONS, true)) {
+            throw new \InvalidArgumentException(
+                'A metric cannot sum "' . $expression . '". That text would be concatenated into '
+                . 'raw SQL, so the expression is chosen from a closed set of '
+                . count(self::AMOUNT_EXPRESSIONS) . ' recorded in Metric::AMOUNT_EXPRESSIONS.'
+            );
+        }
+    }
+
+    final protected static function assertPaymentTypeColumn(string $column): void
+    {
+        if (! in_array($column, self::PAYMENT_TYPE_COLUMNS, true)) {
+            throw new \InvalidArgumentException(
+                'A metric cannot normalise the payment type of "' . $column . '". That text would '
+                . 'be concatenated into raw SQL, so the column is chosen from a closed set: '
+                . implode(', ', self::PAYMENT_TYPE_COLUMNS) . '.'
+            );
+        }
     }
 }

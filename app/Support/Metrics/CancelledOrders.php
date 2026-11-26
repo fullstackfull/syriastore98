@@ -3,6 +3,7 @@
 namespace App\Support\Metrics;
 
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 /**
  * SECTION 4 -- Orders cancelled in the period, with the value involved.
@@ -22,6 +23,18 @@ use Illuminate\Support\Facades\DB;
  */
 final class CancelledOrders extends Metric implements SingleFigureMetric
 {
+    /**
+     * The date expressions this metric may concatenate into raw SQL -- a closed set, in the shape
+     * `MerchantAnalyticsFigures::groupedVisits()` established.
+     *
+     * The single entry is the `COALESCE` the class docblock above explains. It is a const rather
+     * than only a local in `for()` so that `fallbackDatedCount()`, which takes the expression as
+     * a `string` parameter, has something to check it against.
+     */
+    private const DATE_EXPRESSIONS = [
+        'COALESCE(orders.cancel_date, store_order_financials.updated_at)',
+    ];
+
     public function key(): string
     {
         return 'cancelled_orders';
@@ -75,6 +88,19 @@ final class CancelledOrders extends Metric implements SingleFigureMetric
         MetricWindow $window,
         string $dateExpression,
     ): int {
+        /*
+         * The date expression is concatenated into raw SQL by `DB::raw()` below, so it comes from
+         * a closed set rather than from the caller. `for()` passes the one entry; this guard is
+         * for the second caller, and it fires before the expression reaches `DB::raw()`.
+         */
+        if (! in_array($dateExpression, self::DATE_EXPRESSIONS, true)) {
+            throw new InvalidArgumentException(
+                'Cancellations cannot be dated by "' . $dateExpression . '". That text would be '
+                . 'concatenated into raw SQL, so the expression is chosen from a closed set: '
+                . implode(', ', self::DATE_EXPRESSIONS) . '.'
+            );
+        }
+
         $query = $this->cancelled($scope)->whereNull('orders.cancel_date');
         $window->applyTo($query, DB::raw($dateExpression));
 
