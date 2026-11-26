@@ -108,14 +108,16 @@
                 @csrf
 
                 <div class="col-md-6">
-                    <label class="ss-field__label" for="incident_title">{{ __('What happened') }}</label>
+                    {{-- The required marker; see the note beside the note field on the detail
+                         page for why it is written out rather than left to the browser. --}}
+                    <label class="ss-field__label" for="incident_title">{{ __('What happened') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <input class="form-control" type="text" id="incident_title" name="title"
                            maxlength="160" required value="{{ old('title') }}"
                            placeholder="{{ __('e.g. Card payments failing at the gateway') }}">
                 </div>
 
                 <div class="col-md-3">
-                    <label class="ss-field__label" for="incident_severity">{{ __('Severity') }}</label>
+                    <label class="ss-field__label" for="incident_severity">{{ __('Severity') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <select class="form-control" id="incident_severity" name="severity" required>
                         @foreach ($severities as $severity)
                             <option value="{{ $severity }}" @selected(old('severity') === $severity)>

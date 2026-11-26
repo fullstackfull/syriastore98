@@ -96,8 +96,13 @@ class RequiredFieldMarkerTest extends TestCase
     {
         [, $withMarker, $without] = $this->census();
 
-        $this->assertSame(165, $withMarker + count($without), sprintf(
-            'The detector now finds %d required merchant fields; it measured 165 when the '
+        /* 165 -> 168 on 2026-11-26 [OPS-003]: three controls on the platform incident log --
+           `title` and `severity` on the "record an incident" form, and `note` on the add-a-note
+           form. A RISE, which this docblock names as the benign direction, and all three arrive
+           MARKED: the first version of those views had the `required` attribute and no marker
+           beside the label, and this ratchet is what said so. */
+        $this->assertSame(168, $withMarker + count($without), sprintf(
+            'The detector now finds %d required merchant fields; it measured 168 when the '
             . 'translated-copy redaction was added to isRequired(). A RISE means a required field '
             . 'was added (fine — update this number). A DROP means one lost its attribute, or the '
             . 'detector stopped matching a shape, which is the direction that turns this whole '

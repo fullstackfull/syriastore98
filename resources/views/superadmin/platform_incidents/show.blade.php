@@ -23,8 +23,14 @@
 @endsection
 
 @section('breadcrumb')
+    {{-- `ss-breadcrumb__link` AND NOT `ss-link`, which is the class this one anchor needs and the
+         one the first draft of this file got wrong -- twice, in the same place.
+         `BreadcrumbContractTest` asserts the breadcrumb-specific class, because a breadcrumb link
+         takes a token redefined per theme while an unclassed anchor keeps the host theme's own
+         brand colour, which is the dark-mode contrast failure that test exists for. The generic
+         `ss-link` is not that token. Caught by the ratchet both times rather than by reading. --}}
     <li class="ss-breadcrumb__item">
-        <a href="{{ route('platform.incidents.index') }}">{{ __('Platform incidents') }}</a>
+        <a class="ss-breadcrumb__link" href="{{ route('platform.incidents.index') }}">{{ __('Platform incidents') }}</a>
     </li>
     <li aria-current="page" class="ss-breadcrumb__item">{{ $incident->reference }}</li>
 @endsection
@@ -187,7 +193,13 @@
                 @csrf
 
                 <div class="col-12">
-                    <label class="ss-field__label ss-visually-hidden" for="incident_note">{{ __('Note') }}</label>
+                    {{-- THE MARKER, and `RequiredFieldMarkerTest` is why it is here rather than
+                         left to the browser: a `required` control whose label does not say so is
+                         a form that refuses on submit without having told anybody which field it
+                         wants. `aria-hidden` on the asterisk because the `required` attribute is
+                         what a screen reader announces -- the marker is for eyes only, and
+                         announcing both would say it twice. --}}
+                    <label class="ss-field__label ss-visually-hidden" for="incident_note">{{ __('Note') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <textarea class="form-control" id="incident_note" name="note" rows="3"
                               maxlength="5000" required></textarea>
                 </div>
