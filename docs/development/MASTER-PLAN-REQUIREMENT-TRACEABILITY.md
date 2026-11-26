@@ -603,7 +603,7 @@ against a pre-reorganization original.
 - **Actual behaviour:** The harness is substantial and present: 49 scripts under tests/Support/Security/bin/ matching *mysql*, plus run-mysql-verifications.sh. GATE F was proved on a real server (verify-gate-f-migrations-on-mysql.php — 29 checks, 0 failed, log committed under docs/development/phase-2/evidence/phase-01-gates-2026-11-02/). The SQLite-masked finding P01-SEC-13 has verify-sec13-migration-on-mysql.php. I ran none of them in this pass, and the Final Decision Report's session had no MySQL at all.
 - **Implementation:** tests/Support/Security/bin/
 - **Evidence:** 49 tests/Support/Security/bin/verify-*-on-mysql.php scripts + run-mysql-verifications.sh, confirmed present; verify-gate-f-migrations-on-mysql.php log recorded as 29 checks / 0 failures
-- **Gap:** No run in this pass; E3's last-unit oversell case still has no MySQL script.
+- **Gap:** **CLOSED 2026-11-26 and the gap statement was STALE in both halves.** It said "no run in this pass; E3's last-unit oversell case still has no MySQL script". Measured on the integration candidate: `tests/Support/Security/bin/verify-last-unit-oversell-on-mysql.php` EXISTS and the roster invokes it (`run_one verify-last-unit-oversell-on-mysql`), and there is now a recorded phase-wide run — `docs/development/phase-1/evidence/MYSQL-ROSTER-2026-11-26.md`, **71 passed, 0 failed, 1 skipped**, exit 0, on 10.11.14-MariaDB. The script was written after this assessment and nothing re-read the gap.
 - **Responsible:** Phase 01 engineering
 - **Next action:** Run run-mysql-verifications.sh on the current head and commit the log; add the missing E3 script.
 
@@ -796,7 +796,7 @@ against a pre-reorganization original.
 - **Expected behaviour:** Everything schema-sensitive is validated on MySQL as part of the phase-wide exercise.
 - **Actual behaviour:** Same state as F4: a 49-script MySQL harness exists and GATE F was proved on a real server with 29 checks / 0 failures, but no phase-wide MySQL validation run is recorded against the final head, and E3's case has no script.
 - **Evidence:** tests/Support/Security/bin/run-mysql-verifications.sh + 49 scripts
-- **Gap:** No recorded phase-wide MySQL run on the final head.
+- **Gap:** **A phase-wide run is now recorded** — `docs/development/phase-1/evidence/MYSQL-ROSTER-2026-11-26.md`, taken on the integration candidate (`ff8581b39`) against 10.11.14-MariaDB: **71 passed, 0 failed, 1 skipped**, exit 0, with the roster's own completeness check reporting that every verification script on disk is accounted for. What this does NOT settle is the "final head" clause: this is the integration candidate, not a head offered for Phase 01 acceptance, so the run must be repeated on whatever commit is eventually offered.
 - **Responsible:** Phase 01 engineering
 - **Next action:** Run run-mysql-verifications.sh on the Phase 01 final head and commit the log.
 
