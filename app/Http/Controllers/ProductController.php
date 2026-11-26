@@ -1585,6 +1585,126 @@ $Product->cost_price = $request->cost_price;
         ]);
     }
 
+    /**
+     * `PRICE-006` — THE MERCHANT-FACING PRICE PREVIEW AND EXPLANATION, READ-ONLY, JSON.
+     *
+     *   `PRICE-006`  معاينة السعر النهائي وشرح طريقة حسابه.
+     *                — *Preview the final price and explain how it was calculated*
+     *
+     * The breakdown itself is `App\Services\Commerce\PriceExplanation`, which asks the shipped
+     * pricing engine for the price and then checks that its components sum to that answer. This
+     * handler exists only to authorise the read and to hand the service a target derived from the
+     * authenticated principal.
+     *
+     * THE GATE IS A COPY OF `product_preview()`'s, deliberately and not by accident:
+     *
+     *  - OPERATOR FIRST, in one expression. Laratrust carries no super-admin bypass, so
+     *    `isAbleTo()` alone REFUSES the platform operator. Reversing the two limbs is a lockout.
+     *  - `Product` is NOT in `config/tenancy.php`'s `scoped_models` and registers no effective
+     *    global scope, so `Product::find()` reaches EVERY tenant's catalogue. The `store_id`
+     *    predicate below is the only control, and the S19 cross-tenant stock drain came from
+     *    forgetting exactly that. A price breakdown exposes a store's commercial configuration --
+     *    list price, sale price, tier prices, tax bands by name and rate -- so the predicate is
+     *    load-bearing here, not ceremonial.
+     *  - The store comes from the principal via `getCurrentStore($user->id)` with the id passed
+     *    EXPLICITLY, because the no-argument form reads the mutable default guard.
+     *  - Fail closed on either side being absent: a product with a NULL `store_id` is invisible to
+     *    every store predicate in the application and must not become visible here.
+     *  - The id is RAW. `Crypt::encrypt()` is an encoding in this codebase, not a control (APP_KEY
+     *    is in git history and unrotated, owner decision D7), so an encrypted id would imply a
+     *    protection that does not exist.
+     *  - 403/404, never 401: the shipped Flutter app force-logs-out on any 401.
+     *
+     * `qty` is read from the query string because the price-list engine selects its tier BY
+     * quantity, so quantity is an input to the price and not a multiplier. It is clamped rather
+     * than validated-and-refused: a preview is a read, and a nonsense quantity should show the
+     * quantity-1 price rather than an error.
+     *
+     * THE CLAMP IS DELIBERATELY DUPLICATED with `PriceExplanation::forProduct()`'s own
+     * `max(1, $qty)`, and the duplication is measured rather than assumed: removing EITHER clamp
+     * alone leaves `ProductPriceExplanationAuthorizationTest::test_a_nonsense_quantity_clamps...`
+     * green and removing BOTH turns it red. So the surviving single mutant is defence in depth
+     * working, not an untested control -- and it is written down because the obvious reading of
+     * that survival is the opposite one. The service needs its own clamp because it is callable
+     * without this handler; this handler keeps its own because a `qty=0` reaching the wholesale
+     * arm divides by zero when a unit price is derived from a line total.
+     */
+    public function price_explanation(Request $request, $id)
+    {
+        $user = auth()->user();
+
+        $isOperator = $user !== null && \App\Policies\UserPolicy::isOperator($user);
+
+        if ($user === null || (! $isOperator && ! $user->isAbleTo('Manage Products'))) {
+            return response()->json(['message' => __('Permission denied.')], 403);
+        }
+
+        // `filter_var`, not `is_numeric`: is_numeric accepts '5.9' and rejects '5abc', while
+        // MySQL coerces '5abc' to row 5 in a `WHERE id = ?` comparison.
+        $productId = filter_var($id, FILTER_VALIDATE_INT);
+
+        if ($productId === false || $productId <= 0) {
+            return response()->json(['message' => __('Product not found.')], 404);
+        }
+
+        $product = Product::find($productId);
+
+        if ($product === null) {
+            return response()->json(['message' => __('Product not found.')], 404);
+        }
+
+        if (! $isOperator) {
+            $currentStore = getCurrentStore($user->id);
+
+            if (empty($currentStore) || empty($product->store_id)
+                || (int) $product->store_id !== (int) $currentStore) {
+                return response()->json(['message' => __('Product not found.')], 404);
+            }
+        }
+
+        $store = \App\Models\Store::find($product->store_id);
+
+        if (empty($store) || empty($store->slug)) {
+            // The engine's signature takes a SLUG and `Product::ProductPrice()` dereferences
+            // `getStore($slug)->id` unguarded, so a product whose store cannot be resolved is
+            // refused here rather than raising a 500 three frames down.
+            return response()->json(['message' => __('Product not found.')], 404);
+        }
+
+        $variantId = (int) filter_var($request->query('variant_id', 0), FILTER_VALIDATE_INT);
+        $qty = (int) filter_var($request->query('qty', 1), FILTER_VALIDATE_INT);
+
+        if ($variantId > 0) {
+            // THE VARIANT MUST BELONG TO THE PRODUCT. `ProductVariant` carries no store scope
+            // either, and the engine's variant arm looks the row up by id AND product_id -- but
+            // only after this handler has already decided the product is the caller's, so the
+            // check is made here where a refusal is still possible.
+            $owned = \App\Models\ProductVariant::where('id', $variantId)
+                ->where('product_id', $product->id)->exists();
+
+            if (! $owned) {
+                return response()->json(['message' => __('Product not found.')], 404);
+            }
+        }
+
+        $explanation = \App\Services\Commerce\PriceExplanation::forProduct(
+            (string) $store->slug, (int) $product->id, max(0, $variantId), max(1, $qty)
+        );
+
+        $prose = \App\Services\Commerce\PriceExplanation::noteText();
+
+        return response()->json([
+            'product' => ['id' => (int) $product->id, 'name' => (string) $product->name],
+            'explanation' => $explanation,
+            // The note CODES stay in the payload for a test and a client to key on; the sentences
+            // travel with them so a surface never has to invent prose for a code it does not know.
+            'notes' => array_map(
+                fn (string $code) => ['code' => $code, 'text' => $prose[$code] ?? $code],
+                $explanation['notes']
+            ),
+        ]);
+    }
+
     public function show(Product $product)
     {
         /*
