@@ -81,7 +81,27 @@ class ThemeViewsDoNotShadowAdminViewsTest extends TestCase
      * intersection of NAMES unchanged, so the test stayed GREEN. Keyed on the pair, that mutation
      * fails as it should. A ratchet over a set is only as sharp as the identity of its members.
      */
-    private const DECLARED_SHADOWS = ['layouts.app @ stylique'];
+    /*
+     * EMPTY, AND THAT IS THE POINT IT HAS REACHED. This held `layouts.app @ stylique` until the
+     * 2026-11-26 integration: `themes/stylique/views/layouts/app.blade.php` shared a name with an
+     * admin screen, and `Theme::set()` PREPENDS the theme's directory, so that file won for any
+     * store running stylique -- which `config('theme.active')` makes the default for a store with
+     * an empty `theme_id`.
+     *
+     * `ec7fc5d12` (GAP-265) moved that layout out of the panel's view namespace, and the trap went
+     * with it. The declaration is removed rather than kept as a comfort, exactly as this test's own
+     * failure message instructs: "a REMOVED entry means the trap is gone and the declaration should
+     * go with it."
+     *
+     * WORTH NOTING HOW IT SURFACED. The fix and this declaration lived on DIFFERENT branches, so
+     * neither branch's own suite could see the disagreement -- the fix's branch had no declaration
+     * to contradict and this one had no fix. They met for the first time in the integrated tree,
+     * which is the argument for running the gates there rather than per branch.
+     *
+     * An entry appearing here again means a theme can replace an admin screen, and that is a
+     * finding, not a line to add.
+     */
+    private const DECLARED_SHADOWS = [];
 
     private static function root(): string
     {
