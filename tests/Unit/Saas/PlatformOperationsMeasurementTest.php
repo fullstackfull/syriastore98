@@ -781,6 +781,20 @@ final class PlatformOperationsMeasurementTest extends TestCase
                 . 'has the queue in a differently named one');
             $this->assertNotNull($rows[$key]['reason'], $key . ' was withheld without saying why');
         }
+
+        /*
+         * AND THE SENTENCE MUST BE THE RIGHT ONE, which is the half this case was missing when it
+         * was first written. The failure rows used a single refusal that blamed the configured
+         * DRIVER -- true when a deployment records no failures at all, and simply FALSE here, where
+         * the driver is fine and only the table name differs. A reason that exists and is wrong is
+         * worse than no reason, so the assertion is on the words rather than on their presence.
+         */
+        $this->assertStringContainsString('differently named table', (string) $rows['failed_total']['reason'],
+            'the failure refusal blames the configured driver for a renamed table');
+        $this->assertStringNotContainsString('does not record failed jobs in the database',
+            (string) $rows['failed_total']['reason'],
+            'the failure refusal says this deployment records no failures, which is not what is '
+            . 'wrong: it records them in a table this screen does not read');
     }
 
     /** The same contract for the cache and session stores, which are configured the same way. */

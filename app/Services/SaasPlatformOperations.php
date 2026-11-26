@@ -265,9 +265,7 @@ final class SaasPlatformOperations
             ),
         ];
 
-        $failureRefused = __('This deployment does not record failed jobs in the database (the configured failed-job driver is :driver), so no failure history can be read here.', [
-            'driver' => (string) config('queue.failed.driver'),
-        ]);
+        $failureRefused = self::whyNoFailureHistory($probe);
 
         $rows[] = self::row(
             'failed_window',
@@ -442,6 +440,7 @@ final class SaasPlatformOperations
         ];
 
         $perQueue = $failed === null ? [] : $failed['per_queue'];
+        $failureRefused = self::whyNoFailureHistory($probe);
 
         $rows[] = self::row(
             'failed_queues',
@@ -454,9 +453,7 @@ final class SaasPlatformOperations
             __('since the failure table was last cleared'),
             __('Which queues hold failed jobs, and how many each holds. This is the whole of the integration failure history this product keeps: no gateway, transport or provider writes a failure of its own, so an integration that fails outside a queued job leaves nothing here to see.'),
             SaasOperationsProbe::FAILED_JOBS_TABLE . ' group by queue',
-            $failed === null
-                ? __('This deployment does not record failed jobs in the database, so no failure history can be read here.')
-                : null,
+            $failed === null ? $failureRefused : null,
         );
 
         return $rows;
@@ -587,6 +584,32 @@ final class SaasPlatformOperations
         ];
 
         return ['rows' => $rows, 'detail' => $detail];
+    }
+
+    /**
+     * WHY THE FAILURE HISTORY IS NOT AVAILABLE — FOUR REASONS, NOT ONE, and in one place because
+     * two groups print it.
+     *
+     * The single sentence this replaces was positively WRONG rather than merely vague: it blamed
+     * the configured driver, which is correct when the deployment records no failures at all and
+     * false when it simply keeps them in a table this screen does not read. Found by writing the
+     * renamed-table test and reading the sentence it produced, which is the only way that kind of
+     * mistake gets found.
+     *
+     * THE THIRD CASE IS THE ONE THAT MATTERS OPERATIONALLY: a deployment configured to record
+     * failures in the database whose table does not exist loses every failure silently, and
+     * "no failure history can be read" would be the mildest possible way to say so.
+     */
+    private static function whyNoFailureHistory(SaasOperationsProbe $probe): string
+    {
+        return match ($probe->failedJobsState()) {
+            SaasOperationsProbe::STORE_NOT_DATABASE => __('This deployment does not record failed jobs in the database (the configured failed-job driver is :driver), so no failure history can be read here.', [
+                'driver' => (string) config('queue.failed.driver'),
+            ]),
+            SaasOperationsProbe::STORE_TABLE_RENAMED => __('This deployment records failed jobs in a differently named table, which this screen does not read. The figures are withheld rather than taken from the wrong table.'),
+            SaasOperationsProbe::STORE_TABLE_ABSENT => __('Failed jobs are configured to be recorded in the database and the :table table does not exist, so a failing job leaves no record at all.', ['table' => SaasOperationsProbe::FAILED_JOBS_TABLE]),
+            default => __('No failure history can be read here.'),
+        };
     }
 
     /** @return array<string, mixed> */

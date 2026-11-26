@@ -4806,7 +4806,6 @@
     "Configured and marked active. The difference from the row above is a provider a merchant set up and then turned off.": "مُهيَّأة ومُعلَّمة نشطة. والفرق عن الصف الذي فوقه هو مزوّدٌ هيَّأه تاجرٌ ثم أطفأه.",
     "Queues with recorded failures": "الطوابير التي فيها فشل مُسجَّل",
     "Which queues hold failed jobs, and how many each holds. This is the whole of the integration failure history this product keeps: no gateway, transport or provider writes a failure of its own, so an integration that fails outside a queued job leaves nothing here to see.": "أيّ الطوابير تحمل مهامّ فاشلة، وكم تحمل كلٌّ منها. وهذا هو كل تاريخ فشل التكاملات الذي يحفظه هذا المنتج: فلا بوّابة ولا ناقل ولا مزوّد يكتب فشلاً خاصاً به، ولذلك فالتكامل الذي يفشل خارج مهمّة مصطفّة لا يترك هنا شيئاً يُرى.",
-    "This deployment does not record failed jobs in the database, so no failure history can be read here.": "لا يُسجِّل هذا التثبيت المهامّ الفاشلة في قاعدة البيانات، فلا يمكن قراءة أي تاريخ للفشل هنا.",
     "The settings table could not be read, so gateway enablement is unknown. It is the table that holds both the on/off rows and the credentials, and this screen reads only the on/off rows.": "تعذَّرت قراءة جدول الإعدادات، فتفعيل البوّابات غير معروف. وهو الجدول الذي يحمل صفوف التشغيل والإطفاء والاعتمادات معاً، وهذه الشاشة لا تقرأ إلا صفوف التشغيل والإطفاء.",
     "Payment gateways this product integrates": "بوّابات الدفع التي يتكامل معها هذا المنتج",
     "Counted from the gateway registry in the code, not from a document. It is the population every figure below is a share of.": "يُحسب من سِجلّ البوّابات في الكود، لا من مستند. وهو المجموع الذي تمثّل كل أرقام الأسفل نسبةً منه.",
@@ -4924,5 +4923,8 @@
     "This driver (:driver) keeps nothing in a database table, so there is no row count to take.": "لا يحفظ هذا المُشغِّل (:driver) شيئاً في جدول قاعدة بيانات، فلا يوجد عدد صفوف يُقاس.",
     "This deployment keeps this store in a differently named table, which this screen does not read. The figure is withheld rather than taken from the wrong table.": "يحفظ هذا التثبيت هذا المخزن في جدول باسم مختلف لا تقرؤه هذه الشاشة. ويُحجب الرقم بدلاً من أخذه من الجدول الخطأ.",
     "This store is configured to use the database and the :table table does not exist. That is not a measurement this screen cannot take — it is a store that cannot work.": "هذا المخزن مُهيَّأ لاستخدام قاعدة البيانات وجدول :table غير موجود. وهذا ليس قياساً تعجز هذه الشاشة عن أخذه — بل مخزنٌ لا يستطيع العمل.",
-    "The state of this store could not be determined.": "تعذَّر تحديد حالة هذا المخزن."
+    "The state of this store could not be determined.": "تعذَّر تحديد حالة هذا المخزن.",
+    "This deployment records failed jobs in a differently named table, which this screen does not read. The figures are withheld rather than taken from the wrong table.": "يُسجِّل هذا التثبيت المهامّ الفاشلة في جدول باسم مختلف لا تقرؤه هذه الشاشة. وتُحجب الأرقام بدلاً من أخذها من الجدول الخطأ.",
+    "Failed jobs are configured to be recorded in the database and the :table table does not exist, so a failing job leaves no record at all.": "المهامّ الفاشلة مُهيَّأة لتُسجَّل في قاعدة البيانات وجدول :table غير موجود، فالمهمّة التي تفشل لا تترك أي سجل على الإطلاق.",
+    "No failure history can be read here.": "لا يمكن قراءة أي تاريخ للفشل هنا."
 }

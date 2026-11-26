@@ -366,11 +366,11 @@ class SaasOperationsProbe
             return null;
         }
 
-        try {
-            if (! $this->connection()->getSchemaBuilder()->hasTable(self::JOBS_TABLE)) {
-                return null;
-            }
+        if (! $this->hasTable(self::JOBS_TABLE)) {
+            return null;
+        }
 
+        try {
             $pending = (int) DB::table('jobs')->whereNull('reserved_at')->count();
             $reserved = (int) DB::table('jobs')->whereNotNull('reserved_at')->count();
             $oldest = DB::table('jobs')->whereNull('reserved_at')->min('created_at');
@@ -391,16 +391,35 @@ class SaasOperationsProbe
      */
     public function failedJobsTable(): ?string
     {
+        return $this->failedJobsState() === self::STORE_MEASURED ? self::FAILED_JOBS_TABLE : null;
+    }
+
+    /**
+     * WHY THE FAILURE HISTORY IS OR IS NOT AVAILABLE, in the same four values the cache and session
+     * stores use — and this method exists because the sentence was WRONG without it.
+     *
+     * `failedJobsTable()` answers null for two different reasons: the deployment records no
+     * failures in the database at all, or it records them in a table this class does not read. The
+     * presenter's one sentence said "the configured failed-job driver is :driver", which is true of
+     * the first and simply false of the second — a renamed table has nothing wrong with its driver.
+     * Caught by writing the renamed-table test and reading the reason it produced.
+     */
+    public function failedJobsState(): string
+    {
         $driver = (string) config('queue.failed.driver');
 
         if (! str_starts_with($driver, 'database')) {
-            return null;
+            return self::STORE_NOT_DATABASE;
         }
 
         $table = config('queue.failed.table');
         $table = is_string($table) && $table !== '' ? $table : self::FAILED_JOBS_TABLE;
 
-        return $table === self::FAILED_JOBS_TABLE ? $table : null;
+        if ($table !== self::FAILED_JOBS_TABLE) {
+            return self::STORE_TABLE_RENAMED;
+        }
+
+        return $this->hasTable(self::FAILED_JOBS_TABLE) ? self::STORE_MEASURED : self::STORE_TABLE_ABSENT;
     }
 
     /**
@@ -422,15 +441,11 @@ class SaasOperationsProbe
      */
     public function failedJobs(int $sinceHours = 24): ?array
     {
-        if ($this->failedJobsTable() === null) {
+        if ($this->failedJobsState() !== self::STORE_MEASURED) {
             return null;
         }
 
         try {
-            if (! $this->connection()->getSchemaBuilder()->hasTable(self::FAILED_JOBS_TABLE)) {
-                return null;
-            }
-
             $total = (int) DB::table('failed_jobs')->count();
 
             $since = (int) DB::table('failed_jobs')
@@ -640,11 +655,11 @@ class SaasOperationsProbe
      */
     public function paymentGatewayEnablement(array $gateways): ?array
     {
-        try {
-            if (! $this->connection()->getSchemaBuilder()->hasTable('settings')) {
-                return null;
-            }
+        if (! $this->hasTable('settings')) {
+            return null;
+        }
 
+        try {
             $enableNames = [];
             $requiredNames = [];
 
@@ -769,11 +784,11 @@ class SaasOperationsProbe
      */
     public function otpIntegrations(): ?array
     {
-        try {
-            if (! $this->connection()->getSchemaBuilder()->hasTable('otp_integrations')) {
-                return null;
-            }
+        if (! $this->hasTable('otp_integrations')) {
+            return null;
+        }
 
+        try {
             return [
                 'configured' => (int) DB::table('otp_integrations')->count(),
                 'active' => (int) DB::table('otp_integrations')->where('is_active', true)->count(),
