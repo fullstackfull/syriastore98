@@ -265,13 +265,13 @@ class AdminApiReviewDeletionTenancyTest extends SecurityTestCase
      * THE NULL-`store_id` REVIEW — a behaviour this file's docblock CLAIMED and no case pinned,
      * which the independent review caught. A documented behaviour with no test is a guess.
      *
-     * `testimonials.store_id` is nullable and a null IS reachable: `TestimonialController:106`
+     * `testimonials.store_id` is nullable and a null IS reachable: `TestimonialController:111`
      * writes `getCurrentStore()`, which answers null for a principal with an empty `current_store`
      * and no store of their own (`app/Helper/helper.php:883-893`). The new predicate resolves no
      * store for such a row and refuses it **for everyone, the operator included**.
      *
      * THAT IS THE RIGHT ANSWER AND IT MATCHES THE WEB, which is why it is asserted rather than
-     * fixed: `TestimonialController:178-180` requires `! empty($testimonial->store_id)` before its
+     * fixed: `TestimonialController:183-185` requires `! empty($testimonial->store_id)` before its
      * own delete. So an orphan review is undeletable from either surface — already true on the web
      * before this change, and failing closed is the correct direction for a row whose ownership
      * nobody can demonstrate. If the product ever wants orphans reapable, that is an owner decision
@@ -309,7 +309,7 @@ class AdminApiReviewDeletionTenancyTest extends SecurityTestCase
                 sprintf(
                     'a review with a NULL store_id was deleted by %s. Nobody can demonstrate '
                     . 'ownership of such a row, so the predicate must fail closed -- and the web '
-                    . 'agrees (TestimonialController:178-180 requires a non-empty store_id before '
+                    . 'agrees (TestimonialController:183-185 requires a non-empty store_id before '
                     . 'its own delete).',
                     $label
                 ));

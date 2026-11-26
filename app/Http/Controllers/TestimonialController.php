@@ -54,6 +54,11 @@ class TestimonialController extends Controller
     {
         if (auth()->user() && auth()->user()->isAbleTo('Create Testimonial'))
         {
+            // GAP-193. See foreignRowRefusal() at the end of this class.
+            if ($refusal = $this->foreignRowRefusal($request)) {
+                return redirect()->back()->with('error', $refusal);
+            }
+
             $validator = \Validator::make(
                 $request->all(), [
                     //'category_id' => 'required',
@@ -213,6 +218,12 @@ class TestimonialController extends Controller
             // apart from a refusal by which error comes back.
             if (! $this->callerOwnsTestimonial($Testimonial)) {
                 abort(404);
+            }
+
+            // GAP-193. The row guard above proves the row is the caller's; this proves the PRODUCT
+            // the caller is repointing it at is too. See foreignRowRefusal().
+            if ($refusal = $this->foreignRowRefusal($request)) {
+                return redirect()->back()->with('error', $refusal);
             }
 
             $validator = \Validator::make(
@@ -385,5 +396,90 @@ class TestimonialController extends Controller
     public function contact_us(Request $request)
     {
         return view('other_page.contact_us');
+    }
+
+    /**
+     * GAP-193 / `CUST-005`. IS THE PRODUCT (AND CATEGORY) THIS TESTIMONIAL NAMES ACTUALLY OURS?
+     *
+     * WHAT WAS WRONG. `store()` and `update()` wrote `product_id` and `category_id` STRAIGHT FROM
+     * REQUEST INPUT while stamping `store_id = getCurrentStore()`, so a merchant could save a row
+     * that says *"store A's review, of store B's product"*. `update()`'s row-ownership guard cannot
+     * see it: the row really IS the caller's, and only the product it points at is foreign.
+     *
+     * AND THE ROW IS SERVED ON THE VICTIM'S STOREFRONT, which is what makes it a finding rather
+     * than untidy data. `Api\ApiController::product_detail():5834` and
+     * `::product_detail_guest():5991` read `Testimonial::where('product_id', $id)->get()` with NO
+     * store predicate, and their shared docblock states the reason: the review loop sits inside
+     * `if (!empty($product))`, so the reviews are *"dependent lookups on a store-verified parent"*.
+     * That argument is sound AND IT RESTS ON A PREMISE THIS WRITER DID NOT GUARANTEE -- the same
+     * shape `GAP-279` records for `MerchantPermissions`' NULL-store arm. `Testimonial` carries no
+     * `StoreScope` and is deliberately absent from `config/tenancy.php`'s `scoped_models`, so
+     * nothing underneath contains it either.
+     *
+     * MEASURED through the real routes before this existed
+     * (`Gap193ReviewPurchaseGateAndTenancyTest`): `POST /testimonial` as merchant A with store B's
+     * ids wrote `store_id=1, product_id=2` where product 2 belongs to store 2, and
+     * `POST api/{slug}/product-detail` for store B served that review to B's own shopper.
+     * `PUT /testimonial/{id}` repointed an existing own review from product 1 to product 2.
+     * `Testimonial::AvregeRating()` has the same unpredicated shape and WRITES
+     * `products.average_rating`, so the planted score is folded into the victim's average as soon
+     * as anyone rates that product.
+     *
+     * FIXED AT THE WRITER, AND NOT AT THOSE TWO READERS, for three reasons: the readers live in a
+     * file this workstream must not edit; their own docblock argues against a second predicate on a
+     * NULLABLE `store_id` column, citing a measured case of `product_variants.store_id` drifting
+     * (`ProductController:2873-2895`, where an operator's no-op save stamped store 1 on a store-7
+     * product's variants) -- such a predicate would silently refuse a store its own reviews; and
+     * restoring the premise is what makes every existing reader correct at once, including
+     * `AvregeRating()`. The three API writers already do exactly this
+     * (`ApiController::add_review`, `::product_rating`, `DashboardController::AddReview` each scope
+     * `product_id` to the store in the path), so this closes an asymmetry rather than inventing a
+     * rule.
+     *
+     * VALIDATED, NOT DERIVED, and that is deliberate. The API writers DERIVE `category_id` from the
+     * product; doing that here would change behaviour for the product-less testimonial, which this
+     * form supports -- `product_id` and `category_id` are both commented OUT of both validators, so
+     * a general store testimonial with neither is an ordinary save. An absent or empty id is
+     * therefore left exactly as it was and only a NON-EMPTY foreign one is refused.
+     *
+     * `filter_var` STRICTLY, never `is_numeric` or a cast: MySQL coerces `'5abc'` to 5 in a `WHERE`
+     * comparison, and a cast turns junk into 0 -- a store id some rows really carry. Same spelling
+     * as `DocumentDirection::ownRow()` and `RoleController::store()`.
+     *
+     * `Product` AND `Category` BOTH CARRY `StoreScope` AND ARE BOTH ABSENT FROM `scoped_models`, so
+     * the scope adds NO predicate for any principal and these explicit `where('store_id', ...)`
+     * clauses are the whole control -- not defence in depth.
+     *
+     * @return string|null the message to flash, or null when every named row is this store's
+     */
+    private function foreignRowRefusal(Request $request): ?string
+    {
+        $storeId = filter_var(getCurrentStore(), FILTER_VALIDATE_INT);
+
+        if ($storeId === false || $storeId <= 0) {
+            return __('No store is selected, so a testimonial cannot be saved. Open the store it belongs to and try again.');
+        }
+
+        foreach ([
+            'product_id' => [Product::class, __('The selected product is not available in this store.')],
+            'category_id' => [Category::class, __('The selected category is not available in this store.')],
+        ] as $field => [$model, $message]) {
+            $posted = $request->input($field);
+
+            // An absent or empty id is left alone: a testimonial naming no product is an ordinary
+            // save, and both fields are commented out of both validators.
+            if (empty($posted)) {
+                continue;
+            }
+
+            $id = filter_var($posted, FILTER_VALIDATE_INT);
+
+            if ($id === false || $id <= 0
+                || ! $model::where('id', $id)->where('store_id', $storeId)->exists()) {
+                return $message;
+            }
+        }
+
+        return null;
     }
 }

@@ -452,7 +452,7 @@ class CatalogueFormLabelAssociationTest extends TestCase
     /**
      * NEGATIVE CONTROL — THE TESTIMONIAL PRODUCT SELECT AGREES WITH THE AJAX THAT REPLACES IT.
      *
-     * `TestimonialController::get_product` (app/Http/Controllers/TestimonialController.php:252)
+     * `TestimonialController::get_product` (app/Http/Controllers/TestimonialController.php:263)
      * answers `{status, html}` and its html carries `id="product_id"`. testimonial/create was the
      * sole view whose select said `id="product-dropdown"`, so NO single `for` could be right in
      * both states: correct before the AJAX fired and dangling after it. The outlier is fixed in the
