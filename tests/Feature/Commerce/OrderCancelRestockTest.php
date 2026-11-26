@@ -8,7 +8,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Store;
-use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -57,13 +57,62 @@ use Tests\TestCase;
  * could easily have moved it back out of the success branch -- which is the
  * precise defect that was fixed on this endpoint last phase.
  *
- * Builds its own minimal schema, like the rest of tests/Feature/Commerce, and
- * refuses to run anywhere but sqlite :memory:.
+ * RUNS AGAINST THE MIGRATED SCHEMA (`RefreshDatabase`), and it used to build its own.
+ * ------------------------------------------------------------------------------------
+ * The hand-built shape declared THIRTEEN tables and THREE columns the product does not
+ * have, so this suite's restock arithmetic was measured against a database that does not
+ * ship. Converted 2026-11-26; what the conversion measured, before anything was changed:
+ *
+ *  1. `orders.return_status_message` DOES NOT EXIST, and NO MIGRATION ANYWHERE ADDS IT.
+ *     The hand-built column carried the comment "Read by Order::order_detail()", which is
+ *     true -- `Order::order_detail()` writes `$order->return_status_message` straight into
+ *     the order payload, and `Api\DashboardController` reads it a second time -- so the
+ *     product reads a column it never created. Eloquent answers null for an unknown
+ *     attribute rather than throwing, so the field is PERMANENTLY null in the API payload
+ *     (the Flutter contract fixtures in packages/workdo/Api/src/documentation/admin.json
+ *     record it as exactly that), and this suite's invented column was the only thing in
+ *     the repository making it look otherwise. Dropped here and REPORTED; it is a product
+ *     finding, not a test one, and it is not this slice's to fix.
+ *
+ *  2. `customers.name` DOES NOT EXIST. The real columns are `first_name` and `last_name`
+ *     (`email` is NOT NULL). This matters beyond the label: `Order::getUserNameAttribute()`
+ *     prefers first/last and falls back to `$customer->name`, so the hand-built schema put
+ *     every case here on the LEGACY FALLBACK BRANCH and the production branch was never
+ *     exercised. The one value is split across the two real columns.
+ *
+ *  3. `product_variants.name` DOES NOT EXIST; the real columns are `variant` and `sku`
+ *     (both NOT NULL) and `price` (NOT NULL). The label goes into `variant`.
+ *
+ *  4. `stores` is NOT NULL on `email`, `theme_id`, `slug` and `created_by`, and
+ *     `created_by` is a FOREIGN KEY to `users.id` -- none of which the hand-built table
+ *     declared. `DB_FOREIGN_KEYS` is unset so sqlite enforces the key, so the store's owner
+ *     must now exist: see ownerTheStoresBelongTo(). The hand-built shape let a store be
+ *     created owned by a user that was not there.
+ *
+ *  5. `orders.return_date` and `orders.cancel_date` are DATE in the migration and the
+ *     hand-built table declared both `dateTime`. `status_cancel` writes `now()` into
+ *     `cancel_date`, so MySQL TRUNCATES THE TIME while the hand-built column preserved it.
+ *     Inert on sqlite (both carry NUMERIC affinity) and nothing here reads either column.
+ *
+ *  6. `orders.delivery_id` is NOT NULL default 0 in the migration and was nullable with no
+ *     default -- so the hand-built shape could reach a NULL `delivery_id` that production
+ *     refuses. Inert here: the fixture never sets it, so it takes the migration's 0.
+ *     `orders.payment_comment` is TEXT in the migration and was varchar(255);
+ *     `products.variant_product` defaults to 1 and defaulted to 0; `stores.is_active` is
+ *     INTEGER and was varchar. All inert on this engine or always supplied.
+ *
+ * `stock_movements` IS NOW A REAL MIGRATED TABLE and the one case that needs it ABSENT
+ * drops it in its own body (test_the_cancel_path_still_restores_when_the_movement_record_is
+ * _absent). sqlite's DDL is transactional, so RefreshDatabase rolls the drop back.
+ *
+ * Still refuses to run anywhere but sqlite :memory:.
  *
  * @see \App\Http\Controllers\OrderController::status_cancel()
  */
 class OrderCancelRestockTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const STORE_A = 41;
     private const STORE_B = 42;
     private const SLUG_A = 'store-a';
@@ -84,7 +133,33 @@ class OrderCancelRestockTest extends TestCase
             'this suite must only ever run against sqlite :memory:'
         );
 
-        $this->createCancelSchema();
+        /*
+         * THE PREMISES OF DIVERGENCES 1-3, ASSERTED RATHER THAN ASSUMED, so that a later
+         * migration adding any of the three invented columns fails HERE -- naming the column
+         * and this docblock -- instead of quietly making the paragraphs above wrong.
+         */
+        foreach ([
+            ['orders', 'return_status_message'],
+            ['customers', 'name'],
+            ['product_variants', 'name'],
+            ['order_billing_details', 'store_id'],
+        ] as [$table, $column]) {
+            $this->assertFalse(
+                Schema::hasColumn($table, $column),
+                "{$table}.{$column} does not exist in the migrated schema, and this suite "
+                    . 'invented it until 2026-11-26. If it exists now, re-read the class '
+                    . 'docblock: for orders.return_status_message a product finding is resolved.'
+            );
+        }
+
+        foreach (['variant', 'sku', 'price', 'stock'] as $column) {
+            $this->assertTrue(
+                Schema::hasColumn('product_variants', $column),
+                "product_variants.{$column} must exist in the migrated schema "
+                    . '(2024_01_01_104858_create_product_variants_table.php)'
+            );
+        }
+
         $this->loginCustomerOfStoreA();
     }
 
@@ -92,24 +167,6 @@ class OrderCancelRestockTest extends TestCase
     {
         Auth::guard('customers')->logout();
         Cache::flush();
-
-        foreach ([
-            'stock_movements',
-            'order_coupon_details',
-            'order_tax_details',
-            'order_billing_details',
-            'orders',
-            'product_variants',
-            'products',
-            'customers',
-            'add_on_managers',
-            'shippings',
-            'stores',
-            'settings',
-            'users',
-        ] as $table) {
-            Schema::dropIfExists($table);
-        }
 
         parent::tearDown();
     }
@@ -859,11 +916,41 @@ class OrderCancelRestockTest extends TestCase
         return (int) DB::table('product_variants')->where('id', $variant->id)->value('stock');
     }
 
+    /**
+     * `users` row 1, which both stores below name as their `created_by`.
+     *
+     * DIVERGENCE 4. The migrated `stores` carries a foreign key from `created_by` to
+     * `users.id` and sqlite enforces it, so a store cannot be created owned by a user that
+     * does not exist. The hand-built `stores` declared no key and this suite created no user
+     * at all, so both stores were owned by nobody -- a row production could not hold.
+     */
+    private function ownerTheStoresBelongTo(): void
+    {
+        DB::table('users')->insert([
+            'id' => 1,
+            'name' => 'Merchant Of Both Stores',
+            'email' => 'merchant@example.test',
+            'password' => bcrypt('secret'),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
     private function loginCustomerOfStoreA(): void
     {
+        $this->ownerTheStoresBelongTo();
+
+        /*
+         * DIVERGENCE 4 again: `email` and `theme_id` are NOT NULL with no default in the
+         * migrated `stores`, so they are supplied rather than omitted. `theme_id` is the
+         * value config/theme.php's `active` names, so these stores render the same views
+         * a store with no explicit theme would.
+         */
         DB::table('stores')->insert([
             'id' => self::STORE_A,
             'name' => 'Store A',
+            'email' => 'store-a@example.test',
+            'theme_id' => config('theme.active'),
             'slug' => self::SLUG_A,
             'created_by' => 1,
             'created_at' => now(),
@@ -873,15 +960,25 @@ class OrderCancelRestockTest extends TestCase
         DB::table('stores')->insert([
             'id' => self::STORE_B,
             'name' => 'Store B',
+            'email' => 'store-b@example.test',
+            'theme_id' => config('theme.active'),
             'slug' => 'store-b',
             'created_by' => 1,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
+        /*
+         * DIVERGENCE 2. `customers` has `first_name` and `last_name`, not `name`, so the one
+         * label is split across the two real columns. This also moves every case here onto
+         * `Order::getUserNameAttribute()`'s PRODUCTION branch: that accessor prefers
+         * first/last and falls back to `$customer->name`, and the hand-built schema -- `name`
+         * present, first/last absent -- put the whole suite on the fallback.
+         */
         DB::table('customers')->insert([
             'id' => 501,
-            'name' => 'Customer A',
+            'first_name' => 'Customer',
+            'last_name' => 'A',
             'email' => 'customer-a@example.test',
             'password' => bcrypt('secret'),
             'store_id' => self::STORE_A,
@@ -918,12 +1015,19 @@ class OrderCancelRestockTest extends TestCase
         return $product;
     }
 
+    /**
+     * DIVERGENCE 3. The label goes into `variant`, the column the migration declares for it;
+     * `sku` and `price` are NOT NULL with no default, so they are supplied rather than
+     * omitted. The label's value is unchanged from the hand-built fixture's.
+     */
     private function makeVariant(int $productId, int $storeId, int $stock): ProductVariant
     {
         $variant = new ProductVariant();
         $variant->forceFill([
             'product_id' => $productId,
-            'name' => 'Variant ' . uniqid('', false),
+            'variant' => 'Variant ' . uniqid('', false),
+            'sku' => 'sku-' . uniqid('', false),
+            'price' => 10,
             'stock' => $stock,
             'stock_order_status' => 'not_allow',
             'store_id' => $storeId,
@@ -961,240 +1065,5 @@ class OrderCancelRestockTest extends TestCase
         $order->save();
 
         return $order;
-    }
-
-    /** Only the tables status_cancel reads or writes. */
-    private function createCancelSchema(): void
-    {
-        foreach ([
-            'stock_movements',
-            'order_coupon_details',
-            'order_tax_details',
-            'order_billing_details',
-            'orders',
-            'product_variants',
-            'products',
-            'customers',
-            'add_on_managers',
-            'shippings',
-            'stores',
-            'settings',
-            'users',
-        ] as $table) {
-            Schema::dropIfExists($table);
-        }
-
-        /*
-         * E13 slice 3. The cancellation path now CONSULTS the stock-movement record before giving
-         * stock back, so this suite has to be able to put the record into each of its three
-         * states. Mirrors database/migrations/2026_10_31_000100_create_stock_movements_table.php,
-         * which is DEVELOPMENT AND TEST ONLY -- see test_the_cancel_path_still_restores_when_the
-         * _movement_record_is_absent for the production shape, where the table does not exist.
-         */
-        Schema::create('stock_movements', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('store_id')->index();
-            $table->unsignedBigInteger('order_id')->nullable()->index();
-            $table->unsignedBigInteger('product_id')->nullable();
-            $table->unsignedBigInteger('variant_id')->nullable();
-            $table->string('direction', 3);
-            $table->integer('quantity')->default(0);
-            $table->boolean('applied')->default(false);
-            $table->string('outcome', 24)->nullable();
-            $table->string('reason', 32)->nullable();
-            $table->string('correlation_token', 64)->nullable()->index();
-            $table->timestamps();
-        });
-
-        Schema::create('users', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->string('type')->default('admin');
-            $table->string('password');
-            $table->unsignedBigInteger('current_store')->nullable()->index();
-            $table->string('is_active')->default('1');
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->rememberToken();
-            $table->timestamps();
-        });
-
-        // Order::booted()'s `creating` hook resolves the store's currency via
-        // Utility::GetValueByName (app/Models/Order.php:100-113), which reads
-        // `settings`.
-        Schema::create('settings', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->longText('value')->nullable();
-            $table->string('created_by');
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        // getStore($slug) resolves the tenant from `stores.slug`
-        // (app/Helper/helper.php:2332-2335).
-        Schema::create('stores', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('slug')->nullable()->index();
-            $table->string('is_active')->default('1');
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('customers', function (Blueprint $table) {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->string('email')->nullable();
-            $table->string('password')->nullable();
-            $table->rememberToken();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        /*
-         * Order::order_detail() assembles a full order view, so it reads the
-         * three satellite tables as well. They stay EMPTY: this suite asserts
-         * stock arithmetic, and an order with no billing, tax or coupon rows is
-         * a perfectly ordinary order. Only `order_coupon_details` declares a
-         * foreign key to `orders`, so it is dropped first.
-         */
-        Schema::create('order_billing_details', function (Blueprint $table) {
-            $table->id();
-            $table->integer('order_id')->default(0);
-            $table->string('product_order_id')->nullable();
-            $table->string('first_name')->nullable();
-            $table->string('last_name')->nullable();
-            $table->string('email')->nullable();
-            $table->string('telephone')->nullable();
-            $table->string('company_name')->nullable();
-            $table->text('address')->nullable();
-            $table->string('postcode')->nullable();
-            $table->string('country')->nullable();
-            $table->string('state')->nullable();
-            $table->string('city')->nullable();
-            $table->string('delivery_address')->nullable();
-            $table->string('delivery_city')->nullable();
-            $table->string('delivery_postcode')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('order_tax_details', function (Blueprint $table) {
-            $table->id();
-            $table->integer('order_id')->default(0);
-            $table->string('product_order_id')->nullable();
-            $table->integer('tax_id')->default(0);
-            $table->string('tax_name')->nullable();
-            $table->float('tax_discount_amount')->default(0)->nullable();
-            $table->float('tax_final_amount')->default(0)->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('order_coupon_details', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->string('product_order_id')->nullable();
-            $table->integer('coupon_id')->default(0);
-            $table->string('coupon_name')->nullable();
-            $table->string('coupon_code')->nullable();
-            $table->string('coupon_discount_type')->nullable();
-            $table->float('coupon_discount_number')->default(0);
-            $table->float('coupon_discount_amount')->default(0);
-            $table->float('coupon_final_amount')->default(0);
-            $table->timestamps();
-        });
-
-        // Order::order_detail() reaches module_is_active('AdditionalCustomFields'),
-        // which queries `add_on_managers`. Left EMPTY on purpose: an empty table
-        // is the real "module not installed" state, which is what this suite
-        // wants -- it is testing core stock behaviour, not an addon.
-        Schema::create('add_on_managers', function (Blueprint $table) {
-            $table->id();
-            $table->string('module')->nullable();
-            $table->string('name')->nullable();
-            $table->string('monthly_price')->nullable();
-            $table->string('yearly_price')->nullable();
-            $table->text('image')->nullable();
-            $table->boolean('is_enable')->default(0);
-            $table->string('package_name')->nullable();
-            $table->boolean('is_display')->default(1);
-            $table->timestamps();
-        });
-
-        // Order has a `delivery_date` accessor that does
-        // Shipping::find($this->delivery_id) (app/Models/Order.php:214), and
-        // Order::order_detail() reads it. Without this table every cancellation
-        // dies on "no such table: shippings" -- nothing to do with the restock.
-        Schema::create('shippings', function (Blueprint $table) {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->string('description')->nullable();
-            $table->string('slug')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        Schema::create('products', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->integer('track_stock');
-            $table->string('stock_order_status')->nullable();
-            $table->float('price')->default(0);
-            $table->float('sale_price')->default(0);
-            $table->integer('product_stock')->default(0);
-            $table->integer('low_stock_threshold')->default(0);
-            $table->string('stock_status')->default(0);
-            $table->boolean('variant_product')->default(0);
-            $table->double('average_rating', 8, 2)->default(0);
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->integer('created_by');
-            $table->timestamps();
-        });
-
-        Schema::create('product_variants', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('product_id');
-            $table->string('name')->nullable();
-            $table->integer('stock')->default(0);
-            $table->string('stock_order_status')->nullable();
-            $table->string('variation_option')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('orders', function (Blueprint $table) {
-            $table->id();
-            $table->string('product_order_id')->nullable();
-            $table->dateTime('order_date')->nullable();
-            $table->integer('customer_id')->default(0);
-            // SEC-INTAKE #188: `status_cancel` now filters on `is_guest`, so this hand-built
-            // table needs the column or every cancel here errors with "no such column".
-            // Default 0 = a signed-in customer's order, which is what these fixtures model.
-            $table->integer('is_guest')->default(0);
-            $table->text('product_json')->nullable();
-            $table->string('product_id')->default(0);
-            $table->float('product_price')->nullable()->default(0);
-            $table->float('coupon_price')->nullable()->default(0);
-            $table->float('delivery_price')->nullable()->default(0);
-            $table->float('tax_price')->nullable()->default(0);
-            $table->float('final_price')->nullable()->default(0);
-            $table->string('payment_type')->nullable();
-            $table->string('payment_status')->nullable();
-            $table->integer('delivered_status')->default(0);
-            $table->integer('return_status')->default(0);
-            $table->float('return_price')->nullable()->default(0);
-            $table->dateTime('return_date')->nullable();
-            $table->dateTime('cancel_date')->nullable();
-            // Read by Order::order_detail() (app/Models/Order.php:339-343).
-            $table->string('return_status_message')->nullable();
-            $table->string('payment_comment')->nullable();
-            $table->string('additional_note')->nullable();
-            $table->unsignedBigInteger('delivery_id')->nullable();
-            $table->string('currency_code', 3)->nullable();
-            $table->string('currency_symbol', 8)->nullable();
-            $table->unsignedBigInteger('created_by')->nullable()->index();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
     }
 }
