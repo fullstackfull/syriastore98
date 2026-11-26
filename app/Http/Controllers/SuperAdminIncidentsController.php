@@ -161,8 +161,23 @@ class SuperAdminIncidentsController extends Controller
         ]);
 
         if ($validator->fails()) {
+            /*
+             * `only()` AND NOT A BARE `withInput()`, which is this repository's own rule and which
+             * `CredentialSinksTest::test_the_bare_with_input_census_is_what_the_middleware_was
+             * _written_for` holds as a closed set: a bare call flashes the WHOLE request body into
+             * the session, and the census's message says in terms that "a new HOST-APP site should
+             * exclude its credential fields at source (the middleware is the net for the vendored
+             * ones, not a licence to stop doing that)".
+             *
+             * This form has no credential field, so nothing secret would have been flashed today --
+             * and naming the four fields is still the right call, for a reason this screen has of
+             * its own: a caller can post anything, and the one key this handler deliberately
+             * IGNORES is `diagnostics` (the snapshot is measured here, never submitted). A bare
+             * `withInput()` would put a submitted `diagnostics` blob back into the session and
+             * then into `old()`, which is the beginning of the path where it reaches a page.
+             */
             return redirect()->route('platform.incidents.index')
-                ->withInput()
+                ->withInput($request->only(['title', 'summary', 'severity', 'detected_at']))
                 ->with('error', $validator->errors()->first());
         }
 
