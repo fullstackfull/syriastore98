@@ -29,6 +29,19 @@ use Tests\TestCase;
  *     `resources/`, `routes/`, `packages/workdo/` and `themes/` returned the declaration and
  *     nothing else, and the Flutter endpoint manifest has zero `place-order` entries.
  *
+ * AND THAT LAST BULLET NAMES FIVE DIRECTORIES AND NOT `tests/`, WHICH IS THE ONE MISTAKE THE
+ * WITHDRAWAL MADE. The product-code census was right -- no Blade, controller, module, theme,
+ * listener or seeder referenced any withdrawn name, so no capability was lost -- but THREE
+ * PRE-EXISTING TEST FILES asserted several of these names still existed, and five Feature
+ * assertions failed against an empty declared-failure set as a result:
+ * `CatalogueEndpointIntegrityTest`'s own both-ways dead-action list (65 entries, 64 of them
+ * resolved by this triage), `UnauthenticatedRouteBoundaryTest`'s public-route allowlist and its
+ * positive storefront list, and `CustomerAccountBoundaryTest`'s data provider. Each was corrected
+ * the way its own failure message asked and none was declared in
+ * `.github/known-test-outcomes.json`. The generalisable lesson is in the last bullet's own shape:
+ * a both-ways baseline in THIS file does not make the older copies of the same baseline update
+ * themselves, and "nothing references this" has to include the suite that asserts it.
+ *
  * So the defect was invisible from every direction at once, which is exactly the shape that
  * deserves a ratchet rather than a one-line deletion.
  *
@@ -49,23 +62,95 @@ class EveryRouteActionExistsTest extends TestCase
 {
 
     /**
-     * THE MEASURED BACKLOG — 73 controller actions a route names and no class defines.
+     * THE MEASURED BACKLOG. 73 at the first run of this test; 8 now, and the remaining 8 are not
+     * "the ones nobody got to" -- each is here for a stated reason that a test asserts.
+     *
+     * 64 WERE WITHDRAWN, in four batches, every one measured before it was touched:
+     *
+     *   -4   the MyFatoorah payment package. Declared by a VENDORED provider's `register()`, not
+     *        by `routes/`, so they are replaced rather than removed; they answer 404, which is the
+     *        package's own answer while `webhook_secret_key` is empty, as it ships. No capture is
+     *        recorded and no payment record changes -- `MyFatoorahPackageRoutesWithdrawnTest`.
+     *   -55  `Route::resource()` actions the controller never implemented. Laravel declares all
+     *        seven whatever the class defines. Route-table diff: 1504 -> 1448, 56 rows removed,
+     *        0 added, and all 55 actions verified missing by `method_exists()`, so no working
+     *        route was removed. One of the 55 needed a SECOND route deleted too
+     *        (`support_ticket.view`, which routed `@show` a second time).
+     *   -4   dead hand-written routes -- `DeadControllerRoutesWithdrawnTest`. `order/all` was not
+     *        merely dead but UNREACHABLE: `order/{order}` is declared above it.
+     *   -1   `GAP-267`'s web `place.order` -- `WebPlaceOrderRouteWithdrawnTest`.
+     *   -1   `AppSettingController@image_delete` -- IMPLEMENTED rather than withdrawn, the only
+     *        one of the 73 that was broken IN USE. See below.
+     *
+     * THE 8 THAT REMAIN, AND WHY EACH IS NOT A DELETION:
+     *
+     *   `AppSettingController@image_delete` IS GONE FROM THIS LIST BECAUSE IT WAS FIXED, not
+     *   withdrawn, and it is the only one of the 73 that went that way. It was the only entry
+     *   broken IN USE rather than orphaned -- `resources/views/AppSetting/mobile_content.blade.php`
+     *   calls `route('product.image.delete')` inside a RENDERED view, so withdrawing the route
+     *   throws `RouteNotFoundException` at render time and 500s the whole page. The method now
+     *   exists, with the unlink going through `StoredUpload::delete($path, $user->creatorId())` --
+     *   the predicate `Product`, `Category` and `Utility` already delete through -- behind an
+     *   `instanceof User` check, operator-first permission, a fail-closed store and a
+     *   principal-derived path prefix. `AppSettingImageDeleteDoorTest` drives all five layers and
+     *   each is mutation-verified. The entry could only be retired by fixing it, which is what
+     *   `DeadControllerRoutesWithdrawnTest::test_the_product_image_delete_route_is_deliberately_kept`
+     *   was written to require, and that case now asserts the method EXISTS.
+     *
+     *   `Workdo\LandingPage\...` (8) -- declared in `packages/workdo/LandingPage/src/Routes/web.php`,
+     *   which is VENDORED and must not be edited (CLAUDE.md; enforced by
+     *   `guard-no-workdo-changes.sh` in CI). Five are `MarketPlaceController@pricing_plan_*`; the
+     *   other three are `Route::resource()` `store` actions whose controllers define
+     *   `dedicated_store` / `buildtech_store` / `packagedetails_store` and are separately routed at
+     *   `POST dedicated/store` etc. -- so the module itself already serves the intent, and the
+     *   resource's `store` slot is upstream's leftover.
+     *
+     *   I FIRST WROTE THAT A HOST DECLARATION *CANNOT* WITHDRAW THEM, ARGUING FROM REGISTRATION
+     *   INDEX -- `routes/web.php`'s last declaration at #1129 against `dedicated.store` at #1274 --
+     *   AND THAT ARGUMENT IS WRONG. An index in `RouteCollection::$allRoutes` is the FIRST
+     *   insertion for a key; re-registering the same method+URI overwrites the value in place and
+     *   does not move the key, so position says nothing about who wins. An independent review
+     *   caught it and named the measurement. MEASURED: a throwaway
+     *   `Route::post('dedicated', fn() => ...)` appended to `routes/web.php` registers at #1130 --
+     *   BEFORE the module's #1274 -- and `POST /dedicated` then resolves to that closure, with
+     *   `dedicated.store` gone from the table entirely. So withdrawal IS mechanically available
+     *   for this module, and the index reasoning is refuted by its own numbers.
+     *
+     *   THEY ARE STILL LEFT ALONE, for a reason that does not depend on that mechanism: these are
+     *   vendored routes on vendored controllers whose intent the module already serves -- it
+     *   separately declares `POST dedicated/store` -> `dedicated_store`, which exists. Withdrawing
+     *   them from `routes/web.php` would make the host a silent override layer over a vendored
+     *   module's route table, which the next upstream update desynchronises with nothing to flag
+     *   it. The fix belongs upstream or in a recorded patch.
+     *
+     *   ONE PROJECT-LEVEL CLAIM NEEDS THE SAME CARE. CLAUDE.md's module guidance says a module's
+     *   declaration wins the slot because module route files load from `app->booted()`, AFTER
+     *   `routes/web.php`. That holds for the ~69 modules `loadDynamicAddons()` brings in from the
+     *   `booted()` callback. `LandingPage` is NOT one of them: `PackageServiceProvider::register()`
+     *   loads it in `$staticAddons`, which is why the probe above wins. So the rule is sound for
+     *   the modules it was written about and must not be applied to this one.
+     *
+     * Note that these 9 are measured against the HOST route table, which is what this file can
+     * see. The LandingPage eight are visible because that module's provider is reachable without
+     * an `add_on_managers` row; the other 69 WorkDo modules are not, and their route files are not
+     * covered here -- see WHAT THIS DELIBERATELY DOES NOT COVER above.
      *
      * Every one of these is an HTTP 500 for any request that reaches it, and they are PRE-EXISTING:
-     * this list is what the first run of this test found, not breakage it allows. It is asserted in
-     * BOTH directions — a new entry fails, and an entry that starts existing fails until it is
-     * deleted from here — so the set can shrink and cannot quietly grow.
+     * the original list was what the first run found, not breakage it allows. It is asserted in
+     * BOTH directions — a new entry fails, and an entry that stops being routed to a missing method
+     * fails until it is deleted from here — so the set can shrink and cannot quietly grow.
      *
-     * FOUR OF THEM ARE A PAYMENT INTEGRATION, and one is worse than the rest:
-     *
-     *     POST myfatoorah/webhook  ->  MyFatoorahController::webhook()
-     *
-     * `MyFatoorahController` defines exactly two methods, `planPayWithmyfatoorah` and
-     * `paymentCallback`; `index`, `callback`, `checkout` and `webhook` are all absent. A provider
-     * posting a capture notification to that webhook gets a 500, so the capture is never recorded —
-     * money taken and not booked. Carried as `GAP-268`; the fix is a decision (finish the
-     * integration, or withdraw the routes) rather than a repair, which is why it is listed here
-     * instead of being patched in the change that found it.
+     * THE PAYMENT INTEGRATION IS OUT (−4, `MyFatoorahController@index|callback|checkout|webhook`),
+     * and the reason the register gave for leaving it in turned out to be the wrong reason. Those
+     * four routes are NOT declared in `routes/`: they come from
+     * `vendor/myfatoorah/laravel-package/src/MyFatoorahServiceProvider::register()`, whose sample
+     * controller WorkDo overwrote with their own two-method version. `register()` runs before
+     * `routes/web.php`, so a host declaration of the same verb and URI replaces them; they now
+     * answer 404, which is the vendored integration's OWN answer while
+     * `config('myfatoorah.webhook_secret_key')` is empty — as it ships. **No capture is recorded
+     * and no payment record is created or changed**; whether this product should consume MyFatoorah
+     * webhooks at all is an open owner decision. Full derivation, and the three live call sites that
+     * rule out `dont-discover`, in `MyFatoorahPackageRoutesWithdrawnTest`.
      *
      * HOW THIS WENT UNNOTICED. `route:cache` resolves the controller METHOD lazily at dispatch, so
      * only a missing CLASS fails at cache time — a deploy can cache these routes successfully. The
@@ -75,71 +160,6 @@ class EveryRouteActionExistsTest extends TestCase
      * @var list<string>
      */
     private const KNOWN_BROKEN = [
-        'App\Http\Controllers\AccountProfileController@destroy',
-        'App\Http\Controllers\AccountProfileController@edit',
-        'App\Http\Controllers\AccountProfileController@show',
-        'App\Http\Controllers\AccountProfileController@update',
-        'App\Http\Controllers\AddonController@edit',
-        'App\Http\Controllers\AddonController@show',
-        'App\Http\Controllers\AddonController@store',
-        'App\Http\Controllers\AddonController@update',
-        'App\Http\Controllers\Api\ApiController@random_product',
-        'App\Http\Controllers\AppSettingController@destroy',
-        'App\Http\Controllers\AppSettingController@edit',
-        'App\Http\Controllers\AppSettingController@image_delete',
-        'App\Http\Controllers\AppSettingController@show',
-        'App\Http\Controllers\AppSettingController@update',
-        'App\Http\Controllers\BlogController@show',
-        'App\Http\Controllers\ModuleController@AddOnSessionSave',
-        'App\Http\Controllers\ModuleController@AddOnSessioncreate',
-        'App\Http\Controllers\MyFatoorahController@callback',
-        'App\Http\Controllers\MyFatoorahController@checkout',
-        'App\Http\Controllers\MyFatoorahController@index',
-        'App\Http\Controllers\MyFatoorahController@webhook',
-        'App\Http\Controllers\OrderController@allOrders',
-        'App\Http\Controllers\OrderController@edit',
-        'App\Http\Controllers\OrderController@place_order',
-        'App\Http\Controllers\OrderController@update',
-        'App\Http\Controllers\OrderNoteController@create',
-        'App\Http\Controllers\OrderNoteController@edit',
-        'App\Http\Controllers\OrderNoteController@index',
-        'App\Http\Controllers\OrderNoteController@show',
-        'App\Http\Controllers\OrderNoteController@update',
-        'App\Http\Controllers\OrderRefundController@create',
-        'App\Http\Controllers\OrderRefundController@destroy',
-        'App\Http\Controllers\OrderRefundController@edit',
-        'App\Http\Controllers\OrderRefundController@store',
-        'App\Http\Controllers\OrderRefundController@update',
-        'App\Http\Controllers\PlanRequestController@create',
-        'App\Http\Controllers\PlanRequestController@destroy',
-        'App\Http\Controllers\PlanRequestController@edit',
-        'App\Http\Controllers\PlanRequestController@show',
-        'App\Http\Controllers\PlanRequestController@store',
-        'App\Http\Controllers\PlanRequestController@update',
-        'App\Http\Controllers\PosController@destroy',
-        'App\Http\Controllers\PosController@edit',
-        'App\Http\Controllers\PosController@show',
-        'App\Http\Controllers\PosController@update',
-        'App\Http\Controllers\ReportController@create',
-        'App\Http\Controllers\ReportController@destroy',
-        'App\Http\Controllers\ReportController@edit',
-        'App\Http\Controllers\ReportController@show',
-        'App\Http\Controllers\ReportController@store',
-        'App\Http\Controllers\ReportController@update',
-        'App\Http\Controllers\ShopifyCategoryController@create',
-        'App\Http\Controllers\ShopifyCategoryController@store',
-        'App\Http\Controllers\ShopifyProductController@create',
-        'App\Http\Controllers\ShopifyProductController@destroy',
-        'App\Http\Controllers\ShopifyProductController@store',
-        'App\Http\Controllers\ShopifyProductController@update',
-        'App\Http\Controllers\SupportTicketController@create',
-        'App\Http\Controllers\SupportTicketController@show',
-        'App\Http\Controllers\SupportTicketController@store',
-        'App\Http\Controllers\SupportTicketController@update',
-        'App\Http\Controllers\WoocomCategoryController@destroy',
-        'App\Http\Controllers\WoocomCategoryController@update',
-        'App\Http\Controllers\WoocomProductController@create',
-        'App\Http\Controllers\WoocomProductController@store',
         'Workdo\LandingPage\Http\Controllers\BuiltTechSectionController@store',
         'Workdo\LandingPage\Http\Controllers\DedicatedSectionController@store',
         'Workdo\LandingPage\Http\Controllers\MarketPlaceController@pricing_plan_create',

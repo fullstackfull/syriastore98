@@ -289,6 +289,42 @@ pointing at a file neither journey mentions.
 `onTheAdminSurface()` that does `Theme::clear()` plus `view()->getFinder()->flush()` before an admin
 request.
 
+#### J-1 UPDATE — THE NAME COLLISION IS FIXED (`GAP-265`). The leak is not, and was not the defect.
+
+The test above did exactly what its last paragraph promised: it **failed and said so** when the
+collision was closed, which is how this section came to be rewritten rather than left stale.
+
+**What changed.** `themes/stylique/views/layouts/app.blade.php` is now
+`themes/stylique/views/front_end/layouts/app-scaffold.blade.php` — still present, still the unused
+non-functional scaffold it always was (its `<body>` is a `// ... existing code ...` placeholder, so
+it has no `@yield('content')` and no `$slot` and could never have rendered a page), but inside
+`front_end/`, the namespace the storefront renders through and where a theme shadowing a host view
+is the intended mechanism rather than a cross-surface trap. Nothing referenced it: all three
+themes' `main_file.blade.php` `@extends('front_end.layouts.app')`, a different and working file.
+
+**Measured, both directions, two real requests in one process.** With the file moved, a merchant's
+`GET /order` after a storefront request answers **200 without** `onTheAdminSurface()`'s reset. With
+the file copied back to the old path, the same request answers **500**. So the fix is behavioural
+and not merely a filesystem rename.
+
+**The leak itself is untouched and is not a defect to fix.** `Theme::set()` still prepends and
+`FileViewFinder` still memoises, so a theme's `front_end.*` and `components.*` files still bleed
+into a later request in the same process. That remains a harness fact for the reason this section
+already gives. What is fixed is only the part that crossed from the storefront into the **panel**.
+
+**`onTheAdminSurface()` is kept** at its call sites. It is no longer load-bearing for the layout
+name — the premise case asserts precisely that — but it still clears a leak that exists for other
+names, and removing it is a separate change with its own measurement.
+
+**Now pinned in two places, and the second is the stronger one.**
+`CustomerJourneyTest::test_premise_the_admin_panel_layout_is_no_longer_shadowed_by_a_theme` is the
+end-to-end half. `tests/Unit/Ui/ThemeViewsStayInTheStorefrontNamespaceTest` is a **property** test:
+no view under any `themes/<t>/views` may shadow a `resources/views` file outside `front_end/` and
+`components/`. Fixing the one file closed one instance; the hazard was structural, so the next
+`layouts/`, `partials/` or `auth/` file added to a theme would have been the same defect under a
+different name. There is deliberately **no allowlist entry for a single path** — an exception for
+one file is how the next one gets added.
+
 ### J-2 · `User::assignPlan()`'s seat cascade can deactivate the subject itself
 
 `app/Models/User.php:487-519`:
@@ -381,11 +417,16 @@ Offered for whoever owns `docs/development/MASTER-PLAN-GAP-REGISTER.md` and
 
 ### Two new rows these exercises produced
 
-> **`GAP-J1`** — `themes/stylique/views/layouts/app.blade.php` shadows the merchant panel's
-> `layouts.app` and prints `$store->name`. Latent in production (one FPM process per request); any
-> admin surface that resolves a theme inside its own request renders it and answers 500. Pinned by
-> `CustomerJourneyTest::test_premise_the_admin_layout_name_is_shadowed_by_the_stylique_theme`.
-> Owner: Phase 03 / theme work.
+> **`GAP-J1`** — **CLOSED.** `themes/stylique/views/layouts/app.blade.php` shadowed the merchant
+> panel's `layouts.app` and printed `$store->name`. It is now
+> `themes/stylique/views/front_end/layouts/app-scaffold.blade.php`, inside the storefront
+> namespace, so the name no longer collides; measured 200 without the harness reset where it was
+> 500, and 500 again when the file is put back. Pinned by
+> `CustomerJourneyTest::test_premise_the_admin_panel_layout_is_no_longer_shadowed_by_a_theme` and,
+> as a property over every theme and every name, by
+> `tests/Unit/Ui/ThemeViewsStayInTheStorefrontNamespaceTest`. See the J-1 UPDATE above. Carried as
+> `GAP-265`, whose register row still describes the OPEN state and needs updating by whoever owns
+> `docs/development/MASTER-PLAN-GAP-REGISTER.md`.
 >
 > **`GAP-J2`** — `User::assignPlan()`'s seat cascade (`app/Models/User.php:487-519`) selects rows
 > whose `created_by` equals the subject's own id, so a user who is their own `created_by` is their

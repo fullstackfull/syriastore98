@@ -395,6 +395,78 @@ addon-apps, country/city/state, language/, currency/, the 3 Phase-2.5-deferred s
 and the Lynomia integration screen. That is a candidate list, not a scope. Asking the owner to
 confirm the set is cheaper than building the wrong half.
 
+### `D-P6-36` — MEASURED INPUT, added 2026-11-26 (`GAP-178` / `P06-05`)
+
+`D-P6-36` asks which operator screens are in `P06-05`'s scope and gives a candidate list. That list
+was written from screen names. This section replaces the names with the ROUTE TABLE, because the
+question is answerable only against what is actually gated, and adds nothing to the scope — the
+ruling is still the owner's and engineering has not taken a default.
+
+**THE MEASURED OPERATOR-GATED SURFACE**, from the booted route table (declared middleware, so a
+reader can check it against `routes/`):
+
+| gate | routes | what they serve |
+|---|---|---|
+| `PlatformOperatorOnly` | **37** | LynomiaChat super-admin group (15), `platform/*` operator screens (9), `plan-coupon` (7), `plan.order.refund` + `plan.disable` + `order.approve` + `order.reject` (4), `zid/{storeId}/*` (2) |
+| `can:manage-platform-addons` | **7** | `addon` (4), `install-modules`, `theme-addon`, `theme-enable` |
+
+And the `platform/` prefix is a partition, measured: **20 routes — 9 operator-only, 11 public** (the
+official website and the documentation centre, Phase 03). `AnalyticsRouteAuthorizationCensusTest::
+test_everything_under_the_platform_prefix_is_public_by_declaration_or_operator_only` holds that
+partition against a declared public-controller allowlist, including for a controller that does not
+exist yet — mutation-verified on 2026-11-26 by removing the gate from `platform/revenue`, which
+reddens two cases and names the route and the controller.
+
+**`D-P6-36`'s CANDIDATE LIST PREDATES FOUR OPERATOR SCREENS**, which is the concrete correction this
+section exists to make. The list names the operator dashboard, `platform/analytics`, the plan-coupon
+screens, plans, plan requests, stores, addons, geography, language, currency, the three deferred
+settings surfaces and the Lynomia screen. It does **not** name:
+
+| screen | routes | added by |
+|---|---|---|
+| `/platform/resources` | 1 | `GAP-195` / `OPS-002` |
+| `/platform/revenue` | 1 | `GAP-192` / `SAAS-007` |
+| `/platform/site-content` | 3 | `GAP-107` / `P03-D-04` |
+| `/platform/documentation` | 2 | `GAP-107` / `P03-D-04` |
+
+Two of those four ARE this row's whole subject: `app/Http/Controllers/` holds exactly two
+`SuperAdmin*` controllers, `SuperAdminResourcesController` and `SuperAdminRevenueController`, both
+added in commit `1cde58005` and nowhere else in history (verified with `git log --all --diff-filter=A`) — so the surface is as thin as `GAP-178`
+says, and the candidate set it belongs to is six routes larger than the list above.
+
+**THE PRIOR QUESTION, AND IT MAY DISSOLVE `P06-05` RATHER THAN ANSWER IT.** `GAP-174` established
+that `P06-NN` is the DERIVED summary's numbering and that each row must be read against the family id
+it traces to; `P06-01`…`P06-08` appear nowhere in the recovered plan. The platform-admin family in
+`DECISION-ID-REGISTER.md` is `ADM-001` ("لوحة قيادة شاملة للمنصة" — a comprehensive platform command
+dashboard) and `ADM-002` ("مساحة Store 360°" — review and manage each store from its own systems),
+and **both are already tracked separately, as `GAP-231` and `GAP-232`**.
+`PHASE-06-SCOPE-RECONCILIATION.md` records `ADM-001` as overlapping `P06-05`/`P06-06` "by subject
+only". So the first thing to rule on is not "what goes in `P06-05`" but:
+
+> **Is `P06-05` the same requirement as `ADM-001` + `ADM-002`** — in which case it is a derived
+> duplicate of `GAP-231`/`GAP-232` and should be re-keyed per `GAP-174`'s own next action rather
+> than built — **or does it name something additional?**
+
+Engineering cannot answer that: `P06-05`'s entire requirement text is the two words "platform admin"
+from `CLAUDE.md §4`, with no original wording and no owner decision behind it, and `GAP-177` is a
+standing owner instruction not to infer scope from the WorkDo super-admin surface. Ruling on the
+mapping first is cheaper than ruling on a candidate set that may belong to a different row.
+
+**WHAT ENGINEERING CLOSED WITHOUT A RULING**, so the pending decision is not holding up a defect
+fix: of the four operator-only controllers under `platform/`, only `PlatformContentController` had
+an in-controller authorization check; the two `SuperAdmin*` ones relied on route middleware alone.
+Both now carry the sibling's predicate — `! $user instanceof User || !
+UserPolicy::isOperator($user)` — driven by `PlatformAdminSurfaceDefenceInDepthTest`, which removes
+the route gate and asserts exactly 403 for a merchant and for a `Customer` row typed `super admin`.
+Before the fix those answered **200** and **500** respectively. No screen, route or capability was
+added.
+
+**ONE STALE FIGURE WORTH CORRECTING WHEN SOMEBODY OWNS THOSE FILES:** `PlatformOperatorOnly`'s
+docblock and `PlatformOperatorOnlyPrincipalTest`'s ("one of the fourteen") both put the gate's blast
+radius at **14 routes**. Measured 2026-11-26: it is **37**. The figure grew with the LynomiaChat
+super-admin group and the `platform/*` screens. Nothing behaves wrongly; a reader's threat model is
+understated by 23 routes.
+
 ---
 
 ## Area E — Payment-gateway configuration in the Flutter admin app

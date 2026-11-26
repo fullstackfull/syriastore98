@@ -77,6 +77,16 @@ class PlatformOperatorOnly
          * Found by an independent review of the `plan.disable` gate, which this middleware now
          * also carries -- there the handler's own strict `!==` refused the lookalike, so the pair
          * composed fail-closed and the middleware's looseness was invisible.
+         *
+         * THAT COMPOSITION DOES NOT HOLD FOR THE OTHER DEFECT, and reading it as though it did
+         * would overstate `plan.disable`'s protection. `planDisable`'s own check is
+         * `$actor->type !== UserPolicy::PLATFORM_ADMIN` -- a plain string comparison that never
+         * asks what CLASS the principal is -- so a `Customer` typed exactly `super admin`
+         * satisfies it. MEASURED 2026-11-26 by removing the `instanceof` clause below: that
+         * request answered **200** carrying the handler's own business-logic JSON, in a loop and
+         * in isolation. So for `plan.disable` the clause below is the ONLY thing standing there,
+         * not the second of two. Pinned by the five-group case in
+         * `PlatformOperatorOnlyPrincipalTest`.
          */
         /*
          * THE PRINCIPAL MUST BE A `User` BEFORE ITS `type` MEANS ANYTHING, and that clause is the
@@ -86,9 +96,25 @@ class PlatformOperatorOnly
          * (`app/Policies/UserPolicy.php:239`) -- and `customers` HAS a `type` column, with
          * `'type'` in `Customer::$fillable` (`app/Models/Customer.php:35`). So a `Customer` row
          * whose `type` read `super admin` passed this middleware, which is the ONLY check on
-         * 14 routes including `plan.order.refund`, the `plan-coupon` resource,
-         * `order.approve`/`order.reject`, the three `platform/*` screens and LynomiaChat's
-         * super-admin group -- handlers whose own docblocks say they rely on it
+         * 37 routes. THIS SAID "14 ... AND THE THREE `platform/*` SCREENS" UNTIL 2026-11-26, and
+         * the number is written out as a partition now because a count that lives only in prose is
+         * exactly what went stale -- measured from the booted route table, and asserted in both
+         * directions by `PlatformOperatorOnlyPrincipalTest::
+         * test_premise_the_measured_blast_radius_is_still_37`, so the next route that joins the
+         * gate reddens a test instead of quietly making this comment wrong again:
+         *
+         *     LynomiaChat super-admin group                                      15
+         *     platform/* operator screens (NOT three: analytics x2, documentation
+         *       x2, resources, revenue, site-content x3)                          9
+         *     plan-coupon                                                         7
+         *     plan.order.refund, plan.disable, order.approve, order.reject        4
+         *     zid/{storeId}/*                                                     2
+         *                                                                       ---
+         *                                                                        37
+         *
+         * It grew with the Lynomia group and with the screens `GAP-192`, `GAP-195` and `GAP-107`
+         * added. Nothing behaved wrongly at 14; what was understated by 23 routes is how much
+         * rests on the one clause below -- handlers whose own docblocks say they rely on it
          * (`BankTransferController:128`, `PlanController:625`).
          *
          * LATENT, NOT LIVE, AND BOTH LINKS WERE MEASURED rather than assumed:

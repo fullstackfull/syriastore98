@@ -70,7 +70,7 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Routing**
 
-- `routes/api.php` lines 169–423 sit inside `Route::prefix('admin')`, so those paths are
+- `routes/api.php` lines 182–436 sit inside `Route::prefix('admin')`, so those paths are
   `api/admin/<x>`. The admin app's base URL is `https://storesyria.com/api/admin`. Routes outside
   that group are the **storefront** API (`api/{slug}/...`), which no client in either repository
   calls.

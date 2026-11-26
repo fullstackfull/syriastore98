@@ -155,7 +155,22 @@ Route::post('{slug}/recent-product-guest', [ApiController::class, 'recent_produc
 Route::post('{slug}/releted-product', [ApiController::class, 'releted_product'])->middleware(['custom.auth','APILog']);
 Route::post('{slug}/releted-product-guest', [ApiController::class, 'releted_product'])->middleware(['custom.auth','APILog']);
 
-Route::post('{slug}/random-product', [ApiController::class, 'random_product'])->middleware(['custom.auth','APILog']);
+// GAP-268. `Route::post('{slug}/random-product', [ApiController::class, 'random_product'])`
+// WAS HERE and is deleted. `Api\ApiController` has no `random_product` (82 methods, measured),
+// so every request was an HTTP 500 -- there is no compatible behaviour to preserve and therefore
+// no API-compatibility question to escalate. MEASURED before deleting, four ways: the route was
+// UNNAMED and referenced nowhere; it is absent from the committed Flutter manifest
+// (tests/Support/ApiContract/manifests/flutter-endpoints.json, zero hits), which is what
+// .github's check-contract.php gates on -- and that gate only requires every FLUTTER endpoint to
+// resolve to a server route, never the reverse, so removing a server route no client names
+// cannot redden it; it sits BEFORE `Route::prefix('admin')` (line 182, closing at 436 -- and the
+// deletion this comment records is itself what moved those from 169/423, so the figures are
+// re-measured by brace count here rather than carried over), so it is a storefront
+// route, which no client in either repository calls; and the one way the admin app could have
+// touched it -- `{slug}` matching the literal `admin`, i.e. POST api/admin/random-product -- is
+// not an endpoint the app has. Deleted rather than implemented: a storefront-API handler is the
+// `auth('customers')`-fallback family that produced 31 measured defects, and `random_product`'s
+// intent is not determinable from its siblings.
 
 Route::post('{slug}/payment-sheet', [ApiController::class, 'payment_sheet'])->middleware(['custom.auth','APILog']);
 Route::post('{slug}/user-delete', [ApiController::class, 'user_delete'])->middleware(['custom.auth', 'APILog']);

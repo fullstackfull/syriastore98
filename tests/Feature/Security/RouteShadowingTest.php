@@ -670,6 +670,39 @@ class RouteShadowingTest extends TestCase
         $expected = [
             // Laravel's own health endpoint, declared by the framework in
             // ApplicationBuilder, intentionally public.
+            /*
+             * THE FOUR MyFatoorah PACKAGE ROUTES, WITHDRAWN AS 404 CLOSURES.
+             *
+             * They are not declared in this directory. `vendor/myfatoorah/laravel-package`'s
+             * service provider registers them (auto-discovered -- `extra.laravel.dont-discover`
+             * is empty) and they named methods on a controller WorkDo overwrote, so each answered
+             * HTTP 500. They are now closures that answer 404 unconditionally.
+             *
+             * GATE: NONE, deliberately -- `->withoutMiddleware('web')` reproduces the package's
+             * own empty middleware exactly. That is not a hole: the closure takes no input, reads
+             * nothing and answers 404 to every caller, so there is nothing to gate. The
+             * alternative was worse: inside the `web` group, CSRF runs BEFORE the action and
+             * `myfatoorah/webhook` is not in `validateCsrfTokens(except:)`, so a provider's
+             * tokenless POST would answer 419 and the declared 404 would never be reached -- a
+             * route table that says one thing and does another. Driven, not assumed, by
+             * `MyFatoorahPackageRoutesWithdrawnTest::test_the_webhook_answers_404_to_a_tokenless_post`.
+             *
+             * WHY THE NAMES ARE KEPT: nothing references them (measured across app/, resources/,
+             * routes/, packages/, themes/, config/, database/, bootstrap/, .github/ AND tests/ --
+             * the suite was missing from the first pass of that census and cost five Feature
+             * assertions elsewhere), but `route()` on an undeclared name throws at RENDER time,
+             * which turns one dead click into a blank page.
+             *
+             * THEY ARE LISTED HERE BECAUSE THE CHANGE THAT WITHDREW THEM MOVED THEM BETWEEN TWO
+             * CENSUSES: a route rewritten from `Controller@action` to a closure LEAVES the
+             * controller-action sweep (which is how `DEAD_ROUTE_ACTIONS` reached 0) and JOINS this
+             * one. The first inventory was updated and this one was not, so the branch carried two
+             * undeclared Feature failures. That is this test working as designed.
+             */
+            'GET|HEAD myfatoorah' => [],
+            'GET|HEAD myfatoorah/callback' => [],
+            'GET|HEAD myfatoorah/checkout' => [],
+            'POST myfatoorah/webhook' => [],
             'GET|HEAD up' => [],
             // Settings -> Cache "Clear Cache" button. Any authenticated user can run it
             // and Artisan::call('optimize') is process-global on a shared-database SaaS,

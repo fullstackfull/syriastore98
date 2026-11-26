@@ -117,7 +117,11 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
         // ---   order.complete  the post-payment landing page.
         // --- Asserted positively by
         // --- test_the_storefront_public_endpoints_are_reachable_without_a_session.
-        'place.order',
+        // --- `place.order` WAS HERE AND IS GONE: `GAP-267` deleted the route, because
+        // --- `OrderController` never had a `place_order` method (every POST was a 500, not a
+        // --- checkout) and the shipped checkout posts to `payment.process`. Deleted from this
+        // --- allowlist rather than kept, because `test_every_allowlisted_route_name_still_exists`
+        // --- asserts the list in both directions and a name nothing declares is fiction.
         'applycoupon',
         'paymentlist',
         'additionalnote',
@@ -169,8 +173,12 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
         // --- unauthenticated scaffolding. Reported as a NEW finding for the
         // --- owner to decide between deleting and implementing; deliberately
         // --- NOT deleted here, because deciding that is not this agent's call.
-        'add-on.session.create',
-        'add-on.session.save',
+        // --- `add-on.session.create` and `add-on.session.save` WERE HERE AND ARE GONE. The
+        // --- decision this entry was waiting on -- "for the owner to decide between deleting and
+        // --- implementing" -- was taken by `GAP-268`: both routes are deleted, because neither
+        // --- `ModuleController@AddOnSessioncreate` nor `@AddOnSessionSave` exists, there is no
+        // --- view to render, and the two names were referenced nowhere outside their own
+        // --- declarations. The tripwire that guarded the undecided state is retired below.
     ];
 
     public function test_no_administrative_route_is_reachable_without_auth(): void
@@ -464,7 +472,12 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
             // The checkout flow. Closing Gate C moved five ADMIN order routes
             // behind `auth`; these are the customer-facing ones and must not
             // follow them, or nobody can buy anything.
-            'place.order',
+            //
+            // `place.order` IS NOT IN THIS LIST ANY MORE, and its absence is not a narrowing of
+            // the checkout. The route was deleted by `GAP-267`: `OrderController::place_order`
+            // never existed, so the "reachable without a session" this case asserted of it was
+            // reachability of an HTTP 500. The checkout that works posts to `payment.process`,
+            // which is the next entry but one and is still asserted here.
             'applycoupon',
             'paymentlist',
             'additionalnote',
@@ -492,46 +505,33 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
         }
     }
 
-    /**
-     * NEW-addon-session-routes-dead, kept as a TRIPWIRE rather than a claim.
+    /*
+     * `test_the_dead_addon_session_handlers_have_not_been_implemented_while_unauthenticated` WAS
+     * HERE AND IS RETIRED, BECAUSE THE DECISION IT WAS WAITING FOR HAS BEEN TAKEN.
      *
-     * `add-on.session.create` and `add-on.session.save` sit outside `auth` in
-     * the "module page before login" block of routes/web.php:408-409 and point
-     * at ModuleController::AddOnSessioncreate / AddOnSessionSave, which DO NOT
-     * EXIST -- `grep -rn "AddOnSession" app/` returns nothing, so no handler can
-     * run and the routes can only produce a 500. Not exploitable, but dead
-     * unauthenticated scaffolding, and reported for the owner to decide between
-     * deleting and implementing.
+     * NEW-addon-session-routes-dead kept it as a TRIPWIRE rather than a claim: `add-on.session
+     * .create` and `add-on.session.save` sat OUTSIDE `auth`, pointed at
+     * `ModuleController::AddOnSessioncreate` / `AddOnSessionSave`, which did not exist, and could
+     * therefore only produce a 500. Dead unauthenticated scaffolding. The test asserted that
+     * neither method had been implemented, so that whoever implemented one had to answer the
+     * authentication question in the same change instead of shipping a live unauthenticated module
+     * endpoint -- and its docblock said plainly that it was "reported for the owner to decide
+     * between deleting and implementing".
      *
-     * This test fails the moment somebody implements either method, which forces
-     * the authentication question to be answered in the same change instead of
-     * shipping a live unauthenticated module endpoint. It is not asserting that
-     * dead code is desirable.
+     * `GAP-268` took that decision: BOTH ROUTES ARE DELETED. Neither method exists, there is no
+     * view to render, no "addon session" concept exists anywhere else in the application, and the
+     * two names were referenced nowhere outside their own declarations. So there is no longer an
+     * undecided state to guard, and no endpoint that implementation alone could make reachable.
+     *
+     * RETIRED RATHER THAN INVERTED, deliberately. Editing it to assert the opposite -- that the
+     * routes are absent -- would keep a case whose stated purpose no longer exists, in the file
+     * whose subject is which routes are PUBLIC. The absence is asserted where it belongs, by
+     * `Tests\Unit\Routing\DeadControllerRoutesWithdrawnTest::
+     * test_no_withdrawn_route_still_dispatches_a_missing_method`, which drives both URIs and
+     * requires a 404 from the router rather than a method that happens not to exist.
+     *
+     * Their two `PUBLIC_ROUTE_ALLOWLIST` entries are gone for the same reason, noted at the list.
      */
-    public function test_the_dead_addon_session_handlers_have_not_been_implemented_while_unauthenticated(): void
-    {
-        foreach ([
-            'add-on.session.create' => 'AddOnSessioncreate',
-            'add-on.session.save'   => 'AddOnSessionSave',
-        ] as $name => $method) {
-            $this->assertTrue(Route::has($name), "Route {$name} is missing.");
-
-            $middleware = Route::getRoutes()->getByName($name)->gatherMiddleware();
-
-            if (in_array('auth', $middleware, true)) {
-                // Somebody gated them. Then there is nothing left to warn about.
-                continue;
-            }
-
-            $this->assertFalse(
-                method_exists(\App\Http\Controllers\ModuleController::class, $method),
-                "ModuleController::{$method} now exists, so route {$name} is a LIVE "
-                . 'unauthenticated module endpoint. Either put it behind `auth` or '
-                . 'delete the route; it must not become reachable by implementation '
-                . 'alone.'
-            );
-        }
-    }
 
     /**
      * The converse of the `status.cancel` allowlist entry: being allowlisted here
