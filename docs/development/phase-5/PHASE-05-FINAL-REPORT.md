@@ -337,12 +337,15 @@ and the disclosure column has no sort order a reader depends on.
 `GAP-167` asked for a census of every read of `Order`, `Visit` and the other unscoped models in the
 analytics and report controllers, asserting a store predicate **derived from the principal**.
 
-**337 sites** across six controllers and four producer directories: **169 principal-derived, 50
-ownership-checked, 10 route-resolved, 14 parameter-threaded, 17 request-sourced and 77 with no
-predicate in the statement window** — every non-principal shape dispositioned with its count and its
-reason, in both directions, 102 vouched for and 66 declared. **No unscoped analytics read was found
-to fix**, and that is a measured result: every non-principal site in the analytics producers is
-accounted for.
+**354 sites** across six controllers and four producer directories: **187 principal-derived, 50
+ownership-checked, 10 route-resolved, 14 parameter-threaded, 6 structurally un-predicable, 11
+request-sourced and 76 with no predicate in the statement window** — every non-principal shape
+dispositioned with its count and its reason, in both directions, 108 vouched for and 59 declared.
+**No unscoped analytics read was found to fix**, and that is a measured result: every non-principal
+site in the analytics producers is accounted for.
+
+**The five money-bearing models were added on 2026-11-26** (`OrderCouponDetail`, `OrderTaxDetail`,
+`OrderBillingDetail`, `Tax`, `Shipping`), which is §9f.
 
 **Those are the figures AFTER an independent review found three defects in the census itself**, and
 the corrections are worth more than the totals:
@@ -456,6 +459,48 @@ One consistency repair came with it: `DashboardOrderValueFigure` stated flatly t
 `orders.final_price` "is FLOAT" where its sibling `MerchantAnalyticsFigures` already hedged the same
 claim about `order_coupon_details.coupon_discount_amount` ("declared `float default 0` BY ITS
 MIGRATION (per CLAUDE.md the migrations are not the schema)"). The two now say the same thing.
+
+### 9f. THE FIVE MONEY-BEARING MODELS — 17 sites, and a third kind of "no predicate"
+
+`Tax` and `Shipping`: **10 sites, every one `principal`.** Each filters on `$store->id` traced to a
+principal source. No finding.
+
+The three order sub-tables: **7 sites, and a `store_id` predicate is not missing at any of them, it
+is impossible.** `order_coupon_details`, `order_tax_details` and `order_billing_details` carry
+`order_id` and **no `store_id` column** — on their create migrations and on every migration since,
+and confirmed against the live migrated schema through `Schema::hasColumn()`. Reporting them as
+`none` would tell a reader a predicate had been forgotten when none was ever available, so the
+census gained a verdict that states the schema fact and a per-site disposition that says where the
+tenancy really comes from. That is the distinction between "no predicate in the window" and "no
+predicate at all", with a third case: **no predicate possible.**
+
+Site by site, and none is a genuine unscoped read reachable by a merchant principal:
+
+| site | what it is |
+|---|---|
+| `DashboardController:4348–4350` | the three child deletes of `DeleteOrder`, in one transaction, behind `resolveOwnedStore($request->store_id)` with the order resolved through that owned store first. **The handler's own comment records that the absence of exactly this gate was once live: "Any holder of any valid admin token deleted any order on the platform, plus its tax, coupon and billing detail rows, by sending one integer. Irreversible."** This is the defect class the census exists to find, already closed. |
+| `DashboardController:4349` | **the only direct read of `OrderCouponDetail` in the censused files.** The coupon-discount tile a merchant reads does **not** come through here: `CouponRedemption` joins FROM `Metric::orders($scope)`, so the detail rows it sums are reachable only through orders the scope owns, and its docblock states that the table has no `store_id` column for exactly that reason. **The chain the coordinator asked to check first is sound and was already documented.** |
+| `DashboardController:11042` | reads **every tenant's** billing rows for one email — `where('email', $customer->email)`, no store column, no join — and the containment is the *next* statement, `Order::where('store_id', $storeId)->whereIn('id', $order_id)`, so no foreign order survives. Same shape as `OwnedPathRawQueryInventoryTest`'s own disposition: the tenant control is the comparison two lines later. **Residual named:** the intermediate array holds another tenant's name, email and order ids in memory and is not returned; a future line that returned or logged it would disclose them. |
+| `DashboardController:9037` | a **write**, not a read: the billing row of an order the handler has just created. |
+| `HomeController:1580` | storefront order lookup, inside a loop over `Order::where('product_order_id', …)->where('store_id', $store->id)`, so every candidate is already scoped to the route-resolved store. |
+
+**And the schema test found something in the direction nobody had checked.** Asserting the converse —
+that every watched model *not* declared structural really has `store_id` — failed on `stores` at the
+first run. `stores` has no `store_id` (its `id` **is** the tenant) and `users` carries `created_by`
+(the tenant **root**, which CLAUDE.md records was once read as a tenant and was an account
+takeover). So for those two the census asks the wrong column: a `none` verdict on either means *no
+`store_id` predicate*, not *no tenant predicate*. Declared as `TENANT_COLUMN_IS_NOT_STORE_ID` with
+LIMIT 6, and named as the next refinement rather than expanded quietly.
+
+**One more false reading corrected, and it was on a delete.** `DeleteStore`'s cascade —
+`Shipping`, `Tax`, `Testimonial`, `Setting`, `ProductVariant`, all `->delete()` on `$store->id` —
+read as `request`, because `bindings()` captured only the **first line** of
+`Store::where('id', $request->store_id)` and the ownership predicate `->where('created_by', $user->id)`
+is on the second. That is §9c's item-2 defect one level up. Capturing the whole assignment and
+recognising the inline ownership predicate as the third spelling of a gate moved **9 sites from
+`request` to `principal` (20 → 11)**.
+
+`tests/Support/bin/mutate-gap167.py` is now ten mutations: **nine caught, one declared survivor.**
 
 ---
 

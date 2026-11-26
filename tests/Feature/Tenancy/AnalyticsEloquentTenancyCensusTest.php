@@ -51,15 +51,16 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
      * not an upper bound on exposure: see LIMIT 1.
      */
     private const TOTALS = [
-        'principal' => 169,
+        'principal' => 187,
         'ownership_checked' => 50,
         'route_store' => 10,
         'parameter' => 14,
-        'request' => 17,
-        'none' => 77,
+        'no_store_column' => 6,
+        'request' => 11,
+        'none' => 76,
     ];
 
-    private const TOTAL_SITES = 337;
+    private const TOTAL_SITES = 354;
 
     /**
      * EVERY SITE SHAPE THAT IS NOT `principal`, WITH ITS COUNT AND ITS REASON.
@@ -69,9 +70,7 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
      * published so nothing is hidden, and the row names which census owns it.
      */
     private const DISPOSITIONS = [
-        'app/Http/Controllers/Api/DashboardController.php|Category::where|request' => [2,
-            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
-        'app/Http/Controllers/Api/DashboardController.php|Coupon::where|request' => [1,
+        'app/Http/Controllers/Api/DashboardController.php|Category::where|request' => [1,
             'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
         'app/Http/Controllers/Api/DashboardController.php|DeliveryAddress::create|ownership_checked' => [1,
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
@@ -95,13 +94,21 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
             'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
         'app/Http/Controllers/Api/DashboardController.php|Order::where|none' => [3,
             'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Order::where|request' => [7,
+        'app/Http/Controllers/Api/DashboardController.php|Order::where|request' => [6,
             'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
+        'app/Http/Controllers/Api/DashboardController.php|OrderBillingDetail::create|no_store_column' => [1,
+            'a WRITE at :9037, not a read: the billing row of an order this handler has just created, keyed on that order own id'],
+        'app/Http/Controllers/Api/DashboardController.php|OrderBillingDetail::where|no_store_column' => [2,
+            'two sites. DeleteOrder:4350 is the third leg of the gated transaction above. :11042 reads EVERY tenant billing row for one email address -- where(email, $customer->email) with no store column and no join -- and the containment is the NEXT statement, Order::where(store_id, $storeId)->whereIn(id, $order_id), so no foreign order survives. Same shape as OwnedPathRawQueryInventoryTest own disposition: the tenant control is the comparison two lines later. RESIDUAL NAMED: the intermediate array holds another tenant name, email and order ids in memory and is not returned; a future line that returned or logged it would disclose them'],
+        'app/Http/Controllers/Api/DashboardController.php|OrderCouponDetail::where|no_store_column' => [1,
+            'DeleteOrder:4349, the same transaction and the same gate. THIS IS THE ONLY DIRECT READ OF OrderCouponDetail IN THE CENSUSED FILES: the coupon-discount tile a merchant reads does NOT come through here -- CouponRedemption joins FROM Metric::orders($scope), so the detail rows it sums are reachable only through orders the scope owns, and its docblock states that order_coupon_details has no store_id column for exactly this reason'],
+        'app/Http/Controllers/Api/DashboardController.php|OrderTaxDetail::where|no_store_column' => [1,
+            'DeleteOrder:4348, where(order_id, $order->id)->delete() inside one transaction. No store_id column exists on order_tax_details, so the tenancy is the ORDER: resolveOwnedStore($request->store_id) gates the handler and the order is resolved through that owned store BEFORE the child deletes, which the handler own comment records was once a live platform-wide defect -- any admin token deleted any order and its tax, coupon and billing rows by sending one integer'],
         'app/Http/Controllers/Api/DashboardController.php|Product::Sub_image|ownership_checked' => [1,
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
         'app/Http/Controllers/Api/DashboardController.php|Product::where|ownership_checked' => [1,
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Product::where|request' => [2,
+        'app/Http/Controllers/Api/DashboardController.php|Product::where|request' => [1,
             'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
         'app/Http/Controllers/Api/DashboardController.php|ProductBrand::slugs|ownership_checked' => [1,
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
@@ -111,12 +118,10 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
         'app/Http/Controllers/Api/DashboardController.php|ProductVariant::where|ownership_checked' => [1,
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|ProductVariant::where|request' => [1,
-            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
         'app/Http/Controllers/Api/DashboardController.php|ProductVariant::withoutGlobalScopes|ownership_checked' => [2,
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Store::create|none' => [1,
-            'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
+        'app/Http/Controllers/Api/DashboardController.php|Store::create|request' => [1,
+            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
         'app/Http/Controllers/Api/DashboardController.php|Store::find|none' => [4,
             'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
         'app/Http/Controllers/Api/DashboardController.php|Store::query|none' => [1,
@@ -127,14 +132,10 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
             'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
         'app/Http/Controllers/Api/DashboardController.php|Store::where|ownership_checked' => [3,
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Store::where|request' => [1,
-            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
         'app/Http/Controllers/Api/DashboardController.php|Testimonial::AvregeRating|ownership_checked' => [2,
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
         'app/Http/Controllers/Api/DashboardController.php|Testimonial::find|ownership_checked' => [1,
             'resolveOwnedStore()/resolveChangeableOrder() gate present in the handler'],
-        'app/Http/Controllers/Api/DashboardController.php|Testimonial::where|request' => [1,
-            'NOT VOUCHED FOR: request-sourced at the predicate itself with no gate in the same expression; a gate ELSEWHERE in the handler is NOT established either way'],
         'app/Http/Controllers/Api/DashboardController.php|User::find|none' => [6,
             'NOT VOUCHED FOR: no store predicate in the window and no gate token in the handler'],
         'app/Http/Controllers/Api/DashboardController.php|User::find|ownership_checked' => [2,
@@ -161,6 +162,8 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
             'dead builder: overwritten by the next line, which carries getCurrentStore()'],
         'app/Http/Controllers/HomeController.php|Order::where|none' => [1,
             'NOT VOUCHED FOR: storefront predicate on a $store this census could not trace in one step'],
+        'app/Http/Controllers/HomeController.php|OrderBillingDetail::where|no_store_column' => [1,
+            'storefront order lookup at :1580: where(order_id, $candidate->id)->value(email) inside a loop over Order::where(product_order_id, ...)->where(store_id, $store->id), so every candidate is already scoped to the route resolved store'],
         'app/Http/Controllers/HomeController.php|Product::productSalesTag|route_store' => [2,
             'storefront: the route slug resolved the store'],
         'app/Http/Controllers/HomeController.php|Product::where|none' => [8,
@@ -362,6 +365,12 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
             "\\App\\Models\\Order::where('store_id', 1)",
             "\$x = \\App\\Models\\DeliveryAddress::where('customer_id', 1)->get()",
             "foo(Visit::query()->count())",
+            /* The five money-bearing models promoted on 2026-11-26, in both spellings, because a
+               pattern that cannot see the newest additions is the item-1 defect returning. */
+            "OrderCouponDetail::where('order_id', 1)",
+            "\\App\\Models\\OrderBillingDetail::where('email', \$e)",
+            "Tax::where('store_id', 1)",
+            "\\App\\Models\\Shipping::where('store_id', 1)",
             "Store::query()\n    ->orderBy('id')",
         ];
 
@@ -504,6 +513,102 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
         ));
     }
 
+    /**
+     * THE `no_store_column` VERDICT IS A CLAIM ABOUT THE SCHEMA, SO IT IS MEASURED AGAINST ONE —
+     * in both directions, on the live migrated database.
+     *
+     * The verdict says a store predicate is not MISSING at a site but IMPOSSIBLE, which is a
+     * stronger statement than any other verdict here makes and the only one that would be a false
+     * ACQUITTAL if it were wrong: a table that does carry `store_id` and is read without one is an
+     * ordinary unscoped read, and calling it structural would excuse it. CLAUDE.md's rule is to
+     * check `Schema::hasColumn()` rather than the migration's wording, so that is what this does.
+     *
+     * The converse matters as much: a model on the watch list that is NOT in the structural list
+     * must really have the column, or the census is asking a question its table cannot answer and
+     * every `none` verdict on it is a false accusation.
+     */
+    public function test_the_structural_list_is_measured_against_the_live_schema_in_both_directions(): void
+    {
+        foreach (AnalyticsTenancyCensus::TABLES_WITHOUT_STORE_COLUMN as $model => $table) {
+            $this->assertTrue(\Illuminate\Support\Facades\Schema::hasTable($table), sprintf(
+                '%s is declared structural against the table `%s`, which does not exist.', $model, $table
+            ));
+
+            $this->assertFalse(\Illuminate\Support\Facades\Schema::hasColumn($table, 'store_id'), sprintf(
+                "`%s` DOES carry a `store_id` column, so %s's reads are ordinary unscoped reads and\n"
+                . "the `no_store_column` verdict is excusing them. That verdict is the only one here\n"
+                . 'that would be a false ACQUITTAL if it were wrong -- move the model out of '
+                . 'TABLES_WITHOUT_STORE_COLUMN and re-disposition its sites.',
+                $table, $model
+            ));
+
+            /* AND THE ONLY PREDICATE ITS ROWS CAN CARRY IS THE ONE ITS DISPOSITIONS NAME. */
+            $this->assertTrue(\Illuminate\Support\Facades\Schema::hasColumn($table, 'order_id'), sprintf(
+                '`%s` carries neither `store_id` nor `order_id`, so this census cannot say where its '
+                . 'tenancy could come from at all.', $table
+            ));
+        }
+
+        /* THE CONVERSE. Every watched model whose table is NOT declared structural must have the
+           column, or its `none` verdicts accuse it of omitting something unavailable. */
+        $tables = [
+            'Order' => 'orders', 'Visit' => 'shetabit_visits', 'Store' => 'stores',
+            'User' => 'users', 'Product' => 'products', 'Category' => 'categories',
+            'ProductBrand' => 'product_brands', 'Wishlist' => 'wishlists',
+            'Testimonial' => 'testimonials', 'ProductImage' => 'product_images',
+            'DeliveryAddress' => 'delivery_addresses', 'ProductVariant' => 'product_variants',
+            'Coupon' => 'coupons', 'Tax' => 'taxes', 'Shipping' => 'shippings',
+        ];
+
+        foreach (AnalyticsTenancyCensus::UNSCOPED_MODELS as $model) {
+            if (array_key_exists($model, AnalyticsTenancyCensus::TABLES_WITHOUT_STORE_COLUMN)) {
+                continue;
+            }
+
+            /*
+             * `Store` AND `User` CARRY THEIR TENANT ON ANOTHER COLUMN, and this direction of the
+             * test is what found that: `stores` has no `store_id` -- its `id` IS the tenant -- and
+             * `users` carries `created_by`, the tenant ROOT. Their named column is asserted to
+             * exist instead, and LIMIT 6 records that every `none` verdict on either means "no
+             * `store_id` predicate" rather than "no tenant predicate".
+             */
+            if (array_key_exists($model, AnalyticsTenancyCensus::TENANT_COLUMN_IS_NOT_STORE_ID)) {
+                $column = AnalyticsTenancyCensus::TENANT_COLUMN_IS_NOT_STORE_ID[$model];
+
+                $this->assertTrue(
+                    \Illuminate\Support\Facades\Schema::hasColumn($tables[$model] ?? '', $column),
+                    sprintf('%s is declared to carry its tenant on `%s`, which its table does not have.', $model, $column)
+                );
+
+                $this->assertFalse(
+                    \Illuminate\Support\Facades\Schema::hasColumn($tables[$model] ?? '', 'store_id'),
+                    sprintf(
+                        '`%s` DOES carry `store_id` after all, so %s should be asked the ordinary '
+                        . 'question and the exemption is excusing it.',
+                        $tables[$model] ?? '', $model
+                    )
+                );
+
+                continue;
+            }
+
+            $this->assertArrayHasKey($model, $tables, sprintf(
+                '%s is watched and this test does not know its table, so its structural status is '
+                . 'unmeasured. Name the table here.', $model
+            ));
+
+            $this->assertTrue(
+                \Illuminate\Support\Facades\Schema::hasColumn($tables[$model], 'store_id'),
+                sprintf(
+                    "`%s` has NO `store_id` column, so %s's reads cannot carry one and every `none`\n"
+                    . 'verdict on it is a false accusation. Declare it in '
+                    . 'TABLES_WITHOUT_STORE_COLUMN.',
+                    $tables[$model], $model
+                )
+            );
+        }
+    }
+
     public function test_the_verdict_totals_are_exactly_these(): void
     {
         $counts = [];
@@ -584,13 +689,13 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
         }
 
         /*
-         * 102 VOUCHED, 66 DECLARED, 168 non-principal sites in all. Both figures are exact and both
+         * 108 VOUCHED, 59 DECLARED, 167 non-principal sites in all. Both figures are exact and both
          * are published, which is the point: the analytics and report producers are wholly accounted
          * for, and the two wide controllers GAP-167 also names -- `HomeController` (2,413 lines,
          * mostly storefront) and `Api/DashboardController` (12,492 lines, the admin app's whole CRUD
          * surface) -- are NOT, because censusing a 12,000-line controller's product and coupon
          * handlers is a different piece of work from the analytics subject this row asks for.
-         * Nothing is hidden by that: every one of the 66 has its count and its reason above.
+         * Nothing is hidden by that: every one of the 59 has its count and its reason above.
          *
          * THE VOUCHED FIGURE ROSE 72 -> 102 ON A CORRECTION, not on new work, and the correction is
          * worth more than the number. The old reason text on the request-sourced sites read "with no
@@ -605,8 +710,8 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
          * expression, and their reason now says only that, because a gate ELSEWHERE in the handler
          * is something this census does not establish either way.
          */
-        $this->assertSame(102, $vouched, 'the vouched-for count moved');
-        $this->assertSame(66, $declared, 'the declared-but-unvouched count moved');
+        $this->assertSame(108, $vouched, 'the vouched-for count moved');
+        $this->assertSame(59, $declared, 'the declared-but-unvouched count moved');
         $this->assertSame(
             self::TOTAL_SITES - self::TOTALS['principal'],
             $vouched + $declared,

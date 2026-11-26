@@ -98,7 +98,6 @@ MUTATIONS = [
         TEST,
         'test_the_watch_list_covers_every_unscoped_model_these_files_read',
     ),
-]
 
 
 # ===================================================================================================
@@ -124,6 +123,40 @@ MUTATIONS = [
 # It is listed separately so that running this file reports FIVE CAUGHT AND ONE DECLARED SURVIVOR
 # rather than a clean sweep. A battery that prints a perfect score it has not earned is the thing
 # CLAUDE.md records as the most dangerous result a harness can produce.
+
+    Mutation(
+        '7. OrderCouponDetail stops being watched (the coupon-discount source)',
+        CENSUS,
+        "'OrderCouponDetail', 'OrderTaxDetail', 'OrderBillingDetail', 'Tax', 'Shipping',",
+        "'OrderTaxDetail', 'OrderBillingDetail', 'Tax', 'Shipping',",
+        TEST,
+        'test_the_verdict_totals_are_exactly_these',
+    ),
+    Mutation(
+        '8. a structural table is declared to have no store_id when its table does (false acquittal)',
+        CENSUS,
+        "'OrderBillingDetail' => 'order_billing_details',",
+        "'Coupon' => 'coupons',",
+        TEST,
+        'test_the_structural_list_is_measured_against_the_live_schema_in_both_directions',
+    ),
+    Mutation(
+        '9. the inline ownership gate stops being recognised (DeleteStore cascade)',
+        CENSUS,
+        "&& $this->resolvesToThePrincipal($owner[1], $bindings)) {",
+        "&& false) {",
+        TEST,
+        'test_the_verdict_totals_are_exactly_these',
+    ),
+    Mutation(
+        '10. the whole-assignment capture reverts to one line',
+        CENSUS,
+        "for ($i = $index + 1; ! str_contains($expression, ';') && $i < min($index + 12, count($numbered)); $i++) {",
+        "for ($i = $index + 1; false && $i < min($index + 12, count($numbered)); $i++) {",
+        TEST,
+        'test_the_verdict_totals_are_exactly_these',
+    ),
+]
 
 DECLARED_SURVIVORS = [
     Mutation(

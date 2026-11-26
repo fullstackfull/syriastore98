@@ -93,6 +93,20 @@ namespace Tests\Support\Analytics;
  * satisfy or break this census -- CLAUDE.md §3 records eight occasions it did. The stripper
  * preserves newlines, so every line number here is the line number in the real file.
  *
+ * LIMIT 6. FOR `Store` AND `User` THIS CENSUS ASKS THE WRONG COLUMN, and that is measured rather
+ * than suspected. Every verdict here is about a `store_id` predicate, and
+ * `TENANT_COLUMN_IS_NOT_STORE_ID` records that `stores` and `users` carry no such column: the
+ * tenant is `stores.id` and `users.created_by`. So a `none` verdict on either means "no `store_id`
+ * predicate", NOT "no tenant predicate" -- a `Store::where('id', $ownedId)` or
+ * `User::where('created_by', merchantTenantRoot($user))` read IS tenant-predicated and this census
+ * cannot see it as one.
+ *
+ * FOUND BY THIS CLASS'S OWN SCHEMA TEST, in the direction that checks the converse: asserting that
+ * every watched model NOT declared structural really has `store_id` failed on `stores` at the first
+ * run. Their dispositions say what those sites are; teaching the census to read a per-model tenant
+ * column is the next refinement, named here rather than done quietly, for the same reason the five
+ * money-bearing models were named before they were watched.
+ *
  * LIMIT 5. THE WATCH LIST IS A NAMED SET OF THIRTEEN MODELS, NOT EVERY UNSCOPED MODEL THESE FILES
  * READ -- and until an independent review asked, nothing recorded the difference.
  * `test_every_model_this_census_watches_really_adds_no_predicate` asserts the list contains nothing
@@ -174,6 +188,65 @@ final class AnalyticsTenancyCensus
     public const UNSCOPED_MODELS = [
         'Order', 'Visit', 'Store', 'User', 'Product', 'Category', 'ProductBrand',
         'Wishlist', 'Testimonial', 'ProductImage', 'DeliveryAddress', 'ProductVariant', 'Coupon',
+        /* THE FIVE MONEY-BEARING ONES, promoted out of `NOT_WATCHED` 2026-11-26. Each carries money
+           or a money rule and adds no predicate for any principal. `OrderCouponDetail` is the
+           strongest case: it is the very table `CouponRedemption` sums for the coupon-discount tile
+           a merchant reads on `/analytics`. */
+        'OrderCouponDetail', 'OrderTaxDetail', 'OrderBillingDetail', 'Tax', 'Shipping',
+    ];
+
+    /**
+     * TABLES WITH NO `store_id` COLUMN AT ALL — so a store predicate is not MISSING there, it is
+     * IMPOSSIBLE. Measured, and asserted against the live migrated schema in both directions.
+     * =============================================================================================
+     *
+     * THIS IS A THIRD THING, AND CONFLATING IT WITH THE OTHER TWO WOULD BE A FALSE ACCUSATION.
+     * The census already separated "a predicate whose value is request-sourced" from "no predicate
+     * in the statement WINDOW". This is neither: `order_coupon_details`, `order_tax_details` and
+     * `order_billing_details` carry `order_id` and `product_order_id` and NO `store_id`, on their
+     * create migrations and on every migration since — `grep -rln` over `database/migrations/`
+     * returns exactly the three create migrations and nothing that adds the column. So
+     * `where('store_id', ...)` on any of them would not compile, and reporting them as `none`
+     * would tell a reader a predicate had been forgotten when none was ever available.
+     *
+     * WHAT THAT MEANS FOR TENANCY, and it is stricter rather than looser: the ONLY possible tenant
+     * predicate is on the row the detail belongs to. `CouponRedemption` says so in its own docblock
+     * and acts on it — it joins FROM `Metric::orders($scope)`, whose predicate is the scope's, so
+     * the detail rows it sums are reachable only through orders the principal owns. A read that
+     * queries one of these tables DIRECTLY has no tenant predicate available and must get one from
+     * its join, or it reads every tenant's rows.
+     *
+     * `Tax` and `Shipping` are NOT here: `taxes` and `shippings` both carry
+     * `unsignedBigInteger('store_id')->nullable()->index()`, so for them the ordinary question
+     * applies and a missing predicate really is missing.
+     *
+     * MEASURED AGAINST THE LIVE MIGRATED SCHEMA, not read off the migrations: of the 15 watched
+     * models, 13 tables carry `store_id`; these three carry `order_id` and no `store_id`; and
+     * `stores` and `users` carry neither -- see `TENANT_COLUMN_IS_NOT_STORE_ID` above and LIMIT 6.
+     * `test_the_structural_list_is_measured_against_the_live_schema_in_both_directions` asserts all
+     * three categories through `Schema::hasColumn()`, which is CLAUDE.md's rule, and it is the
+     * direction that checks the CONVERSE that found the `stores`/`users` case.
+     *
+     * @var array<string, string>  model short name => its table
+     */
+    public const TENANT_COLUMN_IS_NOT_STORE_ID = [
+        /* `stores.id` IS the tenant. A `store_id` column on `stores` would be a self-reference. */
+        'Store' => 'id',
+        /* `users.created_by` is the tenant ROOT -- `User::creatorId()` returns `$this->id` for a
+           type-`admin` row and `created_by` otherwise, and `UserPolicy::merchantTenantRoot()` is
+           the predicate built on it. CLAUDE.md records that reading `created_by = 1` AS a tenant
+           was an account takeover, which is why the column is named here rather than treated as a
+           store id. */
+        'User' => 'created_by',
+    ];
+
+    /**
+     * @var array<string, string>  model short name => its table
+     */
+    public const TABLES_WITHOUT_STORE_COLUMN = [
+        'OrderCouponDetail' => 'order_coupon_details',
+        'OrderTaxDetail' => 'order_tax_details',
+        'OrderBillingDetail' => 'order_billing_details',
     ];
 
     /**
@@ -209,21 +282,8 @@ final class AnalyticsTenancyCensus
            touches. An exemption outliving its subject is how a register becomes decoration. */
         'Setting' => 'read through `Setting::where(store_id, ...)` helpers whose predicate this census does see when it is written inline; the model itself carries no figure',
 
-        /*
-         * THE FIVE MONEY-BEARING ONES, AND THEY ARE THE NEXT ONES TO WATCH RATHER THAN SETTLED.
-         *
-         * Each is read in a censused file, carries money or a money rule, and is in no
-         * `scoped_models` entry -- so its reads add no predicate for any principal, exactly like
-         * `Order`. They are exempted HERE AND NOW only because watching them re-measures every
-         * total in this census and needs a disposition per shape, which is a slice of its own; the
-         * exemption names them so the next reader has a target rather than a feeling. An
-         * independent review raised the completeness question that found them.
-         */
-        'OrderCouponDetail' => 'MONEY, NEXT TO WATCH: the coupon-discount source `CouponRedemption` sums; unscoped',
-        'OrderTaxDetail' => 'MONEY, NEXT TO WATCH: per-order tax rows; unscoped',
-        'OrderBillingDetail' => 'MONEY, NEXT TO WATCH: per-order billing rows; unscoped',
-        'Tax' => 'MONEY RULE, NEXT TO WATCH: tax definitions a report applies; unscoped',
-        'Shipping' => 'MONEY RULE, NEXT TO WATCH: shipping charges a report sums; unscoped',
+        /* THE FIVE MONEY-BEARING ONES WERE EXEMPTED HERE AND ARE NOW WATCHED (2026-11-26), on the
+           coordinator's instruction. They are in `UNSCOPED_MODELS` above. */
 
         /* Coupon and plan rows: tenant-discriminated, read by the marketing and SaaS handlers of
            the wide controllers rather than by any analytics figure. */
@@ -367,7 +427,8 @@ final class AnalyticsTenancyCensus
                     $statement,
                     $this->bindings($body),
                     $this->parameters($body),
-                    implode("\n", $body)
+                    implode("\n", $body),
+                    array_key_exists($match[1], self::TABLES_WITHOUT_STORE_COLUMN)
                 );
 
                 $sites[] = [
@@ -419,7 +480,7 @@ final class AnalyticsTenancyCensus
      * @param  array<string, string>  $bindings  variable name => principal|request
      * @return array{0: string, 1: ?string}
      */
-    private function classify(string $statement, array $bindings, array $parameters = [], string $body = ''): array
+    private function classify(string $statement, array $bindings, array $parameters = [], string $body = '', bool $structural = false): array
     {
         if ($this->hasAny($statement, ['MetricScope::store(', 'MetricScope::stores(', '$this->scope'])) {
             return ['principal', 'MetricScope'];
@@ -443,6 +504,18 @@ final class AnalyticsTenancyCensus
             foreach ($matches[1] as $expression) {
                 $expressions[] = $expression;
             }
+        }
+
+        if ($expressions === [] && $structural) {
+            /*
+             * A STORE PREDICATE IS NOT MISSING HERE, IT IS IMPOSSIBLE. See
+             * `TABLES_WITHOUT_STORE_COLUMN`: these three tables carry no `store_id` column on any
+             * migration, so `where('store_id', ...)` would not compile and calling the site `none`
+             * would report a forgotten predicate where none was ever available. The verdict states
+             * the schema fact; every such site takes a per-site disposition saying where its
+             * tenancy really comes from, because the answer is a join and a census cannot read one.
+             */
+            return ['no_store_column', null];
         }
 
         if ($expressions === []) {
@@ -565,13 +638,36 @@ final class AnalyticsTenancyCensus
     {
         $bindings = [];
         $assignments = [];
+        $numbered = array_values($lines);
 
-        foreach ($lines as $line) {
+        foreach ($numbered as $index => $line) {
             if (! preg_match('/(\$\w+)\s*=\s*([^=].{0,400})$/', $line, $match)) {
                 continue;
             }
 
-            $assignments[$match[1]][] = $match[2];
+            /*
+             * THE WHOLE ASSIGNMENT, NOT ITS FIRST LINE — and the single-line capture produced a
+             * FALSE ACCUSATION on a store-DELETION cascade, which is the worst place for one.
+             *
+             * `Api\DashboardController::DeleteStore()` writes
+             *
+             *     $store = Store::where('id', $request->store_id)
+             *         ->where('created_by', $user->id)
+             *         ->first();
+             *
+             * The first line carries `$request->store_id` and nothing else, so `$store` traced to
+             * `request` and five `->delete()` calls filtered on `$store->id` -- Shipping, Tax,
+             * Testimonial, Setting, ProductVariant -- were reported as request-sourced. They are
+             * not: the ownership predicate is on the SECOND line. This is item 2's defect one level
+             * up, found by following a `request` verdict to the code instead of trusting it.
+             */
+            $expression = $match[2];
+
+            for ($i = $index + 1; ! str_contains($expression, ';') && $i < min($index + 12, count($numbered)); $i++) {
+                $expression .= ' ' . trim($numbered[$i]);
+            }
+
+            $assignments[$match[1]][] = $expression;
         }
 
         for ($pass = 0; $pass < 2; $pass++) {
@@ -579,6 +675,28 @@ final class AnalyticsTenancyCensus
                 $verdicts = [];
 
                 foreach ($expressions as $expression) {
+                    /*
+                     * AN INLINE OWNERSHIP PREDICATE IS A GATE, and it is the THIRD spelling of one
+                     * in this codebase after `resolveOwnedStore()` and
+                     * `reportSelectionWithinCurrentStore()`. `DeleteStore()` writes it by hand:
+                     * `Store::where('id', $request->store_id)->where('created_by', $user->id)`,
+                     * where `$user` is `\Auth::user()`. The gate's job is exactly to take a
+                     * caller-supplied id and refuse it unless the principal owns it, so an
+                     * assignment carrying one is principal-derived however the id arrived.
+                     *
+                     * NARROW ON PURPOSE: the `created_by` value must itself resolve to the
+                     * principal. `where('created_by', $request->owner)` is not a gate and does not
+                     * match, and `created_by` appearing anywhere else in the statement does not
+                     * either. CLAUDE.md's warning that `created_by = 1` is not a tenant is why the
+                     * VALUE is tested rather than the column name.
+                     */
+                    if (preg_match('/->where\\(\\s*.created_by.\\s*,\\s*([^),]+)\\)/', $expression, $owner)
+                        && $this->resolvesToThePrincipal($owner[1], $bindings)) {
+                        $verdicts[] = 'principal';
+
+                        continue;
+                    }
+
                     /* PRINCIPAL FIRST, for the reason `source()` records: an assignment that
                        passes a request id THROUGH an ownership gate is gated, not request-sourced,
                        and testing the request token first called it the latter. */
@@ -710,6 +828,35 @@ final class AnalyticsTenancyCensus
         }
 
         return [$from, $to];
+    }
+
+    /**
+     * Does this expression name the authenticated principal, literally or through a variable?
+     *
+     * `DeleteStore()`'s gate is `->where('created_by', $user->id)` where `$user = \Auth::user()`, so
+     * the value is a VARIABLE and the literal-token test cannot see it. On the second pass of
+     * `bindings()` the variable's own verdict is available, which is what this reads. A variable
+     * nobody has resolved, or one resolved to anything but the principal, is not a gate.
+     *
+     * @param  array<string, string>  $bindings
+     */
+    private function resolvesToThePrincipal(string $expression, array $bindings): bool
+    {
+        if ($this->hasAny($expression, self::PRINCIPAL_TOKENS)) {
+            return true;
+        }
+
+        if (! preg_match_all('/\$(\w+)/', $expression, $found)) {
+            return false;
+        }
+
+        foreach ($found[1] as $name) {
+            if (($bindings['$' . $name] ?? 'unknown') !== 'principal') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @param list<string> $needles */
