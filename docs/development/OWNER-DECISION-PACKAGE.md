@@ -481,6 +481,17 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **The closing condition is executable** | The pinning test fails the moment the focus layer declares a `box-shadow`, so whichever remedy you choose announces itself rather than needing to be noticed. |
 | **Blocked** | Nothing. The measurement, the fix to the menu, and the declarations all ship without you. |
 
+### J16 — the platform operator can write coupons and tax/shipping through the API, while the web refuses them
+
+| | |
+|---|---|
+| **Where** | `CouponController::refuseOperatorWrite` (`":229 READ AND EXPORT ONLY"`) against the admin API's coupon and tax/shipping writers |
+| **The choice** | Should the API match the web's refusal, or should the web match the API's permission? |
+| **Why it is yours** | The web's refusal is **your decision of 2026-10-28**. Engineering cannot resolve a divergence from an owner decision by picking the side it prefers. |
+| **Measured** | The divergence is real and is pinned by name in two tests that say so: `AdminApiCouponWritePermissionTest::test_the_platform_operator_still_writes_coupons_PENDING_AN_OWNER_DECISION` and its tax/shipping equivalent. It is the **only** genuinely open item in the eight permission rows' territory — the other eight are gated and independently re-measured. |
+| **What follows from each** | Matching the web means the operator loses a capability they have in the shipped app today. Matching the API means your 2026-10-28 decision is narrowed. Either is one change; neither is engineering's to choose. |
+| **Blocked** | Nothing. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to
