@@ -91,6 +91,10 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             'DigitalProduct' => ['Digital Product', 'digital-product'],
             'ProductReview' => ['ProductReview', 'product-review'],   // name/package_name as the module's own module.json declares them
             'BundleProduct' => ['BundleProduct', 'bundle-product'],
+            // Enabled so the csvExport target below is checked against a REGISTERED route.
+            // Without the row the module's routes never register and the target would be
+            // asserted against nothing -- the vacuity this census exists to prevent.
+            'ProductCSV' => ['ProductCSV', 'product-csv'],
         ];
 
         foreach ($modules as $module) {
@@ -1066,7 +1070,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
      */
     public function test_the_guard_targets_and_the_route_table_agree(): void
     {
-        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview', 'BundleProduct']);
+        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview', 'BundleProduct', 'ProductCSV']);
 
         $targets = array_keys(
             (new \ReflectionClass(\App\Http\Middleware\ModuleResourceOwnershipGuard::class))
@@ -1084,7 +1088,11 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
         // declares `Route::resource` TWICE -- `bundleproduct` and `bundle-product` -- so the same
         // five handlers answer at two uri families with two parameter names, and guarding one
         // spelling would leave the defect reachable at the other URL.
-        $this->assertCount(30, $targets);
+        // 30 -> 31 [2026-11-26]: the ProductCSV export target. `GET {storeslug}/csvExport/{id}`
+        // was an UNAUTHENTICATED cross-tenant product read -- `Route::middleware(['web'])`
+        // alone, no permission question in the handler, and `Product::where('id', $id)`
+        // with no store predicate on a model carrying no effective global scope.
+        $this->assertCount(31, $targets);
 
         $registered = [];
 
@@ -1178,14 +1186,41 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
          * came to be anonymous. Nothing asserted that premise, so this does: if these routes ever
          * LOSE Authenticate, this reddens and the limb stops being belt-and-braces.
          */
-        $anonymousByDesign = 'DELETE digital-products/{id}/delete';
+        /* TWO ROUTES THE PREMISE DOES NOT HOLD FOR, stated rather than skipped. Both are
+         * vendored declarations in a `['web']`-ONLY group, so for these two the guard's anonymous
+         * limb is not belt-and-braces -- it IS the authentication requirement, which is why each
+         * is named here instead of quietly passing.
+         *
+         *   DELETE digital-products/{id}/delete  -- DigitalProduct, the original instance.
+         *
+         *   GET {storeslug}/csvExport/{id}  -- ProductCSV, added 2026-11-26. Before this target
+         *       existed it was an UNAUTHENTICATED CROSS-TENANT PRODUCT READ: no `auth`, no
+         *       `PlanModuleCheck`, the handler asks no permission question, and it runs
+         *       `Product::where('id', $id)->first()` with no store predicate on a model carrying
+         *       no effective global scope. The CSV carries price, sale price, tax, weight, stock,
+         *       stock status and the low-stock threshold. A host-side route override was
+         *       considered and REJECTED: re-declaring it would reference a controller class from
+         *       a module that may not be autoloaded, and CLAUDE.md records that a missing CLASS
+         *       is what fails at `route:cache` time.
+         *
+         * The counter-assertion below is the load-bearing half: if upstream ever adds `auth` to
+         * either group this reddens, and the exemption must be dropped rather than left standing
+         * as a stale excuse. */
+        $anonymousByDesign = [
+            'DELETE digital-products/{id}/delete',
+            'GET {storeslug}/csvExport/{id}',
+        ];
 
-        // THE ONE ROUTE THE PREMISE DOES NOT HOLD FOR, stated rather than skipped: DigitalProduct declares it in a ['web']-only group. If the
-        // module ever adds `auth`, this reddens and the exemption below can go.
-        $this->assertNotContains(\Illuminate\Auth\Middleware\Authenticate::class, $registered[$anonymousByDesign],
-            "`{$anonymousByDesign}` now carries Authenticate; drop it from the exemption and let the loop below check it.");
+        foreach ($anonymousByDesign as $anonymousRoute) {
+            $this->assertNotContains(
+                \Illuminate\Auth\Middleware\Authenticate::class,
+                $registered[$anonymousRoute],
+                "`{$anonymousRoute}` now carries Authenticate; drop it from the exemption and let "
+                . 'the loop below check it.'
+            );
+        }
 
-        foreach (array_diff($targets, [$anonymousByDesign]) as $key) {
+        foreach (array_diff($targets, $anonymousByDesign) as $key) {
             $this->assertContains(
                 \Illuminate\Auth\Middleware\Authenticate::class,
                 $registered[$key],
@@ -1230,7 +1265,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
         ], $required);
 
         $this->makeGlobalAdminRole();
-        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview', 'BundleProduct']);
+        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview', 'BundleProduct', 'ProductCSV']);
 
         foreach (['AuctionProduct', 'DigitalProduct', 'ProductReview', 'BundleProduct'] as $module) {
             \Illuminate\Support\Facades\Artisan::call('db:seed', [

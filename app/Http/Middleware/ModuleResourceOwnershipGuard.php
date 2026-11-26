@@ -102,6 +102,46 @@ class ModuleResourceOwnershipGuard
      * the live route table so a rename upstream cannot leave this guard silently inert.
      */
     private const TARGETS = [
+        /* --- productcsv: an UNAUTHENTICATED cross-tenant product read. ---
+         *
+         * `packages/workdo/ProductCSV/src/routes/web.php:20-21` declares this inside
+         * `Route::middleware(['web'])` — `web` ALONE. No `auth`, no `PlanModuleCheck`, and
+         * `ProductCSVController::csvExport()` asks no permission question: it runs
+         * `Product::where('id', $id)->first()` with no store predicate, on a model CLAUDE.md
+         * records as carrying NO effective global scope for any principal. The `{storeslug}`
+         * segment is decoration — the handler resolves a store and never uses it.
+         *
+         * So ANY VISITOR could export ANY store's product by integer id, and the CSV carries
+         * price, sale price, tax, weight, product stock, stock status and the low-stock
+         * threshold. Verified at source by the coordinator before this entry was written, not
+         * taken from a report.
+         *
+         * LATENT, NOT LIVE, and the distinction is the module loader rather than any control:
+         * `ProductCSV` is not in `PackageServiceProvider`'s `$staticAddons`, so the route is
+         * absent until a merchant enables the module — measured, `route:list` shows nothing.
+         * A merchant-facing toggle is not a security boundary, which is why this is closed
+         * rather than noted.
+         *
+         * This guard is appended to the `web` group, so it already runs on this route; it
+         * needed only a target. Its anonymous limb refuses a null `auth('web')` principal, the
+         * operator short-circuits ahead of the permission check, and `storeMatches()` refuses
+         * every other tenant's row — so the degraded state here is "authenticated and
+         * same-store", never open. */
+        'GET {storeslug}/csvExport/{id}' => [
+            'table' => 'products',
+            'parameter' => 'id',
+            /* NULL, AND THAT IS THE ACCURATE VALUE RATHER THAN A WEAKENING. ProductCSV seeds NO
+             * permissions — measured, its two seeders create marketplace page settings and
+             * nothing else — so there is no module permission to require, and naming a HOST one
+             * like 'Manage Product' would be inventing a requirement the module never had (and
+             * would break `test_every_permission_the_guard_requires_is_seeded_by_the_module`,
+             * correctly). `permissionIsEnforceable(null)` returns false, so the permission limb
+             * is skipped and the OWNERSHIP limb still runs — the degraded state this guard's
+             * own concern documents as "authenticated and same-store, never open", which is
+             * precisely what closes an anonymous cross-tenant read. */
+            'permission' => null,
+        ],
+
         // --- auctionproduct: the HOST products table. ---
         'PUT auctionproduct/{auctionproduct}' => [
             'table' => 'products',
