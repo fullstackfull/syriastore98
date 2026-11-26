@@ -1765,6 +1765,13 @@ $u->save();
 
     unset($post['_token']);
     unset($post['_method']);
+    // GAP-290: this handler writes EVERY posted key by name with no validation, so the web door
+    // stored '' or a 400-character string into the value three formatters hand to number_format().
+    // Dropping an unusable one leaves the stored setting untouched rather than inventing a format.
+    if (array_key_exists('currency_format', $post)
+        && ! \App\Support\Money\CurrencyDecimals::isAllowed($post['currency_format'])) {
+        unset($post['currency_format']);
+    }
 
     /*
      * العملة الجديدة المختارة
@@ -1885,9 +1892,9 @@ $post['defult_currancy_symbol'] = $post['CURRENCY'] = $decision['symbol'];
             $symbol = $request->defult_currancy;
         }
 
-        if (isset($request->currency_format)) {
-            $format = $request->currency_format;
-        }
+        // GAP-290: the preview defaulted to '1' while the three formatters default to 2, so a
+        // store with no row was shown 1.0 and printed 1.00. One basis now, as for the separators.
+        $format = \App\Support\Money\CurrencyDecimals::of($request->currency_format);
         if (isset($request->currency_space)) {
             $currency_space = isset($request->currency_space) ? $request->currency_space : '';
         }

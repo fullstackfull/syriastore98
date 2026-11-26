@@ -36,8 +36,24 @@
                 <div class="ss-field">
                     <label class="ss-label" for="currency_format">{{ __('Decimal Format') }}</label>
                     <select class="ss-input currency_note" name="currency_format" id="currency_format">
+                        {{-- GAP-290. `($setting['currency_format'] ?? '') === $ssValue` marked NO
+                             option for a stored '' or a missing row, so the browser pre-selected
+                             the FIRST one -- which is 0 -- and the next Save of this panel stored
+                             it, dropping every price's minor units. Resolved through the same
+                             class the formatters now use, so the marked option cannot disagree
+                             with what the store actually prints. Same remedy as the separators
+                             two fields down.
+
+                             AND THE COMPARISON ITSELF NEVER MATCHED, which is wider than the row
+                             said and was measured on the rendered tab: these option values are
+                             NUMERIC ARRAY KEYS, so PHP casts them to INT, and `=== $ssValue`
+                             against a string setting is false for every value. No option was
+                             marked for ANY stored format -- not just an empty one -- so every
+                             store's panel showed `1` whatever it had saved, and any Save of this
+                             panel stored 0. Both sides are cast to string now. --}}
+                        @php $ssFormat = \App\Support\Money\CurrencyDecimals::markedOption($setting ?? []); @endphp
                         @foreach (['0' => '1', '1' => '1.0', '2' => '1.00', '3' => '1.000', '4' => '1.0000'] as $ssValue => $ssText)
-                            <option value="{{ $ssValue }}" @selected(($setting['currency_format'] ?? '') === $ssValue)>{{ $ssText }}</option>
+                            <option value="{{ $ssValue }}" @selected((string) $ssValue === $ssFormat)>{{ $ssText }}</option>
                         @endforeach
                     </select>
                 </div>

@@ -76,7 +76,7 @@ A census of `api_secret` across `app/` and `packages/` finds **exactly four outb
 `OtpIntegrationController` (now guarded) and two in `CustomerLoginController` (**unguarded** — the
 file contains no `SafeWebhook` or `SafeRemoteFetch` reference at all). The API reset path
 `Api\AuthController::forgot_password_send_otp` sends e-mail and never touches `OtpIntegration`;
-`SettingController:2147` only renders. **There is no fifth sender.**
+`SettingController:2154` only renders. **There is no fifth sender.**
 
 `CustomerLoginController` reads `$integration->base_url` from the stored row and posts
 `$integration->api_secret` to it. Measured:

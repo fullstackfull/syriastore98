@@ -3049,7 +3049,7 @@ NOTHING IN THIS AREA IS VENDORED, so the usual packages/workdo/ prohibition does
   This makes the canonical-name question strictly harder than the map presents it: converging on
   `stripe_secret` would silently break three vendored payment paths that cannot be edited.
 
-- app/Http/Controllers/SettingController.php:1927-1935 - THIS FILLS THE MAP'S OWN 'NOT ESTABLISHED'
+- app/Http/Controllers/SettingController.php:1934-1935 - THIS FILLS THE MAP'S OWN 'NOT ESTABLISHED'
   #4, and in the direction that matters. settingForm renders `setting.payment_setting` ('the payment
   tab with every gateway key in it', its own comment at :1931) and IS gated: `if (!
   StoreSettingsAccess::permits($user)) return response()->json([... 'Permission denied.'], 403)` at

@@ -84,7 +84,7 @@ The Arabic settings page printed `Syrian Pound`, `US Dollar` and eleven more in 
 the disabled-gateway note read `(يوكاسا) (retired - no longer available)`.
 
 **Both call sites were already wrapped in `__()`** — `currency_setting.blade.php:198` and
-`SettingController.php:2277` — which is exactly why nobody caught it. `__()` returns its own
+`SettingController.php:2284` — which is exactly why nobody caught it. `__()` returns its own
 argument when the key is absent, so a missing key and a correct translation are indistinguishable
 at the call site. This is the third instance of that shape in the phase; the dashboard chart's
 `__(date('d-M'))` was the first.
