@@ -65,7 +65,7 @@ namespace App\Support\Orders;
  * =================================================================================================
  *
  * `orders.delivered_status` is written as the literal `'-'` by one shipped handler
- * (`Api\ApiController:10518`), and `OrderDataTable:334` already branches on `null` and `''`, so
+ * (`Api\ApiController:10616`), and `OrderDataTable:334` already branches on `null` and `''`, so
  * rows outside the vocabulary exist. {@see self::stateOf()} therefore answers `null` for a value
  * that is not one of the nine, and an unrecognised state is NOT GOVERNED for the four progression
  * arms -- it stays as movable as it is today, because making such a row unmovable would be a new
@@ -270,7 +270,7 @@ final class FulfilmentStateMachine
      * nor any other known state: `cancel` was refused on it (`'' != 0` is true) and `return` was
      * permitted on it. Reading it as Pending here would have refused that return -- a behaviour
      * change dressed as a tidy-up. So `''` answers `null`, unrecognised, exactly like the `'-'`
-     * one shipped handler writes (`Api\ApiController:10518`) and anything else outside 0..8.
+     * one shipped handler writes (`Api\ApiController:10616`) and anything else outside 0..8.
      */
     public static function stateOf($raw): ?int
     {
@@ -443,7 +443,7 @@ final class FulfilmentStateMachine
      *
      * EVERYTHING BELOW THIS LINE IS APPENDED RATHER THAN FILED WITH ITS RELATIVES, and that is
      * deliberate: four prose citations elsewhere name lines `:26-32`, `:68` and `:273` of THIS file
-     * (`Api\ApiController:10518`, `StorefrontOrderFulfilmentStateNotCallerChosenTest:78`,
+     * (`Api\ApiController:10616`, `StorefrontOrderFulfilmentStateNotCallerChosenTest:78`,
      * `DeliverySyriaOrderTransitionTest:34` and the GAP-258 register row), and CLAUDE.md records
      * that an absolute line citation goes stale on any insertion above it while only the ones a
      * test covers say so. A constant block at the top would have moved all four.

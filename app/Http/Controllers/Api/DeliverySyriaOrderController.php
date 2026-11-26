@@ -273,7 +273,7 @@ class DeliverySyriaOrderController extends Controller
         |
         | THE RAW COLUMN VALUE IS PASSED, NOT `$oldStatus`, AND THE DIFFERENCE IS OBSERVABLE.
         | `$oldStatus` is `(int) $order->delivered_status` and the cast changes the machine's
-        | answer: `Api\ApiController:10518` writes the literal `-` into this column on SQLite, and on MySQL with the production `strict => false` the same write may coerce to 0 -- the live column type was NOT measured, so what matters here is only that the machine documents ANY value outside 0..8 as ungoverned
+        | answer: `Api\ApiController:10616` writes the literal `-` into this column on SQLite, and on MySQL with the production `strict => false` the same write may coerce to 0 -- the live column type was NOT measured, so what matters here is only that the machine documents ANY value outside 0..8 as ungoverned
         | (`!empty($request->delivered_status) ? $request->delivered_status : '-'`, so a storefront
         | order placed without one carries it), and under PHP 8 `(int) '-'` is `0` while `'-' == 0`
         | is FALSE. So the machine refuses `cancel` out of such a row -- exactly as

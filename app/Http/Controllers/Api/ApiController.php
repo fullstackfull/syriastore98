@@ -8639,8 +8639,25 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             }
         }
 
+        /* GAP-277. See panelUserMayNotChangeOrderState() below the two doors. */
+        if ($this->panelUserMayNotChangeOrderState($order)) {
+            return $this->orderStateChangePermissionDenied();
+        }
+
         $data['order_id'] = $order->id;
-        $data['order_status'] = $request->order_status;
+
+        /* GAP-277, the second half: A STRING, OR NOTHING THE WRITER MATCHES.
+           `Order::order_status_change()` branches on `$order_status == 'cancel'` -- LOOSE -- while
+           this handler's restock gate below compares `(string) $x === 'cancel'`. Under PHP 8
+           `true == 'cancel'` is TRUE and `(string) true` is `'1'`, so `{"order_status": true}`
+           cancelled the order, stamped `cancel_date` and reversed the merchant's entitlement while
+           the goods stayed OFF the shelf -- measured, HTTP 200 `{"status":1}`, stock 5 -> 5. The
+           web sibling (`OrderController::status_cancel`) is immune because it hands the writer the
+           literal `'cancel'`; this door passes six words through, so the equivalent is to hand the
+           writer a STRING and let its own "that order status is not recognised" arm (F81) answer a
+           value that is not one. The two comparisons can no longer disagree, because only a string
+           reaches either. */
+        $data['order_status'] = is_string($request->order_status) ? $request->order_status : '';
 
         $date = Order::order_status_change($data);
 
@@ -8714,6 +8731,14 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             return $this->error(['message' => __('Order not found.')], __('Order not found.'));
         }
 
+        /* GAP-277. The twin door, and the more expensive one: `Order::product_return()` CREDITS
+           `products.product_stock` and SUBTRACTS the returned line from `orders.final_price`.
+           Measured before this gate: a staff member holding NO ROLE took stock 5 -> 7 and
+           `final_price` 100 -> 50 on their tenant's order. See the predicate below. */
+        if ($this->panelUserMayNotChangeOrderState($order)) {
+            return $this->orderStateChangePermissionDenied();
+        }
+
         $data['product_id'] = $request->product_id;
         $data['variant_id'] = $request->variant_id;
         $data['order_id']   = $order->id;
@@ -8724,6 +8749,98 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         } else {
             return $this->error(['message' => $responce['message']], $responce['message']);
         }
+    }
+
+    /**
+     * GAP-277 — A `User` REACHING EITHER STOREFRONT ORDER DOOR NEEDS A PERMISSION, AND HAD NONE.
+     * =============================================================================================
+     *
+     * `resolveMutableOrder()` answers WHOSE order it is, and since GAP-135 `refusalForShopper()`
+     * answers WHICH word a shopper may say. Neither asks whether a `User` may change an order at
+     * all — and the resolver's User branch resolves a `type='staff'` row to its owning admin
+     * through `UserPolicy::merchantTenantRoot()`, so every user in the tenant was admitted whatever
+     * they held. Measured through the real routes with a token the shipped
+     * `POST /api/admin/adminlogin` hands a roleless staff member: `cancel` answered HTTP 200
+     * `{"status":1}`, took `delivered_status` 0 → 2, stamped `cancel_date`, moved
+     * `store_order_financials.payment_status` paid → cancelled (the merchant's entitlement reversed)
+     * and put `products.product_stock` 5 → 7; `product-return` took stock 5 → 7 AND `final_price`
+     * 100 → 50.
+     *
+     * THE PREDICATE IS NOT NEW CODE. `App\Support\Orders\OrderStateChangeAuthorization` is the pair
+     * the two ADMIN order doors have asked since `P4-F037` (`Api\DashboardController`'s
+     * `callerMayChangeOrderState()`, which now delegates to it) — driver, then store owner, then
+     * `MerchantPermissions::allowsAny(…, ['Manage Order'], $order->store_id)`, which answers the
+     * wildcard for the platform operator because `isAbleTo()` REFUSES them. Sharing it rather than
+     * copying it is the point: four doors, one answer.
+     *
+     * WHY THE `User` BRANCH ONLY, AND HOW THAT IS SPELLED. This mirrors `resolveViewableOrder()`'s
+     * OWN branch order — customer, then driver, then User — so the gate cannot disagree with the
+     * limb that admitted the order. A shopper is authorised by owning the order and is constrained
+     * by GAP-135; a `DeliveryBoy` is not a Laratrust subject at all (`MerchantPermissions::names()`
+     * answers `[]` for anything that is not a `User`, and `isAbleTo()` on one is a fatal), and
+     * carrying the parcel IS the authorization. Gating either would end self-service cancellation
+     * for every shopper and refuse every driver on the platform.
+     *
+     * ONE JUSTIFICATION IN AN EARLIER VERSION OF THIS DOCBLOCK WAS WRONG AND IS WITHDRAWN. It said
+     * the customer limb covers "a visitor holding BOTH a shopper and a panel session". On THESE
+     * routes that cannot arise: `routes/api.php` is outside the `web` group and its own header says
+     * so, and `bootstrap/app.php` appends only `DisabledModuleRouteGuard` and `throttleApi` to the
+     * `api` group -- no `StartSession`, no `EncryptCookies` -- while `custom.auth` logs exactly one
+     * guard per tokenable class. So for a single-guard request this limb is REDUNDANT, and the
+     * `instanceof User` test below would refuse a shopper or a driver on its own. Found by the
+     * independent review of this change, which also measured that no test in the repository fails
+     * if the limb is deleted.
+     *
+     * ASKED AFTER OWNERSHIP, in both doors, so a caller with no claim on the order still gets the
+     * identical `Order not found.` and cannot learn that the order exists and only a permission was
+     * missing. `Gap277StorefrontOrderStatePermissionTest` pins that ordering with a foreign
+     * merchant.
+     *
+     * @param  \App\Models\Order|object|null  $order
+     */
+    private function panelUserMayNotChangeOrderState($order): bool
+    {
+        /*
+         * THE INVARIANT THIS LIMB DEPENDS ON, NAMED BECAUSE NOTHING TESTS IT. It is kept, and it is
+         * correct, but not for the reason the docblock first gave: it is correct because
+         * `resolveViewableOrder()` RETURNS FROM INSIDE each branch -- customer at :8418-8424,
+         * driver at :8426-8432 -- so whenever either guard is populated the `User` branch at
+         * :8436-8452 is unreachable and the order must have been admitted on `orders.customer_id`
+         * or `orders.deliveryboy_id`. If that helper's branch ORDER is ever changed, for instance by
+         * hoisting the operator limb above the customer limb, this gate stops firing and NOTHING
+         * GOES RED. Keep this comment with the code, or pin the pair with a case that populates two
+         * guards at once.
+         */
+        if (auth('customers')->user() || auth('deliveryboy')->user()) {
+            return false;
+        }
+
+        return auth()->user() instanceof User
+            && ! \App\Support\Orders\OrderStateChangeAuthorization::allows($order);
+    }
+
+    /**
+     * The refusal, in THIS door's envelope with the ADMIN doors' sentence.
+     *
+     * HTTP 200 WITH `status: 0`, NOT 403, and that is owner decision H3 applied rather than
+     * guessed: every refusal these two storefront doors give is `ApiResponser::error()`'s default
+     * shape — `Order not found.`, `This action is not available.` — and H3 decided to *"preserve
+     * the current caller-specific response contracts"* rather than introduce a status code on a
+     * door whose client would have to learn it. **Never 401**: the shipped Flutter app force-clears
+     * its session on any 401, so a 401 on an order door logs a merchant out of the whole app.
+     *
+     * THE SENTENCE IS THE SIBLING DOORS' OWN, and it is already in `resources/lang/en.json:4405`
+     * and `ar.json:4401` — `DashboardController::orderPermissionDenied()` answers it for
+     * `api/admin/status-change` and `api/{slug}/order-cancel`. A new string here would have gone
+     * out untranslated to every Arabic merchant, and the four order doors would have answered the
+     * same refusal in two different wordings. Moving this door to 403 is a one-line change if the
+     * owner prefers the admin doors' transport too.
+     */
+    private function orderStateChangePermissionDenied()
+    {
+        $ssMessage = __('You do not have permission to perform this action.');
+
+        return $this->error(['message' => $ssMessage], $ssMessage);
     }
 
     public function navigation(Request $request, $slug = '')

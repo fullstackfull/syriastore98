@@ -6186,15 +6186,10 @@ public function DeleteReview($id)
      */
     private function callerIsStoreOwner($storeId): bool
     {
-        $user = \Auth::user();
-
-        if (! $user instanceof \App\Models\User || empty($storeId)) {
-            return false;
-        }
-
-        $store = getStoreById($storeId);
-
-        return $store !== null && (int) $store->created_by === (int) $user->id;
+        /* GAP-277: the body moved to App\Support\Orders\OrderStateChangeAuthorization, verbatim, so
+           that the two STOREFRONT order doors can ask the same question instead of carrying a second
+           copy of it. Everything above still holds and is the account of why this limb exists. */
+        return \App\Support\Orders\OrderStateChangeAuthorization::callerOwnsStore($storeId);
     }
 
     /**
@@ -6229,21 +6224,13 @@ public function DeleteReview($id)
      */
     private function callerMayChangeOrderState($order): bool
     {
-        if (empty($order)) {
-            return false;
-        }
-
-        $boy = auth('deliveryboy')->user();
-
-        if ($boy && (int) $order->deliveryboy_id === (int) $boy->id) {
-            return true;
-        }
-
-        if ($this->callerIsStoreOwner($order->store_id)) {
-            return true;
-        }
-
-        return MerchantPermissions::allowsAny(\Auth::user(), ['Manage Order'], $order->store_id);
+        /* GAP-277: the three limbs moved to App\Support\Orders\OrderStateChangeAuthorization,
+           unchanged, because the two STOREFRONT order doors (Api\ApiController::order_status_change
+           and ::product_return) asked no permission at all and are in another class -- a roleless
+           staff member cancelled their tenant's order there, reversing the merchant's entitlement
+           and putting the goods back on the shelf. A copy would have been how the four doors drift
+           apart. Everything above still holds and is the account of each limb. */
+        return \App\Support\Orders\OrderStateChangeAuthorization::allows($order);
     }
 
     /** The refusal every state-changing order endpoint in this controller gives.
