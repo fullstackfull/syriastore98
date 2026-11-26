@@ -71,6 +71,27 @@ return [
             'endpoint' => env('WAS_URL')
         ],
 
+        /*
+         * KYC-002 — private identity documents. NOT a public disk, and deliberately WITHOUT a
+         * `url` key so `Storage::disk('kyc')->url()` throws instead of minting a public address
+         * for somebody's passport. `App\Services\Kyc\KycDocumentStore::assertPrivateRoot()`
+         * additionally refuses a root that resolves inside `public/`, `uploads/` or
+         * `storage/app/public`, which is what a well-meaning deployment change would do.
+         *
+         * `storage/app/` is also the one tree the WRITTEN (inactive) deny rules already cover:
+         * docs/security/p1-sec-40-apache-deny.conf GROUP 2 refuses `^/storage/(logs|framework|app)`.
+         * On the live host those rules are NOT active -- the document root is the repository root
+         * and the owner has a standing instruction not to change public access -- so the file's
+         * own protection is its 64-hex-character server-generated name, never its directory. See
+         * KycDocumentStore's docblock for what that does and does not buy.
+         */
+        'kyc' => [
+            'driver' => 'local',
+            'root' => env('KYC_DISK_ROOT', storage_path('app/private/kyc')),
+            'visibility' => 'private',
+            'throw' => false,
+        ],
+
     ],
 
     /*
