@@ -96,23 +96,24 @@ class PlatformOperatorOnly
          * (`app/Policies/UserPolicy.php:239`) -- and `customers` HAS a `type` column, with
          * `'type'` in `Customer::$fillable` (`app/Models/Customer.php:35`). So a `Customer` row
          * whose `type` read `super admin` passed this middleware, which is the ONLY check on
-         * 37 routes. THIS SAID "14 ... AND THE THREE `platform/*` SCREENS" UNTIL 2026-11-26, and
+         * 39 routes. THIS SAID "14 ... AND THE THREE `platform/*` SCREENS" UNTIL 2026-11-26, and
          * the number is written out as a partition now because a count that lives only in prose is
          * exactly what went stale -- measured from the booted route table, and asserted in both
          * directions by `PlatformOperatorOnlyPrincipalTest::
-         * test_premise_the_measured_blast_radius_is_still_37`, so the next route that joins the
+         * test_premise_the_measured_blast_radius_is_still_39`, so the next route that joins the
          * gate reddens a test instead of quietly making this comment wrong again:
          *
          *     LynomiaChat super-admin group                                      15
          *     platform/* operator screens (NOT three: analytics x2, documentation
-         *       x2, resources, revenue, site-content x3)                          9
+         *       x2, resources, revenue, site-content x3, stores x2)              11
          *     plan-coupon                                                         7
          *     plan.order.refund, plan.disable, order.approve, order.reject        4
          *     zid/{storeId}/*                                                     2
          *                                                                       ---
-         *                                                                        37
+         *                                                                        39
          *
-         * It grew with the Lynomia group and with the screens `GAP-192`, `GAP-195` and `GAP-107`
+         * It grew with the Lynomia group and with the screens `GAP-192`, `GAP-195`, `GAP-107` and
+         * `GAP-232` (Store 360: `platform/stores` and `platform/stores/{store}`)
          * added. Nothing behaved wrongly at 14; what was understated by 23 routes is how much
          * rests on the one clause below -- handlers whose own docblocks say they rely on it
          * (`BankTransferController:128`, `PlanController:625`).

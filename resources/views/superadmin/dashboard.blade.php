@@ -95,7 +95,13 @@
                     <h2 class="h5 mb-1">{{ __('Across the whole platform') }}</h2>
 
                     <p class="ss-muted mb-3">
-                        {{ __('Three screens that read every tenant at once. Each is for the platform operator only.') }}
+                        {{-- NOT "Three". ADM-001 / GAP-231 put Store 360 and the Documentation
+                             Center in this panel, so a count in prose would now be wrong — and a
+                             count in prose is exactly what CLAUDE.md records going stale. The
+                             sentence says what the panel IS instead of how long it is, and the
+                             group in the sidebar is computed from the route table by
+                             `OperatorPlatformNavigationTest` rather than typed anywhere. --}}
+                        {{ __('The screens that read every tenant at once. Each is for the platform operator only.') }}
                     </p>
 
                     <ul class="list-unstyled mb-0">
@@ -120,10 +126,29 @@
                         {{-- GAP-104. Linked here for the reason the note at the top of this file
                              records about `platform.analytics`: a screen nothing links to is a
                              screen only somebody who already knows the URL can reach. --}}
-                        <li>
+                        <li class="mb-3">
                             <a class="ss-link" href="{{ route('platform.site_content.index') }}">{{ __('Official website content') }}</a>
                             <span class="ss-field__hint d-block">
                                 {{ __('The text on the official Store Syria website, changed here rather than in a release. Plan prices and limits are not editable: they are read from the plans the subscription flow charges against.') }}
+                            </span>
+                        </li>
+                        {{-- GAP-232 / ADM-002. The one screen in this panel that is NOT platform-wide:
+                             it asks which store, and every figure on it names that store. It is here
+                             because the operator's question usually starts with a store rather than
+                             with a total, and because a screen nothing links to is a screen only
+                             somebody who already knows the URL can reach. --}}
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.stores.index') }}">{{ __('Store 360') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('One store at a time: its subscription, catalogue, orders, shoppers and support, and the way into its own systems.') }}
+                            </span>
+                        </li>
+                        {{-- GAP-107. Reachable from the dashboard as well as from the sidebar group,
+                             for the reason the note at the top of this file records: it had neither. --}}
+                        <li>
+                            <a class="ss-link" href="{{ route('platform.documentation.index') }}">{{ __('Documentation Center') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('The bilingual help articles merchants and shoppers read, and which of them are stale.') }}
                             </span>
                         </li>
                     </ul>

@@ -1354,6 +1354,52 @@ Route::get(
         ->name('platform.revenue');
 
     /*
+     * GAP-232 / ADM-002 — STORE 360°: EVERY STORE'S STATE, AND ONE STORE'S, FOR THE OPERATOR.
+     *
+     * The recovered decision is `مساحة Store 360° لمراجعة حالة كل متجر وإدارته من أنظمته الأصلية`
+     * — a Store 360° space to review the state of EACH store and manage it FROM ITS OWN SYSTEMS.
+     *
+     * WHY A NEW PAIR OF ROUTES AND NOT `stores.show`, WHICH IS THE OBVIOUS HOME. `Route::resource`
+     * already declares `GET stores/{store}` as `stores.show`, and `StoreController::show()` is an
+     * EMPTY STUB — measured on a response, not read off the source: as the operator AND as a
+     * merchant that uri answers **HTTP 200 with a zero-length body**, because the method body is
+     * literally `//` and the route carries `web,auth,xss,setlocate,verified` and NO operator gate
+     * and NO permission. Filling that stub would have put a cross-tenant read behind a route any
+     * verified user reaches, so the 360° lives beside the other `platform/*` operator screens
+     * where the gate is, and `stores.show` is left exactly as it was — pinned by
+     * `StoreThreeSixtyOperatorGateTest::test_premise_stores_show_is_still_an_ungated_empty_stub`,
+     * so the day somebody fills it, its gate is decided deliberately. (`Route::resource('stores',
+     * ...)` is also declared TWICE in this file — later declarations replace earlier ones for the
+     * same method+uri — which is a second reason not to attach a control to one of its members.)
+     *
+     * SAME GATE AS ITS FOUR NEIGHBOURS AND FOR THE SAME REASON: `PlatformOperatorOnly`, NOT a
+     * permission name. `isAbleTo()` refuses the platform operator outright here — there is no
+     * super-admin bypass — and a merchant creates their own roles through the product, so a
+     * permission is substantially self-assignable while these two screens read every tenant.
+     * Inside the same `auth` group, so an anonymous caller is redirected to sign in by `auth`,
+     * which runs first; 403 and never 401 for a signed-in non-operator, because repo B's
+     * `lib/network/network.dart` maps any 401 to a forced logout that clears stored preferences.
+     *
+     * THE HANDLERS CHECK THE SAME THING AGAIN, and that is not redundancy for its own sake:
+     * CLAUDE.md records that a handler-level check behind an `abort()`ing middleware is INVISIBLE
+     * to an HTTP test. Measured here by mutation rather than quoted: with the handler check
+     * deleted, the route-driven refusal cases stayed GREEN and only the direct-call case went red.
+     *
+     * `{store}` IS AN ORDINARY ROUTE-MODEL BINDING AND IS NOT CALLER-SUPPLIED TENANCY. A tenant
+     * predicate built from request input is not a tenant check — four defects in this codebase say
+     * so — but that rule is about deriving the CALLER's tenant from what the caller sent. The
+     * operator has no tenant: the gate above decides whether they may read any store, and the
+     * parameter then chooses which one, the way `plan.upgrade` and `stores.link` already do.
+     */
+    Route::get('platform/stores', [\App\Http\Controllers\StoreThreeSixtyController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.stores.index');
+
+    Route::get('platform/stores/{store}', [\App\Http\Controllers\StoreThreeSixtyController::class, 'show'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.stores.show');
+
+    /*
      * GAP-107 / P03-D-04 — THE DOCUMENTATION CENTRE'S EDITORIAL SURFACE, for the platform
      * operator only.
      *

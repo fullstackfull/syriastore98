@@ -211,7 +211,35 @@ class HomeController extends Controller
         $user = auth()->user();
         Utility::userDefaultData($user->id);
 
-        if ($user->type == 'super admin') {
+        /*
+         * ADM-001 / GAP-231 -- ONE DEFINITION OF THE OPERATOR, AND THIS LINE WAS THE SECOND ONE.
+         *
+         * This read `$user->type == 'super admin'` -- a plain PHP string comparison -- while
+         * `handleRegularUser()` immediately below asks `UserPolicy::isOperator()`. Two definitions
+         * on ONE request path, and `GAP-231` records that as a measured property of the dashboard
+         * this requirement is about.
+         *
+         * THEY DISAGREE FOR `'super admin '`, AND THE DATABASE AGREES WITH THE HELPER.
+         * `utf8mb4_unicode_ci` is a PAD SPACE collation, so a TRAILING space is ignored: that row
+         * IS the operator to every SQL comparison in the product, to `PlatformOperatorOnly` and to
+         * `User::isPlatformAdmin()`. It was a stranger only to this line -- which sent it to
+         * `handleRegularUser()`, where `isOperator()` then answered TRUE, skipping the
+         * storeless-merchant logout guard and every `if (! $isOperator)` figure block, and drew the
+         * MERCHANT dashboard, empty, for the platform operator.
+         *
+         * `isOperator()` USES `rtrim`, NOT `trim`, DELIBERATELY: PAD SPACE does not fold a LEADING
+         * space, so `' super admin'` must stay a non-operator -- the opposite failure and a worse
+         * one. `OperatorDashboardOneOperatorDefinitionTest` drives all four spellings, including
+         * that one, so a later `trim()` here fails a test instead of granting the platform
+         * dashboard to a row the engine refuses.
+         *
+         * LATENT RATHER THAN LIVE, established and not assumed: the only writers of `users.type`
+         * are the seeder's exact literal and `UserController`'s role-name path, which normalises
+         * before refusing the reserved names. It needs a hand-edited row. Converted anyway -- the
+         * cost is one call, and a command dashboard that cannot agree with itself about who is
+         * reading it is not the `لوحة قيادة شاملة` the decision asks for.
+         */
+        if (\App\Policies\UserPolicy::isOperator($user)) {
             Utility::defaultEmail();
             $data = $this->handleSuperAdmin($user);
 
