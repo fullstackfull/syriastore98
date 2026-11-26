@@ -491,15 +491,25 @@ class BackorderChoiceIsExplicitTest extends SecurityTestCase
     }
 
     /**
-     * THE VARIANT *UPDATE* WRITER — the sixth site, and the only one whose default came through a
-     * helper.
+     * THE VARIANT *UPDATE* WRITER — the sixth site, and the only one where the non-destructive save
+     * contract BOUNDS what INV-006 may do. The first version of this case asserted the opposite and
+     * two pinned contracts refused it.
      *
-     * `ssVariantValue($request, $key, $stored, 0, $isNew)` answers the stored value for an absent
-     * key on an existing variant and the literal `0` for a new one, and `0` is not a recognised
-     * choice. The fixture therefore starts a variant at the ambiguous `0` and drives a save that
-     * says nothing about it.
+     * `ssVariantValue($request, $key, $stored, $default, $isNew)` answers the STORED value for an
+     * absent key on an existing variant and `$default` for a new one. That default used to be the
+     * literal `0`, which is not one of the three recognised choices, so a NEW variant was created
+     * oversellable with nobody having decided that. Naming the strict choice as the default is the
+     * whole fix, and it is all this site does.
+     *
+     * WHAT IT DELIBERATELY DOES NOT DO: resolve an ambiguous value already STORED on an existing
+     * variant. Wrapping the call to do that broke `ProductVariantPersistenceTest` in two places —
+     * its census requires every per-variant column to be written through `ssVariantValue()`
+     * verbatim (one emptiness-guarded ternary over the request bag re-opens F105, which zeroed
+     * eleven of twelve variant prices on a save that touched nothing), and its behavioural pin says
+     * an ordinary save changes no column of any UNTOUCHED variant — which normalising a stored `0`
+     * to `not_allow` is. The contract wins. The remainder is named in the report, not papered over.
      */
-    public function test_the_variant_update_writer_normalises_an_ambiguous_stored_value(): void
+    public function test_the_variant_update_writer_defaults_a_new_variant_and_leaves_the_others(): void
     {
         $f = $this->tenant();
 
@@ -546,22 +556,22 @@ class BackorderChoiceIsExplicitTest extends SecurityTestCase
             'created_by' => $f['merchant']->id,
         ]);
 
-        foreach (['S', 'M'] as $n => $variant) {
-            \App\Models\ProductVariant::forceCreate([
-                'product_id' => $product->id,
-                'variant' => $variant,
-                'variation_price' => 100 + $n,
-                'price' => 200 + $n,
-                'stock' => 30 + $n,
-                'low_stock_threshold' => 0,
-                'sku' => sprintf('SKU-%04d', $n),
-                'shipping' => 'same_as_parent',
-                'variation_option' => '',
-                /* The ambiguous value the old writer produced. */
-                'stock_order_status' => '0',
-                'store_id' => $f['store']->id,
-            ]);
-        }
+        /* ONLY `S` IS STORED, so `M` is a NEW variant on the save below and the two readings the
+           4th argument separates — stored value vs new-variant default — are both exercised in one
+           request. `S` starts at the ambiguous `0` the old writer produced. */
+        \App\Models\ProductVariant::forceCreate([
+            'product_id' => $product->id,
+            'variant' => 'S',
+            'variation_price' => 100,
+            'price' => 200,
+            'stock' => 30,
+            'low_stock_threshold' => 0,
+            'sku' => 'SKU-0001',
+            'shipping' => 'same_as_parent',
+            'variation_option' => '',
+            'stock_order_status' => '0',
+            'store_id' => $f['store']->id,
+        ]);
 
         $this->assertSame('0', (string) \DB::table('product_variants')
             ->where('product_id', $product->id)->where('variant', 'S')->value('stock_order_status'),
@@ -597,8 +607,11 @@ class BackorderChoiceIsExplicitTest extends SecurityTestCase
             $payload['low_stock_threshold_' . $variant] = '';
             $payload['shipping_id_' . $variant] = '';
         }
-        /* `S` says nothing; `M` says `notify_customer` — the control in the same request. */
-        $payload['stock_order_status_M'] = BackorderPolicy::NOTIFY_CUSTOMER;
+        /* NEITHER combination names a backorder choice, which is the whole point: `S` must keep
+           what it has and `M`, being new, must take the strict default. */
+        foreach (['S', 'M'] as $variant) {
+            $payload['variation_option_' . $variant] = ['manage_stock'];
+        }
 
         $response = $this->actingAs($f['merchant'])->put(route('product.update', $product->id), $payload);
         $this->assertNotSame(500, $response->status(), 'the save 500d, so the column assertions '
@@ -607,12 +620,22 @@ class BackorderChoiceIsExplicitTest extends SecurityTestCase
         $stored = \DB::table('product_variants')->where('product_id', $product->id)
             ->get()->keyBy('variant');
 
-        $this->assertSame(BackorderPolicy::NOT_ALLOW, (string) $stored['S']->stock_order_status,
-            'the variant-UPDATE writer carried the ambiguous `0` forward on a row it was '
-            . 'rewriting, leaving the variant oversellable with no choice made — INV-006, GAP-182');
+        $this->assertArrayHasKey('M', $stored->all(),
+            'premise: the new combination produced no variant row, so the new-variant default is '
+            . 'not being measured at all');
 
-        $this->assertSame(BackorderPolicy::NOTIFY_CUSTOMER, (string) $stored['M']->stock_order_status,
-            'the explicit choice on the other combination in the same request was not stored');
+        $this->assertSame(BackorderPolicy::NOT_ALLOW, (string) $stored['M']->stock_order_status,
+            'A NEW VARIANT WAS CREATED WITH NO BACKORDER CHOICE. `ssVariantValue()`\'s 4th argument '
+            . 'is the new-variant default and it was the integer `0`, which '
+            . '`ProductStockService::forbidsOversell()` reads as "oversell permitted" — INV-006, '
+            . 'GAP-182.');
+
+        $this->assertSame('0', (string) $stored['S']->stock_order_status,
+            'THE UNTOUCHED VARIANT\'S STORED VALUE CHANGED. An ordinary save must change no column '
+            . 'of any untouched variant (ProductVariantPersistenceTest pins it, and F105 is why): '
+            . 'resolving a stored ambiguous value here would be such a change, so this site only '
+            . 'supplies the NEW-variant default. The remainder — an existing variant left in the '
+            . 'ambiguous state until somebody edits it — is a reported gap, not an accident.');
 
         /*
          * AND THE PARENT ROW ON THE SAME REQUEST. `update()`'s parent write sits AFTER the

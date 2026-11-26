@@ -2846,12 +2846,30 @@ $Product->cost_price = $request->cost_price;
                                 $product_stock->stock = $this->ssVariantValue($request, 'product_stock_' . $ssKey, $product_stock->stock, 0, $ssIsNewVariant);
                                 $product_stock->low_stock_threshold = $this->ssVariantValue($request, 'low_stock_threshold_' . $ssKey, $product_stock->low_stock_threshold, 0, $ssIsNewVariant);
                                 $product_stock->weight = $this->ssVariantValue($request, 'product_weight_' . $ssKey, $product_stock->weight, 0, $ssIsNewVariant);
-                                /* INV-006 (GAP-182): the `0` fallback below is not a recognised choice, so
-                                   whatever `ssVariantValue()` answers is normalised before it is stored. */
-                                $product_stock->stock_order_status = \App\Support\Commerce\BackorderPolicy::forUpdate(
-                                    $this->ssVariantValue($request, 'stock_order_status_' . $ssKey, $product_stock->stock_order_status, 0, $ssIsNewVariant),
-                                    $product_stock->getOriginal('stock_order_status')
-                                );
+                                /*
+                                 * INV-006 (GAP-182). ONLY THE DEFAULT CHANGES, and the first version of this
+                                 * change got it wrong in a way two pinned contracts caught.
+                                 *
+                                 * The `0` this argument used to be is not one of the three recognised
+                                 * backorder words, so a NEW variant was created oversellable with no choice
+                                 * made (`ProductStockService::forbidsOversell()` reads anything but
+                                 * `not_allow` as "allow"). The 4th argument IS the new-variant default, so
+                                 * naming the strict choice there is the whole fix for that.
+                                 *
+                                 * WHAT WAS TRIED AND REVERTED: wrapping this call in
+                                 * `BackorderPolicy::forUpdate()` to also resolve an ambiguous value already
+                                 * STORED on an existing variant. That broke
+                                 * `ProductVariantPersistenceTest`'s census -- which requires every
+                                 * per-variant column to be written through `ssVariantValue()` verbatim,
+                                 * because one surviving emptiness-guarded ternary over the request bag
+                                 * re-opens F105 (eleven of twelve variant prices zeroed by a save that
+                                 * touched nothing) -- and it broke the behavioural pin that an ordinary save changes
+                                 * no column of any UNTOUCHED variant, since normalising a stored `0` to
+                                 * `not_allow` is such a change. The contract wins: a stored ambiguous value
+                                 * on an existing variant is left exactly as it is, and the remainder is
+                                 * recorded rather than papered over.
+                                 */
+                                $product_stock->stock_order_status = $this->ssVariantValue($request, 'stock_order_status_' . $ssKey, $product_stock->stock_order_status, \App\Support\Commerce\BackorderPolicy::NOT_ALLOW, $ssIsNewVariant);
 
                                 /* A description is text a merchant may legitimately clear, so a
                                    posted blank IS the new value here. */
