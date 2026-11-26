@@ -94,7 +94,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 260 lines
+### `warning` — 263 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -345,6 +345,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/SofortController.php:233` | Plan payment return rejected: claimed amount does not match the plan price. |
 | `app/Http/Controllers/ZidOAuthController.php:31` | DS exchange failed |
 | `app/Http/Middleware/ActiveTheme.php:35` | Storefront visit log failed |
+| `app/Http/Middleware/BundleProductMemberOwnershipGuard.php:222` | bundle product member write refused |
 | `app/Http/Middleware/AuctionBidIdentityGuard.php:410` | P1-SEC-61 auction bid refused: products.slug collision across stores. |
 | `app/Http/Middleware/AuctionBidIdentityGuard.php:424` | P1-SEC-61 auction bid refused: bid target does not belong to this storefront. |
 | `app/Http/Middleware/FlashedMessageSafety.php:74` | an exception object was flashed to a session and was replaced before it could be rendered |

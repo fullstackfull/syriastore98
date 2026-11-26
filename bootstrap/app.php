@@ -328,6 +328,37 @@ return Application::configure(basePath: dirname(__DIR__))
         // the permission does pass isAbleTo. The operator is subject to the ownership rule like
         // anyone else; LotterySettingProductOwnershipTest asserts it twice.
         $middleware->appendToGroup('web', \App\Http\Middleware\LotterySettingProductOwnershipGuard::class);
+        /*
+         * MASTER PLAN `PRD-005` (GAP-184). THE SAME SHAPE AS THE LOTTERY GUARD ABOVE, on the
+         * BundleProduct module's two `Route::resource` declarations.
+         *
+         * `BundleProductController::store()` and `::update()` write
+         * `$bundle_product->product_id = $request->product_id` and
+         * `json_encode($request->bundle_products)` with no check that either names a product of the
+         * caller's store, and set `store_id = getCurrentStore()` -- so the row lands in the
+         * CALLER's own tenant and no store_id predicate anywhere notices. The module's own
+         * `ViewComposer::boot()` then reads the members with
+         * `Product::whereIn('id', $bundle_product_ids)->get()` -- no store predicate, and `Product`
+         * is absent from config/tenancy.php's `scoped_models`, so that call adds none for ANY
+         * principal -- and pushes them into the storefront product page through
+         * `<x-product-card>`, which prints the product's name, image and price. A forged member id
+         * therefore puts another tenant's catalogue entries on a PUBLIC page.
+         *
+         * NO OPERATOR PASS-THROUGH, for the reason stated at length above the lottery guard: both
+         * handlers gate on a module permission with no operator limb, Laratrust has no super-admin
+         * bypass, so a bare `super admin` is refused by the handler anyway -- while a pass-through
+         * would leave a hole for the moment upstream adds that limb, and for a super admin who has
+         * been GRANTED a role carrying the permission.
+         *
+         * THE WRITE SIDE ONLY, and that bound is deliberate rather than an oversight: rows written
+         * before this guard existed still render through the unscoped read above. The host-side
+         * vehicle for that half is the vendor view override
+         * (`resources/views/vendor/bundle-product/pages/bundle_product_slider.blade.php` resolves
+         * before the module's own view), with the verbatim-copy-plus-equality-pin discipline that
+         * goes with it. Recorded, not done. BundleProductMemberOwnershipTest pins the premise that
+         * the vendored read is still unscoped, so a fix upstream turns it red here.
+         */
+        $middleware->appendToGroup('web', \App\Http\Middleware\BundleProductMemberOwnershipGuard::class);
         // P1-INV-06 (#32). The two vendored "frequently bought together" add-to-cart writers --
         // BoostSalesController@product_cartlist and FrequentlyProductController@product_cartlist --
         // sit in `['web']`-only groups (anonymous, no PlanModuleCheck) and resolve every posted
