@@ -308,6 +308,108 @@ class ModuleResourceOwnershipGuard
             'parameter' => 'product_review',
             'permission' => 'Delete Product Review',
         ],
+
+        /*
+         * --- BundleProduct: THE FOURTH CLONE OF THE SAME SHAPE. MASTER PLAN `PRD-005`, GAP-184 ---
+         *
+         * Found while ASSESSING a master-plan requirement rather than by a security census, which is
+         * why it had not been seen: `GAP-184`'s register row said *"Fixed and flexible bundles are
+         * not located"*, and locating the fixed half -- `packages/workdo/BundleProduct` -- meant
+         * reading its controller.
+         *
+         * `Workdo\BundleProduct\app\Http\Controllers\BundleProductController` resolves the row by
+         * bare id in three handlers and asks no ownership question in any of them:
+         *
+         *   edit($id)             BundleProduct::find($id)   AND CHECKS NO PERMISSION AT ALL
+         *   update(Request, $id)  BundleProduct::find($id)   checks `Edit Bundle Product` only
+         *   destroy($id)          BundleProduct::find($id)   checks `Delete Bundle Product` only
+         *
+         * Nothing else supplies a predicate: the model uses only `HasFactory` + `Cachable` -- NO
+         * `BelongsToStore` -- and is absent from config/tenancy.php `scoped_models`, so by
+         * `StoreScope::isActiveFor()` it adds no predicate for ANY principal. EXECUTED against the
+         * unguarded tree: a merchant of store B holding the module's four permissions and the
+         * entitlement DELETED store A's `bundle_products` row by its integer id
+         * (BundleProductOwnershipTest). The module's own `index()` and `create()` both scope with
+         * `where('store_id', getCurrentStore())`, so these three are the exception, not the rule.
+         *
+         * THE PERMISSIONS ARE NO BARRIER TO A MERCHANT: the module's own PermissionTableSeeder
+         * creates all four names and grants them to the global `admin` role every self-registered
+         * merchant holds. `edit()` is worse than the auction/digital twins -- it checks nothing --
+         * so the guard supplies `Edit Bundle Product` there, the name the module seeds for that
+         * screen.
+         *
+         * TEN KEYS, BECAUSE THE MODULE DECLARES THE RESOURCE TWICE:
+         *
+         *   routes/web.php:17  Route::resource('bundleproduct',  …)->names('bundleproduct');
+         *   routes/web.php:18  Route::resource('bundle-product', …);
+         *
+         * so the same five handlers answer at two uri families with two parameter names
+         * (`{bundleproduct}` and Laravel's snake_cased `{bundle_product}`). Both are live -- measured
+         * with tests/Support/Security/bin/route-census.php, every module loaded through the
+         * production loader: 16 bundle routes resolve, 10 of them row-bearing. Guarding one spelling
+         * would leave the whole defect reachable at the other URL, which is exactly the
+         * "keyed on the uri prefix" census failure CLAUDE.md records.
+         *
+         * `show()` is `return view('bundle-product::show')` with no model read, so it leaks nothing
+         * today; it is guarded anyway, because a rule must not depend on a handler staying a stub.
+         *
+         * WHAT THIS DOES NOT CLOSE, so it is not read as covered: `store()` and `update()` take the
+         * MEMBER product ids from the request (`$request->product_id`, `$request->bundle_products`)
+         * with no ownership check, so a bundle can be composed of another tenant's products. The row
+         * lands in the caller's own tenant, so no `store_id` predicate notices -- the same shape as
+         * P1-INV-22's `lottery_products`, which needed `LotterySettingProductOwnershipGuard`. A
+         * target keyed on a route parameter cannot ask that question.
+         */
+        'GET bundleproduct/{bundleproduct}' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundleproduct',
+            'permission' => 'Manage Bundle Product',
+        ],
+        'GET bundleproduct/{bundleproduct}/edit' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundleproduct',
+            'permission' => 'Edit Bundle Product',
+        ],
+        'PUT bundleproduct/{bundleproduct}' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundleproduct',
+            'permission' => 'Edit Bundle Product',
+        ],
+        'PATCH bundleproduct/{bundleproduct}' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundleproduct',
+            'permission' => 'Edit Bundle Product',
+        ],
+        'DELETE bundleproduct/{bundleproduct}' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundleproduct',
+            'permission' => 'Delete Bundle Product',
+        ],
+        'GET bundle-product/{bundle_product}' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundle_product',
+            'permission' => 'Manage Bundle Product',
+        ],
+        'GET bundle-product/{bundle_product}/edit' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundle_product',
+            'permission' => 'Edit Bundle Product',
+        ],
+        'PUT bundle-product/{bundle_product}' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundle_product',
+            'permission' => 'Edit Bundle Product',
+        ],
+        'PATCH bundle-product/{bundle_product}' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundle_product',
+            'permission' => 'Edit Bundle Product',
+        ],
+        'DELETE bundle-product/{bundle_product}' => [
+            'table' => 'bundle_products',
+            'parameter' => 'bundle_product',
+            'permission' => 'Delete Bundle Product',
+        ],
     ];
 
     public function handle(Request $request, Closure $next): Response
