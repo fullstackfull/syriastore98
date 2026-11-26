@@ -386,6 +386,26 @@ class OrderActionPermissionCensusTest extends SecurityTestCase
             // here so the next reader does not re-raise them.
             'GET shippinglabel/pdf/{id}',
             'GET order-receipt/{id}',
+            // The THIRD order document, added with the picking and packing list (ORD-008 /
+            // GAP-185) and guarded by the same middleware entry for the same reason: its
+            // `OrderDocumentAccessGuard::TARGETS` row is `order-packing-list/{id}`, and the
+            // handler `order_packing_list()` is `order_receipt()`'s shape line for line,
+            // asking no ownership question of its own because the guard owns that for every
+            // order document.
+            //
+            // IT IS LISTED HERE RATHER THAN CENSUSED ABOVE for the same reason as its two
+            // siblings, and it is not an exemption: removing the TARGETS entry reddens SEVEN
+            // cases across those three files -- measured here on the integrated tree, not taken
+            // from the branch's own report, which said six. Its cross-tenant refusal and its
+            // owner's admission
+            // are driven by `OrderDocumentAccessTest` and `OrderDocumentRouteResolutionTest`
+            // through the SHARED provider both siblings use -- so the same two tests measure
+            // all three documents rather than each having only its own file.
+            //
+            // This gap was found by the integration, not by the branch that added the route:
+            // that branch extended both order-document censuses in the same commit, and this
+            // census lives in a different file it had no reason to read.
+            'GET order-packing-list/{id}',
             // A MERCHANT route, not a storefront one: it sits in the ['auth','xss','setlocate',
             // 'verified'] group at routes/web.php:400 and renders the admin blade
             // `order.order_show`. An earlier version of this list filed it under the storefront
