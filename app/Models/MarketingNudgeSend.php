@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
  * GAP-219 — one recorded nudge: what was sent, to which contact, about what, and how it ended.
  *
  * NOT `Cachable`, DELIBERATELY, and that is the same call D8-1 made for the three consent models.
- * CLAUDE.md records that 79 of 95 models in `app/Models/` are `Cachable` and that a raw write then
+ * CLAUDE.md records that most models in `app/Models/` are `Cachable` and that a raw write then
  * leaves Eloquent reads serving the pre-write row — three measured false readings. A duplicate
  * guard is the last place that can be tolerated: the question it answers is "did this ALREADY
  * happen", so a cached miss is a second billable message. Every read here must hit the database.

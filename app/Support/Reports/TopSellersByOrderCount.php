@@ -73,7 +73,7 @@ use Illuminate\Support\Facades\DB;
  * `orders.store_id`; all three survive, because `orders.product_id` is free text and an order of
  * this store may name another tenant's product id.
  *
- * `DB::table()` AND NOT ELOQUENT, for two measured reasons. 79 of the 95 models in `app/Models`
+ * `DB::table()` AND NOT ELOQUENT, for two measured reasons. Most models in `app/Models`
  * are `Cachable`, so an Eloquent read can serve a pre-write row after a raw write — three
  * measured false readings in this repository — and these three models carry no `SoftDeletingScope`
  * and no active `StoreScope`, so there is no scope to lose. `TopSellersByRevenue` reads the same

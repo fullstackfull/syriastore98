@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Schema;
  * WHY A SERVICE AND NOT AN ELOQUENT MODEL. Deliberately raw `DB::table()`, for the three reasons
  * `StockMovement`'s header gives and one more:
  *
- *   - 79 of 95 models in `app/Models` are `Cachable`. This row is written immediately before the
+ *   - most models in `app/Models` are `Cachable`. This row is written immediately before the
  *     caller leaves for the provider and read immediately when they return, so a `Cachable` model
  *     would serve a pre-write row from cache — here that means reading "no intent" for an intent
  *     that was just created, i.e. refusing a legitimate purchase.

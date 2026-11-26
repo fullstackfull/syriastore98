@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * PHASE 03 M3-C — ONE SAVED THEME CONFIGURATION: A DRAFT, A PUBLISHED SNAPSHOT, OR AN ARCHIVED ONE.
  * ================================================================================================
  *
- * NOT `Cachable`, AND THAT IS A DECISION. 79 of the 95 models in this directory use the trait and
+ * NOT `Cachable`, AND THAT IS A DECISION. Most models in this directory use the trait and
  * the 16 exceptions are deliberate. This is the 17th. A raw write leaves Eloquent reads -- route
  * model binding included -- serving the pre-write row, and under `CACHE_STORE=array` that survives
  * a whole test run; it has produced three measured false readings in this project. Version rows are

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * MKT-004 — a named set of one store's customers, static or dynamic.
  *
- * NOT `Cachable`, and that is deliberate rather than an omission. 79 of the 95 models in
+ * NOT `Cachable`, and that is deliberate rather than an omission. Most models in
  * `app/Models/` carry the trait, and CLAUDE.md records three measured false readings caused by it:
  * a raw write leaves Eloquent reads, route-model binding included, serving the pre-write row, and
  * under `CACHE_STORE=array` that stale row lives for the rest of a test. A segment's membership is

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
  * `IAM-003` — one request for a dangerous operator action, and its approval.
  *
  * **DELIBERATELY NOT `Cachable`**, which is the one thing about this class that would be wrong by
- * default. CLAUDE.md records that 79 of the 95 models in `app/Models/` carry that trait and that a
+ * default. CLAUDE.md records that most models in `app/Models/` carry that trait and that a
  * cached read serves a pre-write row for the rest of a test under `CACHE_STORE=array` — three
  * measured false readings. The 16 exceptions are the models whose rows are read back immediately
  * after being written, `AuditLog` and `Permission` among them, and this is exactly that shape: the

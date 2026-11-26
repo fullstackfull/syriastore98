@@ -217,7 +217,7 @@ class CustomerDataTable extends DataTable
      * PER INSTANCE, NOT static. A DataTable object is built once per request, so an instance
      * property is scoped to exactly the page being rendered. A `static` would outlive the request
      * under a resident worker and outlive the TEST under PHPUnit -- and this codebase has already
-     * paid for cross-request figure staleness: 79 of 95 models are `Cachable`, and CLAUDE.md
+     * paid for cross-request figure staleness: most models are `Cachable`, and CLAUDE.md
      * records three measured false readings from a value that survived the write that should have
      * invalidated it. A money column serving a previous page's customer is the same failure with
      * a worse blast radius.

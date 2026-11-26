@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  *  1. NOT `Cachable`, AND THIS IS A SECURITY PROPERTY RATHER THAN A PREFERENCE
  * -------------------------------------------------------------------------------------------------
  *
- * CLAUDE.md records that 79 of the 95 models here use `GeneaLabs\LaravelModelCaching\Cachable`, and
+ * CLAUDE.md records that most models here use `GeneaLabs\LaravelModelCaching\Cachable`, and
  * that the 16 that do not include `AuditLog`, `Permission` and `Role`. This model joins that list
  * for the same reason those three are on it: **it answers an authorization question, and a cached
  * answer to an authorization question is a stale answer to an authorization question.**

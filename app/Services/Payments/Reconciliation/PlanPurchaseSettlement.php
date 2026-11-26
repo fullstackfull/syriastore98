@@ -207,7 +207,7 @@ final class PlanPurchaseSettlement
      *
      * THE TEST IS ABOUT WHAT CHANGED, NOT ABOUT HOW OLD THE INTENT IS. A purchaser who has done
      * nothing since initiation settles normally however long ago it was, because nothing would be
-     * overwritten. `disableCache()` on both reads: 79 of 95 models here are `Cachable` and an
+     * overwritten. `disableCache()` on both reads: most models here are `Cachable` and an
      * entitlement decision must not be made against a cached row.
      */
     private function entitlementHasMovedOn(object $intent): ?ReconciliationOutcome

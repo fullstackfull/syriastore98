@@ -140,19 +140,30 @@ class TranslationFileIntegrityTest extends TestCase
         $orphans = array_diff(array_keys($ar), array_keys($en));
 
         /*
-         * A COUNT, NOT ZERO. This file inherits 31 such keys from the vendored platform and from
-         * before Phase 02 -- they are not this phase's to delete, and asserting zero would mean
-         * either a sweep nobody authorised or an immediately-skipped test. The number is pinned
-         * so a NEW one fails: adding an Arabic key without its English sibling raises it.
+         * NOW ZERO, AND THE CLEANUP WAS AN ADDITION RATHER THAN A SWEEP. This read 31 and said
+         * those keys were "not this phase's to delete", because asserting zero would have meant
+         * "either a sweep nobody authorised or an immediately-skipped test". That reasoning was
+         * right about DELETING and wrong about the only other option: en.json's value for these
+         * keys is the key itself, so adding the English sibling is non-destructive, changes what
+         * `__()` returns for nobody, and discharges the orphan rather than hiding it.
          *
-         * 31 IS MEASURED, not chosen. (A first draft of this file asserted 97, which was a
-         * number nobody had counted -- it passed, and would have gone on passing while 66 new
-         * orphans accumulated underneath it. A ratchet set above the real value is not a
-         * ratchet.) If a legitimate cleanup lowers it, lower the expectation in the commit that
-         * does the cleanup.
+         * 2026-11-26: the count had risen 31 -> 76 when ten workstream branches merged, and all
+         * 76 were MEASURED LIVE before any of them was touched -- every one is reached from a
+         * view, a config array, a class constant or a metric map. The integrator's first two
+         * censuses both said otherwise and both were too narrow: a literal `__('x')` grep called
+         * 18 of them dead (they are reached through variables, e.g. `config/operator_approvals.php`
+         * and `WalletEntitlementFigure`), and a whole-string grep still called 3 dead (those are
+         * LINE-WRAPPED in their Blade and PHP sources). CLAUDE.md's census rule, twice, on one
+         * question.
+         *
+         * So the expectation is 0 and the previous 31 are discharged too, following this file's
+         * own standing instruction: "If a legitimate cleanup lowers it, lower the expectation in
+         * the commit that does the cleanup." An earlier draft asserted 97 -- a number nobody had
+         * counted, which would have passed while 66 orphans accumulated. A ratchet above the real
+         * value is not a ratchet, and 0 is now the real value.
          */
-        $this->assertLessThanOrEqual(31, count($orphans), sprintf(
-            "ar.json now declares %d key(s) that en.json does not (was 31).\n"
+        $this->assertLessThanOrEqual(0, count($orphans), sprintf(
+            "ar.json now declares %d key(s) that en.json does not (expected 0).\n"
             . "New ones: a string was translated into Arabic without an English entry, or was "
             . 'renamed on the English side and left behind here. First few: %s',
             count($orphans),

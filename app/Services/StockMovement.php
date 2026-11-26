@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Schema;
  *
  * WHY A SERVICE AND NOT AN ELOQUENT MODEL. Deliberately raw `DB::table()`:
  *
- *   - 79 of 95 models in `app/Models` are `Cachable`, and this table is written on the checkout
+ *   - most models in `app/Models` are `Cachable`, and this table is written on the checkout
  *     path and read immediately afterwards by a cancellation or replacement. A `Cachable` model
  *     would serve a pre-write row from cache — the trap CLAUDE.md records three measured times —
  *     and here that would mean reading "no movement" for a movement that just happened.

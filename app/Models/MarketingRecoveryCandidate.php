@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
  *
  * NOT `Cachable`, and for the reason `MarketingNudgeSend` gives: the question this table answers is
  * "have I already queued this", so a cached miss is a duplicate row and, on the day sending is
- * approved, a duplicate message. 79 of the 95 models in `app/Models/` carry the trait and CLAUDE.md
+ * approved, a duplicate message. Most models in `app/Models/` carry the trait and CLAUDE.md
  * records three measured false readings from it; the sixteen that do not are the ones whose
  * correctness depends on reading the database as it is right now.
  *
