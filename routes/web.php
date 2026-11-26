@@ -1782,6 +1782,17 @@ Route::get(
         ->name('product.preview');
 
     /*
+     * PRICE-006. The read-only price preview and explanation, JSON.
+     *
+     * Same shape and same gate as `product.preview` above: authorised by the handler itself
+     * (operator first, then `Manage Products`, then the product's own `store_id` against the
+     * principal's current store), because `Product` carries no effective global scope and the
+     * breakdown exposes a store's commercial configuration. The id is raw, for the same reason.
+     */
+    Route::get('product-price-explanation/{id}', [ProductController::class, 'price_explanation'])
+        ->name('product.price.explanation');
+
+    /*
      * P2-04-5. The read-only quick-preview fragment for the order side panel.
      *
      * GET, because it is a read -- and because OrderDocumentAccessGuard arms only on GET
