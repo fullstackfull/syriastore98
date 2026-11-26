@@ -2205,6 +2205,63 @@ Route::get(
   Route::post('refund-settings', [OrderRefundController::class, 'updateStatus'])->name('refund.settings')->middleware('themelanguage');
 
   Route::post('product-page-setting', [AppSettingController::class, 'product_page_setting'])->name('product.page.setting');
+
+  /*
+   |--------------------------------------------------------------------------
+   | GAP-194 / KYC-001 … KYC-003 — verification of individuals and companies
+   |--------------------------------------------------------------------------
+   |
+   | Phase 06 section 06-C, التوثيق والامتثال. Three approved sentences: verify individuals and
+   | companies; manage PRIVATE documents, reviews, renewal and ACCESS LOGS; keep Store Syria's own
+   | verification SEPARATE from payment-provider and government-licence verification.
+   |
+   | TWO SIDES, TWO GATES, AND THEY ARE DELIBERATELY NOT THE SAME GATE.
+   |
+   |   the merchant's own five routes   carry the group's `auth` and NOTHING ELSE at the route, and
+   |                                    each handler asks `KycAccess::permitsOwnDocuments()` with a
+   |                                    store it derived from the PRINCIPAL (`KycAccess::ownStore()`)
+   |                                    or from the ROW. A permission name alone would be the wrong
+   |                                    gate twice over: a merchant creates their own roles, so it is
+   |                                    substantially self-assignable, and this feature's permission
+   |                                    is deliberately NOT seeded, so a route-level `can:` would
+   |                                    refuse every merchant on earth.
+   |   the operator's three routes      carry `PlatformOperatorOnly` as well, because reviewing and
+   |                                    seeing the cross-store queue is a platform action. A MERCHANT
+   |                                    MUST NEVER APPROVE THEIR OWN IDENTITY PAPERS — that is a
+   |                                    safety invariant, not a policy choice — and `KycAccess::permitsReview()`
+   |                                    says the same thing inside the handler.
+   |
+   | THE DOWNLOAD IS A GET THAT WRITES, and that is correct here: it writes the ACCESS LOG row, which
+   | is the requirement. `KycDocumentStore::readForActor()` is the only reader of the bytes and it
+   | records before it returns, so there is no way to open a document without leaving a trace.
+   |
+   | NO DELETE ROUTE, ON PURPOSE. Retention of identity papers is an owner decision (`D-P6-46`) and a
+   | destructive operation on personal data is an escalation. A replaced document is superseded.
+   |
+   | Inside this `auth` group so an anonymous caller is redirected to sign in by `auth`, which runs
+   | first, rather than told 403; and 403 and never 401 for a signed-in principal who may not,
+   | because repo B maps any 401 to a forced logout.
+   */
+  Route::get('verification', [\App\Http\Controllers\KycVerificationController::class, 'index'])
+      ->name('kyc.index');
+  Route::post('verification/documents', [\App\Http\Controllers\KycVerificationController::class, 'store'])
+      ->name('kyc.documents.store');
+  Route::post('verification/{record}/submit', [\App\Http\Controllers\KycVerificationController::class, 'submit'])
+      ->name('kyc.submit');
+  Route::get('verification/documents/{document}/download', [\App\Http\Controllers\KycVerificationController::class, 'download'])
+      ->name('kyc.documents.download');
+  Route::get('verification/documents/{document}/access-log', [\App\Http\Controllers\KycVerificationController::class, 'accessLog'])
+      ->name('kyc.documents.access-log');
+
+  Route::get('platform/verification', [\App\Http\Controllers\KycVerificationController::class, 'queue'])
+      ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+      ->name('kyc.queue');
+  Route::post('platform/verification/documents/{document}/decide', [\App\Http\Controllers\KycVerificationController::class, 'decideDocument'])
+      ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+      ->name('kyc.documents.decide');
+  Route::post('platform/verification/{record}/decide', [\App\Http\Controllers\KycVerificationController::class, 'decideRecord'])
+      ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+      ->name('kyc.records.decide');
   });
   // ^^^ the `auth` group now closes HERE, after the administrative block.
 

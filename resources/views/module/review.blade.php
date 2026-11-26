@@ -26,7 +26,7 @@
                                     <th scope="col">{{ __('Type') }}</th>
                                     <th scope="col">{{ __('Declared version') }}</th>
                                     <th scope="col">{{ __('Review') }}</th>
-                                    <th scope="col">{{ __('Uploaded') }}</th>
+                                    <th scope="col">{{ __('Upload date') }}</th>
                                     <th scope="col" class="text-end">{{ __('Action') }}</th>
                                 </tr>
                             </thead>
