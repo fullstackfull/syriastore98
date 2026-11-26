@@ -285,6 +285,21 @@ run_one verify-host-claims-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=hostclaims_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# GAP-287 / J24. Whether `MetricCaveat::FLOAT_PRECISION`'s stated basis holds: the docblock said the
+# figure comes off `orders.final_price`, "which is FLOAT -- about seven significant digits". Laravel's
+# `$table->float()` emits a MySQL **double**, so the premise is wrong, and this measures it on a real
+# engine rather than reasoning from the migration's wording -- the exact mistake CLAUDE.md records a
+# caveat being attached and withdrawn on once already (`plan_orders.price`, GAP-192). It builds the
+# columns through the framework's own schema builder, reads `information_schema` back, round-trips
+# five money values, and runs a 10,000-row accumulation against an exact DECIMAL(15,2) ledger.
+# ADDED AT THE 2026-11-26 INTEGRATION because the roster REFUSED the checkpoint over it: the script
+# arrived with the analytics branch and nothing invoked it, and this runner's own words are "a script
+# nobody runs is not evidence". The caveat is NOT withdrawn on the strength of it -- production's
+# column type is unknown and the sentence is merchant-facing -- but the measurement is now repeatable.
+run_one verify-money-column-precision-on-mysql \
+  "MONEYPREC_MYSQL_SOCKET=${SOCK}" "MONEYPREC_MYSQL_HOST=${HOST}" "MONEYPREC_MYSQL_PORT=${PORT}" \
+  "MONEYPREC_MYSQL_DATABASE=moneyprec_verify" "MONEYPREC_MYSQL_USER=${USER_NAME}" "MONEYPREC_MYSQL_PASSWORD=${PASS}"
+
 # P1-SEC-78 (and the review of its first form). The write-side rule for the sign-in image rows (StoredPathPolicy::setting) decided "is this such a row" in PHP,
 # on the name as posted; the vendored lookups compare under the COLUMN's collation and the column keeps a name cut to ITS width. The script asks the engine which of
 # ~200,000 candidate names a lookup would find once stored, and whether the hook refuses a poisoned value under each. It is run under three (column, connection) collation

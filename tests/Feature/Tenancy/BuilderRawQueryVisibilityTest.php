@@ -30,7 +30,14 @@ use Tests\TestCase;
  *
  * THE INSTRUMENT IS VALIDATED AGAINST THE LIVE CENSUS IN BOTH DIRECTIONS, which is the only reason
  * the blind-spot figures below can be trusted: counting the same pattern over the same enumeration
- * reproduces `['app' => 229, 'packages' => 45]` EXACTLY -- the figures that test asserts. (Its
+ * reproduces `['app' => 232, 'packages' => 45]` EXACTLY -- the figures that test asserts. (Its
+ * 2026-11-26 NOTE: this pair was 229/45 until the integration checkpoint, and it moved because the
+ * sibling census legitimately moved, not because this instrument drifted. FOUR raw sites arrived
+ * across two branches and each is named in that file's own chain of notes: `RefundPolicy::allows()`
+ * (GAP-140), `OrderCurrencyStamp::configuredSymbolFor()` (GAP-278) and `PackingSlip`'s two reads
+ * (ORD-008). This file's own instrument measured 232 live BEFORE the figure here was touched,
+ * which is the order this test demands -- it says "do NOT adjust this to match: find out which
+ * census changed" -- and the answer is that the codebase did.) (Its
  * method NAME says "one hundred and sixty eight" and a comment in it says 112; both are stale, and
  * its docblock already records that the name is an identity the CI gate matches on and that "the
  * assertions carry the real figures". So the assertion is the oracle, and this agrees with it.)
@@ -170,11 +177,11 @@ class BuilderRawQueryVisibilityTest extends TestCase
         $census = $this->census();
 
         $this->assertSame(
-            ['app' => 229, 'packages' => 45],
+            ['app' => 232, 'packages' => 45],
             ['app' => $census['app']['visible'], 'packages' => $census['packages']['visible']],
             'This file counts `DB::` entry points with the same pattern and the same enumeration as '
             . 'RawQueryTenancyInventoryTest::test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight, '
-            . 'whose assertion is `[app => 229, packages => 45]`. A disagreement means one of the '
+            . 'whose assertion is `[app => 232, packages => 45]`. A disagreement means one of the '
             . 'two moved, and the blind-spot figures below are measured against nothing until it is '
             . 'resolved. Do NOT adjust this to match: find out which census changed.'
         );
@@ -587,7 +594,7 @@ class BuilderRawQueryVisibilityTest extends TestCase
      * question first. That script read `conjunctive filter` as 87 because it re-tokenised each file
      * behind a `'<?php '` prefix it had spliced on, which shifts what the tokeniser sees. The
      * methods here are the ones the premise test above validates against the live census's own
-     * asserted 229/45, so they are the ones whose numbers are written down. A figure is only as
+     * asserted 232/45, so they are the ones whose numbers are written down. A figure is only as
      * good as the instrument that is still in the repository.
      */
     public function test_the_classification_of_every_invisible_raw_site(): void

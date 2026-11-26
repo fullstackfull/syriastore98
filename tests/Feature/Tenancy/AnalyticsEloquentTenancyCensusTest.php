@@ -57,10 +57,10 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
         'parameter' => 14,
         'no_store_column' => 6,
         'request' => 11,
-        'none' => 76,
+        'none' => 75,   // 76 -> 75 [2026-11-26]: GAP-286 removed the anonymous platform-wide wishlist read; see the note above its deleted disposition
     ];
 
-    private const TOTAL_SITES = 354;
+    private const TOTAL_SITES = 353;
 
     /**
      * EVERY SITE SHAPE THAT IS NOT `principal`, WITH ITS COUNT AND ITS REASON.
@@ -182,8 +182,7 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
             'NOT VOUCHED FOR: storefront predicate on a $store this census could not trace in one step'],
         'app/Http/Controllers/HomeController.php|User::find|none' => [5,
             'the resolved store owner or the signed-in user own row, by id'],
-        'app/Http/Controllers/HomeController.php|Wishlist::with|none' => [1,
-            'REGISTERED SEPARATELY BY THE COORDINATOR AND NOT FIXED HERE: wishlist() reads EVERY wishlist row on the platform anonymously -- the auth(customers) guard and the where(customer_id) predicate are both commented out, the route carries no auth, and Wishlist has no scope. Latent only because the Blade never references the variable'],
+        /* `HomeController.php|Wishlist::with|none` stood here, dispositioned as "REGISTERED SEPARATELY BY THE COORDINATOR AND NOT FIXED HERE: wishlist() reads EVERY wishlist row on the platform anonymously". It is gone because `3276bcfef` (GAP-286) REMOVED that read rather than scoping it, so the disposition had become a reason outliving the thing it was written for -- which this test's own message calls "how a security assertion becomes decoration". The site was read, not the number adjusted: all that survives at HomeController.php:2362 is a comment recording what was removed, and the census strips comments, which is why the measurement no longer sees it. */
         'app/Http/Controllers/ReportController.php|Category::find|ownership_checked' => [11,
             'merchant: id set narrowed to the current store by reportSelectionWithinCurrentStore(); operator: admitted unnarrowed by its own limb, same privilege level; GATE ATTRIBUTION IS PER-METHOD AND NOT PER-ARM -- a declared mutation in mutate-gap167.py shows that deleting one of the four gate calls in this one method moves no number'],
         'app/Http/Controllers/ReportController.php|Order::selectRaw|none' => [3,
@@ -710,7 +709,13 @@ final class AnalyticsEloquentTenancyCensusTest extends SecurityTestCase
          * expression, and their reason now says only that, because a gate ELSEWHERE in the handler
          * is something this census does not establish either way.
          */
-        $this->assertSame(108, $vouched, 'the vouched-for count moved');
+        /* 108 -> 107 and TOTAL_SITES 354 -> 353, both by the SAME one site: GAP-286 (`3276bcfef`)
+         * removed `HomeController::wishlist()`'s anonymous platform-wide `Wishlist::with` read
+         * rather than scoping it, so it leaves the census entirely. Its disposition read
+         * "REGISTERED SEPARATELY BY THE COORDINATOR AND NOT FIXED HERE", which this file counts
+         * as VOUCHED (only a "NOT VOUCHED FOR" prefix marks the other kind) -- which is why the
+         * vouched figure moved and the declared-but-unvouched 59 did not. */
+        $this->assertSame(107, $vouched, 'the vouched-for count moved');
         $this->assertSame(59, $declared, 'the declared-but-unvouched count moved');
         $this->assertSame(
             self::TOTAL_SITES - self::TOTALS['principal'],

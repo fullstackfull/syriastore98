@@ -227,58 +227,30 @@ class HostUtilityCensusPopulationTest extends TestCase
         }
     }
 
-    public function test_the_operator_integration_page_still_has_two_declared_unpainted_occurrences(): void
-    {
-        /*
-         * THE SHARPEST ILLUSTRATION OF WHY A CAPTURE IS NOT A CENSUS, and it is on the surface
-         * GAP-179 DECLARED CLOSED.
-         *
-         * `superadmin/integration.blade.php` was re-measured for this workstream in all four
-         * combinations and reported 2 findings, both the excluded `D-25` sidebar item. Its SOURCE
-         * carries two more occurrences of `btn btn-sm btn-primary` — the class measured at 2.58:1
-         * dark and repaired on six other surfaces by the same GAP:
-         *
-         *     `Save`     inside `#lynomia-seats`    (an INACTIVE tab pane)
-         *     `Approve`  inside `#lynomia-accounts` (an INACTIVE tab pane, and additionally behind
-         *                `@if ($row->state === LinkState::PENDING_VERIFICATION)`)
-         *
-         * `data-bs-toggle="tab"` paints only the active pane, so a first-paint capture cannot reach
-         * either. They become visible on the first click — exactly the reasoning that made this
-         * project wrap ALL FIVE tab labels rather than the active one.
-         *
-         * DECLARED, NOT REPAIRED, and that is this pass's instruction rather than reluctance:
-         * measure, count and declare, because a half-done repair sweep makes the number unreadable
-         * for the owner's `D-25` ruling. It is also the honest engineering answer — repairing them
-         * would produce a change this slice's instrument CANNOT re-measure, since the capture never
-         * paints them, and an unmeasured repair reads as a finished one. The next step for them is
-         * a Tier-C style capture that clicks the tab first, which
-         * `measure-superadmin-premium-live.cjs` already does for modal fragments.
-         *
-         * THE COUNT IS EXACT so that a third occurrence appearing fails here, and so that repairing
-         * these two fails here too and forces this note to be re-read rather than deleted.
-         */
-        $view = 'packages/workdo/LynomiaChat/src/resources/views/superadmin/integration.blade.php';
+    /*
+     * WHAT WAS HERE, AND WHY IT IS NOT ANY MORE.
+     *
+     * This file used to declare that the operator integration page carried exactly TWO unpainted
+     * `btn-primary` occurrences -- a `Save` inside `#lynomia-seats` and an `Approve` inside
+     * `#lynomia-accounts`, both in INACTIVE tab panes, which a first-paint capture can never reach.
+     * The declaration existed because an unmeasured repair reads as a finished one, and it was
+     * made EXACT so that repairing the two would fail here and force the note to be re-read rather
+     * than quietly deleted.
+     *
+     * It failed at the 2026-11-26 integration, finding 0 where it declared 2. They were repaired by
+     * `8a081cd03`: `btn btn-sm btn-primary` -> `ss-btn ss-btn--primary ss-btn--sm` at :129 and :495,
+     * the same two occurrences this counted.
+     *
+     * So the declaration is DELETED rather than renumbered, which is what its own failure message
+     * instructed -- and the repair is not unmeasured, which was the whole worry. It is covered by
+     * `tests/Unit/Ui/LynomiaOperatorViewsUseDesignSystemFillsTest`, which is strictly stronger than
+     * what stood here: it drove all 96 theme x direction cells, measured the defect this closes
+     * (`.btn-primary` at 2.58:1 on dark against `.ss-btn--primary` at 7.92:1), asserts that NO
+     * operator Lynomia view paints with a host primary fill, and separately asserts that every
+     * `ss-` class those views use is actually defined in the design system -- so a repair that
+     * swapped in a class nobody had written would fail too.
+     *
+     * A third occurrence appearing is now that test's business, not this one's.
+     */
 
-        $source = (string) preg_replace(
-            '/\{\{--.*?--\}\}/s',
-            '',
-            (string) file_get_contents(base_path($view))
-        );
-
-        $this->assertSame(
-            2,
-            preg_match_all('/class="[^"]*(?<![-a-z])btn-primary(?![-a-z])[^"]*"/', $source),
-            'the declared count of unpainted `btn-primary` occurrences on the operator integration '
-            . 'page has changed. If they were repaired, measure the repair with a capture that '
-            . 'clicks the tab first and then delete this declaration — do not just update the '
-            . 'number.'
-        );
-
-        $this->assertSame(
-            0,
-            preg_match('/class="[^"]*(?<![-a-z])bg-warning(?![-a-z])[^"]*"/', $source),
-            'the host warning chip is back on the operator integration page; it measured 1.68:1 '
-            . 'light and carries !important.'
-        );
-    }
 }

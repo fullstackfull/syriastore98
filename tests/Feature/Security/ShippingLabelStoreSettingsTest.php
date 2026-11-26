@@ -508,9 +508,23 @@ class ShippingLabelStoreSettingsTest extends SecurityTestCase
             $checked++;
         }
 
-        $this->assertSame(2, $checked,
-            'two host order documents open their own <html> (shippinglabel and receipt). A different number '
-            . 'means one was added or removed -- look at it rather than changing this number.');
+        /* 2 -> 3 [2026-11-26 integration, ORD-008 / GAP-185]: `order/packing-list.blade.php`
+           is the third standalone order document, added with the picking and packing list. It was
+           LOOKED AT rather than counted: its `<html>` carries the same
+           `lang="{{ $documentLocale ?? app()->getLocale() }}"` and conditional `dir` as the
+           receipt, and the per-document assertions in the loop above passed for it on the run that
+           failed here -- only the total was wrong. So this is the number following the codebase,
+           not the assertion being bent to fit.
+
+           A caution for whoever reads this next, because it caught me: grepping these files for
+           `<html` by hand finds the COMMENTS, not the tags. Both the packing list and the shipping
+           label open with a note quoting the defect they fixed -- a hardcoded `lang="en"` with no
+           `dir` -- so an ad-hoc check reports exactly the fault that was repaired. The loop above
+           strips comments first, which is why it was right and my grep was not. */
+        $this->assertSame(3, $checked,
+            'three host order documents open their own <html> (shippinglabel, receipt and the '
+            . 'packing list). A different number means one was added or removed -- look at it '
+            . 'rather than changing this number.');
     }
 
     public function test_a_store_without_settings_does_not_print_the_platform_users_last_configured_address(): void
