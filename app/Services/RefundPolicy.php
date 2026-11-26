@@ -47,14 +47,20 @@ use Illuminate\Support\Facades\DB;
  * SCOPE BYPASSES -- which this is not: the predicate is written here, explicitly, and
  * `OrderRefundSetting` carries no global scope to bypass in the first place.
  *
- * DUPLICATE ROWS ARE POSSIBLE AND THE LAST ONE WINS, which matches the screen exactly.
+ * DUPLICATE ROWS ARE POSSIBLE AND THE LAST ONE WINS -- WHICH IS *NOT* "EXACTLY WHAT THE SCREEN
+ * SHOWS", as this paragraph first claimed and an independent review refused.
  * `updateStatus()` writes one row per (store_id, user_id, name), so two users of one store
  * produce two rows per name; both consuming views read `where('store_id', ...)
  * ->pluck('is_active', 'name')` with NO user predicate, and an array key written twice keeps the
- * value written last. This reproduces that answer deterministically by ordering on `id`, rather
- * than inheriting whatever order an engine happens to return. The duplicate-row shape itself is a
- * pre-existing wrinkle of the writer and is reported rather than changed here: a gate is not the
- * place to decide which of two merchants' choices is the store's.
+ * value written last -- but all three of those reads carry NO `ORDER BY`, while this gate pins
+ * `orderBy('id')`. So with two rows for one store the screen and the gate CAN disagree, in either
+ * direction, including the one that matters: the screen showing OFF while this door opens. Pinning
+ * `id` makes the gate's own answer deterministic instead of inheriting whatever order an engine
+ * happens to return, and that is all it does.
+ *
+ * The duplicate-row shape is a pre-existing wrinkle of the writer and is reported rather than
+ * changed here: a gate is not the place to decide which of two merchants' choices is the store's,
+ * and adding an `ORDER BY` to three view reads would change what merchants see.
  *
  * `shiping_deduct` IS DELIBERATELY NOT A CONSTANT HERE, AND THE REASON IS STRONGER THAN THE ONE
  * FIRST WRITTEN DOWN. The first form said the server "cannot tell a total that already includes
@@ -143,6 +149,16 @@ class RefundPolicy
          * status or the refund record moves either way. It is logged at `warning` rather than
          * swallowed, because a refusal whose reason nobody can read is the trap this repository
          * keeps re-finding -- `docs/security/P01-OBSERVABILITY-INVENTORY.md` carries the line.
+         *
+         * `\Throwable` AND NOT `QueryException`, WHICH IS A CORRECTION AN INDEPENDENT REVIEW
+         * FORCED. The first form caught `\Illuminate\Database\QueryException` and the paragraph
+         * above claimed the gate "cannot throw". That claim was wider than the catch: a missing
+         * table and an absent column were covered, but `\Error`/`\TypeError`, the
+         * `LogicException` that `Connection::reconnect()` raises on a lost connection, and a throw
+         * from the `Log::warning` in this very catch all escaped. At the storefront door that is
+         * the exact half-written state the paragraph above says this catch exists to prevent --
+         * the refund is already committed when the policy is read -- so the narrow catch was
+         * defending against one cause of the outcome it names and not the outcome.
          */
         try {
             $value = DB::table('order_refund_settings')
@@ -151,7 +167,7 @@ class RefundPolicy
                 ->orderBy('id')
                 ->pluck('is_active')
                 ->last();
-        } catch (\Illuminate\Database\QueryException $e) {
+        } catch (\Throwable $e) {
             \Log::warning('A store refund policy could not be read; the action was refused', [
                 'name' => $name,
                 'store_id' => $storeId,

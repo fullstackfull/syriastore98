@@ -389,7 +389,28 @@ final class MerchantJourneyTest extends SecurityTestCase
         );
 
         /* AND THE GOODS COME BACK. `RefundStock` is gated on the return having been ACCEPTED,
-           which is why it is driven after the acceptance and not before. */
+           which is why it is driven after the acceptance and not before.
+
+           AND, SINCE GAP-140 / P4-F086, ON THE STORE'S OWN `manage_stock` REFUND SETTING. Nothing
+           seeds `order_refund_settings`: a row appears only when a merchant saves the Settings
+           screen's Refund tab, which this journey never does, and `order/refund_details.blade.php`
+           renders an absent or `0` row as NO BUTTON -- so a store without this row is one the
+           product never offers the action to, and the door answers 403. Saving the tab is not part
+           of the journey being exercised, so the row is written directly, in the shape
+           `OrderRefundController::updateStatus()` writes it.
+
+           WITHOUT THIS the leg below fails 403 and the whole end-to-end journey reds -- which is
+           how it was found: an independent review of GAP-140 ran this file after the four
+           neighbouring suites had been repaired and this fifth one had not. */
+        DB::table('order_refund_settings')->insert([
+            'name' => 'manage_stock',
+            'is_active' => 1,
+            'user_id' => $merchant->id,
+            'store_id' => $store->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         $stockAfterSale = (int) DB::table('product_variants')->where('id', $variantId)->value('stock');
 
         $restocked = $this->onTheAdminSurface()->actingAs($merchant)

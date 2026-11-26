@@ -719,6 +719,68 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
     }
 
     /**
+     * THE LAST HOP OF THE ORDERING, AND NOTHING PINNED IT UNTIL AN INDEPENDENT REVIEW SAID SO.
+     *
+     * The gate sits behind FOUR things: the permission, the refund lookup, the state guard and the
+     * ORDER lookup. Three of those had a case. The fourth did not, and the review proved it by
+     * measurement rather than by reading: moving the gate back above `Order::where('store_id', ...)`
+     * left the whole suite GREEN.
+     *
+     * The one case with the discriminating shape already existed --
+     * `RefundStockCrossDoorTest::test_negative_ownership_another_stores_refund_cannot_credit_this_stores_stock`
+     * drives a refund whose ROW is in the caller's tenant and whose ORDER is not -- but the same
+     * commit that moved the gate gave that store `allowsRestock()`, so with the policy ON it answers
+     * 404 under BOTH placements. Satisfying its own premise is what cost it the discrimination.
+     *
+     * SO THIS CASE TURNS THE POLICY OFF, which is what makes the two placements disagree:
+     *
+     *   gate AFTER  the order lookup (correct): the order is foreign      -> 404
+     *   gate BEFORE the order lookup (defect):  the policy is off         -> 403
+     *
+     * 404 IS THE ASSERTION, not "not 403", because the uniform 404 is the actual claim: every
+     * ownership failure on this door answers exactly what a refund that exists nowhere answers, so
+     * a caller learns nothing about another tenant's rows from the status they get back.
+     */
+    public function test_a_foreign_order_answers_404_even_when_the_policy_would_also_refuse(): void
+    {
+        [$owner, $theirStore] = $this->tenant();
+        $theirCustomer = $this->shopper($theirStore);
+        $theirProduct = $this->productIn($theirStore, 10);
+        $theirOrder = $this->order($theirStore, $theirCustomer, $theirProduct);
+
+        [$merchant, $store] = $this->tenant();
+        $merchant = $this->asMerchantWithTheRefundPermission($merchant);
+
+        // The policy is OFF for the caller's own store: that is what makes this case able to tell
+        // the two placements apart. With it on, the order predicate answers 404 either way.
+        $this->refundSetting($store, $merchant, 'manage_stock', 0);
+
+        // The refund ROW is the caller's; the ORDER it names is the other store's.
+        $refundId = $this->handRefund($theirOrder, $store, OrderRefundController::STATE_ACCEPT, $theirProduct);
+
+        $this->assertSame(
+            $store->id,
+            (int) DB::table('order_refunds')->where('id', $refundId)->value('store_id'),
+            'Premise: the refund row is inside the caller\'s tenant, so findRefundInCurrentStore() resolves it.'
+        );
+
+        $this->actingAs($merchant, 'web');
+
+        $response = $this->restock($refundId);
+
+        $this->assertSame(
+            404,
+            $response->getStatusCode(),
+            'A refund naming another store\'s ORDER must answer the uniform 404, not the policy\'s '
+            . '403: the policy gate belongs BEHIND the order lookup, or an ownership failure becomes '
+            . 'distinguishable from a refund that exists nowhere. Got '
+            . $response->getStatusCode() . ' ' . $response->getContent()
+        );
+
+        $this->assertSame(10, $this->stockOf($theirProduct), 'and no stock moved in the other store.');
+    }
+
+    /**
      * A refund that is not yet accepted is refused for its STATE, not for the policy -- the order
      * of the two checks, asserted rather than assumed, because a policy refusal placed first would
      * hide the state machine.
@@ -791,6 +853,57 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
 
         $this->assertSame(10, $this->stockOf($productId), 'No stock may move on a refusal.');
         $this->assertSame([], $this->auditRows(), 'A crashed or refused door must sign no audit row.');
+    }
+
+    /**
+     * A THROWABLE THAT IS NOT A `QueryException` IS STILL A REFUSAL, not a 500.
+     *
+     * The catch in `RefundPolicy::allows()` was `\Illuminate\Database\QueryException` while the
+     * docblock beside it claimed the gate "cannot throw". An independent review named the gap: an
+     * `\Error`/`\TypeError`, the `LogicException` `Connection::reconnect()` raises on a lost
+     * connection, and a throw from the `Log::warning` inside the catch itself all escaped. The
+     * catch is now `\Throwable`, and this is the case that can tell the two apart -- nothing else
+     * in this file can, because every other leg reaches the gate through a real query and gets a
+     * `QueryException`.
+     *
+     * DRIVEN AT THE SERVICE, not over HTTP, deliberately: the only way to raise a non-query
+     * throwable from inside that one statement is to replace what `DB::table()` resolves to, and
+     * doing that to a whole HTTP request would break the fixture, `RefreshDatabase` and the
+     * refusal's own logger. The swap is undone in a `finally` and the facade's resolved instance
+     * cleared on both sides, so nothing leaks into the next case.
+     */
+    public function test_the_policy_refuses_rather_than_escaping_a_throwable_that_is_not_a_query_exception(): void
+    {
+        [, $store] = $this->tenant();
+
+        $realDb = $this->app['db'];
+
+        $this->app->instance('db', new class {
+            public function table($table)
+            {
+                throw new \TypeError('a throwable that is not a QueryException: ' . $table);
+            }
+        });
+        DB::clearResolvedInstances();
+
+        try {
+            $this->assertFalse(
+                \App\Services\RefundPolicy::allows(\App\Services\RefundPolicy::MANAGE_STOCK, $store->id),
+                'A non-query throwable escaped the gate instead of being refused. At the storefront '
+                . 'door that is a 500 over a refund that was already committed.'
+            );
+        } finally {
+            $this->app->instance('db', $realDb);
+            DB::clearResolvedInstances();
+        }
+
+        // The premise, so the case cannot pass because the swap never took: the real connection is
+        // back and answering.
+        $this->assertSame(
+            0,
+            DB::table('order_refund_settings')->where('store_id', $store->id)->count(),
+            'Premise: the real database is restored, so the assertion above was about the swap.'
+        );
     }
 
     /**
@@ -1196,6 +1309,27 @@ class RefundPolicyEnforcementTest extends SecurityTestCase
             json_decode((string) $restocked[0]['old_values'], true),
             'The restock door does not move the status, so it must claim no transition. Got: '
             . var_export($restocked[0]['old_values'], true)
+        );
+
+        /*
+         * AND THE NEW VALUES MUST NOT CLAIM ONE EITHER -- the half an independent review found.
+         * The row used to carry `refund_status => 'Accept'` in its NEW values beside that null old
+         * one, which reads as a transition INTO Accept: the same false reading, one key along. A
+         * non-transition names the key differently, so no reader can take it for a move.
+         */
+        $restockedNew = json_decode((string) $restocked[0]['new_values'], true) ?: [];
+
+        $this->assertArrayNotHasKey(
+            'refund_status',
+            $restockedNew,
+            'The restock row claims a `refund_status` in its new values, so with the null old value '
+            . 'it reads as a transition into that status. Got: ' . json_encode($restockedNew)
+        );
+
+        $this->assertSame(
+            OrderRefundController::STATE_ACCEPT,
+            $restockedNew['refund_status_unchanged'] ?? null,
+            'and it must still say what the status WAS, under a key that says it did not move.'
         );
     }
 }

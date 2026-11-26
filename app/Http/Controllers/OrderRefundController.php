@@ -171,8 +171,20 @@ class OrderRefundController extends Controller
                 array_merge([
                     'refund_id' => (int) $refund->id,
                     'order_id' => (int) $refund->order_id,
-                    'refund_status' => $refund->refund_status,
-                ], $details)
+                ], $previousStatus === null
+                    /*
+                     * THE KEY CHANGES WITH THE CLAIM, which is a correction an independent review
+                     * forced. Every row used to carry `refund_status => <current>` in its NEW
+                     * values, so the restock row read `old {refund_status: null} -> new
+                     * {refund_status: "Accept"}` -- which a reader takes for a transition INTO
+                     * Accept. The null old value is honest (`RefundStock()` writes no status, and
+                     * `test_an_audit_row_records_the_status_the_refund_came_from` drives it); it
+                     * was the NEW value that lied, i.e. exactly the false reading this method
+                     * exists to remove, reintroduced one key along.
+                     */
+                    ? ['refund_status_unchanged' => $refund->refund_status]
+                    : ['refund_status' => $refund->refund_status]
+                , $details)
             );
         } catch (\Throwable $e) {
             \Log::error('A refund action could not be attributed; the action itself stands', [
@@ -879,6 +891,16 @@ class OrderRefundController extends Controller
          * The three other stock doors -- `Order::product_return()`, the whole-order return
          * approval and the six cancel doors -- are untouched, so a merchant with this toggle off
          * can still put returned goods back through them.
+         *
+         * AND IT CHANGES THE SAME THING FOR THE PLATFORM OPERATOR, which the paragraph above did
+         * not say until a review asked. The gate is on the STORE, not the principal: it reads
+         * `getCurrentStore()`, so an operator working in a store whose merchant has the toggle off
+         * is refused too, and a support action they previously had is gone. That is held to be
+         * correct -- it is the store's policy about the store's stock, and an operator quietly
+         * crediting inventory a merchant has switched off would be the stranger behaviour -- but it
+         * is a capability REMOVED from the operator, so it is written down rather than discovered.
+         * The route back is the Refund tab, not a code change. Every test here that restocks drives
+         * `makePlatformAdmin()` with the row present, so the operator's own path is exercised.
          */
         /*
          * The order is needed for TWO reasons, and it is resolved inside the

@@ -695,7 +695,11 @@ class RefundStockIdempotencyTest extends TestCase
         DB::table('order_refund_settings')->insert([
             'name' => 'manage_stock',
             'is_active' => 1,
-            'user_id' => getCurrentStore(),
+            // The signed-in merchant, not the store id. The first form put `getCurrentStore()` in
+            // BOTH columns: it read correctly, because the gate has no user predicate, but it is
+            // not a row `updateStatus()` could ever have written, and a fixture that cannot occur
+            // is a fixture a later reader cannot trust. Named by an independent review.
+            'user_id' => auth()->id(),
             'store_id' => getCurrentStore(),
             'created_at' => now(),
             'updated_at' => now(),
