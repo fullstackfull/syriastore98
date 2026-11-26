@@ -1301,6 +1301,45 @@ Route::get(
         ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
         ->name('platform.revenue');
 
+    /*
+     * GAP-107 / P03-D-04 — THE DOCUMENTATION CENTRE'S EDITORIAL SURFACE, for the platform
+     * operator only.
+     *
+     * The public centre is `platform/docs/...`, registered in the unauthenticated group near the
+     * top of this file and serving PUBLISHED articles only. These two routes are the other side of
+     * that: what state every article is in, and the draft itself rendered for the reviewer who has
+     * to approve it. Both read `DocumentationLibrary::editorial*`, which sees drafts.
+     *
+     * DECLARED HERE, BESIDE `platform/analytics`, `platform/resources` AND `platform/revenue`,
+     * because it is the same kind of surface and takes the same gate for the same reason:
+     * `PlatformOperatorOnly` and NOT a permission name. A merchant creates their own roles through
+     * the product, so a permission is substantially self-assignable, while the subject here is the
+     * platform's own unpublished content. `isAbleTo()` alone would also refuse the platform
+     * operator outright -- there is no super-admin bypass in this codebase -- so a permission gate
+     * would be wrong in both directions at once.
+     *
+     * Inside the same `auth` group as its neighbours, so an anonymous caller is redirected to sign
+     * in by `auth` -- which runs first -- rather than told 403 by the operator check; and 403 and
+     * never 401 for a signed-in non-operator, because repo B maps any 401 to a forced logout.
+     *
+     * THE HANDLERS CHECK AGAIN. `DocumentationEditorialController::refuseAnyoneButTheOperator()`
+     * repeats the test, because relying on route grouping alone has failed in this repository
+     * before and a later edit that moves one of these routes out of the group would otherwise open
+     * unpublished content silently.
+     *
+     * `platform/documentation` AND NOT `platform/docs/...`: the public patterns `docs/{category}`
+     * and `docs/{category}/{article}` are declared EARLIER in this file and Laravel matches in
+     * declaration order, so a preview route under `platform/docs/` would be swallowed by the
+     * public category pattern and answer a reader's 404 instead.
+     */
+    Route::get('platform/documentation', [\App\Http\Controllers\DocumentationEditorialController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.documentation.index');
+
+    Route::get('platform/documentation/{category}/{article}', [\App\Http\Controllers\DocumentationEditorialController::class, 'preview'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.documentation.preview');
+
     // Report
     Route::resource('reports', ReportController::class);
     Route::get('reports-chart', [ReportController::class, 'reports_chart'])->name('reports.chart');

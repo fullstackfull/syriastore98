@@ -4,6 +4,7 @@ order: 2
 summary: ما الذي تحدّده الباقة، وكيف تقرأ حدودها.
 related: getting-started/create-your-first-store, your-account/plan-limits
 updated: 2026-11-25
+status: published
 ---
 
 ## ما الذي تحدّده الباقة

@@ -47,10 +47,18 @@ final class DocumentationLibrary
     /** The locales the centre ships. The first is the fallback and must always be complete. */
     public const LOCALES = ['en', 'ar'];
 
-    private const CACHE_KEY = 'platform.docs.index.v1';
+    /* BUMPED WITH EVERY CHANGE TO THE ARTICLE ARRAY'S SHAPE, and that is not housekeeping. The
+       index is cached for an hour, so a deploy that adds a key leaves the PREVIOUS shape in the
+       cache store for up to an hour afterwards — and the view reads `$article['status']` without a
+       `??`, so the old shape is a warning on a live page rather than a missing label. `v2` adds
+       `status` and `version`. */
+    private const CACHE_KEY = 'platform.docs.index.v2';
 
     /** @var array<string, array>|null  In-process memo; the request may ask several times. */
     private static ?array $memo = null;
+
+    /** @var array<string, array>|null  The same index with every unpublished article removed. */
+    private static ?array $publicMemo = null;
 
     /**
      * The whole catalogue, keyed by locale.
@@ -61,8 +69,12 @@ final class DocumentationLibrary
      *
      * An article is:
      *   ['id','slug','category','title','summary','order','related' => [...ids],
-     *    'updated' => ISO date or '', 'body' => raw markdown,
+     *    'updated' => ISO date or '', 'version' => release label or '',
+     *    'status' => a DocumentationStatus value, 'body' => raw markdown,
      *    'locale' => the locale it was actually READ from]
+     *
+     * `all()` IS THE UNFILTERED INDEX AND INCLUDES DRAFTS. Every public read method goes through
+     * `published()` instead; only the operator's editorial surface calls this one.
      */
     public static function all(): array
     {
@@ -84,20 +96,70 @@ final class DocumentationLibrary
     public static function forget(): void
     {
         self::$memo = null;
+        self::$publicMemo = null;
         Cache::forget(self::CACHE_KEY);
+    }
+
+    /**
+     * GAP-107 (P03-D-04) — THE WHOLE CATALOGUE WITH EVERY UNPUBLISHED ARTICLE REMOVED.
+     *
+     * THE PUBLIC READ METHODS BELOW ALL GO THROUGH THIS, AND NONE OF THEM TAKES A FLAG. That is the
+     * point: a boolean argument defaulting to "published only" is a boolean somebody eventually
+     * passes the other way, or forgets in a new method, and the failure is a draft on the public
+     * site. `all()` is the unfiltered index and only the operator's editorial surface reads it.
+     * `DocumentationSearch` needs no change at all for the same reason — it calls `articles()`.
+     *
+     * A CATEGORY WITH NO PUBLISHED ARTICLES IS REMOVED TOO, not rendered empty: the index and the
+     * sidebar both list categories, and a reader clicking a heading that leads to nothing is told
+     * the product is broken rather than that an article is unfinished.
+     */
+    public static function published(): array
+    {
+        if (self::$publicMemo !== null) {
+            return self::$publicMemo;
+        }
+
+        $out = [];
+
+        foreach (self::all() as $locale => $bag) {
+            $out[$locale] = ['categories' => [], 'articles' => []];
+
+            foreach ($bag['articles'] as $id => $article) {
+                if (DocumentationStatus::isPublic($article['status'])) {
+                    $out[$locale]['articles'][$id] = $article;
+                }
+            }
+
+            foreach ($bag['categories'] as $slug => $category) {
+                $category['articles'] = array_values(array_filter(
+                    $category['articles'],
+                    static fn ($a) => DocumentationStatus::isPublic($a['status'])
+                ));
+
+                if ($category['articles'] === []) {
+                    continue;
+                }
+
+                $out[$locale]['categories'][$slug] = $category;
+            }
+        }
+
+        self::$publicMemo = $out;
+
+        return $out;
     }
 
     /** @return list<array> the categories of a locale, in order. */
     public static function categories(string $locale): array
     {
-        $all = self::all();
+        $all = self::published();
 
         return array_values($all[self::resolveLocale($locale)]['categories'] ?? []);
     }
 
     public static function category(string $locale, string $slug): ?array
     {
-        $all = self::all();
+        $all = self::published();
 
         return $all[self::resolveLocale($locale)]['categories'][$slug] ?? null;
     }
@@ -111,7 +173,7 @@ final class DocumentationLibrary
     {
         $locale = self::resolveLocale($locale);
         $id     = $category . '/' . $slug;
-        $all    = self::all();
+        $all    = self::published();
 
         if (isset($all[$locale]['articles'][$id])) {
             return $all[$locale]['articles'][$id];
@@ -131,7 +193,7 @@ final class DocumentationLibrary
     public static function articles(string $locale): array
     {
         $locale = self::resolveLocale($locale);
-        $all    = self::all();
+        $all    = self::published();
 
         $ids = [];
         foreach (self::LOCALES as $l) {
@@ -207,6 +269,116 @@ final class DocumentationLibrary
             'prev' => $list[$i - 1] ?? null,
             'next' => $list[$i + 1] ?? null,
         ];
+    }
+
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * GAP-107 (P03-D-04) — THE EDITORIAL READS. ONLY THE OPERATOR'S OWN SURFACE MAY CALL THESE.
+     *
+     * They go through `all()` and therefore see drafts. Every one of them is named `editorial*` so
+     * that a reviewer of a future change can see at a glance whether a handler reads the public
+     * catalogue or the whole of it; `DocumentationEditorialController` is their only caller and the
+     * platform-operator gate is on its routes AND inside its handlers.
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    /**
+     * One article INCLUDING an unpublished one, for the reviewer's preview.
+     *
+     * The locale fallback is the public method's, deliberately: a reviewer reading the Arabic
+     * preview of an article whose Arabic file does not exist yet should see exactly what a reader
+     * would see — the English text with the notice — rather than a 404 that the public page would
+     * not have given.
+     */
+    public static function editorialArticle(string $locale, string $category, string $slug): ?array
+    {
+        $locale = self::resolveLocale($locale);
+        $id     = $category . '/' . $slug;
+        $all    = self::all();
+
+        if (isset($all[$locale]['articles'][$id])) {
+            return $all[$locale]['articles'][$id];
+        }
+
+        foreach (self::LOCALES as $other) {
+            if (isset($all[$other]['articles'][$id])) {
+                return $all[$other]['articles'][$id];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Every article in the corpus, once per article rather than once per file, with what each
+     * locale says about it.
+     *
+     * ONCE PER ARTICLE AND NOT ONCE PER FILE, because the question the screen answers is "where is
+     * this article in the pipeline", and an article is a bilingual pair. A row per file would list
+     * every article twice and make the parity question — is the Arabic as far along as the
+     * English? — the reader's job instead of the screen's.
+     *
+     * THE UNION OF IDS, not the English list. English is the fallback locale and
+     * `DocumentationLibraryTest` asserts the two corpora match today, but a screen whose job is to
+     * show translation gaps must not be built on the assumption that there are none.
+     *
+     * @return list<array{id: string, category: string, slug: string, title: string,
+     *                    categoryTitle: string, locales: array<string, ?array>}>
+     */
+    public static function editorialRows(): array
+    {
+        $all = self::all();
+
+        $ids = [];
+        foreach (self::LOCALES as $locale) {
+            foreach ($all[$locale]['articles'] ?? [] as $id => $article) {
+                $ids[$id] = [$article['category'], $article['slug'], $article['order']];
+            }
+        }
+
+        $rows = [];
+
+        foreach ($ids as $id => [$category, $slug, $order]) {
+            $locales = [];
+            foreach (self::LOCALES as $locale) {
+                $locales[$locale] = $all[$locale]['articles'][$id] ?? null;
+            }
+
+            /* The title and the category heading are shown in the OPERATOR'S language where the
+               corpus has it, falling back to whichever locale does — the screen must be able to
+               name an article that exists in one language only. */
+            $preferred = $locales[self::resolveLocale((string) app()->getLocale())] ?? null;
+            $named     = $preferred ?? array_values(array_filter($locales))[0] ?? null;
+
+            $rows[] = [
+                'id'            => $id,
+                'category'      => $category,
+                'slug'          => $slug,
+                'order'         => $order,
+                'title'         => $named['title'] ?? $id,
+                'categoryTitle' => self::categoryTitleFor($category) ?? $category,
+                'locales'       => $locales,
+            ];
+        }
+
+        usort($rows, static fn ($a, $b) => [$a['category'], $a['order'], $a['slug']] <=> [$b['category'], $b['order'], $b['slug']]);
+
+        return $rows;
+    }
+
+    /** The reader-facing heading of a category, in the operator's language where there is one. */
+    private static function categoryTitleFor(string $slug): ?string
+    {
+        $all     = self::all();
+        $ordered = [self::resolveLocale((string) app()->getLocale()), ...self::LOCALES];
+
+        foreach ($ordered as $locale) {
+            if (isset($all[$locale]['categories'][$slug]['title'])) {
+                return $all[$locale]['categories'][$slug]['title'];
+            }
+        }
+
+        return null;
     }
 
     /** A locale this library actually ships; anything else falls back to the first. */
@@ -314,6 +486,27 @@ final class DocumentationLibrary
                `config/app.php`), so the gap's other option would have meant inventing a release
                number, which on a help page looks authoritative and means nothing. */
             'updated'  => self::isoDate((string) ($meta['updated'] ?? '')),
+            /* GAP-108 (P03-D-05), the gap's second clause: "or which release it describes".
+               OPTIONAL, and no shipped article declares one.
+
+               This application carries NO release identifier -- no `version` in `composer.json`,
+               none in `config/app.php`, nothing in the repository that numbers a release -- so the
+               value would have had to be invented, and an invented release number on a help page
+               looks authoritative while meaning nothing. Whether the product has releases to name
+               is an owner decision. What is built here is the plumbing, so that the answer is a
+               front-matter edit rather than a code change; `DocumentationReleaseLabelTest` proves
+               the parse and the render against FIXTURES, because a corpus that declares none would
+               make a corpus-only test vacuous forever.
+
+               CAPPED AND SINGLE-LINE. It is printed into the article chrome, so a 2,000-character
+               value would be a wall of text where a label belongs. Front matter is already
+               line-based, so the only shaping needed is the length. */
+            'version'  => mb_substr(trim((string) ($meta['version'] ?? '')), 0, 40),
+            /* GAP-107 (P03-D-04). THE EDITORIAL STATE. `DocumentationStatus` owns the vocabulary
+               and the two defaults (a file with no key predates the workflow and is published; a
+               file whose value nobody can read is a draft) and explains both. Nothing else in the
+               application may decide what "published" means. */
+            'status'   => DocumentationStatus::of($meta),
             'body'     => $meta['__body'],
         ];
     }
@@ -342,6 +535,7 @@ final class DocumentationLibrary
      * order: 1
      * related: getting-started/choose-a-plan, themes/edit-your-theme
      * updated: 2026-11-25
+     * status: published
      * ---
      * # Body markdown…
      * ```

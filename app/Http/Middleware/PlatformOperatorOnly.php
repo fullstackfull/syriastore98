@@ -78,7 +78,39 @@ class PlatformOperatorOnly
          * also carries -- there the handler's own strict `!==` refused the lookalike, so the pair
          * composed fail-closed and the middleware's looseness was invisible.
          */
-        if (\App\Policies\UserPolicy::isOperator($user)) {
+        /*
+         * THE PRINCIPAL MUST BE A `User` BEFORE ITS `type` MEANS ANYTHING, and that clause is the
+         * second latent defect found in this one line.
+         *
+         * `UserPolicy::isOperator()` takes an UNTYPED `$actor` and reads `$actor->type`
+         * (`app/Policies/UserPolicy.php:239`) -- and `customers` HAS a `type` column, with
+         * `'type'` in `Customer::$fillable` (`app/Models/Customer.php:35`). So a `Customer` row
+         * whose `type` read `super admin` passed this middleware, which is the ONLY check on
+         * 14 routes including `plan.order.refund`, the `plan-coupon` resource,
+         * `order.approve`/`order.reject`, the three `platform/*` screens and LynomiaChat's
+         * super-admin group -- handlers whose own docblocks say they rely on it
+         * (`BankTransferController:128`, `PlanController:625`).
+         *
+         * LATENT, NOT LIVE, AND BOTH LINKS WERE MEASURED rather than assumed:
+         *
+         *   1. Nothing in production makes `customers` the default guard. `shouldUse(` appears
+         *      ZERO times outside `tests/` and prose, so `auth()->user()` on a `web` route cannot
+         *      be a `Customer`.
+         *   2. No path writes `customers.type` from input. Every `Customer` creator in `app/`
+         *      hard-codes `'customer'` -- `PaymentController:2378`, `CustomerController:196`,
+         *      `Api\AuthController:260`, `Api\DashboardController:11356`,
+         *      `Customer\Auth\CustomerLoginController:1165`, `ShopifyCustomerController:149,265`.
+         *      (Not swept across the 70 vendored modules; that claim is scoped to `app/`.)
+         *
+         * Two independent missing links, so this is hardening. Fixed anyway, because the blast
+         * radius if either link ever closes is every route above, and the cost is one clause.
+         * Found by the independent review of the `/platform/documentation` surface, whose
+         * controller carries the identical guard for the identical reason.
+         *
+         * The ORDER matters: `instanceof` short-circuits, so `isOperator()` never reads `->type`
+         * off a non-`User` at all.
+         */
+        if ($user instanceof \App\Models\User && \App\Policies\UserPolicy::isOperator($user)) {
             return $next($request);
         }
 

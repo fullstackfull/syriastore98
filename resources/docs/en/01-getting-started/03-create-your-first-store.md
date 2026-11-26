@@ -4,6 +4,7 @@ order: 3
 summary: Name, web address, language and currency.
 related: your-storefront/choose-a-theme, products/add-a-product
 updated: 2026-11-25
+status: published
 ---
 
 ## The store is where everything lives

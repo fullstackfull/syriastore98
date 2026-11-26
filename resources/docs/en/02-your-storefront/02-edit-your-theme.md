@@ -4,6 +4,7 @@ order: 2
 summary: Change sections, text, images and colours from the dashboard.
 related: your-storefront/preview-and-publish, your-storefront/restore-an-earlier-version
 updated: 2026-11-25
+status: published
 ---
 
 ## Where the editor is

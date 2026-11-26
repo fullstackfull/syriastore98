@@ -6,8 +6,42 @@
 
 @section('content')
 
+{{-- GAP-099 / P03-B-06 — THE SAVED SECTION ORDER, WHICH NOTHING ON THE STOREFRONT READ.
+     The mechanism and the reasoning are the same in all three themes; the full note is in
+     themes/stylique/views/main_file.blade.php. What is theme-specific here:
+
+     GREENTIC DECLARES NO ORDERABLE PAGE TODAY. `themes/greentic/theme_json/pages.json` carries no
+     `is_order` on any entry, so `ThemeCustomizeController::updateOrder()` refuses every write for
+     this theme and a greentic merchant's reorder screen lists no page at all. The consumer is
+     wired up anyway for two measured reasons: a legacy `theme_id IS NULL` row — one saved before
+     M3-D added the column — applies to whichever theme has no row of its own, greentic included;
+     and when the declaration is added this page needs no further change. Whether to offer the
+     control on greentic is a product decision and is NOT taken here.
+
+     `$ssOrderable` IS EXACTLY THE NINE SECTIONS greentic/home.json DECLARES. Two blocks are not
+     sections of it and keep their slots: the `product_list` module hook anchor and the
+     `subscribe` strip, whose `newsletter_status` belongs to the newsletter page. --}}
+@php
+    $ssBlocks = [
+        'slider', 'category', 'bestseller_product', 'top_category', 'logos',
+        'featured_product', 'more_offer', 'product_list', 'testimonial', 'article', 'subscribe',
+    ];
+    $ssOrderable = [
+        'slider', 'category', 'bestseller_product', 'top_category', 'logos',
+        'featured_product', 'more_offer', 'testimonial', 'article',
+    ];
+    $ssSequence = \App\Support\Theme\StorefrontSectionOrder::sequence(
+        isset($store) ? (int) $store->id : null,
+        $currentTheme ?? '',
+        'home',
+        $ssBlocks,
+        $ssOrderable
+    );
+@endphp
+
 {{-- GAP-095: this element was a nested main landmark. A document may hold only one, and the one that exists on EVERY storefront page -- and that the skip link targets -- is the layout's, so this one is a div. Nothing in any theme stylesheet or script selects the element: measured zero `main` selectors across all three. --}}
 <div class="ss-page">
+    @push('ss-home:slider')
     @if (isset($themeSettings['slider_status']) && $themeSettings['slider_status'] == '1')
     <section class="pt-10 lg:pt-16 home-banner-sec bg-gray-50">
         <div class="md:container w-full mx-auto px-4">
@@ -46,7 +80,9 @@
         </div>
     </section>
     @endif
+    @endpush
 
+    @push('ss-home:category')
     @if (isset($themeSettings['category_status']) && $themeSettings['category_status'] == '1')
     <section class="lg:py-20 py-10 bg-gray-50">
         <div class="md:container w-full mx-auto px-4">
@@ -76,7 +112,9 @@
         </div>
     </section>
     @endif
+    @endpush
 
+    @push('ss-home:bestseller_product')
     @if (isset($themeSettings['bestseller_product_status']) && $themeSettings['bestseller_product_status'] == '1')
     <section class="lg:pb-16 pb-5 bg-gray-50">
         <div class="md:container w-full mx-auto px-4">
@@ -100,7 +138,9 @@
         </div>
     </section>
     @endif
+    @endpush
 
+    @push('ss-home:top_category')
     @if (isset($themeSettings['top_category_status']) && $themeSettings['top_category_status'] == '1')
     <section class="lg:pb-20 pb-10 bg-gray-50">
         <div class="md:container w-full mx-auto px-4">
@@ -128,7 +168,9 @@
         </div>
     </section>
     @endif
+    @endpush
 
+    @push('ss-home:logos')
     @if (isset($themeSettings['logos_status']) && $themeSettings['logos_status'] == '1')
     <section class="lg:pb-20 pb-10 bg-gray-50">
         <div class="md:container w-full mx-auto px-4">
@@ -159,7 +201,9 @@
         </div>
     </section>
     @endif
+    @endpush
 
+    @push('ss-home:featured_product')
     @if (isset($themeSettings['featured_product_status']) && $themeSettings['featured_product_status'] == '1')
     <section id="product-tabs-sec" class="lg:pb-16 pb-5 bg-gray-50 product-tabs-sec">
         <div class="md:container w-full mx-auto px-4">
@@ -215,7 +259,9 @@
             @endforeach
     </section>
     @endif
+    @endpush
 
+    @push('ss-home:more_offer')
     @if (isset($themeSettings['more_offer_status']) && $themeSettings['more_offer_status'] == '1')
     <section class="pb-10 lg:pb-20 bg-gray-50">
         <div class="md:container w-full mx-auto px-4 relative rounded-xl overflow-hidden">
@@ -233,7 +279,11 @@
         </div>
     </section>
     @endif
+    @endpush
+    @push('ss-home:product_list')
     @include('front_end.hooks.product_list')
+    @endpush
+    @push('ss-home:testimonial')
     @if (isset($themeSettings['testimonial_status']) && $themeSettings['testimonial_status'] == '1')
     <section class="bg-gray-50 lg:pb-20 pb-10">
         <div class="md:container w-full mx-auto px-4">
@@ -273,7 +323,9 @@
         </div>
     </section>
     @endif
+    @endpush
     
+    @push('ss-home:article')
     @if (isset($themeSettings['article_status']) && $themeSettings['article_status'] == '1')
     <section class="lg:pb-20 pb-10 bg-gray-50">
         <div class="md:container w-full mx-auto px-4">
@@ -299,8 +351,16 @@
         </div>
     </section>
     @endif
+    @endpush
 
+    @push('ss-home:subscribe')
     @include('front_end.common.subscribe')
+    @endpush
+
+    {{-- Every block above is emitted here, once, in the merchant's saved order. --}}
+    @foreach ($ssSequence as $ssBlock)
+        @stack('ss-home:' . $ssBlock)
+    @endforeach
 </div>
 
 @endsection

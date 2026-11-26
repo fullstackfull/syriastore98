@@ -4,6 +4,7 @@ order: 4
 summary: Bring a catalogue in from a spreadsheet instead of typing it.
 related: products/add-a-product
 updated: 2026-11-25
+status: published
 ---
 
 ## When importing is worth it

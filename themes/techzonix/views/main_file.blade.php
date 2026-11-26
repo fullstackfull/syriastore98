@@ -4,6 +4,39 @@
 @endsection
 
 @section('content')
+
+    {{-- GAP-099 / P03-B-06 — THE SAVED SECTION ORDER, WHICH NOTHING ON THE STOREFRONT READ.
+         The mechanism and the reasoning are the same in all three themes; the full note is in
+         themes/stylique/views/main_file.blade.php. What is theme-specific here:
+
+         `$ssOrderable` IS EXACTLY THE NINE SECTIONS techzonix/home.json DECLARES. Three blocks of
+         this page are NOT sections of it and therefore keep their slots whatever the merchant
+         saves: the `service` include (techzonix declares `service` as its own PAGE, not a home
+         section), the `product_list` module hook anchor, and the `subscribe` strip, whose
+         `newsletter_status` belongs to the newsletter page.
+
+         `more_offer` AND `offer` ARE TWO DIFFERENT SECTIONS HERE and both are real: `sale` is gated
+         on `more_offer_status` and `offer` on `offer_status` (measured in
+         front_end/common/{sale,offer}.blade.php, one conditional each). They are named by the keys
+         their gate names, not by their include file names. --}}
+    @php
+        $ssBlocks = [
+            'slider', 'category', 'collections', 'logo', 'product', 'more_offer',
+            'offer', 'service', 'product_list', 'testimonial', 'article', 'subscribe',
+        ];
+        $ssOrderable = [
+            'slider', 'category', 'collections', 'logo', 'product',
+            'more_offer', 'offer', 'testimonial', 'article',
+        ];
+        $ssSequence = \App\Support\Theme\StorefrontSectionOrder::sequence(
+            isset($store) ? (int) $store->id : null,
+            $currentTheme ?? '',
+            'home',
+            $ssBlocks,
+            $ssOrderable
+        );
+    @endphp
+    @push('ss-home:slider')
     @if (isset($themeSettings['slider_status']) && $themeSettings['slider_status'] == '1')
     <section class="home-banner-sec py-10 lg:py-24 bg-cover bg-primary/10 relative z-[1] overflow-hidden">
         @if (isset($themeSettings['slider_left_image']) && !empty($themeSettings['slider_left_image']))
@@ -60,7 +93,9 @@
         </div>
     </section>
     @endif
+    @endpush
     
+    @push('ss-home:category')
     @if ($themeSettings['category_status'] && $themeSettings['category_status'] == 1)
     <section class="lg:py-20 py-10">
         <div class="container mx-auto px-4">
@@ -91,8 +126,10 @@
         </div>
     </section>
     @endif
+    @endpush
 
 
+    @push('ss-home:collections')
     @if ($themeSettings['collections_status'] && $themeSettings['collections_status'] == 1)
     <section class="lg:pb-20 pb-10">
         <div class="container mx-auto px-4">
@@ -126,6 +163,8 @@
         </div>
     </section>
      @endif
+    @endpush
+    @push('ss-home:logo')
     <!-- Partners Section -->
     @if (!empty($themeSettings['logo_status']) && $themeSettings['logo_status'] == 1)
     <section class="lg:pb-20 pb-10">
@@ -162,7 +201,9 @@
         </div>
     </section>
     @endif
+    @endpush
 
+    @push('ss-home:product')
     @if ($themeSettings['product_status'] && $themeSettings['product_status'] == 1)
     <section class="lg:pb-20 pb-10">
         <div class="container mx-auto px-4">
@@ -193,10 +234,20 @@
         </div>
     </section>
     @endif
+    @endpush
+    @push('ss-home:more_offer')
     @include('front_end.common.sale')
+    @endpush
+    @push('ss-home:offer')
     @include('front_end.common.offer')
+    @endpush
+    @push('ss-home:service')
     @include('front_end.common.service')
+    @endpush
+    @push('ss-home:product_list')
     @include('front_end.hooks.product_list')
+    @endpush
+    @push('ss-home:testimonial')
     @if (isset($themeSettings['testimonial_status']) && $themeSettings['testimonial_status'] == 1)
     <section class="lg:pb-20 pb-10">
         <div class="container">
@@ -250,6 +301,8 @@
         </div>
     </section>
     @endif
+    @endpush
+    @push('ss-home:article')
     @if (isset($themeSettings['article_status']) && $themeSettings['article_status'] == 1)
     <section class="lg:pb-20 pb-10">
         <div class="container mx-auto px-4">
@@ -270,5 +323,13 @@
         </div>
     </section>
     @endif
+    @endpush
+    @push('ss-home:subscribe')
     @include('front_end.common.subscribe')
+    @endpush
+
+    {{-- Every block above is emitted here, once, in the merchant's saved order. --}}
+    @foreach ($ssSequence as $ssBlock)
+        @stack('ss-home:' . $ssBlock)
+    @endforeach
 @endsection

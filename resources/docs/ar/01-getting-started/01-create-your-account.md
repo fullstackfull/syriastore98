@@ -4,6 +4,7 @@ order: 1
 summary: سجّل كتاجر وأكّد بريدك الإلكتروني.
 related: getting-started/choose-a-plan, getting-started/create-your-first-store
 updated: 2026-11-25
+status: published
 ---
 
 ## ما تحتاجه

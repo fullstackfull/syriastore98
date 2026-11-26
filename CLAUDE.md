@@ -201,35 +201,7 @@ Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as 
 | 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | engineering under way on the branch; counted with 06 below. Not authorised to merge or release |
 | 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin, **plus premium Super Admin UX** | engineering under way on the branch (14 documents under `docs/development/phase-6/`); **05 and 06 together: 1 of 35** requirements verified. Not authorised to merge or release |
 
-**THIS TABLE SAID "not started" FOR 03, 04, 05 AND 06 UNTIL 2026-11-26, AND IT WAS THE FILE EVERY
-SESSION READS FIRST.** 48 requirements had been verified against 03 and 04 alone by then. The
-single "State" column is what did it: one label cannot carry the four states §4.1 says must never
-be collapsed, so "engineering has not been authorised for release" and "no work exists" were
-written the same way. Figures above are the per-phase rows of
-`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`, which `MasterPlanTraceabilityCountsTest` holds to the
-sections they summarise — read them there rather than copying them onward. **Nothing here changes
-an authorisation:** no phase after 02 has owner authorisation to merge or release, and engineering
-progress is not acceptance.
-
-> ### "PHASE 6" NAMES THREE DIFFERENT THINGS IN THIS REPOSITORY (`GAP-181` / `P06-08`)
->
-> Verified from the documents themselves, not inferred. A completion report for either of the
-> other two must never be read as Phase 06 delivery:
->
-> 1. **Master Plan Phase 06 — SaaS & Super Admin.** The owner-approved phase in the table above.
->    Its work lives in `docs/development/phase-6/`.
-> 2. **`docs/discovery/09-DEVELOPMENT-ROADMAP.md` §9's Phase 6 — "Arabic & Storefront Experience".**
->    Part of an older platform roadmap numbered 0–9. The owner's master prompt addresses this one
->    directly: *"Do not reinterpret an older technical roadmap as permission to change this
->    approved six-phase product plan."* Its subject matter is Phase 03's, not Phase 06's.
-> 3. **The Lynomia integration project's Phase 6** — `docs/development/lynomia-integration/PHASE-6-*`,
->    "Integration Administration, Partner Operations & Platform Communication Operations", spanning
->    two repositories, status CONDITIONAL GO. That document says so itself: *"This is NOT the Store
->    Syria platform roadmap's Phase 6."*
->
-> The collision is live rather than historical: all three are present in this tree now, and the
-> Lynomia numbering continues to a Phase 7 ("Mobile App Release Readiness & the Integration
-> Contract") that has no Master Plan counterpart at all.
+This table read "not started" for 03–06 until 2026-11-26, with 48 requirements already verified against 03 and 04 — one "State" column cannot carry §4.1's four states. Figures come from `MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`'s per-phase rows. **No phase after 02 is authorised to merge or release.** **"Phase 6" names three different things here** (`GAP-181`) — this phase, `docs/discovery/09-DEVELOPMENT-ROADMAP.md` §9's "Arabic & Storefront Experience" (older 0–9 roadmap, subject matter Phase **03**'s), and the Lynomia project's own. A completion report for either of the others is not Phase 06 delivery; all three quoted from source in `docs/development/phase-6/README.md`.
 
 Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production.
 

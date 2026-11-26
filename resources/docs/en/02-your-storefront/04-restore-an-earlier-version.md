@@ -4,6 +4,7 @@ order: 4
 summary: Publication history, and what going back does and does not undo.
 related: your-storefront/preview-and-publish
 updated: 2026-11-25
+status: published
 ---
 
 ## The history

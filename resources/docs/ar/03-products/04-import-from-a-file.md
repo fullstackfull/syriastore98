@@ -4,6 +4,7 @@ order: 4
 summary: أدخل كتالوجاً من ملف جدول بدل كتابته.
 related: products/add-a-product
 updated: 2026-11-25
+status: published
 ---
 
 ## متى يستحقّ الاستيراد

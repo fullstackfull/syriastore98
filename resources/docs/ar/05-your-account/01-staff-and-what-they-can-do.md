@@ -4,6 +4,7 @@ order: 1
 summary: الأدوار والصلاحيات، ولماذا مشاركة تسجيل الدخول فكرة سيّئة.
 related: your-account/plan-limits, your-account/keeping-your-account-safe
 updated: 2026-11-25
+status: published
 ---
 
 ## امنح كلّ شخص تسجيل دخول خاصّاً به

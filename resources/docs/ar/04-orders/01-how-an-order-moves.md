@@ -4,6 +4,7 @@ order: 1
 summary: من الإنشاء إلى التسليم، ومن يُخبَر بماذا.
 related: orders/payment-and-delivery, products/stock-and-availability
 updated: 2026-11-25
+status: published
 ---
 
 ## شكل العملية

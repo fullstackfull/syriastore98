@@ -4669,5 +4669,12 @@
     "Move :option down": "نقل :option إلى أسفل",
     ":option moved to position :n of :total": "تم نقل :option إلى الموضع :n من :total",
     "Drag an option, or use its move buttons, to change the order customers see it in.": "اسحب أي خيار، أو استخدم أزرار النقل الخاصة به، لتغيير ترتيب ظهوره للعملاء.",
-    "Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator.": "التسجيل غير متاح حالياً لأن دور التاجر الافتراضي غير موجود. يرجى التواصل مع مدير الموقع."
+    "Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator.": "التسجيل غير متاح حالياً لأن دور التاجر الافتراضي غير موجود. يرجى التواصل مع مدير الموقع.",
+    "Draft": "مسودة",
+    "In review": "قيد المراجعة",
+    "Not translated": "غير مُترجَمة",
+    "Documentation editorial": "تحرير الوثائق",
+    "Applies to version": "ينطبق على النسخة",
+    "Every help article and the state it is in. Only published articles are visible to readers; an article changes state when that change is reviewed and deployed.": "كلّ مادة مساعدة والحالة التي هي فيها. المواد المنشورة فقط هي التي يراها القرّاء؛ وتتغيّر حالة المادة عندما تُراجَع تلك التغييرات وتُنشَر.",
+    "Every documentation article, with its editorial state in each language.": "كلّ مادة في الوثائق، مع حالتها التحريرية في كلّ لغة."
 }

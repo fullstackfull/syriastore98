@@ -4,6 +4,7 @@ order: 2
 summary: ماذا يحدث حين تبلغ أحدها.
 related: getting-started/choose-a-plan
 updated: 2026-11-25
+status: published
 ---
 
 ## أين تراها

@@ -151,13 +151,56 @@ class PlatformDocsArticleRenderTest extends TestCase
     {
         $html = $this->page('ar', self::CODE_ARTICLE);
 
-        preg_match('/<time[^>]*>/', $html, $m);
+        preg_match('/<time[^>]*>.*?<\/time>/s', $html, $m);
 
         $this->assertNotEmpty($m, 'No <time> element on the Arabic page.');
 
-        $this->assertStringContainsString('dir="ltr"', $m[0],
-            'The date is not direction-isolated on an RTL page, so `2026-11-25` is free to be '
-            . 'laid out as `25-11-2026` by the bidirectional algorithm.');
+        $time = $m[0];
+
+        /*
+         * THIS ASSERTED `dir="ltr"` UNTIL 2026-11-26, AND THE MECHANISM CHANGED BECAUSE THE
+         * CONTENT DID. The original reason — kept here because it is still true of what it
+         * described — was: "the date is not direction-isolated on an RTL page, so `2026-11-25` is
+         * free to be laid out as `25-11-2026` by the bidirectional algorithm."
+         *
+         * That was correct while the VISIBLE text was the ISO string: a run of digits and hyphens
+         * is bidi-neutral, so forcing an LTR base was exactly right. The visible text is now
+         * `25 تشرين الثاني 2026` — Arabic WORDS beside digits — and forcing LTR on that is the
+         * opposite of right: it lays the month name out in the wrong order against the numerals.
+         *
+         * So the assertion now tests the PROPERTY the test is named for, isolation, instead of the
+         * one mechanism that used to deliver it. `<bdi>` isolates the value from the surrounding
+         * paragraph without imposing a direction on it, letting the content's own first strong
+         * character decide — Arabic for the Arabic page, Latin for the English one.
+         *
+         * IT IS STRICTER THAN WHAT IT REPLACED, NOT LOOSER: it additionally refuses a forced LTR
+         * base, which the old assertion REQUIRED and which is now the defect. Both directions
+         * bite — remove the `<bdi>` and the first assertion fails; put `dir="ltr"` back on the
+         * Arabic page and the second does.
+         */
+        $this->assertMatchesRegularExpression(
+            '/<bdi[^>]*>|dir="(ltr|rtl|auto)"|unicode-bidi\s*:\s*(isolate|plaintext)/',
+            $time,
+            'The date is not direction-isolated on an RTL page, so it is free to be reordered by '
+            . 'the bidirectional algorithm against the surrounding Arabic paragraph.'
+        );
+
+        $this->assertStringNotContainsString(
+            'dir="ltr"',
+            $time,
+            'The date is rendered as Arabic words (`25 تشرين الثاني 2026`), and forcing an LTR '
+            . 'base direction on Arabic words lays the month name out in the wrong order against '
+            . 'the digits. Isolate it (`<bdi>`), do not override it. If the visible text is ever '
+            . 'returned to a bare ISO string, `dir="ltr"` becomes correct again and this '
+            . 'assertion is the one to change — with a reason, as this one carries.'
+        );
+
+        $this->assertStringContainsString(
+            'datetime="',
+            $time,
+            'The machine-readable `datetime` must stay, and stay ISO: it is the only part a parser '
+            . 'reads, and localising it would break every consumer while helping no reader.'
+        );
     }
 
     // ---------------------------------------------------------------------------------------------

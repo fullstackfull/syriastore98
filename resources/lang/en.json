@@ -4675,5 +4675,12 @@
     "Move :option down": "Move :option down",
     ":option moved to position :n of :total": ":option moved to position :n of :total",
     "Drag an option, or use its move buttons, to change the order customers see it in.": "Drag an option, or use its move buttons, to change the order customers see it in.",
-    "Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator.": "Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator."
+    "Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator.": "Registration is unavailable right now because the default merchant role is missing. Please contact the site administrator.",
+    "Draft": "Draft",
+    "In review": "In review",
+    "Not translated": "Not translated",
+    "Documentation editorial": "Documentation editorial",
+    "Applies to version": "Applies to version",
+    "Every help article and the state it is in. Only published articles are visible to readers; an article changes state when that change is reviewed and deployed.": "Every help article and the state it is in. Only published articles are visible to readers; an article changes state when that change is reviewed and deployed.",
+    "Every documentation article, with its editorial state in each language.": "Every documentation article, with its editorial state in each language."
 }

@@ -144,8 +144,8 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **179** |
-| PARTIALLY IMPLEMENTED | **95** |
-| NOT IMPLEMENTED | **18** |
+| PARTIALLY IMPLEMENTED | **98** |
+| NOT IMPLEMENTED | **15** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **12** |
@@ -3725,7 +3725,12 @@ against a pre-reorganization original.
 
 ### `P03-B-06` — 03-B Controlled visual theme editor (OWNER-SUSPECTED GAP A)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** This section read `NOT IMPLEMENTED`. A saved section ordering now changes the rendered home page, in all three themes and both locales. `app/Support/Theme/StorefrontSectionOrder.php` plus a `@push`/`@stack` sequence in each `main_file.blade.php`; proved in a real Chromium (148 checks, 0 failed, painted order rather than DOM order). The ENGINEERING deferral recorded in `PHASE-03-FINAL-REPORT.md` §9 is discharged -- and CLAUDE.md §4.1 is explicit that an engineering report deferring something was never an owner deferral. **Remaining:** the themes' declared `orders` tokens do not describe their real sections (stylique 5 of 9, techzonix 6 of 9, greentic none), which is owner decision I18.
+>
+> Evidence: the gap register row, and the phase-3 evidence document named there. The
+> original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** Section ordering is part of a "section-based visual editor": the merchant reorders a page's sections and the storefront renders them in that order. The M4 plan states the test of it directly — M4-9 point 1: "Nothing on the storefront consumes saved ordering (verified exit 1)."
 - **Source:** `docs/development/phase-3/PHASE-03-M4-THEME-EDITOR-PLAN.md §M4-9 (lines ~290-305); PHASE-03-EXECUTION-PREP.md §03-B; PHASE-03-FINAL-REPORT.md §9 ("the M4 reorder UI \| deferred")`
@@ -3866,7 +3871,12 @@ against a pre-reorganization original.
 
 ### `P03-D-04` — 03-D Documentation centre (OWNER-SUSPECTED GAP C)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** This section read `NOT IMPLEMENTED`. The editorial workflow exists: a written release process, a `status: draft|review|published` front-matter field enforced across all four public read paths including search, a CI-gated census requiring an explicit recognised status on all 32 files in both locales, and an operator-only editorial screen with draft preview. The transition is a reviewed commit rather than a button, deliberately -- a web write would land on a container filesystem the next deploy replaces. **Remaining:** the documentation owner and the Arabic reviewer are unnamed, and delegating review to a non-operator needs a seeded permission. Owner decision I19.
+>
+> Evidence: the gap register row, and the phase-3 evidence document named there. The
+> original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** "Establish editorial ownership... and a content release process."
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Workstreams / 03-D (line ~165)`
@@ -3879,7 +3889,12 @@ against a pre-reorganization original.
 
 ### `P03-D-05` — 03-D Documentation centre (OWNER-SUSPECTED GAP C)
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
+
+> **ADVANCED 2026-11-26.** This section read `NOT IMPLEMENTED`. A reader can now tell how old an article is, in their own language: the date renders through `TimelineMoment` with `ar_SY`, so a Syrian reader gets `25 تشرين الثاني 2026`. It previously printed the raw ISO string in both languages, justified by a view comment that was measurably false in this repository. `datetime` stays ISO; `<bdi>` replaced `dir="ltr"` because forcing an LTR base is right for neutral digits and wrong for Arabic words. **Remaining:** "which release it describes" -- `version:` parses and renders but no article declares one, and nothing in the repository carries a version to populate it from. Owner decision I19.
+>
+> Evidence: the gap register row, and the phase-3 evidence document named there. The
+> original wording of this section is kept below unchanged.
 
 - **Requirement (original wording / faithful reference):** "Establish... version labels..."
 - **Source:** `docs/development/phase-3/PHASE-03-EXECUTION-PREP.md §Workstreams / 03-D (line ~165)`
