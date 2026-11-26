@@ -1019,8 +1019,19 @@ it is belt-and-braces that corrupts data.
 **Three options:**
 
 1. **Drop the substring strip** and rely on output encoding, which is where the real control is.
-2. **Keep the two HTML-entity needles** (`&lt;`, `&gt;`) and drop the two English words.
+2. ~~Keep the two HTML-entity needles (`&lt;`, `&gt;`) and drop the two English words.~~
+   **WITHDRAWN, measured after this entry was first written.** `handle()` runs
+   `htmlspecialchars_decode($value)` **before** the strip, and the needles are the **entity** forms,
+   so after the decode there is no `&lt;` left to match: **those two needles can never fire.**
+   Measured — `'<script>alert(1)</script>'` comes out as `'<script>(1)</script>'`, script tags
+   intact, only the word `alert` gone. Option 2 is therefore indistinguishable from option 1.
 3. **Go on opting out route by route.**
+
+**And a question the first version of this entry did not ask.** That same decode means
+`'&lt;script&gt;'` is **stored as `'<script>'`** — the middleware called `XSS` converts escaped text
+into live markup in the stored value. Nothing is exposed today, because every sink on the paths
+reviewed uses Blade's `{{ }}`; but it is the opposite of what the component's name promises, and
+whether the `htmlspecialchars_decode` belongs there at all is part of this decision.
 
 **Option 3 is what is happening by default, and it is the worst of the three.** `platform/site-content`
 opted out and documented it; `CTRL-003` independently hit the identical defect and opted out on four
