@@ -39,6 +39,19 @@ use PHPUnit\Framework\TestCase;
  * WHAT IS NOT. Anything else. There is no allowlist entry for a single file, deliberately: an
  * exception for one path is how the next one gets added.
  *
+ * AND `components/` IS A WEAKER EXEMPTION THAN `front_end/`, WHICH IS WORTH KNOWING BEFORE IT
+ * MATTERS. `front_end.*` is a storefront-only namespace, so a theme shadowing anything under it
+ * can only affect the storefront. `components.*` is SHARED -- it is Blade's anonymous-component
+ * root for the whole application -- so `themes/<t>/views/components/ss/card.blade.php` would
+ * shadow a MERCHANT-PANEL component and this test would allow it, which is GAP-265 again with a
+ * different path. The measured claim above still holds TODAY: the five shadowed `components/*`
+ * files are the storefront's product and blog cards, and no panel view references any of them
+ * (checked by `<x-...>` usage, not by name). It is recorded rather than fixed because narrowing
+ * the exemption to the five measured names would be the single-path allowlist this file refuses,
+ * and narrowing it to a `components/ss/`-shaped rule asserts a convention nothing else enforces.
+ * Raised by the independent review of the GAP-265 change; if a theme ever adds a component the
+ * panel also uses, that is the defect and this is where to narrow.
+ *
  * NOTE WHAT THIS DOES NOT COVER, so it is not read as more than it is. It compares NAMES against
  * `resources/views`, which is the host half. A theme view that shadows a name defined only inside
  * a `packages/workdo/*` module's own view namespace is not visible here, and a theme that defines

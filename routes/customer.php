@@ -200,7 +200,10 @@ Route::post(
     //
     // DELETED RATHER THAN REPOINTED, which was the open half of the register's row:
     //
-    //   1. Nothing calls it. `place.order` is referenced nowhere outside this declaration, and the
+    //   1. Nothing calls it. `place.order` is referenced nowhere outside this declaration --
+    //      measured across app/, resources/, routes/, packages/, themes/, config/, database/,
+    //      bootstrap/, .github/ AND tests/; the suite was missing from the first pass of that
+    //      census and three pre-existing test files did still name this route. And the
     //      shipped checkout posts to `payment.process`
     //      (resources/views/front_end/common/checkout/checkout_form.blade.php).
     //   2. `Api\ApiController::place_order` answers through `ApiResponser` -- its first branch is

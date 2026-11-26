@@ -163,7 +163,9 @@ Route::post('{slug}/releted-product-guest', [ApiController::class, 'releted_prod
 // (tests/Support/ApiContract/manifests/flutter-endpoints.json, zero hits), which is what
 // .github's check-contract.php gates on -- and that gate only requires every FLUTTER endpoint to
 // resolve to a server route, never the reverse, so removing a server route no client names
-// cannot redden it; it sits BEFORE `Route::prefix('admin')` (line 169), so it is a storefront
+// cannot redden it; it sits BEFORE `Route::prefix('admin')` (line 182, closing at 436 -- and the
+// deletion this comment records is itself what moved those from 169/423, so the figures are
+// re-measured by brace count here rather than carried over), so it is a storefront
 // route, which no client in either repository calls; and the one way the admin app could have
 // touched it -- `{slug}` matching the literal `admin`, i.e. POST api/admin/random-product -- is
 // not an endpoint the app has. Deleted rather than implemented: a storefront-API handler is the

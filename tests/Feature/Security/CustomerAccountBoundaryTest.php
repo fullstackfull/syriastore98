@@ -190,7 +190,14 @@ class CustomerAccountBoundaryTest extends SecurityTestCase
             ],
             // The checkout flow, re-asserted here so that this file alone is
             // enough to catch a storefront regression introduced by this change.
-            'place.order' => ['place.order', 'Guest checkout submit.'],
+            //
+            // `'place.order' => ['place.order', 'Guest checkout submit.']` WAS HERE AND IS GONE.
+            // It was never a guest checkout submit: `OrderController` has no `place_order` method,
+            // so every POST to that route raised BadMethodCallException and this case was
+            // asserting that an HTTP 500 was reachable without a session. `GAP-267` deleted the
+            // route; the guest checkout that works posts to `payment.process`. Removed rather than
+            // kept because this case opens with `assertTrue(Route::has($name))`, so a name nothing
+            // declares fails it -- correctly.
             'status.cancel' => ['status.cancel', 'Guest order cancellation from the emailed link.'],
             'product.cart' => ['product.cart', 'Add-to-cart for an anonymous shopper.'],
             'checkout' => ['checkout', 'The checkout page itself.'],

@@ -466,8 +466,12 @@ Route::middleware(['web'])->group(function () {
   // Check_Child_Module, Check_Parent_Module, install, add, moveExtractedFiles and
   // deleteDirectory -- so both were an HTTP 500 for any request that reached them. Deleted
   // rather than implemented: the names `add-on.session.create` and `add-on.session.save` are
-  // referenced NOWHERE outside their own declarations (measured across app/, resources/,
-  // routes/, packages/, themes/, config/, database/ and bootstrap/), there is no view to
+  // referenced NOWHERE outside their own declarations -- measured across app/, resources/,
+  // routes/, packages/, themes/, config/, database/, bootstrap/, .github/ AND tests/. THE SUITE
+  // WAS MISSING FROM THAT LIST ON THE FIRST PASS AND IT COST FIVE FEATURE ASSERTIONS: three
+  // pre-existing files asserted these names still existed (a public-route allowlist, a positive
+  // storefront list and a both-ways dead-action census), and the census that swept product code
+  // never looked at them. Product code is not the whole of "nothing references this" -- there is no view to
   // render and no "addon session" concept anywhere else in the application, so there is no
   // intent to implement against. 404 is the honest answer.
 
@@ -2533,7 +2537,9 @@ Route::get('/zid/connect/return', [\App\Http\Controllers\ZidOAuthController::cla
 //
 //  The names are kept. Nothing references them (measured: zero hits for `myfatoorah.callback`,
 //  `myfatoorah.cardView`, `myfatoorah.webhook` across app/, resources/, routes/, packages/,
-//  themes/, config/, database/), but `route()` on an undeclared name throws at RENDER time, which
+//  themes/, config/, database/, bootstrap/, .github/ and tests/ -- the suite was missing from the
+//  first pass of this census and cost five Feature assertions elsewhere), but `route()` on an
+//  undeclared name throws at RENDER time, which
 //  turns one dead click into a blank page. Keeping them costs nothing and removes that class.
 //
 //  The package's sample VIEWS were published too (`resources/views/myfatoorah/`). They are reached

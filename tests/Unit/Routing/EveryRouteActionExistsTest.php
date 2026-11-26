@@ -29,6 +29,19 @@ use Tests\TestCase;
  *     `resources/`, `routes/`, `packages/workdo/` and `themes/` returned the declaration and
  *     nothing else, and the Flutter endpoint manifest has zero `place-order` entries.
  *
+ * AND THAT LAST BULLET NAMES FIVE DIRECTORIES AND NOT `tests/`, WHICH IS THE ONE MISTAKE THE
+ * WITHDRAWAL MADE. The product-code census was right -- no Blade, controller, module, theme,
+ * listener or seeder referenced any withdrawn name, so no capability was lost -- but THREE
+ * PRE-EXISTING TEST FILES asserted several of these names still existed, and five Feature
+ * assertions failed against an empty declared-failure set as a result:
+ * `CatalogueEndpointIntegrityTest`'s own both-ways dead-action list (65 entries, 64 of them
+ * resolved by this triage), `UnauthenticatedRouteBoundaryTest`'s public-route allowlist and its
+ * positive storefront list, and `CustomerAccountBoundaryTest`'s data provider. Each was corrected
+ * the way its own failure message asked and none was declared in
+ * `.github/known-test-outcomes.json`. The generalisable lesson is in the last bullet's own shape:
+ * a both-ways baseline in THIS file does not make the older copies of the same baseline update
+ * themselves, and "nothing references this" has to include the suite that asserts it.
+ *
  * So the defect was invisible from every direction at once, which is exactly the shape that
  * deserves a ratchet rather than a one-line deletion.
  *
@@ -85,18 +98,32 @@ class EveryRouteActionExistsTest extends TestCase
      *   other three are `Route::resource()` `store` actions whose controllers define
      *   `dedicated_store` / `buildtech_store` / `packagedetails_store` and are separately routed at
      *   `POST dedicated/store` etc. -- so the module itself already serves the intent, and the
-     *   resource's `store` slot is upstream's leftover. A host route declaration cannot withdraw
-     *   them either, and the usual reason given for that is the wrong one here: `LandingPage` is
-     *   loaded STATICALLY by `PackageServiceProvider::register()`, not from the `app->booted()`
-     *   path that `loadDynamicAddons()` uses. It makes no difference, because `loadRoutesFrom`
-     *   runs in the module provider's `boot()`. MEASURED by registration index in the booted
-     *   collection: `routes/web.php`'s last declaration is #1129, `dedicated.store` is #1274 and
-     *   `pricing_plan_create` is #1316 -- so the module's declaration lands LAST and, since
-     *   `RouteCollection` keys on method+domain+uri, would replace a host declaration of the same
-     *   URI rather than be replaced by it. (That is the same mechanism the MyFatoorah withdrawal
-     *   USES, in the one direction where it helps: that package declares its routes in
-     *   `register()`, at index #4, so `routes/web.php` is later and wins.) The fix for these eight
-     *   belongs upstream or in a patch record.
+     *   resource's `store` slot is upstream's leftover.
+     *
+     *   I FIRST WROTE THAT A HOST DECLARATION *CANNOT* WITHDRAW THEM, ARGUING FROM REGISTRATION
+     *   INDEX -- `routes/web.php`'s last declaration at #1129 against `dedicated.store` at #1274 --
+     *   AND THAT ARGUMENT IS WRONG. An index in `RouteCollection::$allRoutes` is the FIRST
+     *   insertion for a key; re-registering the same method+URI overwrites the value in place and
+     *   does not move the key, so position says nothing about who wins. An independent review
+     *   caught it and named the measurement. MEASURED: a throwaway
+     *   `Route::post('dedicated', fn() => ...)` appended to `routes/web.php` registers at #1130 --
+     *   BEFORE the module's #1274 -- and `POST /dedicated` then resolves to that closure, with
+     *   `dedicated.store` gone from the table entirely. So withdrawal IS mechanically available
+     *   for this module, and the index reasoning is refuted by its own numbers.
+     *
+     *   THEY ARE STILL LEFT ALONE, for a reason that does not depend on that mechanism: these are
+     *   vendored routes on vendored controllers whose intent the module already serves -- it
+     *   separately declares `POST dedicated/store` -> `dedicated_store`, which exists. Withdrawing
+     *   them from `routes/web.php` would make the host a silent override layer over a vendored
+     *   module's route table, which the next upstream update desynchronises with nothing to flag
+     *   it. The fix belongs upstream or in a recorded patch.
+     *
+     *   ONE PROJECT-LEVEL CLAIM NEEDS THE SAME CARE. CLAUDE.md's module guidance says a module's
+     *   declaration wins the slot because module route files load from `app->booted()`, AFTER
+     *   `routes/web.php`. That holds for the ~69 modules `loadDynamicAddons()` brings in from the
+     *   `booted()` callback. `LandingPage` is NOT one of them: `PackageServiceProvider::register()`
+     *   loads it in `$staticAddons`, which is why the probe above wins. So the rule is sound for
+     *   the modules it was written about and must not be applied to this one.
      *
      * Note that these 9 are measured against the HOST route table, which is what this file can
      * see. The LandingPage eight are visible because that module's provider is reachable without

@@ -27,7 +27,14 @@ use Tests\TestCase;
  * four measurements.
  *
  *   1. NOTHING CALLS IT. `place.order` is referenced nowhere outside its own declaration, across
- *      app/, resources/, routes/, packages/, themes/, config/, database/ and bootstrap/. The
+ *      app/, resources/, routes/, packages/, themes/, config/, database/, bootstrap/, .github/
+ *      AND `tests/`. THE SUITE WAS MISSING FROM THAT LIST ON THE FIRST PASS, which is the one
+ *      mistake this withdrawal actually made: three pre-existing files still named this route --
+ *      `UnauthenticatedRouteBoundaryTest`'s public-route allowlist AND its positive storefront
+ *      list, and `CustomerAccountBoundaryTest`'s data provider -- so five Feature assertions
+ *      failed against an EMPTY declared-failure set. Product code was measured correctly and no
+ *      capability was lost; the suite was not measured at all. A reference census that stops at
+ *      product code answers a narrower question than "nothing references this". The
  *      shipped storefront checkout posts to `payment.process`
  *      (resources/views/front_end/common/checkout/checkout_form.blade.php), which is pinned below
  *      comment-stripped and scoped to that one file.

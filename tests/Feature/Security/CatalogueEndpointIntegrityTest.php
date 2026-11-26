@@ -52,95 +52,46 @@ class CatalogueEndpointIntegrityTest extends SecurityTestCase
     /**
      * Host-app route actions whose controller method does not exist, as measured by P1-INV-10.
      *
-     * FIFTY-EIGHT carry one of the seven `Route::resource()` action names across seventeen
-     * controllers -- a resource declared for a controller that implements only some of the seven
-     * registers the rest anyway. The other NINE are ordinary named routes whose method simply does
-     * not exist, and they are the more interesting half: `OrderController@place_order`
-     * (routes/customer.php:161, the web `place.order` route -- dead, because no Blade template or
-     * JavaScript references it and `OrderController::store()` is the live checkout writer),
-     * `Api\ApiController@random_product` (a storefront API route), three `MyFatoorahController`
-     * methods, both `ModuleController@AddOnSession*` add-on purchase routes,
-     * `AppSettingController@image_delete` and `OrderController@allOrders`.
+     * ONE LEFT. THIS LIST HELD 65 AND IS NOW A SINGLE ENTRY, because `GAP-268` triaged the backlog
+     * it was measuring: 64 of the 65 are no longer dead and a resolved entry in a both-ways list is
+     * fiction, which is the rule this file already applied once (see the `customer` note that used
+     * to sit inside the array, and which is now the whole story).
      *
-     * Not this task's to fix -- see the sweep's docblock -- and asserted in BOTH directions so the
-     * list cannot rot.
+     * WHAT HAPPENED TO THEM, so the deletion is auditable rather than a cleared list:
+     *
+     *   58  were `Route::resource()` action names across seventeen controllers -- a resource
+     *       declared for a controller implementing only some of the seven registers the rest
+     *       anyway. Fifteen declarations now carry `->only()`/`->except()` naming the measured
+     *       method set, so those routes do not exist. (56 of them, plus `support_ticket.view`,
+     *       which routed `@show` a second time; 2 were already gone with `customer`.)
+     *   4   `MyFatoorahController@index|callback|checkout|webhook` -- declared by a VENDORED
+     *       package provider, so they cannot be removed from the table, only replaced. They answer
+     *       404 from a closure now, and `:369` of this file skips an action with no `@`, so they
+     *       leave `$missing` by that route rather than by being fixed.
+     *   2   `ModuleController@AddOnSession*` -- deleted, referenced nowhere.
+     *   1   `Api\ApiController@random_product` -- deleted; absent from the Flutter manifest.
+     *   1   `OrderController@allOrders` -- deleted; it was never reachable anyway, shadowed by the
+     *       resource's `order/{order}`.
+     *   1   `OrderController@place_order` -- `GAP-267`; deleted rather than repointed at
+     *       `Api\ApiController::place_order`, which answers JSON through `ApiResponser` and would
+     *       have been mounted on a route carrying no authentication.
+     *
+     * THE ONE THAT REMAINS IS THE ONE THAT IS BROKEN IN USE, which is why it is not a deletion:
+     * `resources/views/AppSetting/mobile_content.blade.php` calls
+     * `route('product.image.delete')` inside a RENDERED view, so withdrawing the route throws
+     * `RouteNotFoundException` at render time and 500s the whole Mobile Screen Content page --
+     * worse than the defect. It needs the METHOD, and an unlink keyed on request input is the
+     * P1-SEC-71 shape, so it is not a routing change. `DeadControllerRoutesWithdrawnTest::
+     * test_the_product_image_delete_route_is_deliberately_kept` asserts all three halves of that.
+     *
+     * Asserted in BOTH directions, which is how this list came to be corrected rather than left
+     * to rot: the deletion above was not noticed by the census that withdrew the routes, because
+     * that census swept product code and not `tests/`.
      *
      * @var list<string>
      */
     private const DEAD_ROUTE_ACTIONS = [
-        'App\\Http\\Controllers\\AccountProfileController@destroy',
-        'App\\Http\\Controllers\\AccountProfileController@edit',
-        'App\\Http\\Controllers\\AccountProfileController@show',
-        'App\\Http\\Controllers\\AccountProfileController@update',
-        'App\\Http\\Controllers\\AddonController@edit',
-        'App\\Http\\Controllers\\AddonController@show',
-        'App\\Http\\Controllers\\AddonController@store',
-        'App\\Http\\Controllers\\AddonController@update',
-        'App\\Http\\Controllers\\Api\\ApiController@random_product',
-        'App\\Http\\Controllers\\AppSettingController@destroy',
-        'App\\Http\\Controllers\\AppSettingController@edit',
         'App\\Http\\Controllers\\AppSettingController@image_delete',
-        'App\\Http\\Controllers\\AppSettingController@show',
-        'App\\Http\\Controllers\\AppSettingController@update',
-        'App\\Http\\Controllers\\BlogController@show',
-        // P2.5-PKG-C (F-C-04) REMOVED THESE TWO, which is why the list is one shorter here than
-        // the count in the docblock above. `Route::resource('customer', ...)` now carries
-        // `->except(['edit','update'])` (routes/web.php), so the two routes no longer exist and
-        // cannot raise BadMethodCallException. Deleted rather than left in place because this list
-        // is asserted in BOTH directions -- a resolved entry is fiction, and the test says so in
-        // its own failure message.
-        //
-        // The other entries stand. They are not this slice's either.
-        'App\\Http\\Controllers\\ModuleController@AddOnSessionSave',
-        'App\\Http\\Controllers\\ModuleController@AddOnSessioncreate',
-        'App\\Http\\Controllers\\MyFatoorahController@callback',
-        'App\\Http\\Controllers\\MyFatoorahController@checkout',
-        'App\\Http\\Controllers\\MyFatoorahController@index',
-        'App\\Http\\Controllers\\MyFatoorahController@webhook',
-        'App\\Http\\Controllers\\OrderController@allOrders',
-        'App\\Http\\Controllers\\OrderController@edit',
-        'App\\Http\\Controllers\\OrderController@place_order',
-        'App\\Http\\Controllers\\OrderController@update',
-        'App\\Http\\Controllers\\OrderNoteController@create',
-        'App\\Http\\Controllers\\OrderNoteController@edit',
-        'App\\Http\\Controllers\\OrderNoteController@index',
-        'App\\Http\\Controllers\\OrderNoteController@show',
-        'App\\Http\\Controllers\\OrderNoteController@update',
-        'App\\Http\\Controllers\\OrderRefundController@create',
-        'App\\Http\\Controllers\\OrderRefundController@destroy',
-        'App\\Http\\Controllers\\OrderRefundController@edit',
-        'App\\Http\\Controllers\\OrderRefundController@store',
-        'App\\Http\\Controllers\\OrderRefundController@update',
-        'App\\Http\\Controllers\\PlanRequestController@create',
-        'App\\Http\\Controllers\\PlanRequestController@destroy',
-        'App\\Http\\Controllers\\PlanRequestController@edit',
-        'App\\Http\\Controllers\\PlanRequestController@show',
-        'App\\Http\\Controllers\\PlanRequestController@store',
-        'App\\Http\\Controllers\\PlanRequestController@update',
-        'App\\Http\\Controllers\\PosController@destroy',
-        'App\\Http\\Controllers\\PosController@edit',
-        'App\\Http\\Controllers\\PosController@show',
-        'App\\Http\\Controllers\\PosController@update',
-        'App\\Http\\Controllers\\ReportController@create',
-        'App\\Http\\Controllers\\ReportController@destroy',
-        'App\\Http\\Controllers\\ReportController@edit',
-        'App\\Http\\Controllers\\ReportController@show',
-        'App\\Http\\Controllers\\ReportController@store',
-        'App\\Http\\Controllers\\ReportController@update',
-        'App\\Http\\Controllers\\ShopifyCategoryController@create',
-        'App\\Http\\Controllers\\ShopifyCategoryController@store',
-        'App\\Http\\Controllers\\ShopifyProductController@create',
-        'App\\Http\\Controllers\\ShopifyProductController@destroy',
-        'App\\Http\\Controllers\\ShopifyProductController@store',
-        'App\\Http\\Controllers\\ShopifyProductController@update',
-        'App\\Http\\Controllers\\SupportTicketController@create',
-        'App\\Http\\Controllers\\SupportTicketController@show',
-        'App\\Http\\Controllers\\SupportTicketController@store',
-        'App\\Http\\Controllers\\SupportTicketController@update',
-        'App\\Http\\Controllers\\WoocomCategoryController@destroy',
-        'App\\Http\\Controllers\\WoocomCategoryController@update',
-        'App\\Http\\Controllers\\WoocomProductController@create',
-        'App\\Http\\Controllers\\WoocomProductController@store',
     ];
 
     // ------------------------------------------------------------------ (a) the premise
