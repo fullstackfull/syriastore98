@@ -7,7 +7,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
-use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -63,14 +63,40 @@ use Tests\TestCase;
  * their current_store. Scoping to getCurrentStore() would silently restore
  * nothing for exactly that supported workflow.
  *
- * Builds its own minimal schema, like the rest of tests/Feature/Commerce, and
- * refuses to run anywhere but sqlite :memory:.
+ * RUNS AGAINST THE MIGRATED SCHEMA (`RefreshDatabase`), and it used to build its own.
+ * ------------------------------------------------------------------------------------
+ * The hand-built shape declared five tables and one column the product does not have.
+ * Converted 2026-11-26; what the conversion measured against a fresh in-memory migrate:
+ *
+ *  1. `product_variants.name` DOES NOT EXIST. The real migration
+ *     (2024_01_01_104858_create_product_variants_table.php) declares `variant` and `sku`,
+ *     both NOT NULL, plus `price` NOT NULL. The label now goes into `variant`, which is the
+ *     column that holds it; nothing in this file reads it, every assertion being about
+ *     `stock` and `return_status`.
+ *
+ *  2. `orders.return_date` and `orders.cancel_date` are `DATE` in the migration and the
+ *     hand-built table declared both `dateTime`. Production writes `now()` into both
+ *     (Order::order_status_change(), Api\DashboardController::updateStatus()), so MySQL
+ *     TRUNCATES THE TIME and the hand-built column preserved it -- a test asserting the
+ *     time of day of a return would have passed here and been wrong in production. Both
+ *     carry NUMERIC affinity in sqlite, so it is inert on this engine, and nothing in this
+ *     file reads either column. REPORTED at that strength, not worked around.
+ *
+ *  3. `products.variant_product` defaults to 1 in the migration and the hand-built table
+ *     defaulted it to 0. Inert only because makeProduct() always supplies it.
+ *
+ * The migrated schema also enforces `product_variants.product_id -> products.id`, which the
+ * hand-built table did not declare; every variant here already belongs to a real product.
+ *
+ * Still refuses to run anywhere but sqlite :memory:.
  *
  * @see \App\Http\Controllers\OrderController::order_return_request()
  * @see \App\Services\ProductStockService
  */
 class ReturnApprovalStockTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const STORE_A = 31;
     private const STORE_B = 32;
 
@@ -89,7 +115,19 @@ class ReturnApprovalStockTest extends TestCase
             'this suite must only ever run against sqlite :memory:'
         );
 
-        $this->createReturnSchema();
+        /*
+         * THE PREMISE OF DIVERGENCE 1, ASSERTED RATHER THAN ASSUMED. If `variant` is ever
+         * renamed, makeVariant() throws from inside a fixture and the failure reads as a
+         * defect in the restock loop; this names the column instead.
+         */
+        foreach (['variant', 'sku', 'price', 'stock'] as $column) {
+            $this->assertTrue(
+                Schema::hasColumn('product_variants', $column),
+                "product_variants.{$column} must exist in the migrated schema "
+                    . '(2024_01_01_104858_create_product_variants_table.php); `name` never did'
+            );
+        }
+
         $this->loginPlatformOperator();
     }
 
@@ -97,16 +135,6 @@ class ReturnApprovalStockTest extends TestCase
     {
         Auth::logout();
         Cache::flush();
-
-        foreach ([
-            'orders',
-            'product_variants',
-            'products',
-            'settings',
-            'users',
-        ] as $table) {
-            Schema::dropIfExists($table);
-        }
 
         parent::tearDown();
     }
@@ -688,12 +716,19 @@ class ReturnApprovalStockTest extends TestCase
         return $product;
     }
 
+    /**
+     * DIVERGENCE 1. The label goes into `variant`, the column the migration declares for it;
+     * `sku` and `price` are NOT NULL with no default, so they are supplied rather than
+     * omitted. The label's value is unchanged from the hand-built fixture's.
+     */
     private function makeVariant(int $productId, int $storeId, int $stock): ProductVariant
     {
         $variant = new ProductVariant();
         $variant->forceFill([
             'product_id' => $productId,
-            'name' => 'Variant ' . uniqid('', false),
+            'variant' => 'Variant ' . uniqid('', false),
+            'sku' => 'sku-' . uniqid('', false),
+            'price' => 10,
             'stock' => $stock,
             'stock_order_status' => 'not_allow',
             'store_id' => $storeId,
@@ -738,101 +773,5 @@ class ReturnApprovalStockTest extends TestCase
         $order->save();
 
         return $order;
-    }
-
-    /** Only the tables order_return_request reads or writes. */
-    private function createReturnSchema(): void
-    {
-        foreach ([
-            'orders',
-            'product_variants',
-            'products',
-            'settings',
-            'users',
-        ] as $table) {
-            Schema::dropIfExists($table);
-        }
-
-        Schema::create('users', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->string('type')->default('admin');
-            $table->string('password');
-            $table->unsignedBigInteger('current_store')->nullable()->index();
-            $table->string('is_active')->default('1');
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->rememberToken();
-            $table->timestamps();
-        });
-
-        // Order::booted()'s `creating` hook resolves the store's currency via
-        // Utility::GetValueByName (app/Models/Order.php:100-113), which reads
-        // `settings`. Without this table every makeOrder() dies with
-        // "no such table: settings" -- nothing to do with what is under test.
-        Schema::create('settings', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->longText('value')->nullable();
-            $table->string('created_by');
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
-
-        Schema::create('products', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->integer('track_stock');
-            $table->string('stock_order_status')->nullable();
-            $table->float('price')->default(0);
-            $table->float('sale_price')->default(0);
-            $table->integer('product_stock')->default(0);
-            $table->integer('low_stock_threshold')->default(0);
-            $table->string('stock_status')->default(0);
-            $table->boolean('variant_product')->default(0);
-            $table->double('average_rating', 8, 2)->default(0);
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->integer('created_by');
-            $table->timestamps();
-        });
-
-        Schema::create('product_variants', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('product_id');
-            $table->string('name')->nullable();
-            $table->integer('stock')->default(0);
-            $table->string('stock_order_status')->nullable();
-            $table->string('variation_option')->nullable();
-            $table->unsignedBigInteger('store_id')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('orders', function (Blueprint $table) {
-            $table->id();
-            $table->string('product_order_id')->nullable();
-            $table->dateTime('order_date')->nullable();
-            $table->integer('customer_id')->default(0);
-            $table->text('product_json')->nullable();
-            $table->string('product_id')->default(0);
-            $table->float('product_price')->nullable()->default(0);
-            $table->float('coupon_price')->nullable()->default(0);
-            $table->float('delivery_price')->nullable()->default(0);
-            $table->float('tax_price')->nullable()->default(0);
-            $table->float('final_price')->nullable()->default(0);
-            $table->string('payment_type')->nullable();
-            $table->string('payment_status')->nullable();
-            $table->integer('delivered_status')->default(0);
-            $table->integer('return_status')->default(0);
-            $table->float('return_price')->nullable()->default(0);
-            $table->dateTime('return_date')->nullable();
-            $table->dateTime('cancel_date')->nullable();
-            // Written by Order::booted()'s creating hook; added by
-            // 2026_10_12_000102_add_currency_and_created_by_to_orders_table.php.
-            $table->string('currency_code', 3)->nullable();
-            $table->string('currency_symbol', 8)->nullable();
-            $table->unsignedBigInteger('created_by')->nullable()->index();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-            $table->timestamps();
-        });
     }
 }
