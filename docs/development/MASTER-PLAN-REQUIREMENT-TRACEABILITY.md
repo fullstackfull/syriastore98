@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 182 VERIFIED COMPLETE. 168 are not.**
+**354 requirements recovered. 182 VERIFIED COMPLETE. 172 are not.**
 
 **Plus 20 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **370 known requirements, 182 verified complete, 188 not.** *(181/189 until 2026-11-26, when `P05-24` was promoted.)* It read 368/198
+project-wide figure is **374 known requirements, 182 verified complete, 192 not.** *(181/189 until 2026-11-26, when `P05-24` was promoted.)* It read 368/198
 until 2026-11-24, when `ADM-001` (the platform command dashboard) and `ADM-002` (Store 360°) were
 found tracked nowhere and became `GAP-231`/`GAP-232`: the 2026-11-16 recovery carried twenty
 never-tracked requirements, not the eighteen first counted.
@@ -144,7 +144,7 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **182** |
-| PARTIALLY IMPLEMENTED | **101** |
+| PARTIALLY IMPLEMENTED | **105** |
 | NOT IMPLEMENTED | **9** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **18** |
 | OWNER-APPROVED DEFERRED | **17** |
@@ -158,7 +158,7 @@ against a pre-reorganization original.
 | 02 Merchant Experience | 114 | 100 | **14** |
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
 | 03 Storefront, Themes, Official Website and Documentation (M | 36 | 14 | **22** |
-| 04 Commerce (P4-0 .. P4-9) | 43 | 18 | **25** |
+| 04 Commerce (P4-0 .. P4-9) | 47 | 18 | **29** |
 | 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 3 | **32** |
 
 ---
@@ -4775,6 +4775,63 @@ against a pre-reorganization original.
 - **Gap:** Required CI Tests jobs never completed on PR #139; the human security checklist is unresolved.
 - **Responsible:** Phase 04 engineering + owner (checklist)
 - **Next action:** Let one CI run finish without being superseded, and put the security checklist to the owner.
+
+
+### `INV-006` — Optional and explicit pre-order (`GAP-182`)
+
+**Status: PARTIALLY IMPLEMENTED** *(first assessed 2026-11-26)*
+
+- **Requirement (original wording / faithful reference):** «الطلب المسبق الاختياري والصريح.» — *optional and explicit pre-order*, `MASTER-PRODUCT-PLAN-v1.0-WITH-AMENDMENTS.md:270`, §04-B المخزون والمستودعات. It is the sixth of `INV-001…010` and sits between `INV-004` («منع البيع فوق المتاح افتراضياً», *prevent selling above available by default*, :268) and `INV-009` (:273), so it governs **when a shopper may order beyond stock**, not a status label.
+- **Source:** the recovered plan, §04-B. Never tracked until now; the register row that recorded it named only `ORDER_STATUS_PRE_ORDER` and was materially incomplete.
+- **Owner decisions:** none found. No decision descoping or deferring pre-order exists anywhere in the repository.
+- **Expected behaviour:** a merchant chooses, per product, whether a shopper may order beyond available stock, and the choice is explicit rather than inherited.
+- **Actual behaviour:** **present in TWO mechanisms, neither of which the register row named.** (1) `products.stock_order_status` / `product_variants.stock_order_status` — a three-way per-product choice `not_allow` / `notify_customer` / `allow`, rendered as the "Allow BackOrders" radio group in four views, with `not_allow` shipped `checked` on the create form: this is the host's real optional-and-explicit switch. (2) the vendored `PreOrder` module — `pre_orders.enable_pre_order` (per store, default `off`), `pre_order_settings` (per product/variant), `carts.order_type`, `pre_order_histories` — opt-in at both levels by construction. **What did NOT exist was any guarantee the column held one of the three words.** `ProductStockService::forbidsOversell()` is `=== 'not_allow'`, so one exact word refuses and everything else permits; measured against the shipped reader, a product with `null`, `''`, `'0'`, `'allow'`, `'notify_customer'` or `'nope'` all oversold to **−4**. The Flutter admin app's `AddProduct()` and `UpdateProduct()` wrote the column **nowhere** (0 occurrences, measured), so every product the shipped app has ever created holds NULL; `ProductController::update()` assigned the request value unconditionally, so a PUT omitting the key wrote NULL over an explicit `not_allow`.
+- **Evidence:** `App\Support\Commerce\BackorderPolicy` applied at 13 usages across 2 controllers; `tests/Feature/Commerce/BackorderChoiceIsExplicitTest` — 13 cases, 59 assertions, 5 defect cases red before the fix, and each of the 7 guarded sites reverted alone turns the file red.
+- **Gap:** the READER and existing rows are untouched, deliberately — making `forbidsOversell()` read a stored NULL as "refuse" would change the stock behaviour of every product the admin app has already created, which is a stock-rule change on live data. And the two mechanisms are **not wired together**: nothing in `packages/workdo/PreOrder` touches `product_stock` or `stock_order_status`, so a product with `pre_order_settings.status = 1` but `stock_order_status = 'not_allow'` is refused at checkout.
+- **Responsible:** Phase 04 for the write side (done); **owner** for whether enabling a pre-order should imply permitting a backorder, which is a business rule and was not invented.
+- **Next action:** put the wiring question to the owner. Do not close this row on the write side alone.
+
+### `PRD-002` — Attributes and templates by business type (`GAP-183`)
+
+**Status: PARTIALLY IMPLEMENTED** *(first assessed 2026-11-26)*
+
+- **Requirement (original wording / faithful reference):** «خصائص وقوالب حسب نوع النشاط.» — *attributes and templates by business type*, `:255`, §04-A. A second plan sentence bears on it and the register row did not cite it: §02-E:166, «تُجهّز الواجهة لاستيعاب قوالب المنتجات … بينما ينفذ منطقها التجاري المتقدم ضمن Phase 04» — *the interface is prepared to accommodate product templates, while their advanced commercial logic is implemented in Phase 04.*
+- **Source:** the recovered plan, §04-A and §02-E. Never tracked until now.
+- **Owner decisions:** none found.
+- **Expected behaviour:** a merchant's product attributes come from templates appropriate to their kind of business.
+- **Actual behaviour:** **the ATTRIBUTE half exists in three per-store mechanisms** — `product_attributes` + `product_attribute_options` (host, ownership already closed); `products.custom_field` / `custom_field_status` (host, per product); and `packages/workdo/AdditionalCustomFields`, whose store-level field definitions reused across a store's products are the closest thing in the codebase to the plan's «قوالب». **The BUSINESS-TYPE half has no representation at all**, measured in both directions: across all 144 migrated tables, **0** columns match `business|activity|industry|vertical|niche|sector`; `stores` has exactly 11 columns and none is a type; and the plan itself mentions «نوع النشاط» **exactly once — inside PRD-002 — and names zero business types anywhere** (checked against nine Arabic trade words).
+- **Evidence:** `tests/Feature/Security/AdditionalCustomFieldOwnershipTest` — 8 cases, 40 assertions, every case asserting the entitlement premise; the three `store-row:additional_custom_fields:id` rules were already in place but nothing drove them.
+- **Gap:** **the taxonomy that would decide what templates exist is not recoverable from the plan.** Every engineering piece — a `business_type` on `stores`, a per-type template set, an "apply template" action — depends on both a migration and owner-supplied content.
+- **Responsible:** **owner** for the taxonomy; Phase 04 afterwards.
+- **Next action:** ask the owner what the business types are. Nothing was built for this half, deliberately: inventing a taxonomy would be inventing product.
+
+### `PRD-005` — Fixed and flexible bundles, and complementary products (`GAP-184`)
+
+**Status: PARTIALLY IMPLEMENTED** *(first assessed 2026-11-26)*
+
+- **Requirement (original wording / faithful reference):** «باقات ثابتة ومرنة ومنتجات مكملة.» — *fixed and flexible bundles, and complementary products*, `:258`, §04-A.
+- **Source:** the recovered plan, §04-A. Never tracked until now.
+- **Owner decisions:** none found. `PRICE-003` («أسعار للمتغيرات والتخصيصات والباقات») is a separate recovered id with no recovered detail.
+- **Expected behaviour:** a merchant composes fixed and flexible bundles and offers complementary products.
+- **Actual behaviour:** **the register row's claim that "fixed and flexible bundles are not located" is WITHDRAWN for the fixed half.** `packages/workdo/BundleProduct` exists — `bundle_products` (parent `product_id` plus a JSON member list), a DataTable, a menu entry, four seeded permissions and two `Route::resource` declarations. **Locating it meant reading it, which found two live cross-tenant defects**, both now closed: `BundleProductController` resolved by bare id in `edit()` (no permission check at all), `update()` and `destroy()`, with no `BelongsToStore` and no `scoped_models` entry — **executed against the unguarded tree, store B's merchant DELETED store A's `bundle_products` row by its integer id**; and the member references were written with no ownership check while `ViewComposer::boot()` read them back with `Product::whereIn('id', …)` and no store predicate, putting another tenant's catalogue entries on a **public** storefront page.
+- **Evidence:** ten entries in `ModuleResourceOwnershipGuard::TARGETS` (ten, not five, because the module declares the resource twice under two parameter names); `App\Http\Middleware\BundleProductMemberOwnershipGuard`; `BundleProductOwnershipTest` 10 cases / 59 assertions and `BundleProductMemberOwnershipTest` 14 cases / 83 assertions, six mutants killed.
+- **Gap:** the unscoped READ still renders rows written before the guard, pinned by a premise test so an upstream fix reddens it. **Flexible bundles and bundle pricing are not built:** `bundle_products` carries no per-member quantity and no price of any kind, and what "flexible" means and how a bundle is priced are owner decisions. Complementary products were not located.
+- **Responsible:** Phase 04 for the guards (done); **owner** for flexible bundles and `PRICE-003`.
+- **Next action:** put the flexible-bundle and pricing definitions to the owner; the fixed half's remaining work is the historical-row read.
+
+### `ORD-008` — Picking, packing, barcodes, labels and invoices (`GAP-185`)
+
+**Status: PARTIALLY IMPLEMENTED** *(first assessed 2026-11-26)*
+
+- **Requirement (original wording / faithful reference):** «Picking وPacking والباركود والملصقات والفواتير.» — one clause, five nouns, `:287`, §04-C الطلبات والتجهيز. The section also carries `:153`: «قواعد ORD-002 إلى ORD-008 تظل ملزمة، ويجري استكمال محركها التشغيلي في Phase 04» — *their operational engine is being completed in Phase 04.*
+- **Source:** the recovered plan, §04-C. Never tracked until now.
+- **Owner decisions:** none found.
+- **Expected behaviour:** all five exist as working merchant surfaces.
+- **Actual behaviour:** **the register row was WRONG about labels and silent about invoices.** Measured: **barcodes** — `packages/workdo/ProductBarCode`, which adds `products.product_code`; **labels** — `OrderController::shippinglabel()` with its own first-party document, plus `AutomaticOrderPrinting`'s templates; **invoices** — `OrderController::order_receipt()` plus `AutomaticOrderPrinting::invoice_preview()`. All three were already in `OrderDocumentAccessGuard::TARGETS`. **The row was RIGHT about picking and packing:** a whole-word census of `picking|packing|picklist|pick_list|packing_slip|packingslip` across `app/`, `resources/views/`, `packages/workdo/` and `database/` returned **13 hits — 11 prose in comments about unrelated subjects, 2 in a marketplace blurb, 0 surfaces.** `orders.picked_date` and `FulfilmentStateMachine::STATE_PICKED_UP` are the **courier** collecting the parcel, not warehouse picking.
+- **Evidence:** `App\Support\Orders\PackingSlip` + `resources/views/order/packing-list.blade.php`, rendered on the order screen and at `order-packing-list/{id}` with its `OrderDocumentAccessGuard::TARGETS` entry; `PackingSlipTest` 11 cases / 44 assertions and `OrderPackingListScreenTest` 15 cases / 93 assertions, eleven mutants killed. One document serves both nouns because the plan names them in one clause and distinguishes them nowhere; **no money appears on it**, pinned by a test, which is what keeps this engineering rather than a pricing question.
+- **Gap:** **no picked/packed fulfilment STAGE.** That means new values in `orders.delivered_status` — a column already carrying a fulfilment state, a payment state and an order type at once — and in `App\Support\Api\OrderStatusContract`, which the shipped Flutter admin app reads.
+- **Responsible:** Phase 04 for the document (done); **owner** for the stage, which is a public-API compatibility change and a change to `ORD-002`'s fixed general stages.
+- **Next action:** put the fulfilment-stage question to the owner. Four of the five nouns are now present; the fifth is a document rather than a workflow stage, and this row must not be read as closing the workflow.
 
 
 ## Phase 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin
