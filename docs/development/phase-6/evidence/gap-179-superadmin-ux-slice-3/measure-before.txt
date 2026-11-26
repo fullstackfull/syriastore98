@@ -1,0 +1,141 @@
+
+=== light-en  (theme=light dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=off SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /plan-coupon/1                       theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=3/5 | .btn-primary=1 .ss-btn--primary=0
+        ICON  2.66:1 (needs 3)  rgb(255,58,110) on rgb(255,216,226)  a.btn.btn-default.btn-light-danger.bulk-delete  "Bulk Delete"
+        ICON  1.73:1 (needs 3)  rgb(62,201,214) on rgb(216,244,247)  a.btn.btn-default.buttons-reset.btn-light-info  "Reset"
+        ICON  1.74:1 (needs 3)  rgb(255,162,29) on rgb(255,236,210)  a.btn.btn-default.buttons-reload.btn-light-warning  "Reload"
+  /plan-coupon#create                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+
+=== dark-en  (theme=dark dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=on SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /plan-coupon/1                       theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=5/5 | .btn-primary=1 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.btn-inner--text  "#P2DEV-ORD-1"
+        ICON  1.3:1 (needs 3)  rgb(255,255,255) on rgb(255,216,226)  a.btn.btn-default.btn-light-danger.bulk-delete  "Bulk Delete"
+        ICON  1.39:1 (needs 3)  rgb(255,255,255) on rgb(233,213,231)  a.btn.btn-default.buttons-collection.buttons-colvis.btn-light-  "Choose columns"
+        ICON  1.39:1 (needs 3)  rgb(255,255,255) on rgb(233,213,231)  a.btn.btn-default.btn-light-primary.ss-density  "Row density"
+        ICON  1.15:1 (needs 3)  rgb(255,255,255) on rgb(216,244,247)  a.btn.btn-default.buttons-reset.btn-light-info  "Reset"
+        ICON  1.16:1 (needs 3)  rgb(255,255,255) on rgb(255,236,210)  a.btn.btn-default.buttons-reload.btn-light-warning  "Reload"
+  /plan-coupon#create                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=1/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+        CTRL  3.07:1 (needs 4.5)  rgb(120,148,198) on rgb(255,255,255)  button.btn.btn-outline-primary  "Generate"
+  /plan-coupon#edit                    theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=2/3 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+        CTRL  3.07:1 (needs 4.5)  rgb(120,148,198) on rgb(255,255,255)  button.btn.btn-outline-primary  "Generate"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  input.btn.btn-badge.btn-primary.mx-1  "Update"
+
+=== light-ar  (theme=light dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=off SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /plan-coupon/1                       theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=3/5 | .btn-primary=1 .ss-btn--primary=0
+        ICON  2.66:1 (needs 3)  rgb(255,58,110) on rgb(255,216,226)  a.btn.btn-default.btn-light-danger.bulk-delete  "حذف المجموعة"
+        ICON  1.73:1 (needs 3)  rgb(62,201,214) on rgb(216,244,247)  a.btn.btn-default.buttons-reset.btn-light-info  "إعادة تعيين"
+        ICON  1.74:1 (needs 3)  rgb(255,162,29) on rgb(255,236,210)  a.btn.btn-default.buttons-reload.btn-light-warning  "إعادة التحميل"
+  /plan-coupon#create                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+
+=== dark-ar  (theme=dark dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=on SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /plan-coupon/1                       theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=5/5 | .btn-primary=1 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.btn-inner--text  "#P2DEV-ORD-1"
+        ICON  1.3:1 (needs 3)  rgb(255,255,255) on rgb(255,216,226)  a.btn.btn-default.btn-light-danger.bulk-delete  "حذف المجموعة"
+        ICON  1.39:1 (needs 3)  rgb(255,255,255) on rgb(233,213,231)  a.btn.btn-default.buttons-collection.buttons-colvis.btn-light-  "اختيار الأعمدة"
+        ICON  1.39:1 (needs 3)  rgb(255,255,255) on rgb(233,213,231)  a.btn.btn-default.btn-light-primary.ss-density  "كثافة الصفوف"
+        ICON  1.15:1 (needs 3)  rgb(255,255,255) on rgb(216,244,247)  a.btn.btn-default.buttons-reset.btn-light-info  "إعادة تعيين"
+        ICON  1.16:1 (needs 3)  rgb(255,255,255) on rgb(255,236,210)  a.btn.btn-default.buttons-reload.btn-light-warning  "إعادة التحميل"
+  /plan-coupon#create                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=1/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+        CTRL  3.07:1 (needs 4.5)  rgb(120,148,198) on rgb(255,255,255)  button.btn.btn-outline-primary  "توليد"
+  /plan-coupon#edit                    theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=2/3 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+        CTRL  3.07:1 (needs 4.5)  rgb(120,148,198) on rgb(255,255,255)  button.btn.btn-outline-primary  "توليد"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  input.btn.btn-badge.btn-primary.mx-1  "تحديث"
+
+
+================ GROUPED CENSUS (colour, background, theme) ================
+
+DARK  ICON    rgb(255,255,255) on rgb(233,213,231)  1.39:1 (needs 3)  x4 on 1 surfaces
+      surfaces: /plan-coupon/1
+      selectors: a.btn.btn-default.buttons-collection.buttons-colvis.btn-light- | a.btn.btn-default.btn-light-primary.ss-density
+      e.g.: "Choose columns" "Row density" "اختيار الأعمدة" "كثافة الصفوف"
+
+DARK  CONTROL rgb(120,148,198) on rgb(255,255,255)  3.07:1 (needs 4.5)  x4 on 2 surfaces
+      surfaces: /plan-coupon#create /plan-coupon#edit
+      selectors: button.btn.btn-outline-primary
+      e.g.: "Generate" "توليد"
+
+LIGHT ICON    rgb(255,58,110) on rgb(255,216,226)  2.66:1 (needs 3)  x2 on 1 surfaces
+      surfaces: /plan-coupon/1
+      selectors: a.btn.btn-default.btn-light-danger.bulk-delete
+      e.g.: "Bulk Delete" "حذف المجموعة"
+
+LIGHT ICON    rgb(62,201,214) on rgb(216,244,247)  1.73:1 (needs 3)  x2 on 1 surfaces
+      surfaces: /plan-coupon/1
+      selectors: a.btn.btn-default.buttons-reset.btn-light-info
+      e.g.: "Reset" "إعادة تعيين"
+
+LIGHT ICON    rgb(255,162,29) on rgb(255,236,210)  1.74:1 (needs 3)  x2 on 1 surfaces
+      surfaces: /plan-coupon/1
+      selectors: a.btn.btn-default.buttons-reload.btn-light-warning
+      e.g.: "Reload" "إعادة التحميل"
+
+DARK  TEXT    rgb(4,34,42) on rgb(51,93,168)  2.58:1 (needs 4.5)  x2 on 1 surfaces
+      surfaces: /plan-coupon/1
+      selectors: span.btn-inner--text
+      e.g.: "#P2DEV-ORD-1"
+
+DARK  ICON    rgb(255,255,255) on rgb(255,216,226)  1.3:1 (needs 3)  x2 on 1 surfaces
+      surfaces: /plan-coupon/1
+      selectors: a.btn.btn-default.btn-light-danger.bulk-delete
+      e.g.: "Bulk Delete" "حذف المجموعة"
+
+DARK  ICON    rgb(255,255,255) on rgb(216,244,247)  1.15:1 (needs 3)  x2 on 1 surfaces
+      surfaces: /plan-coupon/1
+      selectors: a.btn.btn-default.buttons-reset.btn-light-info
+      e.g.: "Reset" "إعادة تعيين"
+
+DARK  ICON    rgb(255,255,255) on rgb(255,236,210)  1.16:1 (needs 3)  x2 on 1 surfaces
+      surfaces: /plan-coupon/1
+      selectors: a.btn.btn-default.buttons-reload.btn-light-warning
+      e.g.: "Reload" "إعادة التحميل"
+
+DARK  CONTROL rgb(4,34,42) on rgb(51,93,168)  2.58:1 (needs 4.5)  x2 on 1 surfaces
+      surfaces: /plan-coupon#edit
+      selectors: input.btn.btn-badge.btn-primary.mx-1
+      e.g.: "Update" "تحديث"
+
+
+================ PER-SURFACE SUMMARY ================
+surface (t=text c=control-label i=icon)light-en       dark-en        light-ar       dark-ar        
+A /plan-coupon/1                    0t/0c/3i       1t/0c/5i       0t/0c/3i       1t/0c/5i       
+C /plan-coupon#create               0t/0c/0i       0t/1c/0i       0t/0c/0i       0t/1c/0i       
+C /plan-coupon#edit                 0t/0c/0i       0t/2c/0i       0t/0c/0i       0t/2c/0i       
+
+================ CAPTURES (sha256 prefix -- four must differ) ================
+  0c1d920d910346c0  light-en   /plan-coupon/1
+  572d5fbfb256ccec  light-en   /plan-coupon#create
+  472a5ae7f2a5195e  light-en   /plan-coupon#edit
+  161016c70398e87f  dark-en    /plan-coupon/1
+  ad8e2d57413bb4cc  dark-en    /plan-coupon#create
+  8e8cf11e2b0498b8  dark-en    /plan-coupon#edit
+  d9da69ee9dad4789  light-ar   /plan-coupon/1
+  40aed3b6c6b63a32  light-ar   /plan-coupon#create
+  bd6166353fb079d7  light-ar   /plan-coupon#edit
+  f6b4934617a7d185  dark-ar    /plan-coupon/1
+  6e51ffd3b48458e4  dark-ar    /plan-coupon#create
+  ca8f30de68ad439f  dark-ar    /plan-coupon#edit
+
+================ RESULT ================
+surfaces requested      3
+combinations            4 (light-en, dark-en, light-ar, dark-ar)
+measured (surface x combo) 12 of 12
+premise failures        0
+unreachable             0
+contrast findings       24 in 10 groups
+off-origin requests aborted 48
+   ! light-en https://unpkg.com x4 -- ABORTED; a measurement that depended on it is not safe
+   ! light-en https://cdnjs.cloudflare.com x8 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://unpkg.com x4 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://cdnjs.cloudflare.com x8 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://unpkg.com x4 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://cdnjs.cloudflare.com x8 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://unpkg.com x4 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://cdnjs.cloudflare.com x8 -- ABORTED; a measurement that depended on it is not safe
+
+FAIL (0 premise, 24 contrast)

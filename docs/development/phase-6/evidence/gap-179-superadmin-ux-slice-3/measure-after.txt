@@ -1,0 +1,67 @@
+
+=== light-en  (theme=light dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=off SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /plan-coupon/1                       theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /plan-coupon#create                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+
+=== dark-en  (theme=dark dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=on SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /plan-coupon/1                       theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /plan-coupon#create                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+
+=== light-ar  (theme=light dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=off SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /plan-coupon/1                       theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /plan-coupon#create                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+
+=== dark-ar  (theme=dark dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=on SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /plan-coupon/1                       theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/5 | .btn-primary=0 .ss-btn--primary=0
+  /plan-coupon#create                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /plan-coupon#edit                    theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+
+
+================ GROUPED CENSUS (colour, background, theme) ================
+
+
+================ PER-SURFACE SUMMARY ================
+surface (t=text c=control-label i=icon)light-en       dark-en        light-ar       dark-ar        
+A /plan-coupon/1                    0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+C /plan-coupon#create               0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+C /plan-coupon#edit                 0t/0c/0i       0t/0c/0i       0t/0c/0i       0t/0c/0i       
+
+================ CAPTURES (sha256 prefix -- four must differ) ================
+  685889499b51306d  light-en   /plan-coupon/1
+  d951526434202d3d  light-en   /plan-coupon#create
+  4ad9ae8892c65525  light-en   /plan-coupon#edit
+  c9410e8ec23b6ba0  dark-en    /plan-coupon/1
+  c3a9371d83b417c9  dark-en    /plan-coupon#create
+  10ebc444290b2cdf  dark-en    /plan-coupon#edit
+  20ca95f58dfdba67  light-ar   /plan-coupon/1
+  953c22b0ea4e7bad  light-ar   /plan-coupon#create
+  88727bdc516d9443  light-ar   /plan-coupon#edit
+  0068597184fea96a  dark-ar    /plan-coupon/1
+  6b87e6aee06cab09  dark-ar    /plan-coupon#create
+  dce7b82906238ea3  dark-ar    /plan-coupon#edit
+
+================ RESULT ================
+surfaces requested      3
+combinations            4 (light-en, dark-en, light-ar, dark-ar)
+measured (surface x combo) 12 of 12
+premise failures        0
+unreachable             0
+contrast findings       0 in 0 groups
+off-origin requests aborted 48
+   ! light-en https://unpkg.com x4 -- ABORTED; a measurement that depended on it is not safe
+   ! light-en https://cdnjs.cloudflare.com x8 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://unpkg.com x4 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://cdnjs.cloudflare.com x8 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://unpkg.com x4 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://cdnjs.cloudflare.com x8 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://unpkg.com x4 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://cdnjs.cloudflare.com x8 -- ABORTED; a measurement that depended on it is not safe
+
+PASS

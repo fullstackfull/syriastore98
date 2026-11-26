@@ -298,6 +298,8 @@ changes nothing on screen.
 
 Nothing here is deferred by an owner decision; all of it is open.
 
+> **SUPERSEDED AS A STATUS, KEPT AS THE INVENTORY (2026-11-26, slice 3).** This table is slice 1's reading and is left verbatim, because it is the only place the 98 are enumerated. **It is no longer the state of the branch:** §14 re-measures all nine groups and finds **76 closed, 22 open as `D-25`, and 2 open** — those 2 taken by slice 3, together with **22 more that §4 never counted** on two surfaces it never measured (§15). The `LynomiaChat` row in particular was closed by `5be3602bd` on the same day. §14 is the current figure; this table is what the figure is counted against.
+
 | n | surfaces | finding | why not in this slice |
 |---|---|---|---|
 | **22** | 11 (`/plan-coupon`, `/super-admin/lynomia-integration`, `/dashboard`, `/plan`, `/plan-request`, `/stores`, `/setting`, `/countries`, `/currency`, `/modules/list`, `/profile`) | **dark 2.58:1**, rgb(4,34,42) on rgb(51,93,168) — `span.dash-mtext` (the ACTIVE SIDEBAR ITEM) and `a.list-group-item…active` (the settings tab rail). The same colour pair as the named defect: the host uses `--third-color`/`--theme-color` for active states too | **This is `D-25`.** **FILE LIST CORRECTED 2026-11-26:** this said `layouts/app.blade.php` and `partision/sidebar.blade.php`; measured, **`sidebar.blade.php` contains `dash-mtext` ZERO times** — the three files that carry it are `layouts/app.blade.php`, `partision/menu-tree.blade.php` and `partision/menu-zones.blade.php`, and a fourth site is not a Blade file at all (the admin chrome builds the same host fill inside a JavaScript template string). All three are named in the tests holding the exclusion, so **if this document and those tests ever disagree, the tests are the measured ones.** They render on every merchant screen and across all 70 vendored modules. The owner's standing instruction reserves the general theme change; a Phase 06 slice must not take it |
@@ -653,3 +655,272 @@ both reusing the existing `__('Edit')`. `ArabicUiCoverageTest` passes unchanged 
 Read back in Arabic at the repaired tones: "نطاق مخصص" and "النطاق الفرعي" at `rgb(140,29,23)`,
 "غير محدود" at `rgb(26,29,35)`, "المنتجات" and "مخزن" at `rgb(91,95,102)`, the Edit control named
 "تحرير". The `/countries` grid was checked for horizontal overflow in RTL at 1440px and 390px: none.
+
+---
+
+# Slice 3 — the platform coupon screens, and two surfaces that were unmeasurable rather than clean
+
+`GAP-179` / `P06-06`. Measured 2026-11-26, after slice 2. §1–§13 above are slices 1 and 2 and are
+unchanged.
+
+> Still engineering evidence only. `GAP-179` is **not** closed by this slice either; §17 names what
+> remains, with counts. Nothing here is authorised to merge or release.
+
+## 14. What §4's 98 findings actually stood at before this slice
+
+§4's nine groups summing to 98 were re-measured on the branch as it stands, and most of them are
+already closed — by slice 2 and by `5be3602bd`, which took the four `LynomiaChat` findings. The
+figure below is **measured, not read off §4**, and `APP_DEBUG` was **off** for every run.
+
+| §4's group | n | state before slice 3 |
+|---|---|---|
+| shared admin chrome (`span.dash-mtext`, the settings tab rail) | **22** | **OPEN. `D-25`, and deliberately left** — see §17 |
+| `.text-danger` on the plan screens | 40 | closed by slice 2 (repair 1, which covers 56 against the widened baseline) |
+| the plan card's figures | 12 | closed by slice 2 (repairs 2, 3) |
+| `/countries`' grid tools | 12 | closed by slice 2 (repair 8) |
+| **vendored `LynomiaChat`** | **4** | **closed 2026-11-26 by `5be3602bd`** — `LynomiaChat` is the one package `CLAUDE.md` permits editing, and the badge and tab were taken there, with the third recorded instance of the inert-class trap |
+| `/plan`'s `li.d-flex` | 2 | closed by slice 2 (repair 4) |
+| `/plan/create`'s unit suffix | 2 | closed by slice 2 (repair 5) |
+| `/plan`'s `btn-info` glyph | 2 | closed by slice 2 (repair 6) |
+| `/plan-coupon#create`'s "Generate" | **2** | **OPEN, and this slice takes it** |
+
+So of the 98, **76 were already closed, 22 are `D-25`, and 2 were open** — the only one of §4's own
+groups a Phase 06 slice may still take being the pair slice 1 left "needing the Phase 2.5
+white-dialog decision re-read rather than assumed". **§15 then found 22 findings that §4 never
+counted at all**, so this slice closed 24, not 2.
+
+**It is re-read, it exists, and it prescribes the repair.** `P2.5-A-01/A-02`, recorded in
+`docs/development/phase-2.5/ACCOUNT-HANDOFF.md` and at `store-syria-ds.css:3611` / `:5786`: the
+host keeps `--bs-modal-bg: #ffffff` even in dark mode, so the dialog is deliberately a white sheet
+and the design system repaired the **ink** on it, not the surface. Its stated consequence is a
+rule, not a judgement call — *"Any design-system component placed inside a modal must carry
+`data-ss-theme="light"`"* — and four views already follow it (`users/create`, `category/create`,
+`product_brand/create`, `finance/index`). Nothing was awaiting an owner.
+
+## 15. TWO SURFACES THAT WERE UNMEASURABLE, AND THAT IS NOT THE SAME AS CLEAN
+
+Re-measuring found that **§4's 98 was never the whole inventory**, for the third time in this
+phase, and both new surfaces were found by ADDING THEM rather than by looking harder:
+
+| surface | why it was not on the list | what it was carrying |
+|---|---|---|
+| `/plan-coupon/{id}/edit` | Tier C is opened by clicking a `data-ajax-popup` trigger on the parent screen. The edit trigger lives in `plan-coupon/action.blade.php`, which renders only once a coupon ROW exists — and `seed-p2dev.php` created **none**. So the grid was empty, no trigger existed anywhere, and the dialog could not be opened at all | `input.btn.btn-badge.btn-primary` "Update" at **2.58:1 dark** — THE defect slice 1 existed to close — plus the same `btn-outline-primary` "Generate" at **3.07:1 dark** as its create twin |
+| `/plan-coupon/{id}` | a `PlatformOperatorOnly` GET that renders a page, so it belonged on Tier A from slice 1. Same missing row: the route does not resolve without one | the DataTables tool buttons at **2.66 / 1.73 / 1.74:1 light** and **1.39 / 1.30 / 1.15 / 1.16:1 dark** against WCAG 2.1 1.4.11's 3:1 non-text floor — **plus 2 more that needed a SECOND fixture row**: with `plan_user_coupons` empty the grid had no data cell, so the order-reference column's `btn-primary` div measured as nothing (§16.3) |
+
+**A MISSING FIXTURE ROW AND A MISSING SURFACE-LIST ENTRY HIDE A DEFECT IDENTICALLY, and neither
+shows up as a failure.** Slice 2 recorded the list-entry half (`plans/edit.blade.php`). This is the
+fixture half, and it is worse, because adding the surface alone would have produced an
+`unreachable` line rather than a finding. `seed-p2dev.php` now seeds one invented coupon.
+
+### 15.1 `/plan-coupon/{id}` was the ONE view in the repository that hand-rolled a DataTable
+
+Censused over every Blade file: **66 views render `<x-datatable>`, and exactly one did not.**
+`plan-coupon/show.blade.php` wrote its own `card` / `card-body table-border-style` /
+`table-responsive` wrapper and called `$dataTable->table()` directly.
+
+That one difference is the whole defect. The component carries `ss-dt-card-body`, and **every**
+repair in `store-syria-ds.css`'s grid-tool block is scoped under that class on purpose — an
+unscoped table rule reaches all 70 vendored modules, which `DesignSystemStylesheetScopeTest`
+refused in P2.5-DESIGN-K. So the one grid outside the component was the one grid still painted by
+the host's raw `btn-light-*` tints: the identical three light ratios slice 2 measured on
+`/countries` before reusing the same class there.
+
+The component's own docblock says "the two tables that build their own markup"; measured now there
+is **one**, and the figure has drifted. Corrected here, and a census test now asserts the set in
+both directions so it cannot drift again silently.
+
+## 16. The baseline and the result
+
+```
+surfaces                   27  (slice 2's 25, plus /plan-coupon/1 and /plan-coupon#edit)
+combinations               4 (light-en, dark-en, light-ar, dark-ar)
+measured (surface x combo) 108 of 108
+premise failures           0
+unreachable                0
+APP_DEBUG                  false   (plus DEBUGBAR_ENABLED=false; grep -c phpdebugbar on a served page = 0)
+
+BEFORE   46 findings in 10 groups
+AFTER    22 findings in  1 group    (the shared chrome only — D-25, excluded)
+```
+
+| surface | before (t/c/i, light-en · dark-en · light-ar · dark-ar) | after |
+|---|---|---|
+| `/plan-coupon/1` | 0/0/**3** · **1**/0/**5** · 0/0/**3** · **1**/0/**5** | **0/0/0 in all four** |
+| `/plan-coupon#create` | 0/0/0 · 0/**1**/0 · 0/0/0 · 0/**1**/0 | **0/0/0 in all four** |
+| `/plan-coupon#edit` | 0/0/0 · 0/**2**/0 · 0/0/0 · 0/**2**/0 | **0/0/0 in all four** |
+
+**24 of 24 addressable findings closed**, and the drop is exactly 24 with **no other row moving** —
+every surface that read 0 still reads 0, and each of the eleven `D-25` surfaces still reads exactly
+1 per dark combination. `store-syria-ds.css` is **unchanged by this slice**; all four repairs are
+reuse of classes it already owns.
+
+### 16.1 ONE OF MY OWN FINDINGS WAS HIDING INSIDE THE `D-25` GROUP, and the census said so
+
+The census keys a group on theme + kind + foreground + background, so the **24**-finding
+`rgb(4,34,42) on rgb(51,93,168)` group in the before log is **not** 24 `D-25` findings. Its selector
+list gives it away:
+
+```
+DARK TEXT rgb(4,34,42) on rgb(51,93,168) 2.58:1 x24 on 12 surfaces
+     selectors: span.dash-mtext | span.btn-inner--text | a.list-group-item…active
+     e.g.: "Coupons" "#P2DEV-ORD-1" "Lynomia Chat Integration" "Dashboard"
+```
+
+**22 are `D-25`'s two chrome selectors and 2 are `span.btn-inner--text` on `/plan-coupon/1`** — the
+order reference, which `PlanCouponDetailDataTable` built as a `btn-primary` div. Same colour pair,
+same ratio, entirely different owner. Reading the group total as the exclusion's size would have
+over-stated `D-25` by 2 and left a finding that is mine unfixed. After the repair the group is 22 on
+11 surfaces and `span.btn-inner--text` is gone from its selector list, which is the check that it
+really was a different element rather than the same one re-labelled.
+
+### 16.1 The three repairs
+
+| # | what | findings | measured before | measured after |
+|---|---|---|---|---|
+| 1 | `plan-coupon/show.blade.php` gains `ss-dt-card-body` on the card body it already had | **16** | bulk-delete 2.66 / 1.30, reset 1.73 / 1.15, reload 1.74 / 1.16, colvis+density — / 1.39 | 5 of 5 icons pass in all four combinations |
+| 2 | `PlanCouponDetailDataTable`'s order-reference cell becomes a `.ss-code` identifier | **2** | `rgb(4,34,42)` on `rgb(51,93,168)` = 2.58:1 | `--ss-fg` #1a1d23 on `--ss-surface-sunken` #eeeff1 |
+| 3 | both coupon dialogs take `data-ss-theme="light"`, and "Generate" becomes `.ss-btn--secondary` | **4** | `rgb(120,148,198)` on the dialog's white sheet = 3.07:1 | `--ss-fg` #1a1d23 on `--ss-surface` #ffffff |
+| 4 | `plan-coupon/edit`'s "Update" becomes `.ss-btn--primary` | **2** | `rgb(4,34,42)` on `rgb(51,93,168)` = 2.58:1 | `--ss-on-brand` #ffffff on `--ss-blue-600` #335da8 |
+
+### 16.2 THE FINDING THAT MATTERS MOST: THE OBVIOUS REPAIR WAS WRITTEN, MEASURED CLEAN, AND WITHDRAWN
+
+Repair 1 was first done the tidy way — render `<x-datatable>` like the other 66 views. It measured
+**0 findings in all four combinations** and would have been reported as finished. It is **not** the
+change that shipped, and no contrast harness could have told me why.
+
+The component also pushes `bulk-delete::pages.script`, which is where `bulkDelete()` is **defined**.
+A capability probe on the live screen, with a `plan_user_coupons` row present so the grid is not
+empty:
+
+| | `.select-row` | `a.bulk-delete` | `typeof window.bulkDelete` |
+|---|---|---|---|
+| committed (hand-rolled) | 1 | 1 | **`"undefined"`** |
+| converted to the component | 1 | 1 | **`"function"`** |
+
+`buildDataTable()` renders the Bulk Delete button and `buildDataTableColumn()` renders the row
+checkbox for **every** grid, so the destructive control is on screen either way — but on this
+screen its handler has never existed, so clicking it throws a `ReferenceError` and deletes nothing.
+**The conversion would have switched on bulk deletion of coupon-redemption history as a side effect
+of a colour change.** That is a business-rule change on an operator screen and a standing
+escalation, not a contrast repair.
+
+So the class is added where it was missing instead: one attribute, the same 16 findings, **zero**
+behaviour change. `PlanCouponScreenLegibilityTest` now *forbids* the conversion and pins the
+component's `@include` as the premise, because the tidier version is exactly what a later reader
+would do as a cleanup.
+
+**The first probe of this could not see it**, and that is worth recording too: with
+`plan_user_coupons` empty the grid had no data row, `.select-row` read **0** on both sides, and the
+reading said the button was harmless. An empty grid hides a capability question exactly as it hides
+a cell defect. Both halves of the fixture are seeded now.
+
+### 16.3 And the empty grid was hiding a finding, one level below a surface
+
+With no redemption row, `/plan-coupon/1`'s "Order ID" column rendered no cell at all — so
+`PlanCouponDetailDataTable`'s `'<div class="btn btn-primary btn-sm text-sm">…'`, built as a raw
+HTML string **in PHP**, measured as nothing. With one row it measures `span.btn-inner--text` at
+**2.58:1 dark**: the host's primary fill, the single defect slice 1 existed to close, in a place no
+Blade census can see — `GAP-296` censused 1,286 Blade files for exactly this class and a DataTable
+closure is outside its population.
+
+It was never a button: no handler, no `href`, no `role`. `.ss-code` is the reuse (slice 1 added it
+for `/platform/resources`' storage paths), and its `unicode-bidi: isolate` additionally stops an
+ASCII order reference reordering inside the Arabic page — a correctness gain the fill never had.
+`e()` is kept and pinned, because `order_id` is in `rawColumns` and a repair that dropped it would
+have traded a contrast finding for a stored-text sink.
+
+## 17. What slice 3 did NOT fix
+
+| n | finding | why not |
+|---|---|---|
+| **22** | `span.dash-mtext` (the active sidebar item) and `a.list-group-item…active` (the settings tab rail), **2.58:1 dark**, rgb(4,34,42) on rgb(51,93,168), on 11 surfaces | **`D-25`, an owner scope decision a Phase 06 slice must not take.** The fix changes chrome **every merchant** sees, not the operator's: the three files that carry `dash-mtext` are `layouts/app.blade.php`, `partision/menu-tree.blade.php` and `partision/menu-zones.blade.php`, and they render on every admin screen across all 70 vendored modules. Re-measured here as exactly 22, unchanged from slice 1 |
+
+**Measured and recorded rather than fixed, outside the 22:**
+
+- **`country/tab.blade.php` carries the unrepaired copy of `/countries`' grid, and it is
+  UNROUTED.** It has `card-body table-border-style` without `ss-dt-card-body` and a
+  `btn btn-sm btn-primary` "Create Country" — the exact markup slice 2 repaired in
+  `country/index.blade.php`, in the partial that would REPLACE those tabs after a create or
+  delete. Searched over every `.php`, `.js` and `.blade.php` outside `vendor/`: the only two hits
+  for its route are the declaration (`routes/web.php:531`, `POST /country-tab`) and the
+  controller's own `view()` call. **Nothing calls it**, so it paints on no screen an operator can
+  reach and its findings are not in the product. It is the one entry in
+  `PlanCouponScreenLegibilityTest::DECLARED_HAND_ROLLED`, declared with that measured reason rather
+  than repaired, because a change with no measurable effect cannot be verified differentially and
+  an unverifiable change reads as a finished repair — §10.2's finding, applied to a whole file. **If that route is
+  ever wired up, this is a live 12-finding regression.**
+- **`plan-coupon/show.blade.php` calls `new jsPDF()` on page load and jsPDF is loaded by nothing.**
+  `layouts/includes/datatable-js.blade.php` ships DataTables, Buttons, colVis, server-side and
+  ColReorder; no jspdf bundle exists under `public/vendor/`. So the block throws a ReferenceError
+  today and does nothing — and if it ever resolved it would pop a PDF in a new window on every
+  view of the screen. Left exactly as it was: it is a separate `<script>`, so the throw does not
+  reach the component's own script, and removing it is a behaviour change outside a contrast slice.
+- **The admin chrome reaches off-origin on every page.** With off-origin requests aborted the run
+  reports **366–367** per full pass: `cdnjs.cloudflare.com` ×56, `unpkg.com` ×28,
+  `ecom-demo.workdo.io` ×6 and `workdo.io` ×1–2 per combination. Not a contrast finding, and it
+  moved **no** count (§18), but it means the operator admin is not self-contained.
+
+## 18. Slice 3 evidence
+
+| | |
+|---|---|
+| source census + arithmetic | `tests/Unit/Ui/PlanCouponScreenLegibilityTest.php` — **11 tests, 97 assertions** (4 passing before the change — 2 premises, the arithmetic, and the one forbidding the withdrawn repair — and **7 ratchets failing**) |
+| the mutation list | `tests/Support/bin/mutate-gap179-slice3.py` — **12 mutations, ALL CAUGHT**, at least one per repaired group |
+| the instrument | `tests/Support/bin/measure-superadmin-premium-live.cjs`, with two surfaces added, `.phpdebugbar` excluded by ancestor, and off-origin requests aborted |
+| the fixture | `database/seed-p2dev.php` — one invented plan coupon and one redemption row, without which two surfaces cannot be reached and a third renders no cell |
+| before / after logs and 24 captures (all 12 pairs differ by hash) | `evidence/gap-179-superadmin-ux-slice-3/` |
+
+**Failing first:** on the unchanged tree, **4 pass and 7 ratchets fail**. The premises passing first is
+what makes the ratchets worth anything.
+
+**ONE MUTATION SURVIVED FIRST TIME AND IT IMPROVED THE TEST,** which is the step earning its keep
+for the third slice running. Mutation 4 added a constant the test never reads, so it changed nothing
+and proved nothing — `mutate.py` guards that the anchor MATCHED, not that it mattered. Rewriting it
+to add a bogus entry to the declared list exposed a real weakness: emptying
+`HAND_ROLLED_AND_REACHABLE` made the repair assertion a no-op while the set comparison still
+passed, so the whole check could be switched off in one line. The two lists are now tied together
+by a rule with no third option, and mutation 4b attacks it directly.
+
+**Live revert:** the four files restored with `git stash` reproduce **exactly 24 findings in
+10 groups** on the three surfaces with the same per-surface distribution, then return to **0 in 0 groups**.
+`php artisan view:clear` between every transform, because Blade recompiles only when the source is
+newer than the compiled file.
+
+### 18.1 THE INSTRUMENT WAS CHANGED, SO IT WAS PROVED TO BE A NO-OP — and then proved to bite
+
+A changed instrument can account for a fall in a total, so both changes were made **before** the
+baseline and measured in both directions.
+
+- **No-op on the numbers.** The unmodified harness over slice 2's 25 surfaces reports **24 findings
+  in 2 groups**; the modified harness over the same 25 reports **24 in 2 groups**, with
+  byte-identical per-surface tables. The 20 extra findings in the 27-surface log are the two new
+  surfaces, not the instrument.
+- **AND THE `.phpdebugbar` EXCLUSION IS NOT INERT, which a no-op alone cannot show.** Measured with
+  `APP_DEBUG=true` and `DEBUGBAR_ENABLED=true`, on `/plan-coupon/1`: with the exclusion removed the
+  harness reports **3 findings per theme** on `span.phpdebugbar-badge.phpdebugbar-visible` at
+  exactly **3.89:1**, rgb(255,255,255) on rgb(235,68,50); with it restored, **0**. Both directions,
+  one surface, same minute. **`CLAUDE.md` §6 says "four findings per theme"; on this surface it is
+  three** — the count is however many badges the bar happens to show, so the figure is not a
+  constant and the right control is the setting, not a number.
+- **The premise assertion still bites.** `--skip-state` on these three surfaces: **3 premise
+  failures, 0 contrast findings, 0 of 3 measured** — nothing measured, which is the only honest
+  outcome for a run that claims a combination it did not write.
+
+**Suites:** `--testsuite=Unit` **6,771 passed, 1 skipped** (60,612 assertions) · `tests/Feature/Platform`
+plus the plan-coupon, operator-principal and subscription security files **343 passed** (1,308
+assertions) · `tests/Unit/Merchant/ArabicUiCoverageTest` + `tests/Unit/Localisation` **58 passed**
+(740 assertions).
+
+## 19. Bilingual — no new strings
+
+**This slice adds no new user-facing string.** Every label it touched was already `__()`-wrapped;
+the changes are a `data-ss-theme` wrapper, class attributes, and `aria-hidden="true"` on the two
+decorative `ti-history` glyphs inside the Generate controls. `ArabicUiCoverageTest` and
+`tests/Unit/Localisation` pass unchanged, and `ArabicUiCoverageTest::SURFACES` needs no widening —
+no view directory was added.
+
+All four combinations were measured for all three surfaces, 0 premise failures, and the Arabic
+labels read back at the repaired tones: "توليد" (Generate) and "تحديث" (Update) on the white dialog
+sheet, and the grid tools "حذف المجموعة", "إعادة تعيين", "إعادة التحميل", "اختيار الأعمدة" and
+"كثافة الصفوف" — every one of which was a finding in Arabic before, and none of which is now. The
+12 after-captures all differ by hash, in both directions.

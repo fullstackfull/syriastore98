@@ -39,11 +39,36 @@ class PlanCouponDetailDataTable extends DataTable
         ->addColumn('title', function ($row) {
             return $row->coupon_detail->name ?? null;
         })
+        /*
+         * GAP-179 / P06-06 slice 3 -- A `btn-primary` FILL BUILT IN PHP, WHICH NO BLADE CENSUS SEES.
+         *
+         * This cell used to be `<div class="btn btn-primary btn-sm text-sm">` wrapping the order
+         * reference. Measured as the operator on `/plan-coupon/{id}`, APP_DEBUG off:
+         * `span.btn-inner--text` at **2.58:1 in dark**, rgb(4,34,42) on rgb(51,93,168) -- the
+         * host's primary fill, which `style-dark.css` paints
+         * `--bs-btn-color: var(--theme-color)` on `--bs-btn-bg: var(--third-color)`. The same
+         * defect slice 1 existed to close, in a place no view carries: a raw-HTML string inside a
+         * DataTable closure. `GAP-296`'s census of 425 occurrences reads Blade files, so this was
+         * outside its population too.
+         *
+         * AND IT WAS INVISIBLE FOR A SECOND REASON: `plan_user_coupons` was empty on the dev
+         * fixture, so the column rendered no cell at all. An empty grid hides a cell defect
+         * exactly as an absent surface hides a screen -- the same lesson as this slice's two
+         * unmeasurable surfaces, one level down. `seed-p2dev.php` now seeds one redemption row.
+         *
+         * `.ss-code` IS THE REUSE, AND THE SEMANTICS ARE THE REAL POINT. The element was never a
+         * button: it has no handler, no href and no role, so a filled pill told the operator it
+         * was actionable. An order reference is a machine identifier, which is what `.ss-code`
+         * is for -- slice 1 added it for `/platform/resources`' storage paths. It takes `--ss-fg`
+         * on `--ss-surface-sunken` (#1a1d23 on #eeeff1 light), so it re-themes by construction,
+         * and its `unicode-bidi: isolate` keeps an ASCII reference from reordering inside the
+         * Arabic page -- a correctness gain the fill never had. No new CSS.
+         *
+         * `e()` stays. The column is in `rawColumns`, so this string reaches the browser
+         * unescaped and the order reference is stored text.
+         */
         ->addColumn('order_id', function ($row) {
-            return '<div class="btn btn-primary btn-sm text-sm" data-toggle="tooltip" ">
-                            <span class="btn-inner--icon"></span>
-                            <span class="btn-inner--text">#'. e($row->order) . '</span>
-                        </div>';
+            return '<span class="ss-code">#' . e($row->order) . '</span>';
         })
         ->addColumn('amount', function ($row) {
             if (isset($row->order_detail->price)) {
