@@ -100,30 +100,33 @@ class ClaudeMdCachableModelClaimTest extends TestCase
         [, $plain] = $this->census();
         $claim = $this->claim();
 
-        /* The paragraph compresses families with brace notation — `Store{Device,Notification}` —
-         * so a model counts as named if either its full name or its distinctive tail appears.
-         * The tail is matched with the brace form's delimiters so a chance substring elsewhere in
-         * a 322-line file cannot satisfy it. */
+        /* The paragraph compresses families with brace notation -- `Store{Device,Notification}`.
+         * EXPAND THE CLAIM, do not probe it. An earlier draft of this test carried a hardcoded
+         * family list (`['Store', 'DeliveryBoy', 'Zid', 'Marketing', 'Theme']`) and substring
+         * probes; `SupportAccess{Approval,Grant}` was then correctly written into CLAUDE.md and
+         * this test still reported both models missing, because a new family needs the list
+         * edited. That is CLAUDE.md's own rule broken inside its own ratchet: a hardcoded list of
+         * the shapes you thought of is always short by the next one. Expanding every brace group
+         * found in the claim needs no maintenance and matches full names EXACTLY, so a chance
+         * substring cannot satisfy it either. */
+        $named = [];
+
+        foreach (preg_split('/`/', $claim) as $token) {
+            if (preg_match('/^([A-Za-z]+)\{([A-Za-z,]+)\}$/', $token, $m)) {
+                foreach (explode(',', $m[2]) as $tail) {
+                    $named[] = $m[1] . $tail;
+                }
+                continue;
+            }
+            if (preg_match('/^[A-Z][A-Za-z]*$/', $token)) {
+                $named[] = $token;
+            }
+        }
+
         $missing = [];
 
         foreach ($plain as $model) {
-            if (str_contains($claim, '`' . $model . '`')) {
-                continue;
-            }
-
-            $named = false;
-            foreach (['Store', 'DeliveryBoy', 'Zid', 'Marketing', 'Theme'] as $family) {
-                if (str_starts_with($model, $family)) {
-                    $tail = substr($model, strlen($family));
-                    foreach ([$family . '{', ',' . $tail . ',', ',' . $tail . '}', '{' . $tail . ','] as $probe) {
-                        if (str_contains($claim, $probe)) {
-                            $named = true;
-                        }
-                    }
-                }
-            }
-
-            if (! $named) {
+            if (! in_array($model, $named, true)) {
                 $missing[] = $model;
             }
         }
