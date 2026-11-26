@@ -7,6 +7,12 @@ $is_checkout_login_required = \App\Models\Utility::GetValueByName('is_checkout_l
     <div class="flex flex-col lg:flex-row gap-8">
         <!-- Left Side - Cart Items -->
         <div class="lg:w-2/3">
+            {{-- A line whose product or variant the merchant has deleted is DROPPED from the
+                 basket by `ApiController::cart_list()` / `Cart::cart_list_cookie()` rather than
+                 answering 500 (GAP-241 / GAP-245 and their guest twin). It is announced ABOVE the
+                 table, because below it the shopper has already read a basket they think is
+                 complete. One shared partial with the checkout summary. --}}
+            @include('front_end.partials.cart-unavailable-notice')
             <!-- Cart Header (Desktop Only) -->
             <div class="overflow-x-auto border border-gray-200 rounded-md">
                 <table class="md:w-full min-w-[650px] border-collapse">
