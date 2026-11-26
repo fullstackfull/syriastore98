@@ -935,3 +935,49 @@ charged or refunded on an uneven swap.
 stock behaviour for any store that has it off, which makes it the same shape as `J1`'s
 `shiping_deduct` — a merchant setting that moves a quantity — rather than a defect to fix on a
 slice's authority.
+
+---
+
+## M. Decisions raised by the 2026-11-26 operations family (`OPS-001`…`OPS-003`)
+
+`OPS-001` and `OPS-003` had **no matrix row of any kind** before this date; the only OPS row in
+either tracker was `GAP-195` → `OPS-002`. All three are now measured, and the monitoring and
+incident mechanisms are built. One decision follows, in five parts, and it is the one that turns a
+record into an operations practice.
+
+### J42 — `OPS-003`: alerting. Five values, and nothing on this platform alerts anybody today
+
+**What ships.** `platform_incidents` and its append-only event trail, a declared state machine
+(`mitigated` ≠ `resolved`; a self-move refused so a second "resolve" click cannot drag `resolved_at`
+forward; a reopen keeps the **first** resolution time), a diagnostics snapshot taken at open and
+never re-measured on read, and two operator screens.
+
+**What does not.** `PlatformIncidentPolicy::isAlertingConfigured()` returns a hard-coded `false`
+**and a test asserts that it does** — so the day somebody wires an alert, the two screens that say
+"nothing alerts anybody" go red with it rather than quietly lying. The policy file is asserted to
+contain **no numeric literal at all**, so no threshold can arrive by accident.
+
+| part | the question | what answering it by accident would cost |
+|---|---|---|
+| thresholds | At what measured value does each figure become an incident — queue depth, oldest waiting job, failures per hour, disk used, connections in use? | A threshold invented by engineering becomes the platform's definition of "broken". |
+| recipients | Who is told, through what channel — in-product only, email, SMS, chat? | Picking a channel commits a cost and a dependency. |
+| response_targets | Does any severity carry a response commitment, and what is it? | **No severity states a response time today, and a word census refuses one** — a promise written into a label is a promise to merchants. |
+| merchant_visibility | Does a merchant ever see a platform incident — status page, banner, nothing? | This is the difference between an internal log and a public status commitment. |
+| retention | How long is an incident and its trail kept? | **Today: for ever, by default.** |
+
+### Not decisions, but owed before this family is complete
+
+- **`GAP-367`** — the shipped `SESSION_DRIVER=database` against a `sessions` table no migration
+  creates, and absent from the *measured* production DDL. The question that comes first is not the
+  migration; it is **what production actually runs**, which only the operator can answer.
+- **`GAP-368`** — no integration records a failure, so "which integrations recently failed" is
+  answerable only for queued work. Design handed over; deliberately not built in payment paths at
+  the end of a long session.
+- **Reachability** (`OPS-001`): whether a gateway, mail host or SMS provider can be reached *right
+  now* needs an outbound request from a web request — a cost, a timeout, and a decision about
+  blocking a page render. Stated on the screen rather than guessed.
+- **Fleet-wide monitoring** is **externally blocked**, not undecided: `/platform/resources`
+  measures the one host serving the request, and "are all web nodes healthy" needs the production
+  host list or an agent per node.
+- **A time series** of resource figures needs a retention rule (yours) and a running scheduler —
+  and this project's own notes record that production may have no `schedule:run` cron at all.
