@@ -453,6 +453,21 @@ anything.
 prepared and MySQL-proven migration, the five legal documents and contact details, the Flutter
 baselines awaiting human review, and `I1`–`I19` above.
 
+### J14 — `GAP-280`: should a basket holding another store's product COMPLETE without it, or keep being refused?
+
+| | |
+|---|---|
+| **Where** | `GAP-280`, `GAP-241`; measurement at `tests/Support/Security/bin/measure-foreign-product-cart-read.php` |
+| **The choice** | **(A)** scope the cart reader to the slug-resolved store, so a foreign line is dropped and reported and **the basket completes without it**; or **(B)** keep the present refusal and only make it name the offending line. |
+| **Engineering has taken (B)** | Integrator decision, 2026-11-26, because (B) changes no behaviour and fixes the user-visible half. (A) is yours. |
+| **Why (A) is not engineering's** | **It is a payments behaviour change, measured rather than argued.** On `POST {slug}/get-payment-paiementpro` with a guest cookie basket: today a mixed own+foreign basket writes **0 orders** and flashes *"item this store does not sell"*; under (A) it writes **1 order** and the shopper's own stock moves **50 → 48**. So a basket that is refused today completes. |
+| **And (A) disarms a control as a side effect** | `basketHasForeignProduct()` takes `$cartlist['product_list']` as its **input**, so dropping the line empties the gate's input and the gate cannot fire. Six security cases assert that refusal. The control's own docblock says it was extended and wired for this leg. |
+| **Cross-tenant protection holds either way** | Measured in all four combinations: **no foreign stock moves and no foreign product reaches an order** under (A) or (B). This is not a tenancy question. |
+| **What (B) leaves unfixed** | The foreign line's price stays folded into the displayed total (`87.00` measured on a `10.00` basket). The basket still cannot be paid — so the total is not a charge — but the screen shows a figure the shopper cannot act on until they remove the line. (B) gives them the affordance; it does not correct the arithmetic. |
+| **(A) additionally needs a second workstream** | The gateway arm lives in `PaymentController` and the gateway controllers. A half-enacted (A) would let a mixed basket through the API arm while the gateway arm still refused it, so behaviour would depend on which checkout the shopper reached. |
+| **Severity, corrected** | The row originally read as a confidentiality exposure. It is **not**: the same principal reads the same name, price and image through store B's own slug on `product-detail` (`GAP-244`'s recorded property). It is an **integrity** defect plus an ownership oracle of small increment. |
+| **Blocked** | Nothing. (B) ships without you. (A) waits. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to
