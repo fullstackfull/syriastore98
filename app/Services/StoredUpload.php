@@ -24,7 +24,9 @@ use Illuminate\Support\Facades\Log;
  *  1. LITERAL PATHS ONLY. No glob expansion: a stored value is a file name, not a pattern.
  *  2. INSIDE THE UPLOADS DIRECTORY. `realpath()` resolves `..` and symlinks BEFORE the comparison and returns false for a path
  *     that does not exist (so a missing file is simply not touched). The trailing separator on the root matters: without it
- *     `/app/uploads-evil` would pass a prefix test against `/app/uploads`. Precedent: ProductController::isInsideUploadsRoot().
+ *     `/app/uploads-evil` would pass a prefix test against `/app/uploads`. The precedent was a private `isInsideUploadsRoot()`
+ *     inside `ProductController`; P1-INV-09 DELETED it when this became the only implementation, so there is no such method to
+ *     grep for today -- the history is in `docs/development/phase-1/12-PHASE-01-TASK-LEDGER.md`.
  *  3. NOT ANOTHER TENANT'S FOLDER. Uploads are namespaced `uploads/<store id>/...` -- or `uploads/uploads/<store id>/...` for
  *     the product gallery, whose helper prepends the prefix twice -- so when the owner is known, the numeric segment after any
  *     leading `uploads` must be one of that owner's stores (the platform operator, who legitimately edits any store's files, is

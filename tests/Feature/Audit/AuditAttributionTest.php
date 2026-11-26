@@ -300,8 +300,8 @@ class AuditAttributionTest extends SecurityTestCase
 
             /*
              * WRITES ARE NOT READS, AND THE FIRST DRAFT OF THIS LIST GOT THAT WRONG. It treated
-             * anything but `record` as a read and so flagged `ThemeVersionController::create()` --
-             * which is `AuditLog::create([...])`, an Eloquent INSERT. That controller writes
+             * anything but `record` as a read and so flagged `ThemeVersionController`'s own
+             * `AuditLog::create([...])` call -- an Eloquent INSERT, not a read. That controller writes
              * directly ON PURPOSE, and its own docblock says why: `record()` used to set
              * `getCurrentStore()`, so a refusal by an operator who named no store was audited
              * against a merchant's store. Phase 03 M4 found this same defect and routed around it;

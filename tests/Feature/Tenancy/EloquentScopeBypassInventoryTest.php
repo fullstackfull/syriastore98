@@ -62,9 +62,10 @@ use Tests\Feature\Security\SecurityTestCase;
  *  WHY NEITHER IS FIXED HERE, AND WHY THAT IS THE RIGHT CALL RATHER THAN A SHRUG.
  * ============================================================================================
  *
- * The obvious fix is a custom Eloquent builder attached by the trait --
- * `BelongsToStore::newEloquentBuilder()` returning a subclass that overrides `forceDelete()`.
- * IT MUST NOT BE DONE THAT WAY, and the reason is a fatal, not a preference:
+ * The obvious fix is a custom Eloquent builder attached by the trait -- a `newEloquentBuilder()`
+ * ON `BelongsToStore`, returning a subclass that overrides `forceDelete()`. NO SUCH METHOD IS
+ * DECLARED ON THAT TRAIT, deliberately: IT MUST NOT BE DONE THAT WAY, and the reason is a fatal,
+ * not a preference:
  *
  *     vendor/genealabs/laravel-model-caching/src/Traits/ModelCaching.php:109 ALREADY declares
  *     `newEloquentBuilder()`, and `Cachable` composes `ModelCaching`. All ten allowlisted models

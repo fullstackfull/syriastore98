@@ -70,7 +70,7 @@ final class CurrencySymbol
      *
      * The test is three ASCII letters, which is the shape of every currency code this product
      * stores: `currency_rates.currency_code`, seeded with the thirteen the settings screen offers
-     * (`SettingController::seedDefaultCurrencyRates()`, `'currency_code' => $currency[0]`), and
+     * (`SettingController::settingForm()`, `'currency_code' => $currency[0]`), and
      * ISO 4217 has no other shape. The case is folded, because `'syp'` and `'SYP'` are one
      * currency and keeping them apart is the same defect in a smaller font.
      *

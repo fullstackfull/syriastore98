@@ -118,7 +118,7 @@ final class CustomerLedgerMoneyTest extends TestCase
      * Named `figures()`, not `metric()`: `MetricResult::metric()` is the RESULT's accessor for its
      * own machine key, and a helper of the same name here made the key assertion below read as if
      * it were asking the object under test rather than the value it returned. It also sent me to
-     * a method that does not exist -- there is no `MetricResult::key()`.
+     * a method that does not exist -- `MetricResult` has no `key()` at all.
      */
     private function figures(): CustomerLedgerMoney
     {

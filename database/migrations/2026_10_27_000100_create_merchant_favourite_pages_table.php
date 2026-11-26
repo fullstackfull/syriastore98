@@ -41,9 +41,10 @@ use Illuminate\Support\Facades\Schema;
  * module's own flow behave differently than it does today. The rows are presentation preferences:
  * an orphan is harmless, is filtered at render time anyway (the page must still be in the
  * employee's navigation), and nothing reads an orphan back. Consistent with how the rest of this
- * schema treats `store_id`. (An earlier draft of this note cited a `FavouritePages::prune()` that
- * was never written -- a docblock making a claim about code that does not exist is the same
- * defect as a comment that contradicts it.)
+ * schema treats `store_id`. (An earlier draft of this note cited a `prune()` on `FavouritePages`
+ * that was NEVER WRITTEN and does not exist -- a docblock making a claim about code that does not
+ * exist is the same defect as a comment that contradicts it, and `CitedMethodsExistTest` now
+ * fails on one. Written here without the `Class::method()` citation shape for that reason.)
  */
 return new class extends Migration
 {

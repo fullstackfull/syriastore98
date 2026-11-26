@@ -9,7 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
  * F98 — the customer list printed shopper-chosen strings into the merchant's admin origin, raw.
  * =============================================================================================
  *
- * `CustomerDataTable::rawColumns()` lists `first_name` and `email`, so yajra does NOT escape
+ * `CustomerDataTable`'s `rawColumns()` call lists `first_name` and `email`, so yajra does NOT escape
  * them. The `first_name` cell is built by string concatenation —
  * `'…">' . $customer->first_name . ' ' . $customer->last_name . '</span><br></a>' . $customer->mobile`
  * — and `email` has no `editColumn` at all, so the raw model value is emitted.
