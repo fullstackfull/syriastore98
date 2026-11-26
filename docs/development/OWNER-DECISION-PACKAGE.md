@@ -492,6 +492,38 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **What follows from each** | Matching the web means the operator loses a capability they have in the shipped app today. Matching the API means your 2026-10-28 decision is narrowed. Either is one change; neither is engineering's to choose. |
 | **Blocked** | Nothing. |
 
+### J17 — `GAP-310`: a flash sale makes a product FREE, and the repair moves prices
+
+| | |
+|---|---|
+| **The choice** | Does a blank sale price mean "no sale price", or a legitimate zero? |
+| **Why it is yours** | The fix is one word. It changes the price of **every product whose merchant left the sale price blank** — a material change to prices, which your standing instruction reserves to you. |
+| **Measured** | `sale_price` is `float NOT NULL DEFAULT 0` and the product form writes `$request->sale_price ?? 0`, so a merchant who does not fill the field stores `0`. `empty(0)` is TRUE. Put that product in a flash sale and `Product::ProductPrice()` answers **`0.00`**, by two separate routes (flat and percentage), and the basket reports **`total_sub_price 0.00`** — the cash a COD driver collects at the door. |
+| **Engineering recommendation** | Treat `0` as absent. But it is pinned KNOWN BAD with the arithmetic rather than repaired, because we must not move prices on our own authority. |
+| **Coupled** | It edits the same expression as `J18` and as `GAP-143`'s 267.00-vs-245.00. Decide `J18` first or decide them together. |
+| **Blocked** | The repair. Nothing else. |
+
+### J18 — `GAP-311` / `PRICE-004`: which discounts may stack, in what order, against which base
+
+| | |
+|---|---|
+| **The choice** | The stacking rule. There is none in the code and `PRICE-004` does not exist. |
+| **Why it is yours** | Every option changes what shoppers pay. |
+| **Measured** | Five layers compound, and their order is an emergent property of which function each sits in: `sale_price` overrides `price` → flash sale applies to the *sale* price → tax → coupon (on a line that already includes tax) → tax again. Driven: list `100.00`, sale `80.00`, flash 10%, 25% coupon → the shopper pays `54.00`, i.e. `100 × 0.80 × 0.90 × 0.75`. **The merchant configured offers summing to 55% off and the shopper got 46%.** `PRICE-005`'s auto-stacking half is breached; its lowest-price half holds. |
+| **Consequence of not deciding** | `J17` and `GAP-143` cannot be repaired either — all three edit the same expression. |
+| **Blocked** | Three pricing repairs. |
+
+### J19 — `GAP-312` / `CUST-005`: must a product review require a purchase?
+
+| | |
+|---|---|
+| **The choice** | Does a review require a completed purchase of that product, and what happens to reviews already published without one? |
+| **Why it is yours** | It is a product rule. Phase 03 is engineering-complete, so inventing it here would be the scope decision `CLAUDE.md` §4.1 forbids. |
+| **Measured** | A customer with **0 orders** posts a review and gets HTTP 200, `status 1`, published immediately, no moderation. No writer consults `orders`, `order_details` or `product_json`. **And there is nowhere to record the fact** — no `verified`, `is_verified`, `verified_purchase` or `order_id` column, asserted against the live schema rather than the migration. |
+| **Engineering** | A column, a writer predicate and a badge. Small, once the rule exists. |
+| **Separately, and already fixed** | A real cross-tenant defect found in the same work: two merchant-panel writers did not scope `product_id`, so one merchant could plant a review on another store's product and that store's own shoppers were served it (`GAP-313`). That needed no decision and is closed. |
+| **Blocked** | The gate. Not the tenancy fix. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to
