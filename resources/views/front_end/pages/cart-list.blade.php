@@ -38,7 +38,7 @@ $is_checkout_login_required = \App\Models\Utility::GetValueByName('is_checkout_l
                                         </svg>
                                     </button>
                                     <div class="h-20 w-20 flex-shrink-0 border bg-gray-100 rounded-lg">
-                                        <img src="{{ get_file($product->image) }}" alt="cart-image"
+                                        <img loading="lazy" decoding="async" src="{{ get_file($product->image) }}" alt="cart-image"
                                             class="h-full w-full object-contain rounded-lg" />
                                     </div>
                                     <div>

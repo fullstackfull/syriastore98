@@ -183,7 +183,7 @@
                                                             <span class="font-medium mr-3">{{ $payment['name_string'] }}</span>
                                                             <div class="center-descrp text-sm"> {{ $payment['detail'] }} </div>
                                                             {{-- <div class="radio-right flex gap-2" style="height: 30px;">
-                                                                <img src="{{ asset($payment['image']) }}" alt="{{ $payment['name'] ?? 'cod'}}" class="paymentimag{{ $payment['name'] }}" style="height: 100%; width: 100%;">
+                                                                <img loading="lazy" decoding="async" src="{{ asset($payment['image']) }}" alt="{{ $payment['name'] ?? 'cod'}}" class="paymentimag{{ $payment['name'] }}" style="height: 100%; width: 100%;">
                                                             </div> --}}
                                                         </label>
                                                     </div>

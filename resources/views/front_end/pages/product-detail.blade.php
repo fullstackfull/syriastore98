@@ -20,7 +20,8 @@
                                     @foreach ($product->Sub_image($product->id)['data'] as $item)
                                     <div class="swiper-slide">
                                         <div class="relative pt-[65%] border bg-gray-100 rounded-lg overflow-hidden">
-                                        <img src="{{ get_file($item->image_path) }}" alt="Organic Vegetable Box"
+                                        <img src="{{ get_file($item->image_path) }}" alt="{{ $product->name }}"
+                                            @if ($loop->first) loading="eager" fetchpriority="high" @else loading="lazy" decoding="async" @endif
                                             class="w-full h-full absolute top-0 left-0 object-contain" />
                                         </div>
                                     </div>
@@ -28,7 +29,8 @@
                                 @else
                                     <div class="swiper-slide">
                                         <div class="relative pt-[65%] border bg-gray-100 rounded-lg overflow-hidden">
-                                        <img src="{{ storefront_image($product->cover_image_path) }}" alt="Organic Vegetable Box"
+                                        <img src="{{ storefront_image($product->cover_image_path) }}" alt="{{ $product->name }}"
+                                            loading="eager" fetchpriority="high"
                                             class="w-full h-full absolute top-0 left-0 object-contain" />
                                         </div>
                                     </div>
@@ -50,7 +52,8 @@
                                     <div class="swiper-slide">
                                         <div
                                         class="relative pt-[90%] thumb-image rounded-lg overflow-hidden border bg-gray-100 cursor-pointer">
-                                        <img src="{{ get_file($item->image_path) }}" alt="Organic Vegetable Box - View 1"
+                                        <img src="{{ get_file($item->image_path) }}" alt="{{ $product->name }}"
+                                            loading="lazy" decoding="async"
                                             class="absolute top-0 left-0 w-full h-full object-contain" />
                                         </div>
                                     </div>
@@ -58,7 +61,8 @@
                                 @else
                                 <div class="swiper-slide">
                                     <div class="relative pt-[90%] thumb-image rounded-lg overflow-hidden border bg-gray-100 cursor-pointer">
-                                    <img src="{{ storefront_image($product->cover_image_path) }}" alt="Organic Vegetable Box - View 2"
+                                    <img src="{{ storefront_image($product->cover_image_path) }}" alt="{{ $product->name }}"
+                                        loading="lazy" decoding="async"
                                         class="absolute top-0 left-0 w-full h-full object-contain" />
                                     </div>
                                 </div>

@@ -19,7 +19,7 @@
         <div id="mobile-menu" class="mobile-menu fixed inset-y-0 right-0 z-50 bg-white shadow-xl transform translate-x-full transition-transform duration-300 ease-in-out overflow-y-auto">
             <div class="flex justify-between items-center p-4 border-b">
             <a href="{{ route('landing_page', $slug) }}" class="block max-w-[110px] w-full">
-                <img src="{{ get_file($themeSettings['header_logo'] ?? '') }}" alt="logo" class="logo-img">
+                <img loading="eager" src="{{ get_file($themeSettings['header_logo'] ?? '') }}" alt="logo" class="logo-img">
             </a>
             {{-- M2-E a11y: icon-only, no accessible name (axe button-name, critical). --}}
             <button id="close-mobile-menu" aria-label="{{ __('Close') }}" class="text-gray-500 hover:text-green-800 transition-colors">
@@ -71,7 +71,7 @@
             <div class="bg-white rounded-lg p-6 m-4 max-w-sm w-full">
                 <div class="text-center">
                     <div class="mb-4">
-                        <img src="{{ $faviconUrl ?? get_file($themeSettings['header_favicon'] ?? '') }}" alt="App Icon" class="w-16 h-16 mx-auto rounded-lg">
+                        <img loading="lazy" decoding="async" src="{{ $faviconUrl ?? get_file($themeSettings['header_favicon'] ?? '') }}" alt="App Icon" class="w-16 h-16 mx-auto rounded-lg">
                     </div>
                     <h3 class="text-lg font-semibold mb-2">{{ __('Install App') }}</h3>
                     <p class="text-gray-600 mb-4">{{ __('Install our app for a better experience') }}</p>
@@ -328,7 +328,7 @@
         fbq('init', '{{ $fbpixel_code ?? '' }}');
         fbq('track', 'PageView');
     </script>
-    <noscript><img height="1" width="1" style="display:none"
+    <noscript><img loading="eager" height="1" width="1" style="display:none"
         src="https://www.facebook.com/tr?id=0000&ev=PageView&noscript={{ $fbpixel_code ?? '' }}" /></noscript>
 
 @if(\Request::route()->getName() == 'page.contact_us')

@@ -19,7 +19,7 @@
                      view was cut from, and printed for EVERY line of the slide-out basket -- so a screen
                      reader announced a shopper's whole cart as one sourdough loaf, in both languages. Not a
                      translation defect: no `__()` call means no key census could ever see it. --}}
-                <img src="{{ get_file($product->image) }}" alt="{{ $product->name }}"
+                <img loading="lazy" decoding="async" src="{{ get_file($product->image) }}" alt="{{ $product->name }}"
                     class="object-contain h-full w-full" />
             </a>
             <div class="flex-1">

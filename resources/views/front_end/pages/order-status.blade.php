@@ -23,7 +23,7 @@
             <div class="md:container w-full mx-auto px-4">
                 <div class="account-info flex flex-col md:flex-row md:items-center mb-5 p-4 rounded-lg lg:gap-10 gap-5">
                     <div class="profile-img md:w-32 md:h-32 w-24 h-24 rounded-full overflow-hidden">
-                        <img src="{{ get_file($customer->profile_image ?? 'storage/uploads/customerprofile/avatar.png') }}" alt="profile-img" class="w-full h-full object-cover">
+                        <img loading="lazy" decoding="async" src="{{ get_file($customer->profile_image ?? 'storage/uploads/customerprofile/avatar.png') }}" alt="profile-img" class="w-full h-full object-cover">
                     </div>
                     <div class="flex-1">
                         <h3 class="text-2xl font-bold mb-4">{{ !empty($order_detail['delivery_informations']['name']) ? $order_detail['delivery_informations']['name'] : $customer->first_name }}</h3>

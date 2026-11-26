@@ -4,7 +4,7 @@
         class="bg-white product-card rounded-lg shadow-lg overflow-hidden transition duration-300 group flex flex-col border border-gray-100 h-full">
         <a href="{{ route('page.product', [$slug, $product->slug]) }}" class="relative">
             <div class="h-60 relative overflow-hidden product-img p-3">
-                <img src="{{ asset($product->cover_image_path ?? 'themes/greentic/assets/images/product-01.png') }}" alt="Fresh Organic Onion"
+                <img src="{{ asset($product->cover_image_path ?? 'themes/greentic/assets/images/product-01.png') }}" alt="{{ $product->name }}" loading="lazy" decoding="async"
                     class="w-full h-full object-contain group-hover:scale-105 transition duration-500">
                     {!! \App\Models\Product::actionLinks( $store, $product) !!}
                     <div class="absolute top-4 left-4 flex flex-col gap-2">

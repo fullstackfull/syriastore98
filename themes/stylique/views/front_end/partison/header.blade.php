@@ -8,7 +8,7 @@
               <div class="logo-col">
                 <h1>
                     <a href="{{ route('landing_page', $slug) }}">
-                      <img src="{{ get_file($themeSettings['header_logo'] ?? '') }}" alt="Logo">
+                      <img src="{{ get_file($themeSettings['header_logo'] ?? '') }}" alt="Logo" loading="eager">
                     </a>
                 </h1>
               </div>

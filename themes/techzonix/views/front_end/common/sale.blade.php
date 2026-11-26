@@ -3,6 +3,7 @@
     <div class="container mx-auto px-4">
         <div class="relative overflow-hidden rounded-2xl lg:py-20 lg:px-10 sm:p-6 px-4 py-8">
             <img
+                loading="lazy" decoding="async"
                 src="{{ get_file($themeSettings['more_offer_image'] ?? 'themes/techzonix/assets/images/offer-banner.png') }}"
                 alt="Offer Banner"
                 class="absolute inset-0 w-full h-full object-cover sm:object-center object-left rtl:scale-x-[-1]"

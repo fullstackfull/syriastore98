@@ -30,9 +30,9 @@
               <h2 class="text-2xl lg:text-3xl font-bold mb-6">{{ $blog->title ?? '5 Essential Tips for Smart Grocery Shopping and Food Storage' }}</h2>
               <div class="flex flex-wrap items-center text-gray-500 mb-6 sm:gap-5 gap-3">
                 <div class="flex items-center gap-3">
-                  <img
+                  <img loading="eager"
                     src="{{ asset('avatar.png') }}"
-                    alt="Emma Wilson" class="w-10 h-10 rounded-full" />
+                    alt="{{ ucwords($user->name ?? '') }}" class="w-10 h-10 rounded-full" />
                   <span>{{ ucwords($user->name ?? 'Emma Wilson') }}</span>
                 </div>
                 <div class="flex flex-wrap items-center sm:gap-5 gap-3">
@@ -51,9 +51,9 @@
               </div>
               <!-- Featured Image -->
               <div class="rounded-xl overflow-hidden max-h-[450px] h-full mb-6">
-                <img
+                <img loading="eager" fetchpriority="high"
                   src="{{storefront_image($blog->cover_image_path) ?? 'assets/images/article-banner-1.png' }}"
-                  alt="article-banner"
+                  alt="{{ $blog->title ?? '' }}"
                   class="w-full h-full object-cover" />
               </div>
             </div>
@@ -124,7 +124,7 @@
                @foreach ($blogs as $blog)
                <a href="{{ route('page.article', [$store->slug, $blog->slug]) }}" class="group">
                  <div class="mb-3 overflow-hidden rounded-lg">
-                   <img src="{{ get_file($blog->cover_image_path ?? 'assets/images/article-1.png') }}" alt="article-image" class="w-full h-48 object-cover transition duration-300 transform group-hover:scale-105">
+                   <img loading="lazy" decoding="async" src="{{ get_file($blog->cover_image_path ?? 'assets/images/article-1.png') }}" alt="article-image" class="w-full h-48 object-cover transition duration-300 transform group-hover:scale-105">
                  </div>
                  <span class="text-sm text-primary font-medium">{{$blog->title ?? 'Food Storage'}}</span>
                  <h3 class="font-semibold text-lg mt-2">{!! $blog->short_description ?? 'Beginner\'s Guide to Keeping Fruits and Veggies Fresh' !!}</h3>
