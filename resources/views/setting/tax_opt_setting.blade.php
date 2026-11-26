@@ -34,9 +34,12 @@
             the component itself.
 
             WHY THIS SENTENCE AND NOT A RESTATEMENT OF THE LABELS. The inclusive behaviour is
-            conditional on BOTH this setting and `shop_price`, measured at four call sites --
-            app/Models/Cart.php:718, app/Models/Cart.php:1010, app/Models/Product.php:420 and
-            app/Models/Tax.php:73 -- each of which reads
+            conditional on BOTH this setting and `shop_price`. THIS COMMENT SAID "four call sites"
+            AND THAT WAS UNDERSTATED; re-measured 2026-11-26 there are TEN, and one of the four it
+            listed had drifted (Cart.php:1010 -> :1036): app/Models/Cart.php:718 and :1036,
+            app/Models/Product.php:420, app/Models/Tax.php:73,
+            app/Http/Controllers/ProductController.php:5000, :5145 and :5293, and
+            app/Http/Controllers/PosController.php:215, :529 and :789 -- each of which reads
             `price_type == 'inclusive' && shop_price == 'including'`. So a merchant who chooses
             inclusive here and leaves the select below on Exclusive Tax gets tax added on top of
             a price that already contains it, and nothing on the screen said so.
@@ -79,11 +82,32 @@
 
             <div class="col-lg-4 col-sm-6">
                 <div class="ss-field">
+                    {{-- GAP-060 / P02-I4. THE SECOND HALF OF THE PAIR, which the fieldset above
+                         already tells the merchant matters while this control said nothing.
+
+                         `x-ss.field-help` AND NOT `x-ss.choice-group`: a `<select>` is ONE control
+                         in the accessibility tree -- its options are not siblings in the tab order
+                         -- so a fieldset here would be the wrong association rather than a
+                         stricter one. The component's own docblock carries that reasoning.
+
+                         THE CLAIM WAS COUNTED, NOT ASSUMED. Ten sites in `app/` read
+                         `price_type == 'inclusive' && shop_price == 'including'` or its negation:
+                         Cart.php:718 and :1036, Product.php:420, Tax.php:73,
+                         ProductController.php:5000/:5145/:5293 and
+                         PosController.php:215/:529/:789. Every one tests the PAIR, so either
+                         setting alone changes nothing -- which is exactly what a merchant cannot
+                         see from two controls in two different boxes. (The fieldset's own comment above
+                         said "four call sites" and listed a line that had drifted; it is corrected
+                         in place, with the old figure withdrawn rather than overwritten, after the
+                         ten were re-counted independently.) --}}
                     <label class="ss-label" for="shop_price">{{ __('Display prices in the shop') }}</label>
-                    <select class="ss-input" id="shop_price" name="shop_price">
+                    <select class="ss-input" id="shop_price" name="shop_price"
+                            aria-describedby="shop_price-help">
                         <option value="including" @selected(($tax_option['shop_price'] ?? '') === 'including')>{{ __('Including Tax') }}</option>
                         <option value="exclusive" @selected(($tax_option['shop_price'] ?? '') === 'exclusive')>{{ __('Exclusive Tax') }}</option>
                     </select>
+
+                    <x-ss.field-help for="shop_price">{{ __('Set this to Including Tax only if the Prices entered with tax choice above is Yes, I will enter prices inclusive of tax. Ten places test the two settings together, so either one on its own leaves tax added on top of a price that already contains it.') }}</x-ss.field-help>
                 </div>
             </div>
 

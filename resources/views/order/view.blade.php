@@ -180,6 +180,36 @@
                 <div class="ss-card">
                     <div class="ss-card__body">
                         <div class="row row-gap  justify-content-end">
+                            {{-- GAP-060 / P02-I4. ONE INSTRUCTION FOR BOTH TOOLBAR SELECTS, and the
+                                 shape is measured rather than preferred.
+
+                                 WHY NOT ONE HINT PER CONTROL, which is the pattern everywhere else
+                                 in this round: each of these columns is `d-flex align-items-center`
+                                 and measures **188x40 at 1440px, 340x40 at 390px**, with the select
+                                 as its only child. A `<p>` added as a second flex ROW child sits
+                                 BESIDE the select and halves it; stacked with `flex-column`, a
+                                 ~150-character sentence in a 172px box wraps to seven or eight
+                                 lines and takes this toolbar from 40px to roughly 190px. That is a
+                                 redesign of the order screen's header, not an instruction.
+
+                                 AND THE FACT IS SHARED, which is what makes one sentence correct
+                                 rather than merely convenient. `:1012` and `:1033` below bind
+                                 `change` on `#payment_status` and `#delivery_boy` straight to
+                                 `order.payment.status` and `order.assign`: both POST IMMEDIATELY,
+                                 there is no Save button in this toolbar and no confirmation step,
+                                 and both only raise a success toast afterwards. Neither control
+                                 says so. `aria-describedby` may name the same id from more than one
+                                 control, so describing both from here is exact, not approximate.
+
+                                 It takes its own full-width column FIRST, so the row's gap and its
+                                 `justify-content-end` are untouched and the toolbar keeps its shape.
+
+                                 A DESCRIPTION IS NOT A NAME: both selects keep the `aria-label`
+                                 they already had, because they have no visible label to fall back
+                                 on. --}}
+                            <div class="col-12 px-2">
+                                <x-ss.field-help for="order-controls">{{ __('The payment status and delivery assignment below save immediately when you change them. There is no Save button for these two and no confirmation step.') }}</x-ss.field-help>
+                            </div>
                             <div class="col-xxl-2 col-lg-3 col-sm-4 col-12 px-2 d-flex align-items-center">
                                 <div class="btn-group w-100" id="deliver_btn">
                                     <button
@@ -295,6 +325,7 @@
                                     'class' => 'form-control select category h-100 ss-select',
                                     'style' => 'padding-right: 35px !important;',
                                     'id' => 'delivery_boy',
+                                    'aria-describedby' => 'order-controls-help',
                                     'aria-label' => __('Delivery Boy'),
                                     'disabled' => $disableSelectBox,
                                 ]) !!}
@@ -318,6 +349,7 @@
                                 {!! Form::select('payment_status', $ssPaymentOptions, $order['payment_status'], [
                                     'class' => 'form-control select category btn-badge h-100 ss-select',
                                     'id' => 'payment_status',
+                                    'aria-describedby' => 'order-controls-help',
                                     'aria-label' => __('Payment Status'),
                                 ]) !!}
                             </div>

@@ -15,22 +15,22 @@
              never grows a second menu entry somewhere else. --}}
         <ul class="nav nav-tabs mb-3" role="tablist">
             <li class="nav-item">
-                <a class="nav-link active" data-bs-toggle="tab" href="#lynomia-overview" role="tab">{{ __('Overview') }}</a>
+                <a class="nav-link active" data-bs-toggle="tab" href="#lynomia-overview" role="tab"><span class="ss-text-strong">{{ __('Overview') }}</span></a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" data-bs-toggle="tab" href="#lynomia-seats" role="tab">{{ __('Agent Seats') }}</a>
+                <a class="nav-link" data-bs-toggle="tab" href="#lynomia-seats" role="tab"><span class="ss-text-strong">{{ __('Agent Seats') }}</span></a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" data-bs-toggle="tab" href="#lynomia-automation" role="tab">{{ __('Automation') }}</a>
+                <a class="nav-link" data-bs-toggle="tab" href="#lynomia-automation" role="tab"><span class="ss-text-strong">{{ __('Automation') }}</span></a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" data-bs-toggle="tab" href="#lynomia-notices" role="tab">{{ __('Merchant notices') }}</a>
+                <a class="nav-link" data-bs-toggle="tab" href="#lynomia-notices" role="tab"><span class="ss-text-strong">{{ __('Merchant notices') }}</span></a>
             </li>
             <li class="nav-item">
                 <a class="nav-link" data-bs-toggle="tab" href="#lynomia-accounts" role="tab">
-                    {{ __('Merchant Accounts') }}
+                    <span class="ss-text-strong">{{ __('Merchant Accounts') }}</span>
                     @if ($pendingCount > 0)
-                        <span class="badge bg-warning">{{ $pendingCount }}</span>
+                        <span class="ss-badge ss-badge--warning">{{ $pendingCount }}</span>
                     @endif
                 </a>
             </li>
@@ -46,9 +46,9 @@
                                 <th style="width:260px">{{ __('Integration enabled') }}</th>
                                 <td>
                                     @if ($integrationEnabled)
-                                        <span class="badge bg-success">{{ __('Yes') }}</span>
+                                        <span class="ss-badge ss-badge--success">{{ __('Yes') }}</span>
                                     @else
-                                        <span class="badge bg-secondary">{{ __('No') }}</span>
+                                        <span class="ss-badge">{{ __('No') }}</span>
                                     @endif
                                 </td>
                             </tr>
@@ -56,9 +56,9 @@
                                 <th>{{ __('Credentials present') }}</th>
                                 <td>
                                     @if ($integrationConfigured)
-                                        <span class="badge bg-success">{{ __('Yes') }}</span>
+                                        <span class="ss-badge ss-badge--success">{{ __('Yes') }}</span>
                                     @else
-                                        <span class="badge bg-warning">{{ __('No') }}</span>
+                                        <span class="ss-badge ss-badge--warning">{{ __('No') }}</span>
                                     @endif
                                 </td>
                             </tr>
