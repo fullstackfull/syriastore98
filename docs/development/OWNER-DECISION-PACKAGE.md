@@ -1027,3 +1027,55 @@ opted out and documented it; `CTRL-003` independently hit the identical defect a
 more routes. Neither registered the general case, so the next workstream finds it again — and every
 route nobody has reached yet is still silently corrupting text. Any of (1) or (2) changes what every
 panel write stores, which is why it is yours.
+
+---
+
+## O. Decisions raised by the 2026-11-26 control family (`CTRL-001`…`CTRL-004`)
+
+None of the four ids is in the traceability matrix; the register covers all four through a range
+(`GAP-199`), which a literal grep cannot see. Two are now closed (`CTRL-002`, `CTRL-004`). The
+engineering for the other two is delivered and four values are yours.
+
+### J44 — `CTRL-003`: the text of five public policies
+
+`PlatformContent::LEGAL_DOCUMENTS` carries terms of service, privacy notice, acceptable use,
+billing-and-refunds and customers'-data handling — **all five marked `owed => true` with no built-in
+copy.** The editor, the public page and the operator-only write guard all exist and are tested.
+
+**The words bind the business, so they were not invented.** This is the clearest case in the whole
+package of a blank that only you can fill.
+
+### J45 — `CTRL-003`: may a maintenance announcement be aimed at a subset of merchants?
+
+Announcements are built and are **platform-wide with no audience targeting**, because `CTRL-001`
+names three axes and `CTRL-003` names none. The first thing an operator will ask for is "announce it
+to the pilot group first" — and the primitives for that are two tables away, which is exactly why it
+is a question rather than a commit.
+
+Worth knowing: **a merchant who only uses the Flutter app sees no maintenance announcement.**
+Measured in the second repository — there is no announcement or maintenance surface in `lib/`, so
+there was nothing to extend, and `api/admin` is untouched, which preserves the shipped app's
+contract.
+
+### J46 — `CTRL-003`: is the change log the operator's record, or merchant-readable release notes?
+
+«سجل تغييرات» is read here as **the operator's record** of platform-control changes, which §06-H's
+subject matter supports. A second reading is merchant-facing release notes. **Both are defensible
+from the sentence and they are different products.** The operator's record is what was built —
+append-only, enforced at the Eloquent boundary, with a test asserting the *limit* of that
+enforcement (a raw `DB::table()->delete()` still works), so the docblock cannot quietly become a
+claim of immutability.
+
+### J47 — `CTRL-001`: may a merchant see which pilots they are in?
+
+`platform_pilot_group_members` is the only place that records it, and nothing merchant-facing was
+built. A merchant being enrolled in a pilot without being told is a product posture, not an
+oversight.
+
+### Human acceptance owed on this family
+
+Three views are asserted to declare **no colour at all** (no inline style, no hex, no `rgb()`/`hsl()`,
+none of the host colour classes) and to pin no physical side. **That is a census, not a
+measurement** — nobody has run the compositing contrast harness with `APP_DEBUG` off, and nobody has
+looked at the RTL rendering or at the announcement banner's placement above `@yield('content')` on a
+real dashboard, order list or product form.
