@@ -26,6 +26,7 @@ Each of these has produced a real defect. Do not assume the framework default.
   ```
 - `User::creatorId()` returns `$this->id` for type `admin`/`super admin`, else `created_by`; a user whose type is `admin` is the root of their own tenant. **`created_by = 1` is NOT a tenant, and reading it as one was an account-takeover:** every merchant has `created_by = 1`, and a merchant can demote their own `type` through the product (`PUT /users/{self}` with a role they created), which drops `creatorId()` to 1 and used to make `sameTenant()` true against *every* merchant.
   `UserPolicy::sameTenant()` now requires the tenant root to be a **type-`admin`** row — full chain in `docs/security/P0-USER-DELETION-CASCADE.md` §7.
+- **A HANDLER-LEVEL CHECK BEHIND AN `abort()`ING MIDDLEWARE IS INVISIBLE TO AN HTTP TEST.** The middleware answers 403 and the handler is never reached, so the route returns 403 whether or not the handler checks anything — `PlanController::planDisable` ADMITTED a `Customer` typed `super admin` (200, plan disabled) behind a gate whose HTTP tests were green (`GAP-307`). Call the handler directly. Two independent instances on 2026-11-26. And key a refusal assertion on the REASON: a gateless handler's own "not found" branch is also a 302, so a 302 from a missing row and a 302 from a gate are the same status and opposite facts.
 
 **Tenancy**
 
