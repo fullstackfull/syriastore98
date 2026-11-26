@@ -16,10 +16,21 @@ use Illuminate\Support\Facades\DB;
  * =============================================================================================
  *
  * ONE DEFECT, TWO REGISTERED ROWS, AND THE REGISTER SAYS THEY ARE ONE DECISION. The crash lives
- * in `Api\ApiController::cart_list()`:
+ * in `Api\ApiController::cart_list()`, in the OUTER `else` — the arm that runs whenever
+ * `module_is_active('WholesaleProduct')` is false, which is every test run and every install
+ * without that module:
  *
- *     :801   $value->product_data->id            the product row is gone
- *     :810   $ProductVariant->discount_price     the variant row is gone
+ *     :883   $value->product_data->id            the product row is gone
+ *     :892   $ProductVariant->discount_price     the variant row is gone
+ *
+ * THOSE TWO NUMBERS WERE WRONG IN THE COMMIT THAT ADDED THIS FILE, and the way they were wrong is
+ * worth more than the numbers. They read `:801` / `:810`, which is what the register says and what
+ * was CORRECT at this commit's parent — my own insertion of ~60 lines higher up in the same method
+ * moved them, which is CLAUDE.md §3's named hazard ("an absolute line citation goes stale on any
+ * insertion above it"). Corrected by re-measuring against the parent
+ * (`git show <sha>^:app/.../ApiController.php`) rather than against HEAD. The first correction was
+ * ALSO wrong, at `:859` / `:869`: `cart_list` has TWO nested non-module arms and that pair is the
+ * INNER one, reachable only with `WholesaleProduct` active. Check the nesting, not just the text.
  *
  * `carts` carries NO foreign key onto `products` or `product_variants`
  * (2024_01_18_103138_create_carts_table.php, measured), so a basket line whose product or variant
@@ -74,11 +85,47 @@ use Illuminate\Support\Facades\DB;
  *      basket that appears fine and a checkout that says "Product not found." about a line the
  *      screen no longer shows them -- a dead end with no affordance to clear it.
  *
+ *      A CONSEQUENCE FOR THE NEIGHBOURING SUITE, recorded so the next reader is not misled: FOUR
+ *      of `StorefrontCartNullDereferenceTest`'s nine cases now pass by a DIFFERENT MECHANISM than
+ *      the one they were written for. Its stale baskets hold only the stale line, so the forward
+ *      now returns an empty `product_list` and `cart-check` answers `status 0` "Cart is empty."
+ *      where it used to answer `status 0` "Product not found.". Those assertions read the status
+ *      and cannot see the swap. Correct per GAP-241 -- but it means NOTHING pins
+ *      "Product not found." for `cart_check` any more, so if that message is ever required again
+ *      it needs its own case rather than being assumed covered.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * WHAT THIS FILE DOES NOT MOVE, AND THE ONE THING A DROP CAN.
+ *
+ * The claim is narrow and stays narrow: NO ORDER TOTAL THAT WORKS TODAY MOVES, because every
+ * basket that reaches the dropped-line path answers 500 today and so has no total to move. The
+ * BROADER form -- "dropping a line cannot change the remaining lines' arithmetic" -- is FALSE, and
+ * is written out here so nobody later reads the narrow claim as the broad one:
+ *
+ *   * `:1067` taxes the POST-COUPON line price, and that comes from
+ *     `CouponBasketAllocator::discountForLine()`, whose flat share is
+ *     `flatDiscount * lineTotal / basketSubtotal`. `basketSubtotal` is `$cart_final_price`, which
+ *     now excludes dropped lines -- so a drop redistributes a flat coupon across the survivors and
+ *     moves their tax with it.
+ *   * `spendIsOutOfRange()` (`CouponBasketAllocator:105`) reads the SAME figure, so a drop can
+ *     push a basket under `minimum_spend` and make an otherwise valid coupon inert.
+ *   * SHIPPING genuinely cannot move: the per-line accumulator `$shipping_original_price` (`:962`)
+ *     is dead, because `:1189` publishes the scalar `$shipping_price` instead.
+ *
+ * The coupon case below is the only arithmetic a drop can actually move, so it is the one that
+ * gets a case rather than a sentence.
+ *
  * ---------------------------------------------------------------------------------------------
  * TOKEN CLASSES. `custom.auth` logs a Sanctum token's owner into the guard matching its TOKENABLE
  * CLASS, so a merchant's and a driver's token both pass the middleware with `auth('customers')`
- * null. A customer-token-only probe of this family therefore proves nothing, and the last case
- * drives all three.
+ * null. A customer-token-only probe of this family therefore proves nothing, and the last cases
+ * drive all three.
+ *
+ * THOSE TWO REFUSALS ARE A PREMISE, NOT REGRESSION COVERAGE FOR THIS CHANGE. The merchant and
+ * driver cases pass against pre-GAP-241 code too: their 401 is the EARLIER slice's
+ * `resolveStoreCustomer()` refusal and it short-circuits before this loop is reached. They are
+ * here so that a future change which reintroduces a request-derived branch reddens something --
+ * not as evidence that this change is contained.
  */
 class StorefrontStaleCartLineTest extends SecurityTestCase
 {

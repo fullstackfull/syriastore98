@@ -460,12 +460,39 @@ public function saveStoreFcmToken(Request $request)
                  * disclosure of another merchant's product name. Found by reviewing this change
                  * rather than the original handler.
                  *
+                 * WHAT THIS GATE PROTECTS, AND -- JUST AS IMPORTANT -- WHAT IT DOES NOT.
+                 * It covers the NAME on a DROPPED line, which is the field this change added. The
+                 * SURVIVING-line arm of this same loop still hands a foreign product's `image`
+                 * (`:917`), `name` (`:919`) and price over with no gate at all, because
+                 * `$value->product_data` is an unscoped `hasOne(Product::class)` and
+                 * `Product::ProductPrice()` does its own unscoped `Product::find()` (`Product.php:320`).
+                 * So for the SAME foreign cart row: variant alive -> the full record is disclosed;
+                 * variant deleted -> this gate withholds only the name. That is PRE-EXISTING and
+                 * wider than what is fixed here, it is reported for its own register row, and this
+                 * comment must not be read as claiming it. Such a line cannot be ORDERED --
+                 * `basketHasForeignProduct()` guards `place_order:3800`, `payment_sheet:9295` and
+                 * `ordersave:10182` -- only read.
+                 *
                  * THE TEST IS A PROVABLE MISMATCH, NOT EQUALITY, which is this file's existing
                  * policy and not a new reading of the column: `products.store_id` is NULLABLE
                  * (2023_12_26_092822_create_products_table.php:49) and
                  * `productOfCartLineStore()` already accepts a NULL and refuses only a provable
-                 * mismatch (GAP-237). Equality would have dropped the name for a legacy product
-                 * with no `store_id` -- a worse message for no gain.
+                 * mismatch (GAP-237).
+                 *
+                 * AND THAT LEAVES ONE VALUE DISCLOSED, DELIBERATELY. Enumerated: `NULL` ->
+                 * disclosed; `0`, `''` and any non-zero foreign id -> withheld; this store's own id
+                 * -> disclosed, correctly. So a `store_id IS NULL` product named by a store-A cart
+                 * row whose variant has been deleted still yields its name, and such products are
+                 * producible (`ProductController:912` is `$Product->store_id = getCurrentStore();`,
+                 * which answers null for a storeless user). This is an ACCEPTED RESIDUAL rather
+                 * than a hole: it is the same NULL allowance `productOfCartLineStore()` already
+                 * makes, and reaching it needs a vendored module cart writer.
+                 *
+                 * AN EARLIER VERSION OF THIS COMMENT OVERSTATED THE COST OF EQUALITY -- it said
+                 * equality would have dropped the name "for no gain", implying breakage. Corrected:
+                 * equality would withhold only the NAME, the shopper would still get the generic
+                 * "Some items are no longer available" message, and no pricing and no flow would
+                 * change. The choice between them is a message-quality trade, not a safety one.
                  */
                 $ssNameIsOurs = ! empty($ssLineProduct)
                     && ($ssLineProduct->store_id === null
@@ -3611,7 +3638,7 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             // P01-SEC-14 F5. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART
             // READ THIS ORDER IS BUILT FROM.
             //
-            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:203) with
+            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:365) with
             // no floor and adds it to `sub_total` and `total_sub_price`. MEASURED through
             // api/{slug}/place-order on a 100.00 basket: posting `shipping_final_price = -900`
             // wrote `orders.product_price = -800.0`, and `500` wrote `600.0`, against `100.0` when
@@ -8024,7 +8051,7 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             // P01-SEC-14 F5. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART
             // READ THIS ORDER IS BUILT FROM.
             //
-            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:203) with
+            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:365) with
             // no floor and adds it to `sub_total` and `total_sub_price`. MEASURED through
             // api/{slug}/place-order on a 100.00 basket: posting `shipping_final_price = -900`
             // wrote `orders.product_price = -800.0`, and `500` wrote `600.0`, against `100.0` when
@@ -9893,7 +9920,7 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             // P01-SEC-14 F5. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART
             // READ THIS ORDER IS BUILT FROM.
             //
-            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:203) with
+            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:365) with
             // no floor and adds it to `sub_total` and `total_sub_price`. MEASURED through
             // api/{slug}/place-order on a 100.00 basket: posting `shipping_final_price = -900`
             // wrote `orders.product_price = -800.0`, and `500` wrote `600.0`, against `100.0` when
