@@ -239,6 +239,18 @@ class OrderPackingListScreenTest extends SecurityTestCase
         $this->assertStringContainsString('Woollen scarf as recorded', $body,
             'the line items disappeared when the page was rendered right-to-left');
 
+        /*
+         * AND THE HEADING IS IN ARABIC. `ArabicUiCoverageTest` caught all six of this partial's
+         * strings missing from `resources/lang/ar.json` -- they rendered in English on an Arabic
+         * merchant's screen -- so the one a reader sees first is pinned behaviourally here as well
+         * as by that census.
+         */
+        app()->setLocale('ar');
+        $this->assertSame('قائمة التجهيز والتغليف', __('Picking and packing list'),
+            'the packing list heading has no Arabic translation, so it renders in English on an '
+            . 'Arabic merchant\'s screen');
+        app()->setLocale('en');
+
         /* The one property that would break here, asserted on the slip's own stylesheet rather than
            anywhere on the page: a physical `text-align: right` on the quantity column reads as the
            WRONG edge once the page flips. */
