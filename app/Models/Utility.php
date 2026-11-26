@@ -2288,7 +2288,7 @@ class Utility extends Model
      * "Attempt to read property \"id\" on null". There is no storefront request on which
      * `getCurrentStore()` CAN resolve, so this was not an edge case.
      *
-     * AND THE ORDER IS ALREADY WRITTEN WHEN IT FIRES (ApiController::place_order:3690), which is
+     * AND THE ORDER IS ALREADY WRITTEN WHEN IT FIRES (ApiController::place_order()), which is
      * what made it worse than a 500: the row exists, the caller is told the request failed, and a
      * client that retries on error places the order twice -- for COD, two deliveries. Measured.
      *

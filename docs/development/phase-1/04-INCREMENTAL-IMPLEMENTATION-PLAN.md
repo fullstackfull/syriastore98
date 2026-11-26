@@ -2547,7 +2547,7 @@ the reconciler before touching the four non-transactional sites.
 Use **`prohibited`** rather than `numeric|min:0` on the money fields: they have **no legitimate client
 origin at all**, so rejecting them outright is both smaller and stronger.
 
-Note the API/Flutter path is **already correct** — `ApiController::place_order:2921` always calls
+Note the API/Flutter path is **already correct** — `ApiController::place_order()` always calls
 `apply_coupon` with a server `sub_total` and derives tax server-side — and is the behavioural reference
 the web path should converge on.
 

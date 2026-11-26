@@ -2744,7 +2744,7 @@ All now read `(($settings['stock_management'] ?? null) === 'on')`, the form
 `PaymentController::stockManagementIsOn()` and `assertCartAvailable()` have always used.
 
 **ONE CLAIM IN THIS SECTION'S FIRST VERSION WAS WRONG AND IS WITHDRAWN.** It said
-`ApiController::place_order:3254` was "a bare index ... so a store that has never saved its settings
+`ApiController::place_order()` was "a bare index ... so a store that has never saved its settings
 raised 'Undefined array key'", and that its "absent" case was a 500. **Both are false.**
 `place_order` does not read the settings table directly: `:3014` is
 `$settings = Utility::Setting($storeId)`, and `Utility.php:135` starts from `$array = $defaults`,

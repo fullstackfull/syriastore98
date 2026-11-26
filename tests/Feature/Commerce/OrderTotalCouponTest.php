@@ -499,7 +499,7 @@ class OrderTotalCouponTest extends SecurityTestCase
      * `place_order` WRITES THE ORDER AND THEN 500s. Found while building this suite: every
      * assertion about the stored total was unreachable because the request never returns 200.
      *
-     * `ApiController::place_order:3690` calls `Utility::paymentWebhook($order)`, whose first act is
+     * `ApiController::place_order()` calls `Utility::paymentWebhook($order)`, whose first act is
      * `Store::find(getCurrentStore())->id` (Utility.php:2110-2111) with no null check.
      * `getCurrentStore()` resolves through `auth()->user()` -- the **web** guard
      * (app/Helper/helper.php:398). On a storefront API request the shopper is authenticated by a
