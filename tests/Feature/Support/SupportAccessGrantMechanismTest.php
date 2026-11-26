@@ -529,6 +529,102 @@ class SupportAccessGrantMechanismTest extends SecurityTestCase
         );
     }
 
+    /**
+     * THE GATE'S OWN DISJOINTNESS, WITH THE CROSSED STATE PLANTED DIRECTLY.
+     * =============================================================================================
+     *
+     * ADDED AFTER A SURVIVING MUTATION, and it is the most useful finding in this file.
+     *
+     * The two cases above (`test_merchant_consent_cannot_authorise_an_emergency_grant` and
+     * `test_approvals_cannot_authorise_an_ordinary_support_grant`) measure the WRITER: `consent()`
+     * and `decide()` throw, so the crossed state is never created and the GATE is never asked about
+     * it. Collapsing the gate's own predicate to
+     *
+     *     return $grant->isConsented() || self::emergencyIsApproved($grant);
+     *
+     * therefore SURVIVED all 52 tests — the paths were separate only because one layer refused to
+     * create the state, and nothing asserted the other layer at all. CLAUDE.md's "a test that
+     * passes for the wrong reason", exactly.
+     *
+     * So both crossed states are now planted past the writer — a raw write for the consent column,
+     * a direct `create()` for the approval rows — and the gate is asked. This is the only way to
+     * reach the branch, and it is legitimate precisely because the writer is not the control being
+     * measured here.
+     */
+    public function test_the_gate_refuses_an_emergency_grant_that_carries_only_consent(): void
+    {
+        $grant = $this->emergencyGrant();
+
+        // Planted past `consent()`, which refuses this on an emergency grant.
+        \DB::table('support_access_grants')->where('id', $grant->id)->update([
+            'consented_at' => Carbon::now()->toDateTimeString(),
+            'consented_by' => (int) $this->merchant->id,
+        ]);
+
+        $this->assertNotNull(
+            SupportAccessGrant::query()->find($grant->id)->consented_at,
+            'PREMISE: the crossed state was not planted, so this case asserts nothing'
+        );
+
+        $this->assertFalse(
+            SupportAccessGate::allows($this->operator, (int) $this->store->id, SupportAccessScope::FULL),
+            'an EMERGENCY grant was authorised by merchant consent at the gate -- the break-glass '
+            . 'path is the ordinary path with a flag flipped, which SUPPORT-005\'s "منفصل" forbids'
+        );
+
+        // CONTROL: the same grant, approved properly, IS live -- so the refusal above is the
+        // consent being ignored and not the grant being broken by the raw write.
+        SupportAccessGrants::decide($grant, $this->secondOperator, SupportAccessApproval::APPROVED);
+        SupportAccessGrants::decide($grant, $this->thirdOperator, SupportAccessApproval::APPROVED);
+        $this->assertTrue(
+            SupportAccessGate::allows($this->operator, (int) $this->store->id, SupportAccessScope::FULL),
+            'CONTROL: two approvals did not make the planted grant live either'
+        );
+    }
+
+    /** The other direction: approvals on a SUPPORT grant must not substitute for the merchant. */
+    public function test_the_gate_refuses_a_support_grant_that_carries_only_approvals(): void
+    {
+        $grant = SupportAccessGrants::request(
+            $this->operator,
+            (int) $this->store->id,
+            AccessKind::SUPPORT,
+            SupportAccessScope::FULL,
+            'Approving my way past the merchant.',
+            60
+        );
+
+        // Planted past `decide()`, which refuses an approval on a support grant.
+        foreach ([$this->secondOperator, $this->thirdOperator] as $approver) {
+            SupportAccessApproval::create([
+                'grant_id' => (int) $grant->id,
+                'approver_id' => (int) $approver->id,
+                'decision' => SupportAccessApproval::APPROVED,
+                'decided_at' => Carbon::now(),
+            ]);
+        }
+
+        $this->assertSame(
+            2,
+            SupportAccessApproval::query()->where('grant_id', $grant->id)->count(),
+            'PREMISE: the approvals were not planted, so this case asserts nothing'
+        );
+
+        $this->assertFalse(
+            SupportAccessGate::allows($this->operator, (int) $this->store->id, SupportAccessScope::FULL),
+            'two operator approvals authorised an ORDINARY support grant at the gate -- support '
+            . 'staff can approve their way past the merchant, and SUPPORT-004\'s consent clause is '
+            . 'bypassable by using the emergency path\'s evidence'
+        );
+
+        // CONTROL: the merchant's consent does make it live.
+        SupportAccessGrants::consent($grant, $this->merchant);
+        $this->assertTrue(
+            SupportAccessGate::allows($this->operator, (int) $this->store->id, SupportAccessScope::FULL),
+            'CONTROL: the merchant\'s consent did not work either'
+        );
+    }
+
     /** N approvals, and N-1 is not N. */
     public function test_an_emergency_grant_needs_the_configured_number_of_approvals(): void
     {
@@ -820,19 +916,82 @@ class SupportAccessGrantMechanismTest extends SecurityTestCase
     /**
      * A GRANT NAMING NO STORE AUTHORISES NOTHING, and `store_id <= 0` is refused before any query.
      * `getCurrentStore()` can answer null, and `(int) null` is 0.
+     *
+     * A GRANT ROW WITH `store_id = 0` IS PLANTED, AND WITHOUT IT THIS CASE PASSED FOR THE WRONG
+     * REASON. Measured: deleting the `$storeId === null || $storeId <= 0` guard from
+     * `activeGrant()` SURVIVED all 52 tests, because with no such row in the table
+     * `where('store_id', 0)` simply matches nothing — so the assertion held whether the guard
+     * existed or not. The guard only does work when a row with that id exists, so one is created.
+     * `store_id` is a plain indexed integer with no foreign key (see the migration), so 0 is
+     * storable, which is exactly why the guard is not redundant.
      */
     public function test_an_unidentified_store_is_refused_by_the_gate(): void
     {
         $this->liveSupportGrant();
 
+        $planted = SupportAccessGrant::create([
+            'store_id' => 0,
+            'merchant_id' => (int) $this->merchant->id,
+            'grantee_id' => (int) $this->operator->id,
+            'kind' => AccessKind::SUPPORT,
+            'scope' => SupportAccessScope::FULL,
+            'reason' => 'A grant naming no store.',
+            'requested_by' => (int) $this->operator->id,
+            'requested_at' => Carbon::now(),
+            'expires_at' => Carbon::now()->addHour(),
+        ]);
+        $planted->forceFill(['consented_at' => Carbon::now()])->save();
+
+        $this->assertSame(
+            0,
+            (int) SupportAccessGrant::query()->find($planted->id)->store_id,
+            'PREMISE: a store_id of 0 was not storable, so this case cannot distinguish the guard '
+            . 'from an empty result set'
+        );
+
+        $this->assertFalse(
+            SupportAccessGate::allows($this->operator, 0, SupportAccessScope::FULL),
+            'a grant naming store 0 authorised access -- getCurrentStore() can answer null and '
+            . '(int) null is 0, so an unidentified store would become a real authorisation'
+        );
         $this->assertFalse(
             SupportAccessGate::allows($this->operator, null, SupportAccessScope::FULL),
             'a null store id was admitted'
         );
         $this->assertFalse(
-            SupportAccessGate::allows($this->operator, 0, SupportAccessScope::FULL),
-            'a zero store id was admitted'
+            SupportAccessGate::allows($this->operator, -1, SupportAccessScope::FULL),
+            'a negative store id was admitted'
         );
+    }
+
+    /**
+     * `coversImpersonation()` IS A SECOND LAYER, AND IT IS ASSERTED AS A UNIT BECAUSE AT THE DOOR IT
+     * IS REDUNDANT.
+     *
+     * Measured: widening it to `self::isKnown($granted)` SURVIVED all 52 tests. The reason is that
+     * `allowsImpersonation()` and `impersonationDecision()` both resolve the grant through
+     * `activeGrant($actor, $storeId, SupportAccessScope::FULL)` first, and `covers()` already
+     * admits only `full` for a `full` request — so the second check can never see a narrow grant.
+     *
+     * That makes it defence in depth rather than the control, which is worth having (a future door
+     * that resolves a grant some other way would still be refused) and worth being HONEST about.
+     * It is asserted here directly, on the unit whose contract it is, rather than left to a door
+     * test that cannot distinguish it.
+     */
+    public function test_only_the_full_scope_covers_impersonation(): void
+    {
+        $this->assertTrue(SupportAccessScope::coversImpersonation(SupportAccessScope::FULL));
+
+        foreach ([SupportAccessScope::ORDERS, SupportAccessScope::CATALOGUE,
+                  SupportAccessScope::CUSTOMERS, SupportAccessScope::SETTINGS, null, 'nonsense'] as $scope) {
+            $this->assertFalse(
+                SupportAccessScope::coversImpersonation($scope),
+                var_export($scope, true) . ' was treated as covering impersonation. Impersonation '
+                . 'signs the operator in AS the merchant, so there is no filter in that path that '
+                . 'could confine the session to one scope -- a narrow grant admitting it would show '
+                . 'the merchant a narrow consent prompt and deliver full access.'
+            );
+        }
     }
 
     /** A non-User principal holds no grant. A `Customer` is not a `User`. */

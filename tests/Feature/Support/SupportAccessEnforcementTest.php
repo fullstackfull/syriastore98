@@ -269,6 +269,46 @@ class SupportAccessEnforcementTest extends SecurityTestCase
             'CONTROL: grants for both stores were still refused');
     }
 
+    /**
+     * A MERCHANT WHO OWNS NO STORE IS REFUSED, NOT WAVED THROUGH.
+     *
+     * ADDED AFTER A SURVIVING MUTATION. Flipping `impersonationDecision()`'s empty-store branch to
+     * `allowed => true` SURVIVED all 52 tests: the behaviour was documented in the gate's docblock
+     * and asserted nowhere, because every fixture in both files gives its merchant a store.
+     *
+     * The refusal looks odd and is deliberate: with no store there is no `store_id` for a grant to
+     * name, so no consent CAN exist — and admitting the case would make "owns no store" a bypass of
+     * the entire mechanism, reachable by an operator who deletes a merchant's last store first.
+     * It fails closed.
+     */
+    public function test_enforced_a_merchant_with_no_store_is_refused_rather_than_waved_through(): void
+    {
+        config()->set('support_access.enforce', true);
+
+        $storeless = $this->makeMerchant();
+        (new User)->flushCache();
+
+        $this->assertSame(
+            0,
+            Store::withoutGlobalScopes()->where('created_by', $storeless->id)->count(),
+            'PREMISE: the fixture merchant owns a store, so this case cannot reach the empty branch'
+        );
+        $this->assertTrue($storeless->canBeImpersonated(),
+            'PREMISE: the policy already refuses this merchant, so the grant gate is not what is '
+            . 'being measured');
+
+        $this->actingAs($this->operator)->get($this->takeRoute($storeless));
+
+        $this->assertSame(
+            (int) $this->operator->id,
+            (int) auth('web')->id(),
+            'a merchant who owns no store was impersonated with no grant at all -- "owns no store" '
+            . 'is a bypass of the whole consent mechanism, since no consent can exist without a '
+            . 'store for a grant to name'
+        );
+        $this->assertStringContainsString('needs their consent', (string) session('error'));
+    }
+
     // =============================================================================================
     //  NOT ENFORCED — the shipped default
     // =============================================================================================
