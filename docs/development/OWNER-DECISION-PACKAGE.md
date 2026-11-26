@@ -536,6 +536,18 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **Not taken** | Deliberately. The adjacent `J-`/`H4` question (`GAP-255`: `6 → 0 → 2` crediting stock for goods in transit) is the same family and already yours. |
 | **Blocked** | Nothing ships on this. The machine is correct as written; what is undecided is whether it should be. |
 
+### J22 — `GAP-319`: 39 ungated landing-page editor routes are reachable only because they crash
+
+| | |
+|---|---|
+| **The choice** | Withdraw the 37 routes to 404, or gate them and then repair the views? |
+| **Why it is yours** | Either option changes who can edit the platform's landing page. Repair alone would open the surface. |
+| **Measured, and it inverts the finding** | Of 43 LandingPage routes with a missing view, the **4** that carry `isAbleTo('Manage LandingPage')` are exactly the ones that **do not** 500 — the gate fires first. The **39** with no gate are exactly the ones that 500. With four view aliases in place, a staff member with `type=staff`, **0 roles** and `isAbleTo === false` got **HTTP 200** on four editor paths. **So today the HTTP 500 is the only thing standing between a roleless staff member and the platform owner's landing-page editor.** |
+| **And the repair is cheap, which is the danger** | The module ships 13 of the 20 missing views under a `details.`/`custom.` infix; a one-line host-side `@include` alias turned one route from 500 to 200 with no package edit. A well-meaning "fix the 500" lands the escalation. |
+| **A trap in the gate-then-repair option** | The 4 gated handlers gate on `isAbleTo()` **alone**, which refuses the **platform operator** — the one principal who should be editing the landing page. "Add the same gate to the other 39" propagates that defect 39 times. |
+| **If you withdraw** | The names must be kept: 12 of 45 are referenced by name, three of them first-party, and a merchant on the module's own existing section screens has buttons that 500 today. |
+| **Blocked** | Nothing ships on this. The surface is already unusable; the question is which way to make it safe. |
+
 **Two findings registered this batch that are NOT owner decisions**, listed so nobody escalates
 them by mistake: the public route reading every wishlist on the platform (`GAP-286`) and the
 settings panel that switches another principal's setting off (`GAP-289`) are both engineering's to
