@@ -241,6 +241,21 @@ run_one verify-refund-freshness-lock-and-limiter-keys-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=fresh_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# P01-E3 / P1-INV-05 / GAP-016 -- the LAST-UNIT OVERSELL, which §E row E3 names the engine for:
+# shown by "P1-INV-05, **on MySQL** (SQLite cannot show it)". It is the only script on this roster
+# that FORKS. The others open two named connections in one process, which is the right instrument
+# for stepping through a check-then-act window and the wrong one here: ten "concurrent" checkouts
+# issued sequentially from one process are ten statements in a row, so a row lock taken and
+# released between them is never contended and "the lock works" is asserted rather than measured.
+# Ten children, each its own PDO connection, all parked on a file barrier and released together --
+# measured at 0.5ms spread, and the script FAILS if that spread says they were not simultaneous.
+# Its §B races the read-subtract-write the service replaced and requires it to OVERSELL, so a pass
+# in §C cannot be the instrument being blind. Needs the pcntl extension and exits 2 without it.
+run_one verify-last-unit-oversell-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=last_unit_oversell_verify" \
+  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 # P1-SEC-23. whatsapp() queued a guest's basket clear as `customer_id = ''`; guest rows carry customer_id 0 and
 # are told apart only by cookie_session_id. SQLite reads `'' = 0` as false (nothing cleared), MySQL in
 # production's non-strict mode reads it as TRUE (every guest's row for the product deleted), and strict mode
