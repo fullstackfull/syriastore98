@@ -577,7 +577,7 @@ class Gap279NullStoreRoleWriterTest extends SecurityTestCase
      * rooted at the OPERATOR (`created_by` = the operator's id), because `UserController::store()`
      * also writes `created_by = Auth::user()->id`. The two cases above seed a MERCHANT-rooted staff
      * row instead, and **no product path was found that puts a merchant-rooted staff row in this
-     * state**: `UserController:158` copies the creator's pointer, and every path that creates a
+     * state**: `UserController::store()` copies the creator's pointer, and every path that creates a
      * merchant populates it — `RegisteredUserController:220`/`:340` and `StoreController:297` all
      * set `current_store = $store->id`, and `StoreController::ownerstoredestroy():1104` repoints it
      * to a surviving store rather than clearing it. Searched for and not found; absence of a path is

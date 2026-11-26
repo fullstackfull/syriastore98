@@ -157,7 +157,7 @@ class TestimonialController extends Controller
      *
      * MEASURED in `TestimonialProductLookupCrossTenantTest` before this guard existed: a merchant
      * opened, rewrote and deleted another store's testimonial. The index DataTable IS scoped
-     * (`TestimonialDataTable:80`), so ids are not listed to an attacker -- but they are small
+     * (`TestimonialDataTable::query()`), so ids are not listed to an attacker -- but they are small
      * sequential integers, which is the same enumeration argument the `category_id` leak rests on.
      *
      * `destroy()` was the sharpest: it called
@@ -167,7 +167,7 @@ class TestimonialController extends Controller
      *
      * Fails closed when either side is absent. No operator limb, as on
      * `ProductBrandController::callerOwnsBrand()` -- and note `getCurrentStore()` returns the
-     * literal 1 for a super admin with an empty `current_store` (app/Helper/helper.php:775), so an
+     * literal 1 for a super admin with an empty `current_store` (`getCurrentStore()`), so an
      * operator is scoped to store 1 here rather than refused.
      */
     private function callerOwnsTestimonial(?Testimonial $testimonial): bool
@@ -334,7 +334,7 @@ class TestimonialController extends Controller
      * are small per-store integers, so this is enumeration rather than guesswork, and the ids are
      * then usable against any other handler that takes a product id.
      *
-     * `routes/web.php:944` registers it as `POST get-product` inside the
+     * `routes/web.php` registers it as `POST get-product` (route name `get.product`) inside the
      * ['auth','xss','setlocate','verified'] group -- a SEPARATE declaration, not part of
      * `Route::resource('testimonial')`, which is exactly why a census keyed on resource-controller
      * method names never examined it.

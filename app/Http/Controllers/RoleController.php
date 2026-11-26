@@ -119,7 +119,7 @@ class RoleController extends Controller
             //
             // MEASURED through these routes, not reasoned about -- Gap279NullStoreRoleWriterTest:
             //   POST /users  as an operator with an empty current_store -> a staff row whose
-            //                current_store is NULL (UserController:158 copies the creator's),
+            //                current_store is NULL (`UserController::store()` copies the creator's),
             //                and getCurrentStore() answers NULL for it
             //   POST /roles  as that principal -> roles.store_id NULL
             //   PUT /users/{self} -> self-assigned (its role lookup's own

@@ -44,11 +44,13 @@ use Tests\Support\StripsSourceComments;
  * There is no priority table, no ordering constant and no "one discount only" gate anywhere in the
  * path. The order is an emergent property of which function each layer sits in:
  *
- *   1. `sale_price` **overrides** `price`  — `Product::ProductPrice():321-328`. Not a comparison:
+ *   1. `sale_price` **overrides** `price`  — `Product::ProductPrice()`, its `empty($price)` arm.
+ *      Not a comparison:
  *      whichever value `sale_price` holds wins when it is non-empty, even when it is HIGHER.
- *   2. **flash sale**, on `$product->sale_price` — `:394-400`. Note the base: NOT the `$price`
+ *   2. **flash sale**, on `$product->sale_price` — the same method's `$latestSales` loop. Note
+ *      the base: NOT the `$price`
  *      resolved by layer 1, and not the caller's `$price` argument either.
- *   3. **tax**, added per band — `:417-443`.
+ *   3. **tax**, added per band — the same method's `$tax->tax_methods()` loop.
  *   4. **coupon**, per line, through `CouponBasketAllocator` — on a line total that already
  *      includes layer 3's tax.
  *   5. **tax again**, on the post-coupon line price (recorded on `GAP-143`).
@@ -128,7 +130,7 @@ final class Gap187DiscountStackMeasurementTest extends SecurityTestCase
      * A flash sale covering `$product`, with a window wide enough that the handler's own timezone
      * cannot fall outside it.
      *
-     * `ProductPrice():336` calls `date_default_timezone_set('Asia/Kolkata')` before comparing, so a
+     * `ProductPrice()` calls `date_default_timezone_set('Asia/Kolkata')` before comparing, so a
      * window of "today" would straddle the boundary depending on when the suite runs. A day either
      * side removes the harness from the measurement — the subject is the arithmetic, not the clock.
      */
@@ -243,11 +245,11 @@ final class Gap187DiscountStackMeasurementTest extends SecurityTestCase
      * CLEAN AT THE READER, BUT THE STATE IS REFUSED AT THE WRITER -- and the second half of that
      * sentence is a correction my own first draft got wrong.
      *
-     * `ProductPrice():321-328` is an unconditional override, not a `min()`, so a `sale_price` ABOVE
+     * `ProductPrice()`'s `empty($price)` arm is an unconditional override, not a `min()`, so a `sale_price` ABOVE
      * `price` is honoured and the shopper is charged the HIGHER figure. So the READER satisfies
      * `PRICE-005`'s "never auto-pick the lowest price" half.
      *
-     * BUT THE STATE IS NOT REACHABLE THROUGH THE PRODUCT FORM. `ProductController:631` and `:1868`
+     * BUT THE STATE IS NOT REACHABLE THROUGH THE PRODUCT FORM. `ProductController::store()` and `::update()`
      * validate `'sale_price' => 'nullable|numeric|min:0|lt:price'` -- **`lt:price`** -- so a sale
      * price at or above the list price is refused on both the create and the update path. Measured,
      * not assumed: this case writes the row with `forceCreate`, which is a DIRECT WRITE and bypasses
@@ -323,11 +325,11 @@ final class Gap187DiscountStackMeasurementTest extends SecurityTestCase
      * **KNOWN BAD, AND THE SHARPEST FIGURE IN THIS FILE: a flash-sale product whose sale price is
      * blank is priced at ZERO -- and "blank" is what the product form stores by DEFAULT.**
      *
-     * `ProductPrice():394-400` takes its base from `$product->sale_price` -- **not** from the
+     * `ProductPrice()`'s flash-sale loop takes its base from `$product->sale_price` -- **not** from the
      * `$price` layer 1 just resolved, and not from the `$price` argument either:
      *
      *     $price = $product->sale_price - $saleData['discount_amount']   // 0 - 10.00 = -10.00
-     *     $price = max($price, 0)                                        // :416  ->  0.00
+     *     $price = max($price, 0)                                        //  ->  0.00
      *
      * **MY FIRST HYPOTHESIS WAS WRONG AND THE MEASUREMENT CORRECTED IT, WHICH MATTERS BECAUSE THE
      * CORRECTION MAKES THE FINDING WORSE.** I expected a NULL `sale_price`. That is UNREACHABLE:
@@ -336,7 +338,7 @@ final class Gap187DiscountStackMeasurementTest extends SecurityTestCase
      * `NOT NULL constraint failed: products.sale_price`. The reachable spelling is **`0`**, and
      * `empty(0)` is TRUE, so it takes the identical branch. And `0` is not an edge case: the form
      * validates `'sale_price' => 'nullable|...'` and then writes
-     * `$Product->sale_price = $request->sale_price ?? 0` (`ProductController:659`, `:836`), so
+     * `$Product->sale_price = $request->sale_price ?? 0` (`ProductController::store()`), so
      * **every product whose merchant left the sale price blank carries `sale_price = 0`**. Put one
      * in a flash sale and the storefront prices it at nothing.
      *

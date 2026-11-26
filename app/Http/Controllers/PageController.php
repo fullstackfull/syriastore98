@@ -113,7 +113,7 @@ class PageController extends Controller
      * or Page permission, so the seeded `super admin` role holds none of them. If an operator's
      * role is ever given one through the role editor, this helper DOES fire -- and
      * `getCurrentStore()` returns the hardcoded literal 1 for a super admin with an empty
-     * `current_store` (app/Helper/helper.php:775), so the operator would be silently scoped to
+     * `current_store` (`getCurrentStore()`), so the operator would be silently scoped to
      * store 1 rather than refused. Recorded because the shorter sentence decays into a wrong
      * belief.
      */

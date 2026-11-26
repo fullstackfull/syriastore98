@@ -11268,7 +11268,7 @@ public function addCustomer(Request $request)
          * `:4804`, `:6442`, and this one) and there is NO `MerchantPermissions` call after this
          * point in the file at all. A comment that is wrong about where its own precedent lives
          * sends the next reader to the wrong code, which this project treats as a defect in its
-         * own right (`MerchantPermissions.php:138-141`).
+         * own right (`MerchantPermissions::allowsAny()`).
          *
          * THE CALL IS THE SAME AS `:2403`; THE RESPONSE DELIBERATELY IS NOT. That gate answers
          * `$this->error([...])`, and `ApiResponser::error()` is HTTP **200** with `{status: 0}`.

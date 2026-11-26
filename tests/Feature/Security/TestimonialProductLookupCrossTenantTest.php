@@ -24,7 +24,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
  * records that it already produced a live cross-tenant stock drain (S19) which a `customer_id`
  * sweep missed because it was looking at the wrong identifier.
  *
- * REACHABILITY IS THE WHOLE QUESTION, and it is settled: `routes/web.php:944` registers
+ * REACHABILITY IS THE WHOLE QUESTION, and it is settled: `routes/web.php` registers
  * `POST get-product` as `get.product`, inside the `['auth','xss','setlocate','verified']` group.
  * `Route::resource('testimonial')` would not have created it — it is a separate declaration, which
  * is exactly why a census keyed on resource-controller method names never looked at it.
