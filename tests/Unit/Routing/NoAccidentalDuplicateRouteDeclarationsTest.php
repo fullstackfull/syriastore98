@@ -92,6 +92,14 @@ class NoAccidentalDuplicateRouteDeclarationsTest extends TestCase
             . "Route::prefix('admin') -> api/admin/updateStoreLanguage twice. EXACT "
             . 're-declaration: same action, same middleware [custom.auth, AdminApiLog]. No '
             . 'middleware lost.',
+        'RESOURCE stores' => 'routes/web.php:988 and :1014, no group boundary between them -- '
+            . 'the TENANT management surface, and the widest shape of this defect because one '
+            . 'declaration generates seven routes. EXACT re-declaration: measured from the built '
+            . 'table, each of the ten stores.* routes appears ONCE with identical middleware '
+            . '[web, web, auth, xss, setlocate, verified], so nothing is lost today. Found while '
+            . 'measuring the platform-admin surface for GAP-178, by which point this census had '
+            . 'been green over it for a whole commit -- `Route::resource` is not '
+            . '`Route::<verb>(`, so the first version of the regex could not see it.',
     ];
 
     /**
@@ -129,7 +137,15 @@ class NoAccidentalDuplicateRouteDeclarationsTest extends TestCase
     /** @return list<string> "METHOD literal-uri" declared more than once in one route file */
     private function duplicateLiteralsInSource(): array
     {
-        $verbs = 'get|post|put|patch|delete|options|any';
+        /*
+         * `resource` AND `apiResource` ARE IN THIS LIST BECAUSE LEAVING THEM OUT WAS A REAL
+         * HOLE, found while measuring the platform-admin surface for `GAP-178`:
+         * `Route::resource('stores', StoreController::class)` is declared TWICE in
+         * `routes/web.php` and this census could not see it, because `Route::resource` is
+         * not `Route::<verb>(`. One declaration generates seven routes, so a duplicate
+         * resource is the widest version of this defect, not a narrower one.
+         */
+        $verbs = 'get|post|put|patch|delete|options|any|resource|apiResource';
         $dups = [];
 
         foreach (['api', 'auth', 'customer', 'web'] as $file) {
