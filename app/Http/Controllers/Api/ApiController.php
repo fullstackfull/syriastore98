@@ -5842,15 +5842,40 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             return $this->error(['message' => __('Store not found.')], __("Store not found."));
         }
         
+        /*
+         * CUST-003 — «بحث ذكي ومرادفات وفلاتر ديناميكية». BOTH BRANCHES NOW CARRY
+         * `where('status', 1)`, so a storefront search does not offer a product the merchant has
+         * unpublished.
+         *
+         * THE PRECEDENT IS FIRST-PARTY AND IN THIS REQUIREMENT'S OWN SURFACE:
+         * `HomeController::product_page_filter`, the web twin of the `product_filter` branch below,
+         * is already `Product::where('product_type', null)->where('store_id', …)->where('status', 1)`.
+         * So this applies an existing rule to the doors that skipped it rather than inventing one.
+         *
+         * IT IS NOT A PLATFORM-WIDE CHANGE AND MUST NOT BE READ AS ONE. A comment-stripped,
+         * brace-matched-per-method census of this controller and `HomeController` found 26 methods
+         * reading `products` with no `status` predicate, `place_order`, `apply_coupon`,
+         * `confirm_order`, `ordersave`, `product_detail` and `wishlist` among them. Several of those
+         * MUST NOT filter it — whether a product deactivated mid-checkout can still be paid for,
+         * whether it vanishes from a cart that already holds it, and whether a direct link to it
+         * 404s are three different product rules — so they are an owner question, carried by
+         * `SearchDoesNotOfferUnpublishedProductsTest::test_the_census_of_unfiltered_storefront_readers_is_recorded`.
+         *
+         * NO CLIENT COMPATIBILITY RISK: `routes/api.php`'s storefront group (`api/{slug}/…`) is
+         * called by no client in either repository (`CLAUDE.md` §1); the shipped Flutter app is the
+         * ADMIN app on `api/admin/…`. And no response field changes shape — only which rows are in
+         * the page.
+         */
+
         // Category Search
         if ($request->type == 'product_search' && !empty($request->name)) {
-            $product_query = Product::where('store_id', $store->id)->Where('name', 'like',  '%' . $request->name . '%');
+            $product_query = Product::where('store_id', $store->id)->where('status', 1)->Where('name', 'like',  '%' . $request->name . '%');
             $Data = $product_query->paginate(10);
         }
 
         // Product Search
         if ($request->type == 'product_filter') {
-            $product_query = Product::where('store_id', $store->id);
+            $product_query = Product::where('store_id', $store->id)->where('status', 1);
 
             if (!empty($request->name)) {
                 $product_query->Where('name', 'like',  '%' . $request->name . '%');
@@ -6072,6 +6097,25 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
                         $review_array[$key]['user_image'] = !empty($Review->UserData->profile_image) ? $Review->UserData->profile_image : 'public/assets/img/user_profile.webp';
                         $review_array[$key]['user_name'] = !empty($Review->UserData->name) ? $Review->UserData->name : '';
                         $review_array[$key]['user_email'] = !empty($Review->UserData->email) ? $Review->UserData->email : '';
+                        /*
+                         * `CUST-005` — THE BADGE'S DATA. «التقييمات الموثقة» / *verified reviews*.
+                         *
+                         * A STRICT BOOLEAN, and never null, because the three states of the column
+                         * are not three states of the badge: `1` earns a badge, and both `0`
+                         * (assessed, bought nothing) and NULL (never assessed — every review
+                         * written before this column existed, and every merchant-panel row, whose
+                         * `user_id` is a `users` id and for whom the question is not expressible)
+                         * earn none. Collapsing them here keeps a client from having to decide what
+                         * a null means, and `App\Support\Commerce\VerifiedPurchase`'s docblock
+                         * records why no backfill asserts a verification nobody performed.
+                         *
+                         * ADDITIVE: no existing field changes value or type, which is the standing
+                         * rule for this API (`OrderStatusContract`'s docblock is the worked example
+                         * of why — five Flutter sites compare `payment_status` to an English
+                         * literal). Nothing in either repository reads this yet; it is the contract
+                         * a storefront badge needs in order to exist.
+                         */
+                        $review_array[$key]['verified_purchase'] = ((int) $Review->verified_purchase) === 1;
                     }
                     $data['product_Review'] = $review_array;
                 }
@@ -6229,6 +6273,25 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
                         $review_array[$key]['user_image'] = 'public/assets/img/user_profile.webp';
                         $review_array[$key]['user_name'] = !empty($Review->UserData->name) ? $Review->UserData->name : '';
                         $review_array[$key]['user_email'] = !empty($Review->UserData->email) ? $Review->UserData->email : '';
+                        /*
+                         * `CUST-005` — THE BADGE'S DATA. «التقييمات الموثقة» / *verified reviews*.
+                         *
+                         * A STRICT BOOLEAN, and never null, because the three states of the column
+                         * are not three states of the badge: `1` earns a badge, and both `0`
+                         * (assessed, bought nothing) and NULL (never assessed — every review
+                         * written before this column existed, and every merchant-panel row, whose
+                         * `user_id` is a `users` id and for whom the question is not expressible)
+                         * earn none. Collapsing them here keeps a client from having to decide what
+                         * a null means, and `App\Support\Commerce\VerifiedPurchase`'s docblock
+                         * records why no backfill asserts a verification nobody performed.
+                         *
+                         * ADDITIVE: no existing field changes value or type, which is the standing
+                         * rule for this API (`OrderStatusContract`'s docblock is the worked example
+                         * of why — five Flutter sites compare `payment_status` to an English
+                         * literal). Nothing in either repository reads this yet; it is the contract
+                         * a storefront badge needs in order to exist.
+                         */
+                        $review_array[$key]['verified_purchase'] = ((int) $Review->verified_purchase) === 1;
                     }
                     $data['product_Review'] = $review_array;
                 }
@@ -6327,6 +6390,24 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         }
 
 
+        /*
+         * `CUST-005` — RECORD WHETHER THIS REVIEWER ACTUALLY BOUGHT IT. NOT A GATE.
+         *
+         * The requirement is «التقييمات الموثقة» / *verified reviews*, which the register records as
+         * the half the traceability matrix never carried, and `GAP-312` measured as unrecordable:
+         * there was no column for the fact.
+         *
+         * The review is accepted exactly as before, verified or not. Whether a purchase should be
+         * REQUIRED is owner decision `J19` on an engineering-complete phase, and
+         * `Gap193ReviewPurchaseGateAndTenancyTest` pins its deliberate absence. All three inputs
+         * come from the PRINCIPAL and the already-store-verified product, never from request input.
+         */
+        $verifiedOrderId = \App\Support\Commerce\VerifiedPurchase::orderIdFor(
+            $customer->id,
+            $Product->id,
+            $store->id
+        );
+
         $review = new Testimonial();
         $review->user_id        = $customer->id;
         $review->category_id    = $Product->category_id;
@@ -6336,6 +6417,8 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
         $review->description    = $request->description;
         $review->status         = 1;
         $review->store_id       = $store->id;
+        $review->verified_purchase = $verifiedOrderId !== null;
+        $review->verified_order_id = $verifiedOrderId;
         $review->save();
 
         Testimonial::AvregeRating($request->id);
@@ -9928,8 +10011,24 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             return $this->error(['message' => __('Product not found.')], __('Product not found.'));
         }
 
+        /*
+         * `CUST-005`, the same record as `product_rating()` writes — ONE behaviour, two doors, and
+         * this table's writer family has already drifted once for want of that (see
+         * `App\Support\Commerce\ReviewTargetOwnership`'s docblock, where five writers spelled the
+         * same store predicate five times and a sixth did not spell it at all).
+         *
+         * Not a gate: `J19` owns that rule. `$Product` is already store-verified above.
+         */
+        $verifiedOrderId = \App\Support\Commerce\VerifiedPurchase::orderIdFor(
+            $customer->id,
+            $Product->id,
+            $store->id
+        );
+
         $Testimonial = new Testimonial();
         $Testimonial->user_id = $customer->id;
+        $Testimonial->verified_purchase = $verifiedOrderId !== null;
+        $Testimonial->verified_order_id = $verifiedOrderId;
         // Was `$request->category_id`. That is a fourth caller-supplied identifier -- it carries a
         // real foreign key to `categories` (2023_12_26_095726_create_testimonials_table.php:27),
         // so a caller could file a review under ANOTHER tenant's category, and a category id that

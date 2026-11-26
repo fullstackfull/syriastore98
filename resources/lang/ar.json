@@ -4731,5 +4731,11 @@
     "Items to pick and pack for this order, with quantities. No prices.": "البنود المطلوب تجهيزها وتغليفها لهذا الطلب، مع الكميات. بدون أسعار.",
     "Picked": "تم التجهيز",
     "Total units to pack": "إجمالي الوحدات المطلوب تغليفها",
-    "Support access to that merchant needs their consent. Request access first.": "يتطلب وصول الدعم إلى بيانات هذا التاجر موافقته. اطلب الوصول أولاً."
-}
+    "Support access to that merchant needs their consent. Request access first.": "يتطلب وصول الدعم إلى بيانات هذا التاجر موافقته. اطلب الوصول أولاً.",
+    "Has at least this many loyalty points": "جمع هذا العدد من نقاط الولاء على الأقل",
+    "Verified": "موثّق",
+    "Verified purchase": "شراء موثّق",
+    "No purchase found": "لا يوجد شراء",
+    "This review was not checked against a purchase.": "لم يتم التحقق من هذا التقييم مقابل عملية شراء.",
+    "This reviewer bought this product in an order placed from their own account.": "اشترى صاحب هذا التقييم هذا المنتج في طلب قُدّم من حسابه الخاص.",
+    "No completed order from this customer's own account contains this product.": "لا يوجد طلب مكتمل من حساب هذا العميل يتضمّن هذا المنتج."}

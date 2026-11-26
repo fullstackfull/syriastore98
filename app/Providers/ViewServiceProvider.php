@@ -77,7 +77,31 @@ class ViewServiceProvider extends ConcreteViewServiceProvider
             $adminSetting = getAdminAllSetting($store->created_by, $store->id);
             $CategoryList = Category::where('status', 1)->where('store_id', $store->id)->get();
 
+            /*
+             * CUST-003 — «بحث ذكي ومرادفات وفلاتر ديناميكية». `where('status', 1)`, AND THE LINE
+             * ABOVE IS THE EVIDENCE IT WAS AN OMISSION RATHER THAN A DECISION.
+             *
+             * This is the dataset all three themes' `front_end/partison/header.blade.php` iterate
+             * into the storefront search dropdown, so it is embedded in the SOURCE OF EVERY
+             * STOREFRONT PAGE whether or not anybody searches. Without the predicate it carried the
+             * names of the merchant's UNPUBLISHED products — measured by rendering
+             * `/{slug}/home` and finding an inactive product's name in the body.
+             *
+             * `$CategoryList` two lines up is already `Category::where('status', 1)`, and
+             * `HomeController::product_page_filter` — the storefront's own filter panel — is already
+             * `->where('status', 1)`. So the rule exists in this requirement's surface and three
+             * doors skipped it; this applies the existing rule rather than inventing one.
+             *
+             * `products.status` is `integer default 1 comment '0 => Inactive, 1 => Active'`, so a
+             * store that has never deactivated anything sees no change at all.
+             *
+             * NOT BOUNDED, and that is deliberate: this is still the WHOLE published catalogue on
+             * every page, which is a real performance problem. A `limit()` would silently drop
+             * products out of the dropdown, which is a UX decision and not this change's to take.
+             * Reported rather than guessed at.
+             */
             $search_products = Product::where('store_id', $store->id)
+            ->where('status', 1)
             ->pluck('name', 'id');
             $languages = Utility::languages();
             

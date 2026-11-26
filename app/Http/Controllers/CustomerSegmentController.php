@@ -139,7 +139,11 @@ class CustomerSegmentController extends Controller
             'counts' => $counts,
             'staleRules' => $staleRules,
             'kinds' => CustomerSegment::kinds(),
-            'rules' => SegmentDefinition::RULES,
+            /* MKT-005. `availableRules()` and not `RULES`: the loyalty rule needs a column a
+               VENDORED module declares, and offering a rule that cannot be evaluated would let a
+               merchant save a segment that silently matches nobody. `RULES` stays the sanitising
+               vocabulary so a stored threshold round-trips until the module arrives. */
+            'rules' => SegmentDefinition::availableRules(),
         ]);
     }
 
@@ -368,6 +372,12 @@ class CustomerSegmentController extends Controller
         return view('customer_segments.show', [
             'segment' => $segment,
             'kinds' => CustomerSegment::kinds(),
+            /* MKT-005. THE FULL `RULES` HERE, AND `availableRules()` ON THE CREATE FORM -- the two
+               sites differ on purpose. This screen DISPLAYS a stored definition and looks each rule
+               up as `$rules[$ruleKey]['label'] ?? $ruleKey`, so the filtered list would print the
+               raw key `min_loyalty_points` at a merchant whose store installed RewardClubPoint,
+               built a VIP tier, and later removed the module. `index()` renders the form a merchant
+               CHOOSES from, which must offer only what can be evaluated. */
             'rules' => SegmentDefinition::RULES,
             // Paginated, because a segment over a real store's customers is not a page.
             'customers' => $segment->customers()->orderBy('customers.id')->paginate(50),

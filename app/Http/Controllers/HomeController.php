@@ -1671,7 +1671,19 @@ class HomeController extends Controller
        
         $search_pro = $request->product;
 
-        $products = Product::where('name', 'LIKE', '%' . $search_pro . '%')->where('store_id', $store->id)->get();
+        /*
+         * CUST-003. `where('status', 1)` — the typeahead must not offer a product the merchant has
+         * unpublished, and then hand back a working link to it.
+         *
+         * `product_page_filter` in this same controller — the storefront's filter panel, the other
+         * half of this requirement's own surface — is already
+         * `Product::where('product_type', null)->where('store_id', …)->where('status', 1)`. So this
+         * applies a rule the sibling door already applies rather than deciding a new one.
+         *
+         * STILL UNBOUNDED (`get()`, no `limit`), deliberately: a cap on a typeahead is a UX decision
+         * about how many suggestions to show and is reported rather than taken here.
+         */
+        $products = Product::where('name', 'LIKE', '%' . $search_pro . '%')->where('store_id', $store->id)->where('status', 1)->get();
        
         // Check if any matching products were found
         if (!$products->isEmpty()) {

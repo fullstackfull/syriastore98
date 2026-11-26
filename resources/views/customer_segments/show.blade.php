@@ -31,7 +31,21 @@
                 <p class="ss-muted">{{ __($kinds[$segment->kind] ?? $segment->kind) }}</p>
 
                 @if ($segment->isDynamic())
-                    @php($active = $segment->definition()->rules())
+                    {{-- `rule()`, NOT `definition()`. There is no `definition()` method: the model
+                         declares `rule()`, and the column is `definition`. Eloquent forwards an
+                         unknown method to the query builder, so this line was
+                         `BadMethodCallException: Call to undefined method
+                         App\Models\CustomerSegment::definition()` -- measured, HTTP 500, on a
+                         merchant's OWN dynamic segment with APP_DEBUG off. The screen was therefore
+                         unreachable for every segment the dynamic-rule engine exists to produce.
+
+                         `CustomerSegment::rule()`'s own docblock predicted exactly this ("would have
+                         been a 500 on a merchant screen") and renamed the model; this call site kept
+                         the old name. The screen's own test drove the show route only at ANOTHER
+                         store's id, which the handler refuses before rendering, so nothing opened the
+                         view. Pinned by
+                         `VipTierSegmentRuleTest::test_a_merchant_can_open_their_own_dynamic_segment`. --}}
+                    @php($active = $segment->rule()->rules())
 
                     @if (count($active) > 0)
                         <ul>

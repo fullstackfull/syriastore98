@@ -48,6 +48,10 @@ final class SegmentDefinition
      *   `value`  — 'int'  a whole number the merchant types (a count)
      *            — 'date' a calendar date the merchant picks
      *            — null   the rule takes no value
+     *
+     *   `needs`  — OPTIONAL. A `customers` column the rule cannot be evaluated without, because a
+     *              VENDORED module declares it. Absent for a rule that depends on nothing.
+     *              {@see self::availableRules()} and {@see self::capabilityMet()}.
      */
     public const RULES = [
         'min_orders' => ['value' => 'int', 'label' => 'Has placed at least this many orders'],
@@ -55,7 +59,78 @@ final class SegmentDefinition
         'ordered_since' => ['value' => 'date', 'label' => 'Has ordered on or after'],
         'not_ordered_since' => ['value' => 'date', 'label' => 'Has NOT ordered on or after'],
         'has_abandoned_cart' => ['value' => null, 'label' => 'Has a basket left behind'],
+        /*
+         * MKT-005 — THE VIP RULE. «نقاط ولاء وVIP وإحالات» names loyalty points and VIP in one
+         * clause, and `create_customer_segments_tables`' own docblock uses "VIP customers" as its
+         * worked example of a shared segment — which this vocabulary could not express until now.
+         *
+         * A SEGMENT RULE AND NOT A SECOND ENGINE: `ARCH-002` forbids one, and a VIP tier IS a saved
+         * predicate over customers, which is what a dynamic segment is.
+         *
+         * CURRENCY-FREE, which is why this rule is offered where a SPEND rule still is not. The
+         * paragraph above states the spend problem — a segment cannot refuse a mixed-currency total
+         * the way the metric layer does, so it would silently exclude customers whose orders are in
+         * another currency. Points carry no denomination, so none of that applies.
+         *
+         * `needs` IS LOAD-BEARING. `customers.total_club_point` is declared by
+         * `packages/workdo/RewardClubPoint/src/database/migrations/2024_04_17_105551_…`, a VENDORED
+         * module migration that only runs when the module is installed. Measured: the column is
+         * ABSENT from this application's own schema, so naming it unconditionally would throw
+         * `no such column` wherever `RewardClubPoint` is not installed.
+         */
+        'min_loyalty_points' => [
+            'value' => 'int',
+            'label' => 'Has at least this many loyalty points',
+            'needs' => 'total_club_point',
+        ],
     ];
+
+    /**
+     * The rules a form may OFFER right now — `RULES` minus the ones whose column is not there.
+     *
+     * TWO LISTS, DELIBERATELY, AND THEY ANSWER DIFFERENT QUESTIONS:
+     *
+     *   `RULES`           what a stored definition MAY contain, i.e. what sanitising reads against.
+     *   `availableRules()` what a merchant may newly choose.
+     *
+     * Collapsing them would do real damage in both directions. Sanitising against the narrow list
+     * would DELETE a merchant's saved threshold the first time the segment was opened in an
+     * environment without the module — and installing the module later would not bring it back,
+     * because the row would already have been rewritten. Offering the wide list would let a merchant
+     * save a rule that silently matches nobody with nothing on screen to explain it.
+     *
+     * `Schema::hasColumn()` AND NOT A MODULE CHECK. `module_is_active()` resolves its principal from
+     * `Auth::check()` first, so it answers false from a console command or a test body with nobody
+     * signed in while the `add_on_managers` row reads true (`CLAUDE.md` §1) — and the thing this
+     * rule actually needs is the COLUMN, which outlives the activation either way: a store that
+     * installs the module, earns points and then deactivates it still has balances worth segmenting.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public static function availableRules(): array
+    {
+        return array_filter(
+            self::RULES,
+            static fn (array $spec): bool => self::capabilityMet($spec)
+        );
+    }
+
+    /** @param array<string, mixed> $spec */
+    private static function capabilityMet(array $spec): bool
+    {
+        if (! isset($spec['needs'])) {
+            return true;
+        }
+
+        /*
+         * `hasColumn()` HITS THE SCHEMA, so it is asked once per rule per evaluation rather than per
+         * customer row — the callers are a form render and `applyTo()`, both of which run it a fixed
+         * number of times. Not memoised on purpose: a static cache would survive `RefreshDatabase`
+         * between tests in one process and make the capability answer for the previous test's
+         * schema, which is this project's `Cachable` trap in another costume.
+         */
+        return \Illuminate\Support\Facades\Schema::hasColumn('customers', (string) $spec['needs']);
+    }
 
     /** @var array<string, int|string> rule key => the merchant's value (absent for a valueless rule) */
     private array $rules;
@@ -180,11 +255,49 @@ final class SegmentDefinition
                 'ordered_since' => $this->applyOrderedSince($query, $storeId, (string) $value, true),
                 'not_ordered_since' => $this->applyOrderedSince($query, $storeId, (string) $value, false),
                 'has_abandoned_cart' => $this->applyAbandonedCart($query, $storeId),
+                'min_loyalty_points' => $this->applyLoyaltyPoints($query, (int) $value),
                 default => null,
             };
         }
 
         return $query;
+    }
+
+    /**
+     * MKT-005 — at least this many loyalty points.
+     *
+     * TWO THINGS HAPPEN HERE AND BOTH ARE DECISIONS.
+     *
+     * 1. **AN UNEVALUABLE RULE NARROWS TO NOTHING, IT IS NEVER IGNORED.** With `RewardClubPoint`
+     *    not installed the column is absent, and this method cannot answer. Skipping it would leave
+     *    the segment as whatever the OTHER rules allow — so a merchant who asked for "at least 2
+     *    orders AND at least 500 points" would be handed, and could message, every two-order
+     *    customer in the store. That is exactly the failure this class's docblock forbids for an
+     *    empty definition ("the dangerous reading — no filter, so all customers"), so it gets the
+     *    same answer: `1 = 0`, a literal with no input.
+     *
+     * 2. **A NULL BALANCE IS ZERO POINTS, AND SQL DOES NOT THINK SO.** A customer who never earned
+     *    holds NULL, and `NULL >= 0` is NULL, i.e. excluded — so "at least zero points" would omit
+     *    precisely the customers it plainly includes. That is the `max_orders` lesson in another
+     *    column (`whereHas(..., '<=', N)` needs a related row to be false about), and it is handled
+     *    the same way: explicitly, at the one threshold where it can matter. `orWhereNull` rather
+     *    than a `COALESCE` fragment, because this class takes no SQL text from anywhere.
+     */
+    private function applyLoyaltyPoints(Builder $query, int $points): void
+    {
+        if (! self::capabilityMet(self::RULES['min_loyalty_points'])) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->where(function ($inner) use ($points): void {
+            $inner->where('customers.total_club_point', '>=', $points);
+
+            if ($points <= 0) {
+                $inner->orWhereNull('customers.total_club_point');
+            }
+        });
     }
 
     /**

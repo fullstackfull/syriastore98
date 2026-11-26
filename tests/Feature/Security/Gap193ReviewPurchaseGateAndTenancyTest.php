@@ -221,35 +221,86 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
     }
 
     /**
-     * AND THERE IS NOWHERE TO RECORD "VERIFIED" EVEN IF SOMEBODY WANTED TO.
+     * **INVERTED 2026-11-26 — THERE IS NOW SOMEWHERE TO RECORD "VERIFIED", AND THAT IS THE POINT.**
      *
-     * `CUST-005` asks for *verified* reviews. The table has no column for it, so a badge has
-     * nothing to read and a gate has nothing to write. Asserted against the live schema rather
-     * than the migration, because CLAUDE.md records that the migrations are not the schema.
+     * The previous version of this case asserted the ABSENCE of any such column and carried its own
+     * instruction for the day that changed: *"`testimonials.<x>` now exists, so CUST-005 has
+     * somewhere to record a verified purchase. Update GAP-193 rather than this test."* That day is
+     * this change: `2026_11_26_000100_add_verified_purchase_to_testimonials_table.php` adds
+     * `verified_purchase` and `verified_order_id`, and
+     * `App\Support\Commerce\VerifiedPurchase` fills them from the two storefront writers.
+     *
+     * **IT IS STILL NOT A GATE, WHICH IS WHY THE CASE ABOVE IS UNCHANGED AND STILL GREEN.** A
+     * shopper with no order still publishes a live review. `GAP-312` / owner decision `J19` owns the
+     * rule; this half is the record and the badge, which the requirement's own word «الموثقة»
+     * (*attested*) asks for and which nothing could express before.
+     *
+     * Asserted against the LIVE schema rather than the migration, as the previous version was and
+     * for the same reason (`CLAUDE.md` §1: the migrations are not the schema).
+     *
+     * @see \Tests\Feature\Commerce\VerifiedPurchaseReviewTest  the behaviour these columns carry
      */
-    public function test_the_reviews_table_has_no_verified_column_for_cust_005_to_use(): void
+    public function test_the_reviews_table_can_now_record_a_verified_purchase_for_cust_005(): void
     {
         $columns = \Illuminate\Support\Facades\Schema::getColumnListing('testimonials');
 
         $this->assertNotSame([], $columns, 'premise: the table exists and was read.');
 
-        foreach (['verified', 'is_verified', 'verified_purchase', 'order_id'] as $candidate) {
-            $this->assertNotContains($candidate, $columns, sprintf(
-                '`testimonials.%s` now exists, so CUST-005 has somewhere to record a verified '
-                . 'purchase. Update GAP-193 rather than this test.', $candidate
+        foreach (['verified_purchase', 'verified_order_id'] as $required) {
+            $this->assertContains($required, $columns, sprintf(
+                '`testimonials.%s` is CUST-005\'s record of an attested purchase. If it has been '
+                . 'removed, GAP-312\'s "there is nowhere to record it" is open again.', $required
+            ));
+        }
+
+        /*
+         * The spellings this case used to forbid, kept as a NAMING ratchet rather than deleted. A
+         * SECOND column meaning the same thing is how a fact grows two sources of truth, and
+         * `ReviewTargetOwnership`'s docblock is this repository's worked example of that costing a
+         * live cross-tenant write. `order_id` in particular is the ambiguous one: the evidence
+         * pointer is `verified_order_id` precisely so it cannot be mistaken for "the order this
+         * review belongs to".
+         */
+        foreach (['verified', 'is_verified', 'order_id'] as $forbidden) {
+            $this->assertNotContains($forbidden, $columns, sprintf(
+                '`testimonials.%s` is a SECOND spelling of a fact `verified_purchase` already '
+                . 'records. Use the existing column, or retire it in the same change.', $forbidden
             ));
         }
     }
 
     /**
-     * THE CENSUS: no review writer consults a purchase. Keyed on the handlers, comment-stripped.
+     * THE CENSUS: **no review writer reaches `orders` DIRECTLY.** Comment-stripped, block-scoped.
+     *
+     * **RETARGETED 2026-11-26, BECAUSE ITS OLD HEADLINE IS NO LONGER TRUE AND THE NEEDLES DID NOT
+     * NOTICE.** This case used to read *"no review writer consults a purchase"* and hunted for
+     * `Order::`, `order_details`, `product_json`, `hasPurchased`, `OrderDetail`. Two storefront
+     * writers now DO consult a purchase — through
+     * `App\Support\Commerce\VerifiedPurchase::orderIdFor()` — and **not one of those five needles
+     * matches that call**, so the census went on asserting an absence that had ended. That is
+     * `CLAUDE.md` §3's rule in its exact form: *a list of dangerous spellings is always short by the
+     * one nobody thought of*, so the safe set is enumerated instead.
+     *
+     * What it asserts now, in two directions:
+     *
+     *   1. **NEGATIVE, and still the drift guard that matters:** no writer touches `orders` or its
+     *      line columns itself. One definition of "did they buy it", in `VerifiedPurchase`, for the
+     *      reason `ReviewTargetOwnership` documents at length — five writers each spelled the same
+     *      store predicate in their own words and a sixth did not spell it at all, which cost a
+     *      live cross-tenant write to `products.average_rating`.
+     *   2. **POSITIVE:** the two storefront doors DO call it, so this cannot silently become an
+     *      absence again.
+     *
+     * **IT IS STILL NOT A GATE.** This census cannot prove that by grep, and does not try: the
+     * behavioural case above
+     * ({@see self::test_a_customer_who_has_bought_nothing_can_publish_a_review}) is what holds that
+     * line, and its sibling in `VerifiedPurchaseReviewTest` holds it from the other side.
      *
      * COMMENT-STRIPPED AND SCOPED, because this file and those handlers both discuss purchases at
      * length — CLAUDE.md §3 records eight occasions where a census was satisfied or broken by prose
-     * about the thing it measures. The needles are the tables and relations a purchase gate would
-     * have to touch.
+     * about the thing it measures.
      */
-    public function test_no_review_writer_consults_an_order(): void
+    public function test_no_review_writer_reaches_the_orders_table_directly(): void
     {
         $writers = [
             'app/Http/Controllers/TestimonialController.php',
@@ -313,14 +364,36 @@ final class Gap193ReviewPurchaseGateAndTenancyTest extends SecurityTestCase
             $this->assertStringContainsString('Testimonial', $body,
                 "premise: {$name} really is a review writer.");
 
-            foreach (['Order::', 'order_details', 'product_json', 'hasPurchased', 'OrderDetail'] as $needle) {
+            foreach (['Order::', 'order_details', 'product_json', 'OrderDetail'] as $needle) {
                 $this->assertStringNotContainsString($needle, $body, sprintf(
-                    'GAP-193: %s now consults `%s`, so a purchase gate exists where the register '
-                    . 'records none. That is CUST-005 arriving -- a product rule and a Phase 03 '
-                    . 'scope change. Update the register rather than this census.',
+                    '%s now reaches `%s` ITSELF. "Did this customer buy it" has exactly one '
+                    . 'definition -- `App\Support\Commerce\VerifiedPurchase` -- and a second '
+                    . 'spelling in a writer is how this very table\'s store predicate drifted into '
+                    . 'six disagreeing copies (GAP-313). Call the shared class.',
                     $name, $needle
                 ));
             }
+        }
+
+        /*
+         * DIRECTION 2 -- THE POSITIVE HALF, and the reason this case was retargeted rather than
+         * deleted. Without it, removing the two calls restores the old absence and every assertion
+         * above goes green again: a census of what must NOT be there cannot notice what stopped
+         * being there.
+         *
+         * The merchant-panel and admin-API writers are deliberately NOT required to call it: their
+         * `testimonials.user_id` is a `users` id, not a `customers` one (the column holds ids from
+         * two different tables depending on the writer -- `GAP-335` turns on exactly that), so the
+         * question is not expressible there and NULL is the honest record.
+         */
+        foreach (['ApiController::add_review', 'ApiController::product_rating'] as $storefrontDoor) {
+            $this->assertStringContainsString('VerifiedPurchase', $blocks[$storefrontDoor], sprintf(
+                '%s must record whether the reviewer bought the product -- `CUST-005` asks for '
+                . 'ATTESTED reviews, and GAP-312 records that this was unrecordable until the '
+                . 'column existed. Removing the call does not restore a prior state; it leaves the '
+                . 'column silently NULL and the badge permanently absent.',
+                $storefrontDoor
+            ));
         }
     }
 
