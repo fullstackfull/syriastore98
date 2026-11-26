@@ -348,6 +348,49 @@ class CrossRailCheckoutAdoptionTest extends SecurityTestCase
     }
 
     /**
+     * THE HEADLINE PROPERTY, ON THE RAIL THAT ACTUALLY CARRIES THE CAPTURE CHECK.
+     * =============================================================================================
+     *
+     * `GAP-284` is about the `GAP-138` capture check being routed around. That check lives in
+     * `PaymentController::getProductStatus` and fires on `$requests_data['payment_type'] == 'Tap'`
+     * — the Tap/Benefit rail. `processBenefit()` stores no state (see the case above), but
+     * `processTap()` DOES, at `PaymentService:4237`, before any outbound call — so the rail the
+     * check guards can be driven here for real, and this is the case that shows the check can no
+     * longer be sidestepped.
+     *
+     * Both siblings, because they fail differently: paiementpro has no gateway gate at all, and
+     * cinetpay is reached by a parameterless request its own `== 0` gate admits.
+     */
+    public function test_a_tap_checkout_cannot_be_cashed_in_by_a_sibling_that_has_no_capture_check(): void
+    {
+        foreach (['get-payment-paiementpro', 'get-payment-cinetPay'] as $foreignUri) {
+            [, $store] = $this->tenant();
+            $product = $this->productIn($store, 100.00, 50);
+
+            [$sid, $state] = $this->initiate($store, $product, 'Tap');
+
+            $this->assertSame('Tap', $state[PaymentService::CHECKOUT_GATEWAY_KEY] ?? null,
+                'premise: the Tap initiation must be stamped, or this case is not about the rail '
+                . 'the capture check guards');
+
+            $before = $this->orderCount();
+
+            $this->withCookie('cart', $sid)
+                ->withSession(['request_data' => $state])
+                ->get('/' . $store->slug . '/' . $foreignUri);
+
+            $this->assertSame($before, $this->orderCount(),
+                'GAP-284: a Tap checkout was written by /' . $foreignUri . ', so the GAP-138 '
+                . 'capture check was bypassed by changing the URL — which is what the row means by '
+                . '"falsifies unbypassable for the whole gateway-return family".');
+            $this->assertSame(50, $this->stockOf($product),
+                'GAP-284: stock was decremented for a Tap checkout nobody captured.');
+            $this->assertSame(1, $this->cartRows($sid),
+                'GAP-284: the shopper\'s basket was emptied by a rail with no capture check.');
+        }
+    }
+
+    /**
      * AND THE CLAIM IS NOT BURNT BY THE REFUSAL, which is the half that protects the shopper.
      *
      * `gatewayReturnClaimKeys()` keys the checkout claim on the nonce ALONE — no rail in the key.
