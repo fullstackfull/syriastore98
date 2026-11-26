@@ -1785,16 +1785,32 @@ $u->save();
 
         $post['defult_currancy'] = $data[1];
         $post['CURRENCY_NAME'] = $data[1];
+        $ssCurrencyNamed = true; // GAP-291
 
     } else {
 
-        $post['defult_currancy'] = 'USD';
-        $post['defult_currancy_symbol'] = '$';
-        $post['CURRENCY_NAME'] = 'USD';
-        $post['CURRENCY'] = '$';
+        /*
+         * GAP-291 -- A REQUEST THAT NAMES NO CURRENCY MUST NOT CHANGE THE CURRENCY.
+         *
+         * This limb used to set `'USD'` and fall through into `StoreCurrencyChange::apply()`, so a
+         * POST carrying only the separator fields CONVERTED THE WHOLE CATALOGUE to USD. MEASURED
+         * on a store on SYP with one product at 100.00: a save naming no currency rewrote
+         * `products.price` to 10.00. This panel is ONE form holding the currency select beside the
+         * decimal format and both separators, so "a save intended for the separator" is the
+         * ordinary way to arrive here.
+         *
+         * Skipping the currency machinery entirely -- rather than substituting the STORED currency
+         * -- is deliberate: `prepare()` requires an ACTIVE rate row for its target, so feeding it
+         * the stored code would REFUSE the save for any store whose rate row has been deactivated,
+         * and the merchant came to change a separator. Nothing is converted, nothing is refused,
+         * and the keys they did send are saved.
+         */
+        $ssCurrencyNamed = false;
     }
 
-    $newCurrency = $post['defult_currancy'];
+    $newCurrency = $post['defult_currancy'] ?? null;
+
+    if ($ssCurrencyNamed ?? true) {
 /*
  * FIN-CUR: the rate lookup, the "is it available" refusal, the P1-SEC-80 round 4 rate check and
  * the P1-SEC-80 round 4 symbol now live in `StoreCurrencyChange::prepare()`, so that the admin
@@ -1826,6 +1842,7 @@ $post['defult_currancy_symbol'] = $post['CURRENCY'] = $decision['symbol'];
     // FIN-CUR: the same one-line call the admin API makes; `apply()` holds the
     // "only when it really changes" test both writers need.
     \App\Services\StoreCurrencyChange::apply((int) $storeId, $oldCurrency, $newCurrency);
+    } // GAP-291: end of "only when the request actually named a currency"
 
     if (isset($post['site_currency_symbol_position'])) {
 

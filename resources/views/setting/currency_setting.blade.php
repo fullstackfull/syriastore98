@@ -63,10 +63,39 @@
                 <div class="ss-field">
                     <label class="ss-label" for="defult_currancy">{{ __('Default Currancy') }}</label>
                     <select class="ss-input currency_note" name="defult_currancy" id="defult_currancy">
-                        @foreach ($currencyRates->where('is_active', 1) as $c)
+                    {{-- GAP-291. THE STORE'S OWN CURRENCY MUST BE IN THIS LIST AND MARKED.
+                         The list was `->where('is_active', 1)` and the mark was
+                         `=== $c->currency_code`, so a stored value that is not in the active set
+                         EXACTLY -- a legacy lower-case or space-padded one, or a currency whose
+                         rate row was later deactivated -- marked nothing. The browser then
+                         pre-selects the FIRST active option, and because this is one form with the
+                         decimal format and both separators, a Save of any of them submits that
+                         option and `StoreCurrencyChange::apply()` CONVERTS THE WHOLE CATALOGUE to
+                         a currency the merchant never chose. Measured: 100.00 -> 10.00.
+                         The stored currency is appended when the active set does not already carry
+                         it, so an untouched select submits what is already stored and `apply()`
+                         sees no change. Comparison is trimmed and upper-cased, which is the same
+                         normalisation `apply()` and `prepare()` use. --}}
+                    @php
+                        $ssStored = strtoupper(trim((string) ($setting['defult_currancy'] ?? '')));
+                        $ssOptions = $currencyRates->where('is_active', 1);
+                        $ssHasStored = $ssStored !== '' && $ssOptions->contains(
+                            fn ($r) => strtoupper(trim((string) $r->currency_code)) === $ssStored
+                        );
+                        if (! $ssHasStored && $ssStored !== '') {
+                            $ssOwn = $currencyRates->first(
+                                fn ($r) => strtoupper(trim((string) $r->currency_code)) === $ssStored
+                            );
+                            $ssOptions = $ssOptions->concat([$ssOwn ?? (object) [
+                                'symbol' => (string) ($setting['defult_currancy_symbol'] ?? $ssStored),
+                                'currency_code' => $ssStored,
+                            ]]);
+                        }
+                    @endphp
+                        @foreach ($ssOptions as $c)
                             <option value="{{ $c->symbol }}-{{ $c->currency_code }}"
                                     data-symbol="{{ $c->symbol }}"
-                                    @selected(($setting['defult_currancy'] ?? '') === $c->currency_code)>
+                                    @selected(strtoupper(trim((string) $c->currency_code)) === $ssStored)>
                                 {{ $c->symbol }} - {{ $c->currency_code }}
                             </option>
                         @endforeach
