@@ -5719,16 +5719,28 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             }
 
             if ($request->min_price != '' && $request->max_price != '') {
-                $products_variant_id = Product::where('variant_product', 1)->pluck('id')->toArray();
+                /* GAP-339. Both halves of this are load-bearing; see SearchPriceBandFailsOpenTest.
+                 *
+                 * The store predicate: `Product` carries no effective global scope (it is in
+                 * `StoreScope`'s registry but NOT in `config/tenancy.php`'s `scoped_models`, so the
+                 * scope short-circuits for every principal), so without `store_id` these reads
+                 * pluck EVERY product id on the platform into PHP memory on every search request --
+                 * unbounded in the number of tenants -- and make the emptiness test below a
+                 * question about other people's catalogues. `product_variants` has no `store_id` of
+                 * its own, so it is confined transitively through `product_id`.
+                 *
+                 * The unconditional `whereIn`: this was guarded by `count($products_no_variant) > 0`
+                 * and so the filter was DROPPED whenever the list came back empty, returning the
+                 * whole catalogue as a price-filtered result. Laravel compiles an empty `whereIn` to
+                 * `0 = 1`; for a band nothing matches, no rows is the answer. */
+                $products_variant_id = Product::where('store_id', $store->id)->where('variant_product', 1)->pluck('id')->toArray();
                 $ProductStock = [];
                 if (count($products_variant_id) > 0) {
                     $ProductStock = ProductVariant::whereIn('product_id', $products_variant_id)->whereBetween('price', [$request->min_price, $request->max_price])->pluck('product_id')->toArray();
                 }
-                $products_no_variant = Product::where('variant_product', 0)->whereBetween('price', [$request->min_price, $request->max_price])->pluck('id')->merge($ProductStock)->toArray();
+                $products_no_variant = Product::where('store_id', $store->id)->where('variant_product', 0)->whereBetween('price', [$request->min_price, $request->max_price])->pluck('id')->merge($ProductStock)->toArray();
 
-                if (count($products_no_variant) > 0) {
-                    $product_query->whereIn('id', $products_no_variant);
-                }
+                $product_query->whereIn('id', $products_no_variant);
             }
             $Data = $product_query->paginate(10);
         }
