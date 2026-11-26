@@ -21,7 +21,7 @@ use Tests\TestCase;
  * "app/Http/Controllers/RoleController.php:182 is a live example" long after that site was
  * DELETED by the SEC-F3 fix -- the `DB::table('role_user')` /
  * `User::whereIn(...)->update(['type' => ...])` pair was the privilege-escalation primitive
- * itself, and only its commented record survives at RoleController.php:232-240. A reader
+ * itself, and only its commented record survives at RoleController.php:373-392. A reader
  * checking that citation would have found nothing and drawn their own conclusion about how
  * reliable the rest of the note is. The citation is corrected and this test now holds the
  * inventory.
@@ -128,7 +128,7 @@ class OwnedPathRawQueryInventoryTest extends TestCase
                 $trimmed = ltrim($line);
 
                 // A docblock or a commented-out record of a deleted query is not a query. This
-                // matters here specifically: RoleController.php:232-240 keeps the SEC-F3
+                // matters here specifically: RoleController.php:373-392 keeps the SEC-F3
                 // primitive as a comment on purpose.
                 if (str_starts_with($trimmed, '*') || str_starts_with($trimmed, '//')) {
                     continue;

@@ -53,7 +53,7 @@ class RoleController extends Controller
         // NEW-ROLE-FORM-UNGATED-01. This method had NO authorization at all, and
         // the view it renders lists every Permission row on the platform -- the
         // config/superadminaccess.php platform-operator names included. store()
-        // has always required 'Create Role' (:67), so the gate existed on the
+        // has always required 'Create Role' (:104), so the gate existed on the
         // write and not on the screen. Same sibling-endpoint asymmetry as SEC-F3,
         // where update() filtered server-side and store() did not.
         //
@@ -103,7 +103,91 @@ class RoleController extends Controller
     {
         if(auth()->user() && auth()->user()->isAbleTo('Create Role'))
         {
-            $existRole =  Role::where('name', $request->name)->where('store_id', getCurrentStore())->first();
+            // GAP-279 / P04-P7-01. A ROLE MUST NOT BE WRITTEN WITHOUT A STORE, because a
+            // `store_id IS NULL` role counts for EVERY store.
+            //
+            // `App\Services\MerchantPermissions::names()` keeps a NULL-store arm deliberately:
+            // the seeded global `admin` role that RegisteredUserController and
+            // StoreController:387 hand every merchant has `store_id` NULL, and narrowing the
+            // READER would take every merchant's permissions away in their own store (that
+            // class's docblock records the test that fails without the arm). The reader's
+            // premise is that such a role is ONLY ever that seeded one -- and this line is
+            // where the premise was broken: `getCurrentStore()` answers NULL for a principal
+            // with an empty `current_store` who owns no store under their own id
+            // (helper.php:881-895), so the role went in with no store and then answered for
+            // every store of the tenant.
+            //
+            // MEASURED through these routes, not reasoned about -- Gap279NullStoreRoleWriterTest:
+            //   POST /users  as an operator with an empty current_store -> a staff row whose
+            //                current_store is NULL (`UserController::store()` copies the creator's),
+            //                and getCurrentStore() answers NULL for it
+            //   POST /roles  as that principal -> roles.store_id NULL
+            //   PUT /users/{self} -> self-assigned (its role lookup's own
+            //                `where('store_id', getCurrentStore())` compiles to `IS NULL`, so it
+            //                finds exactly the role just minted)
+            //   then MerchantPermissions::allowsAny($staff, ['Manage Order'], $siblingStore) -> TRUE
+            // WITHIN-TENANT ONLY: cross-tenant is closed before that gate is ever asked, by
+            // ApiController::resolveViewableOrder()'s tenant-root and owned-store test and by
+            // DashboardController::ownedStoreIds(). This is not a cross-tenant escalation.
+            //
+            // REFUSE RATHER THAN STAMP A STORE. The two candidate remedies were "refuse" and
+            // "stamp the tenant root's own store"; stamping would silently file the role in a
+            // store this principal has no context for and hand them a grant somewhere they were
+            // not working, which is a quieter version of the same defect.
+            //
+            // WHO ELSE THIS REFUSES, NAMED IN FULL. `getCurrentStore()` returns `current_store`
+            // when set, the hardcoded literal 1 for a `super admin` with none, and otherwise the
+            // caller's own store. So an ordinary merchant and a CANONICALLY typed operator are
+            // both unaffected -- the merchant half is pinned by
+            // `test_the_control_a_merchant_with_a_store_still_creates_roles`, and a storeless
+            // `'super admin'` was never refused because the helper hands them the literal 1. TWO
+            // principals ARE refused, and BOTH ARE NAMED HERE BECAUSE THIS PARAGRAPH HAS NOW BEEN
+            // WRONG TWICE: its first version claimed the guard narrowed nobody, and its second
+            // claimed the refused principal "can still create one by selecting a store". Neither
+            // was true.
+            //
+            //   1. OPERATOR-ROOTED STAFF -- live, product-reachable, and the row this change's own
+            //      test is built from. `POST /users` while the operator's `current_store` is empty
+            //      copies that empty pointer (`UserController` writes the creator's verbatim), so
+            //      `getCurrentStore()` answers NULL for the new row and every `POST /roles` by it
+            //      is refused from now on.
+            //
+            //   2. AN OPERATOR WHOSE `type` IS SPELLED ANY OTHER WAY. The helper's operator branch
+            //      compares loosely and CASE-SENSITIVELY, unlike `UserPolicy::isOperator()`, which
+            //      accepts `'Super Admin'` and `'super admin '` -- values MySQL's
+            //      utf8mb4_unicode_ci treats as equal to the literal. Such a row falls to the
+            //      owned-store branch and, owning no store, resolves NULL.
+            //
+            // AND THE REFUSAL IS PERMANENT: NEITHER CAN RECOVER THROUGH THE PRODUCT. MEASURED, not
+            // argued -- `test_an_operator_rooted_staff_member_cannot_recover_by_selecting_a_store`
+            // drives `POST /change-store/{id}` and reads 403 with the pointer still empty.
+            // `StoreController::changeStore()` sends every `type` that is not exactly
+            // `'super admin'` through `UserPolicy::merchantTenantRoot()`, which requires a
+            // type-`admin` tenant root; for both principals above the root is the operator or
+            // nobody, so it answers null and the handler aborts. The admin API twin refuses
+            // identically via `resolveOwnedStore()`. Such a row therefore needs its
+            // `current_store` SET OUT OF BAND -- the operator editing the user, or the database.
+            //
+            // THE FIX IS DELIBERATELY NOT WIDENED TO RESTORE THE CAPABILITY, because the capability
+            // IS the defect: what these principals could do before was mint a role that counted for
+            // every store in the tenant. Normalising the helper's comparison is also NOT done here:
+            // it is read by most handlers on the platform and `config/tenancy.php:60-63` records two
+            // storefront outages shipped by changing a helper that central.
+            //
+            // `filter_var` STRICTLY, never `is_numeric` or a cast: a cast turns junk into 0,
+            // which is a store id some rows really carry and is literally
+            // `OperatorStoreSelection::NO_STORE`. Same spelling as
+            // `DocumentDirection::ownRow()`, for the same reason.
+            //
+            // RESOLVED ONCE AND REUSED below, so the duplicate-name lookup, the uniqueness rule
+            // and the write cannot disagree about which store they mean.
+            $storeId = filter_var(getCurrentStore(), FILTER_VALIDATE_INT);
+
+            if ($storeId === false || $storeId <= 0) {
+                return redirect()->back()->with('error', __('No store is selected, so a role cannot be created. Open the store this role is for and try again.'));
+            }
+
+            $existRole =  Role::where('name', $request->name)->where('store_id', $storeId)->first();
             if ($existRole && $existRole->created_by != auth()->user()->id) {
                 return redirect()->back()->with('error', __('The role is already being used in another account.'));
             }
@@ -114,7 +198,7 @@ class RoleController extends Controller
                     'name' => [
                         'required',
                         'max:100',
-                        // S13-b. THE SIBLING update():216 ALREADY HAD THIS AND store() DID NOT,
+                        // S13-b. THE SIBLING update():335 ALREADY HAD THIS AND store() DID NOT,
                         // which is how the escalation got its role: a staff member with
                         // 'Create Role' created a tenant-scoped role named `admin` here, then
                         // assigned it to themselves through UserController::update(), whose own
@@ -131,8 +215,8 @@ class RoleController extends Controller
                         // two independent reasons, both measured), but a defence that only looks
                         // like one is worse than none.
                         RolePolicy::reservedNameRule(),
-                        Rule::unique('roles')->where(function ($query) {
-                        return $query->where('store_id', getCurrentStore())->where('created_by', \Auth::user()->id);
+                        Rule::unique('roles')->where(function ($query) use ($storeId) {
+                        return $query->where('store_id', $storeId)->where('created_by', \Auth::user()->id);
                         })
                     ],
                     'permissions' => 'required',
@@ -152,11 +236,18 @@ class RoleController extends Controller
             // $role->store_id   = getCurrentStore();
             $role->guard_name  = 'web';
             $role->created_by = Auth::user()->creatorId();
-            $role->store_id   = getCurrentStore();
+            // GAP-279: the store resolved and refused above, rather than a fourth
+            // `getCurrentStore()` call. READABILITY AND NOT A SECOND CONTROL, and a mutation says
+            // so: replacing this with `getCurrentStore()` again SURVIVES the whole GAP-279 group,
+            // because the guard has already returned for the only principal whose answer differs
+            // and `getCurrentStore()` is deterministic within a request. An earlier version of
+            // this comment claimed it was "a second chance to write a NULL"; that was an
+            // overclaim and is withdrawn. The control is the refusal, in one place.
+            $role->store_id   = $storeId;
             $permissions      = $request['permissions'];
             $role->save();
 
-            // SAME CONTROL AS update() AT :227, which this path was missing.
+            // SAME CONTROL AS update() AT :405, which this path was missing.
             //
             // config/superadminaccess.php was enforced only in Blade
             // (roles/create.blade.php:72,98), so a crafted POST to roles.store
@@ -208,7 +299,7 @@ class RoleController extends Controller
         // the shared global `admin` role and roles belonging to other merchants --
         // and the view renders $role, disclosing its name.
         //
-        // update() (:177) and destroy() (:341) already authorize; the form that
+        // update() (:339) and destroy() (:506) already authorize; the form that
         // leads to update() did not, which is the same omission one step earlier in
         // the flow. Gated on the SAME policy decision as the write it leads to, so
         // the screen and the action cannot drift apart: a role you may not update
@@ -260,7 +351,7 @@ class RoleController extends Controller
                     'max:100',
                     // Reserved because the application decides platform-operator
                     // status by comparing users.type against these literals. Same correction as
-                    // store():124 -- this was the case-SENSITIVE Rule::notIn, and THIS site is the
+                    // store():195 -- this was the case-SENSITIVE Rule::notIn, and THIS site is the
                     // more interesting of the two: a role created under a safe name can be RENAMED
                     // here, which is a create-time-only check's blind spot.
                     RolePolicy::reservedNameRule(),

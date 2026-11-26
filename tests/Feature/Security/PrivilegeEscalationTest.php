@@ -291,7 +291,7 @@ class PrivilegeEscalationTest extends SecurityTestCase
     // escalation.
     //
     // S13-b closed the LIST. It did not make the two gates over that list agree about CASE.
-    // `RoleController::store():124` and `::update():254` validated with
+    // `RoleController::store()` and `::update()` validated with
     // `Rule::notIn(RolePolicy::RESERVED_NAMES)`, which compares case-SENSITIVELY against eight
     // hand-written spellings, while the gate that actually decides the `users.type` write --
     // `UserController:147` and `:302`, in front of `:154` and `:305` -- lowercases the needle and

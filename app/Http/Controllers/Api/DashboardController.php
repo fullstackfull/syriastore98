@@ -4609,7 +4609,7 @@ public function ViewProduct(Request $request)
  * THE PREDICATE RUNS FROM THE REVIEW TO THE CALLER, not from request input — and that direction is
  * forced by the shipped app, which sends no `store_id` and no body at all
  * (`StoreSyria_app98/lib/config/repository/review_repository.dart:29-33`). Copying the sibling
- * shape (`resolveOwnedStore($request->store_id)`, used by `UpdateReview` at :4098 and `AddReview`)
+ * shape (`resolveOwnedStore($request->store_id)`, used by `UpdateReview` and `AddReview`)
  * would refuse every real delete in production. So: load the review, take ITS `store_id`, and ask
  * `resolveOwnedStore()` whether this caller owns that store. Same authorization outcome, no client
  * change. `resolveOwnedStore()` derives the principal from `\Auth::user()` and carries the operator
@@ -4635,7 +4635,7 @@ public function DeleteReview($id)
      * because the `404` here reads as a status and is not one. `ApiResponser::error()` is
      * `error($data = [], $message = 'fail', int $code = 200, ...)`, so this `404` lands in
      * `$message` and the wire carries `{"status":0,"message":404,...}` with a 200. Left as it is:
-     * it is byte-identical to the sibling `UpdateReview:4130`, a 401 is the one answer that would
+     * it is byte-identical to the sibling `UpdateReview()`, a 401 is the one answer that would
      * be harmful (the shipped app force-clears its session on one), and the delete does not happen
      * either way. Flagged by the independent review of this slice.
      *
@@ -4734,6 +4734,61 @@ public function DeleteReview($id)
 
     if (!$review) {
         return $this->error(['message' => __('Review not found.')], 404);
+    }
+
+    /*
+     * F1 OF THE GAP-193 REVIEW. THE ROW WAS SCOPED AND THE COLUMNS WERE NOT.
+     *
+     * The lookup above confines the review to this store, so a merchant may only edit their OWN
+     * review -- and `product_id`/`category_id` were then written STRAIGHT FROM REQUEST INPUT, after
+     * which `AvregeRating($review->product_id)` ran with the FOREIGN id and wrote another store's
+     * `products.average_rating`. Measured here as the owning merchant, own token, own store, own
+     * review: store B's average went 5 -> 1, HTTP 200 `{"status":1}`.
+     *
+     * **ALL THREE INPUT-WRITTEN COLUMNS, ACCOUNTED FOR EXPLICITLY. `product_id` CLOSED,
+     * `category_id` CLOSED, `user_id` STILL OPEN.** `user_id` is written straight from input below
+     * with no `exists:` rule and no store predicate, and `testimonials.user_id` is read through
+     * `Testimonial::UserData()` and emitted as `user_email` by `ApiController::product_detail()`.
+     * So a merchant posting `{store_id: <own>, id: <own review>, user_id: 1}` and then reading
+     * their own product's detail gets the PLATFORM OPERATOR's `users.email` back in
+     * `data.product_Review[].user_email` -- measured in
+     * `Gap193ReviewPurchaseGateAndTenancyTest`. Live and PRE-EXISTING, and this door is where the
+     * primitive is most useful, because the attacker re-points an EXISTING row instead of needing
+     * a reviewable pair.
+     *
+     * IT IS NAMED RATHER THAN CLOSED, AND NOT BY ADDING IT TO THE SHARED CLASS, for the reason
+     * `AddReview`'s own block already gives: the column holds ids from **two different tables**
+     * depending on which writer created the row -- the storefront writers store a `customers` id,
+     * the admin writers a `users` id -- so the correct predicate is a DECISION about what that
+     * column means, not a copy of the product one. Widening `ReviewTargetOwnership` would commit
+     * to one of those two answers silently.
+     *
+     * THE ENVELOPE AND THE CLIENT ARE BOTH VERIFIED, not assumed -- I raised each as a concern and
+     * an independent pass settled both in the fix's favour. `$this->error()` is right: the shipped
+     * app's `apiRefused()` returns true for `status: 0`, `apiMessage()` reads
+     * `body['data']['message']` first -- exactly the key set below -- and the controller raises a
+     * red toast carrying the server's message and returns BEFORE `Get.back()`, so the sheet stays
+     * open with the merchant's typed text intact. A merchant sees a real message, not a silent
+     * no-op. And the app CANNOT TRIP THIS GUARD AT ALL: its update path posts `productId` and
+     * `categoryId` from the product-detail screen the merchant is already on, so always their own
+     * -- zero regression risk, and a legacy mis-pointed review edited through the app is silently
+     * REPAIRED.
+     *
+     * The predicate, why it is SHARED with the two panel writers rather than copied, and why
+     * `$store->id` rather than `$request->store_id` (and why that equivalence depends on this guard
+     * sitting BELOW `resolveOwnedStore()`), are all in
+     * `App\Support\Commerce\ReviewTargetOwnership`. `$this->error()` and NEVER 401 (the shipped
+     * Flutter app force-clears its session on a 401); it is the envelope the sibling `AddReview`
+     * already uses for this same condition. ABOVE every write, so a refusal changes nothing.
+     */
+    $reviewTargetRefusal = \App\Support\Commerce\ReviewTargetOwnership::refusalFor(
+        $store->id,
+        $request->input('product_id'),
+        $request->input('category_id')
+    );
+
+    if ($reviewTargetRefusal !== null) {
+        return $this->error(['message' => $reviewTargetRefusal], $reviewTargetRefusal);
     }
 
     if ($request->has('user_id') && $request->user_id !== null && $request->user_id !== '') {
@@ -11243,7 +11298,7 @@ public function addCustomer(Request $request)
          * `:4804`, `:6442`, and this one) and there is NO `MerchantPermissions` call after this
          * point in the file at all. A comment that is wrong about where its own precedent lives
          * sends the next reader to the wrong code, which this project treats as a defect in its
-         * own right (`MerchantPermissions.php:138-141`).
+         * own right (`MerchantPermissions::allowsAny()`).
          *
          * THE CALL IS THE SAME AS `:2403`; THE RESPONSE DELIBERATELY IS NOT. That gate answers
          * `$this->error([...])`, and `ApiResponser::error()` is HTTP **200** with `{status: 0}`.

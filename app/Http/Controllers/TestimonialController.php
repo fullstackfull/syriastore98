@@ -54,6 +54,11 @@ class TestimonialController extends Controller
     {
         if (auth()->user() && auth()->user()->isAbleTo('Create Testimonial'))
         {
+            // GAP-193. See foreignRowRefusal() at the end of this class.
+            if ($refusal = $this->foreignRowRefusal($request)) {
+                return redirect()->back()->with('error', $refusal);
+            }
+
             $validator = \Validator::make(
                 $request->all(), [
                     //'category_id' => 'required',
@@ -152,7 +157,7 @@ class TestimonialController extends Controller
      *
      * MEASURED in `TestimonialProductLookupCrossTenantTest` before this guard existed: a merchant
      * opened, rewrote and deleted another store's testimonial. The index DataTable IS scoped
-     * (`TestimonialDataTable:80`), so ids are not listed to an attacker -- but they are small
+     * (`TestimonialDataTable::query()`), so ids are not listed to an attacker -- but they are small
      * sequential integers, which is the same enumeration argument the `category_id` leak rests on.
      *
      * `destroy()` was the sharpest: it called
@@ -162,7 +167,7 @@ class TestimonialController extends Controller
      *
      * Fails closed when either side is absent. No operator limb, as on
      * `ProductBrandController::callerOwnsBrand()` -- and note `getCurrentStore()` returns the
-     * literal 1 for a super admin with an empty `current_store` (app/Helper/helper.php:775), so an
+     * literal 1 for a super admin with an empty `current_store` (`getCurrentStore()`), so an
      * operator is scoped to store 1 here rather than refused.
      */
     private function callerOwnsTestimonial(?Testimonial $testimonial): bool
@@ -213,6 +218,12 @@ class TestimonialController extends Controller
             // apart from a refusal by which error comes back.
             if (! $this->callerOwnsTestimonial($Testimonial)) {
                 abort(404);
+            }
+
+            // GAP-193. The row guard above proves the row is the caller's; this proves the PRODUCT
+            // the caller is repointing it at is too. See foreignRowRefusal().
+            if ($refusal = $this->foreignRowRefusal($request)) {
+                return redirect()->back()->with('error', $refusal);
             }
 
             $validator = \Validator::make(
@@ -323,7 +334,7 @@ class TestimonialController extends Controller
      * are small per-store integers, so this is enumeration rather than guesswork, and the ids are
      * then usable against any other handler that takes a product id.
      *
-     * `routes/web.php:944` registers it as `POST get-product` inside the
+     * `routes/web.php` registers it as `POST get-product` (route name `get.product`) inside the
      * ['auth','xss','setlocate','verified'] group -- a SEPARATE declaration, not part of
      * `Route::resource('testimonial')`, which is exactly why a census keyed on resource-controller
      * method names never examined it.
@@ -385,5 +396,94 @@ class TestimonialController extends Controller
     public function contact_us(Request $request)
     {
         return view('other_page.contact_us');
+    }
+
+    /**
+     * GAP-193 / `CUST-005`. IS THE PRODUCT (AND CATEGORY) THIS TESTIMONIAL NAMES ACTUALLY OURS?
+     *
+     * WHAT WAS WRONG. `store()` and `update()` wrote `product_id` and `category_id` STRAIGHT FROM
+     * REQUEST INPUT while stamping `store_id = getCurrentStore()`, so a merchant could save a row
+     * that says *"store A's review, of store B's product"*. `update()`'s row-ownership guard cannot
+     * see it: the row really IS the caller's, and only the product it points at is foreign.
+     *
+     * AND THE ROW IS SERVED ON THE VICTIM'S STOREFRONT, which is what makes it a finding rather
+     * than untidy data. `Api\ApiController::product_detail():5834` and
+     * `::product_detail_guest():5991` read `Testimonial::where('product_id', $id)->get()` with NO
+     * store predicate, and their shared docblock states the reason: the review loop sits inside
+     * `if (!empty($product))`, so the reviews are *"dependent lookups on a store-verified parent"*.
+     * That argument is sound AND IT RESTS ON A PREMISE THIS WRITER DID NOT GUARANTEE -- the same
+     * shape `GAP-279` records for `MerchantPermissions`' NULL-store arm. `Testimonial` carries no
+     * `StoreScope` and is deliberately absent from `config/tenancy.php`'s `scoped_models`, so
+     * nothing underneath contains it either.
+     *
+     * MEASURED through the real routes before this existed
+     * (`Gap193ReviewPurchaseGateAndTenancyTest`): `POST /testimonial` as merchant A with store B's
+     * ids wrote `store_id=1, product_id=2` where product 2 belongs to store 2, and
+     * `POST api/{slug}/product-detail` for store B served that review to B's own shopper.
+     * `PUT /testimonial/{id}` repointed an existing own review from product 1 to product 2.
+     * `Testimonial::AvregeRating()` has the same unpredicated shape and WRITES
+     * `products.average_rating`, so the planted score is folded into the victim's average as soon
+     * as anyone rates that product.
+     *
+     * FIXED AT THE WRITERS, AND NOT AT THOSE TWO READERS, for two reasons: the readers live in a
+     * file this workstream must not edit; and their own docblock argues against a second predicate
+     * on a NULLABLE `store_id` column, citing a measured case of `product_variants.store_id`
+     * drifting (`ProductController:2873-2895`, where an operator's no-op save stamped store 1 on a
+     * store-7 product's variants) -- such a predicate would silently refuse a store its own reviews.
+     *
+     * **A THIRD REASON USED TO BE GIVEN HERE AND IT WAS FALSE. WITHDRAWN.** It said "restoring the
+     * premise is what makes every existing reader correct at once, including `AvregeRating()`", on
+     * the premise that there were FOUR writers and this change fixed the two that needed it. The
+     * independent review of that change found a SIXTH: `Api\DashboardController::UpdateReview`
+     * scoped the review ROW and not the `product_id` COLUMN, so one request by a merchant acting on
+     * their own store and their own review repointed it at another tenant's product and
+     * `AvregeRating()` then wrote that tenant's `products.average_rating` -- measured, 5 -> 1, HTTP
+     * 200 `{"status":1}`. The claim is only true once EVERY writer holds the premise, which is why
+     * the predicate now lives in `App\Support\Commerce\ReviewTargetOwnership` and is SHARED with
+     * that door rather than copied into it. The census that was built to bound the writer set is
+     * what missed the writer -- recorded in the test file, because it is the same shape as the
+     * finding.
+     *
+     * THE PREDICATE ITSELF LIVES IN `App\Support\Commerce\ReviewTargetOwnership`, NOT HERE, and
+     * this method is a one-line delegation. Read that class for why the ids are validated rather
+     * than derived, why `filter_var` is strict, why `Product` and `Category` need an explicit
+     * `store_id` clause (both carry `StoreScope` and both are ABSENT from `scoped_models`, so the
+     * global scope adds nothing for any principal), and for the two recorded residuals on its
+     * `exists()` reads. It is shared because F1 above proves what a copy costs.
+     *
+     * WHO ELSE THIS NARROWS, NAMED RATHER THAN LEFT OUT. `store()` has no row to own, so before
+     * this guard NOTHING scoped the PLATFORM OPERATOR there: they could name any store's product
+     * and the row was stamped `store_id = getCurrentStore()`, the hardcoded literal **1** for an
+     * operator with an empty `current_store`. A store-1 review of a store-7 product IS the defect
+     * above, so narrowing it is the fix -- but it is a narrowing, and
+     * `test_the_operator_is_scoped_to_store_one_here_as_on_every_sibling_method` drives it BOTH
+     * ways (admitted for store 1's own product, refused across stores) rather than leaving the
+     * claim in this comment. It also makes `store()` agree with its four siblings, whose shared
+     * `callerOwnsTestimonial()` already records that *"an operator is scoped to store 1 here rather
+     * than refused"*.
+     *
+     * AND IT COSTS THE OPERATOR NO WORKFLOW, which the first version of this paragraph left out --
+     * an omission in the REASSURING direction, and the exact mirror of the `GAP-279` mistake where
+     * the refusal was permanent and the draft claimed recovery. `StoreController::changeStore()`
+     * SKIPS the ownership predicate entirely for the operator, so they may point `current_store` at
+     * any store and then write that store's testimonials for that store's products. The only thing
+     * they lose is filing a store-1 review of a store-7 product, which IS the defect.
+     *
+     * THE PERMISSION DOOR IN FRONT OF THIS GUARD HAS NO OPERATOR LIMB, and this guard does not fix
+     * that. `index()`, `store()`, `update()` and `destroy()` gate on a bare `isAbleTo()`, which
+     * CLAUDE.md records as always refusing the platform operator -- so an operator holding no role
+     * never reaches here at all. Pre-existing, outside this finding, and NOT papered over: the
+     * operator case in the test grants `Create Testimonial` before driving the door, so what it
+     * proves is that THE GUARD is not an operator lockout, and it is silent about the door.
+     *
+     * @return string|null the message to flash, or null when every named row is this store's
+     */
+    private function foreignRowRefusal(Request $request): ?string
+    {
+        return \App\Support\Commerce\ReviewTargetOwnership::refusalFor(
+            getCurrentStore(),
+            $request->input('product_id'),
+            $request->input('category_id')
+        );
     }
 }

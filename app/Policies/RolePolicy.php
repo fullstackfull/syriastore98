@@ -73,9 +73,9 @@ class RolePolicy
      * THE ONE PREDICATE, so the two gates over this invariant cannot disagree again.
      *
      * THEY DID DISAGREE, and the asymmetry was measured rather than reasoned about.
-     * `RoleController::store():124` and `::update():254` validated with
+     * `RoleController::store():195` and `::update():335` validated with
      * `Rule::notIn(self::RESERVED_NAMES)`, which is CASE-SENSITIVE, while the only two
-     * tenant-reachable writers of `users.type` -- `UserController:154` and `:305` -- are gated by
+     * tenant-reachable writers of `users.type` -- `UserController:155` and `:333` -- are gated by
      * `in_array(strtolower(trim((string) $role->name)), self::RESERVED_NAMES, true)` at `:147` and
      * `:302`, which LOWERCASES THE NEEDLE and so is case-INSENSITIVE by construction. Measured
      * against the real constant, the validator let through `'Super admin'`, `'sUper admin'`,
@@ -84,7 +84,7 @@ class RolePolicy
      *
      * NO ESCALATION FOLLOWED FROM IT, and that was established by execution before anything was
      * changed -- the chain breaks twice over:
-     *   - engine-independently at `UserController:147`/`:302`, because the lowercasing gate
+     *   - engine-independently at `UserController:148`/`:330`, because the lowercasing gate
      *     collapses every variant onto one of the three lowercase entries and refuses it, so the
      *     validator was never the last line of defence;
      *   - and on PRODUCTION MySQL before that, because `roles.name` carries a UNIQUE index and
@@ -118,7 +118,7 @@ class RolePolicy
     }
 
     /**
-     * The predicate itself, byte-for-byte the comparison `UserController:147` and `:302` already
+     * The predicate itself, byte-for-byte the comparison `UserController:148` and `:330` already
      * make. Public so a test can drive it directly and so a future third consumer has one obvious
      * thing to call rather than a fourth hand-written comparison.
      *
@@ -151,7 +151,7 @@ class RolePolicy
      * outright.
      *
      * Widening who matches is safe because `users.type` is not client-writable: the only writers
-     * are `UserController:154` and `:305` (both derived from a tenant-scoped role name and both
+     * are `UserController:155` and `:333` (both derived from a tenant-scoped role name and both
      * behind the `RESERVED_NAMES` refusal), `StoreController:265` (inside an operator-only
      * branch), and the registration controllers, which hardcode the value.
      *

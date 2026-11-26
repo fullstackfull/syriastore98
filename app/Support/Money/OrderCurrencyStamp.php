@@ -128,11 +128,95 @@ final class OrderCurrencyStamp
         return null;
     }
 
-    /** @param int|string|null $storeId */
+    /**
+     * UNCHANGED, AND IT MUST STAY SO -- the FIVE order writers stamp `orders.currency_symbol` from
+     * here: this class's own model hook (`Order.php:182`), `Api\ApiController::place_order` and
+     * `::ordersave`, `Api\DashboardController::createOrderViaApi` and `OrderController`'s manual
+     * order. A stamped currency is recorded financial data and rewriting it is the owner's decision
+     * (`D-N34`), so a reader that needed a tenant predicate got its OWN method below rather than a
+     * correction here. It carries `GAP-230`'s fall-through exactly as `codeFor()` does, for the
+     * same reason and with the same reachability.
+     *
+     * @param int|string|null $storeId
+     */
     public static function symbolFor($storeId): string
     {
         return (string) (Utility::GetValueByName('defult_currancy_symbol', $storeId)
             ?? Utility::GetValueByName('currency_symbol', $storeId)
             ?? self::DEFAULT_SYMBOL);
+    }
+
+    /**
+     * The symbol a NAMED store is configured to price in, or null when none is -- READ WITH AN
+     * EXPLICIT TENANT PREDICATE.  GAP-278 / `P01-B2`.
+     *
+     * `configuredCodeFor()`'s TWIN, deliberately, down to the guard and the ordering: same shape,
+     * same reasons, different pair of setting names. The two must not drift, because they answer
+     * the two halves of one question about one store.
+     *
+     * WHAT IT FIXES, MEASURED BOTH WAYS BEFORE IT EXISTED. With no symbol row of its own, a store's
+     * `get-tax-data` and `get-shipping-data` reported the **NEIGHBOUR MERCHANT'S** symbol to a
+     * viewer holding a panel session for that neighbour: `Utility::GetValueByName($name, $storeId)`
+     * reads the named store's rows but falls through on a MISS to `Utility::Setting($storeId)`,
+     * which IGNORES its store-id argument whenever `Auth::check()` is true and reads
+     * `getCurrentStore()` -- the VIEWER's store (`Utility.php:138-150`). Storefront routes sit in
+     * the `web` group with a session cookie path of `/`, so a merchant with a live panel login is a
+     * populated web-guard principal on every storefront request. Severity is a MISLABELLED PRICE
+     * for one viewer rather than a disclosure -- a store's symbol is printed on every price of its
+     * public storefront -- but a money label that answers for whoever is reading it is wrong in a
+     * way that compounds, and this is the third surface in this repository to need the same remedy
+     * (`DocumentDirection::ownRow()` was the first, `configuredCodeFor()` the second).
+     *
+     * THE CHAIN IS `symbolFor()`'s CHAIN: `defult_currancy_symbol`, then `currency_symbol`. The
+     * first is what the merchant's own settings screen writes; nothing shipped writes the second,
+     * which is why it is the fallback and not the primary -- but it is walked, because dropping a
+     * link would call a store configured under it unconfigured.
+     *
+     * NEWEST ROW, NOT OLDEST. `settings` has no unique index and really does carry duplicate
+     * `(name, store_id)` pairs (`Setting::putForStore()` documents the population P1-PLT-07
+     * created). Every other reader takes the newest, because `pluck('value','name')` lets a later
+     * key overwrite an earlier one; a bare `->value('value')` scans ascending and takes the OLDEST,
+     * so without `orderByDesc('id')` one store's prices would carry two different symbols.
+     *
+     * CLEANED HERE, which `configuredCodeFor()`'s note also records but which matters more for a
+     * symbol. `Utility::GetValueByName()` passes every currency setting through
+     * `CurrencySymbol::cleanSetting()` at the point of read (P1-SEC-80 round 4), and bypassing the
+     * helper bypasses that: the currency tab stored whatever stood before the first `-` of its
+     * posted value, so a `Manage Setting` holder stored MARKUP, and the four
+     * `*_currency_format_with_sym` helpers prefix the stored symbol onto amounts that print raw.
+     * Both names are in `CurrencySymbol::SETTING_NAMES`, so this is the SAME cleaning the helper
+     * would have applied and not a second rule.
+     *
+     * REFUSES A STORE ID OF 0 OR LESS, and that early return is BELT-AND-BRACES rather than the
+     * control -- the control is the predicate, and with `where('store_id', 0)` no row matches and
+     * the answer is null anyway. It exists because `empty(0)` is true in the helper this replaces,
+     * and because `OperatorStoreSelection::NO_STORE` is literally `0`, so a future caller WILL pass
+     * it. `Gap278ConfiguredSymbolReaderTest` pins the BEHAVIOUR (null for 0 and for a negative),
+     * which is what a caller depends on; the guard itself is not separately observable and that
+     * file says so.
+     *
+     * AN EMPTY STRING IS RETURNED, NOT TREATED AS UNSET -- `!== null`, matching
+     * `configuredCodeFor()` and `symbolFor()`'s `??`. Each caller states its own default where that
+     * default is applied, which is `DocumentDirection::ownRow()`'s rule too.
+     */
+    public static function configuredSymbolFor(int $storeId): ?string
+    {
+        if ($storeId <= 0) {
+            return null;
+        }
+
+        foreach (['defult_currancy_symbol', 'currency_symbol'] as $name) {
+            $value = DB::table('settings')
+                ->where('store_id', $storeId)
+                ->where('name', $name)
+                ->orderByDesc('id')
+                ->value('value');
+
+            if ($value !== null) {
+                return (string) CurrencySymbol::cleanSetting($name, $value);
+            }
+        }
+
+        return null;
     }
 }
