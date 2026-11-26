@@ -503,6 +503,17 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **Coupled** | It edits the same expression as `J18` and as `GAP-143`'s 267.00-vs-245.00. Decide `J18` first or decide them together. |
 | **Blocked** | The repair. Nothing else. |
 
+
+> **WIDER THAN STATED — MEASURED 2026-11-26, AND THIS CHANGES WHAT YOU ARE DECIDING.** The entry
+> above describes a blank sale price **plus a flash sale**. There is a second route that needs no
+> flash sale at all: with the `WholesaleProduct` module active, the cart readers use that module's
+> own pricing engine, and `WholesaleProduct::Wholesale_Product_price():109` assigns
+> `$product_price = $product->sale_price;` **unguarded**, where the host engine guards the same
+> assignment (`Product.php:323`, `if (!empty($product->sale_price)) { … }`). So a blank sale price
+> charges **0.00** whenever that module is on. Verified at source by the coordinator, not taken on
+> report. The decision you are being asked for is unchanged; its REACH is larger than written, and
+> a repair scoped to the flash-sale path would leave the other route free. See `GAP-346`.
+
 ### J18 — `GAP-311` / `PRICE-004`: which discounts may stack, in what order, against which base
 
 | | |
@@ -512,6 +523,29 @@ baselines awaiting human review, and `I1`–`I19` above.
 | **Measured** | Five layers compound, and their order is an emergent property of which function each sits in: `sale_price` overrides `price` → flash sale applies to the *sale* price → tax → coupon (on a line that already includes tax) → tax again. Driven: list `100.00`, sale `80.00`, flash 10%, 25% coupon → the shopper pays `54.00`, i.e. `100 × 0.80 × 0.90 × 0.75`. **The merchant configured offers summing to 55% off and the shopper got 46%.** `PRICE-005`'s auto-stacking half is breached; its lowest-price half holds. |
 | **Consequence of not deciding** | `J17` and `GAP-143` cannot be repaired either — all three edit the same expression. |
 | **Blocked** | Three pricing repairs. |
+
+
+> **A CORRECTION TO THE PREMISE — MEASURED 2026-11-26.** This entry says there is no explicit
+> discount-priority rule "in the code". That is true of the census it rests on — comment-stripped
+> `Product.php` and `CouponBasketAllocator.php` — but **not of the codebase**. The vendored
+> `ProductPricing` module ships an explicit, two-level, merchant-facing priority vocabulary, wired
+> into both cart readers: at store level `settings.all_rules_condition` takes
+> `apply_all_rules` (stack all) or `apply_first_rule` (first only); at rule level
+> `product_pricing_rules.rule_status` takes `apply_with_other_rules` or
+> `apply_this_rule_and_disregard_other_rules`.
+>
+> Two things follow for you. First, **you may already have the vocabulary you need** — your
+> merchants' own UI speaks it, so a decision expressed in those terms needs no new concepts.
+> Second, and more pointedly: **`PRICE-005`'s forbidden behaviour ships in the source, commented
+> out.** `apply_smaller_price_rule` ("Apply rule for smaller price") is exactly the
+> auto-pick-the-lowest that the approved text forbids; it is disabled, and a test now asserts in
+> both directions that it stays disabled, so re-enabling it reddens a test carrying the decision's
+> own wording.
+>
+> Limits, so this is not over-read: it governs only that module's own rules, not the seven pricing
+> layers; it is module-gated and defaults to `none`; it is vendored; and both host call sites hand
+> it an **already-discounted** price, so its rules compound rather than order. This is a source
+> census, not a driven measurement, and is labelled as such. See `GAP-346`.
 
 ### J19 — `GAP-312` / `CUST-005`: must a product review require a purchase?
 

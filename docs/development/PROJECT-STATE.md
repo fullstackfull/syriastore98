@@ -128,7 +128,7 @@ branch name does not narrow it.
 > report deferring something is not an owner deferral.**
 >
 > **Current figures (gate-enforced): 374 known requirements, 182 verified complete, 192 not.** The
-> register holds **345** rows. Remaining: NOT IMPLEMENTED 9, PARTIALLY IMPLEMENTED 105.
+> register holds **347** rows. Remaining: NOT IMPLEMENTED 9, PARTIALLY IMPLEMENTED 105.
 >
 > > **THE ROW COUNT WAS STALE AT 279 AND NOTHING ASSERTED IT — corrected 2026-11-26, and now
 > > gate-enforced.** The register's own header carries the figure and `GapRegisterConsistencyTest`
