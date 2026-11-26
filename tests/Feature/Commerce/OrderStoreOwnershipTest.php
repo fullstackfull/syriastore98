@@ -66,11 +66,14 @@ use Tests\TestCase;
  *     mass assignment drops it and the column was never written even when it existed.
  *     Nothing reads it. REPORTED, not worked around.
  *
- *  3. `stores.created_by` is a FOREIGN KEY to `users.id` in the migration and the
- *     hand-built table declared no key at all. `DB_FOREIGN_KEYS` is unset so sqlite
- *     enforces it, and the fixture created both stores with `created_by = 7` BEFORE
- *     inserting user 7 -- an order the migrated schema refuses. The two inserts are now in
- *     the order the key requires; no value changed.
+ *  3. `stores.created_by` is a FOREIGN KEY to `users.id` in the migration, and the
+ *     hand-built table dropped it ON PURPOSE. Its own comment said so: "The foreign key on
+ *     `created_by` is deliberately NOT declared: ... store B's owner is not a row this suite
+ *     needs." The migrated schema refutes that premise -- `DB_FOREIGN_KEYS` is unset so
+ *     sqlite enforces the key, and the fixture created both stores with `created_by = 7`
+ *     BEFORE inserting user 7. Measured: in that order every one of the 18 cases errors with
+ *     "FOREIGN KEY constraint failed" on the stores insert. The owner IS a row this suite
+ *     needs; the two inserts are now in the order the key requires, and no value changed.
  *
  *  4. `roles.guard_name` is NOT NULL default 'web' in the migration and nullable with no
  *     default in the hand-built table; `permissions.name` is UNIQUE in the migration and
@@ -1220,6 +1223,29 @@ class OrderStoreOwnershipTest extends TestCase
             'store_id' => $storeId,
         ]);
         $variant->save();
+
+        /*
+         * AND THE WRITE IS READ BACK, because "the column exists" and "this fixture examines
+         * it" are DIFFERENT QUESTIONS and both read green when only the first is asked. A
+         * fixture key a model's mass assignment drops disappears in silence -- which is
+         * exactly what `store()` itself does with `order_billing_details.store_id`, measured
+         * above -- so the row is re-read from the database instead of trusted. `stock` is read
+         * back with it: it is the column the variant cases here are really about.
+         */
+        $persisted = \Illuminate\Support\Facades\DB::table('product_variants')
+            ->where('id', $variant->id)->first();
+
+        $this->assertNotNull($persisted, 'the variant fixture must have written a row');
+        $this->assertSame(
+            $variant->variant,
+            $persisted->variant,
+            'the label must land in product_variants.variant, the column the migration declares'
+        );
+        $this->assertSame(
+            $stock,
+            (int) $persisted->stock,
+            'the stock the variant cases assert on must be the stock really written'
+        );
 
         return $variant;
     }

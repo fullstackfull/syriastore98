@@ -547,6 +547,28 @@ class RefundStockIdempotencyTest extends TestCase
         ]);
         $variant->save();
 
+        /*
+         * AND THE WRITE IS READ BACK, because "the column exists" and "this fixture examines
+         * it" are DIFFERENT QUESTIONS and both read green when only the first is asked. A
+         * fixture key a model's mass assignment drops disappears in silence -- which is
+         * exactly what `OrderController::store()` does with `order_billing_details.store_id`
+         * -- so the row is re-read from the database instead of trusted. `stock` is read back
+         * with it: it is the column every assertion in this file is really about.
+         */
+        $persisted = DB::table('product_variants')->where('id', $variant->id)->first();
+
+        $this->assertNotNull($persisted, 'the variant fixture must have written a row');
+        $this->assertSame(
+            $variant->variant,
+            $persisted->variant,
+            'the label must land in product_variants.variant, the column the migration declares'
+        );
+        $this->assertSame(
+            $stock,
+            (int) $persisted->stock,
+            'the stock every case here asserts on must be the stock really written'
+        );
+
         return $variant;
     }
 
