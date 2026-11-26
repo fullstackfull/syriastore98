@@ -845,6 +845,10 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                         </div>
                     </div>
                     @endpermission
+                    {{-- ORD-008 (GAP-185). The picking and packing half of
+                         "Picking وPacking والباركود والملصقات والفواتير"; the label and invoice
+                         halves are the two buttons at the top of this page. --}}
+                    @include('order.partials.packing-slip')
                     @stack('showdigitalproductattachment')
                     @stack('CheckoutAttachment')
                     @stack('ViewAdditionalFields')
