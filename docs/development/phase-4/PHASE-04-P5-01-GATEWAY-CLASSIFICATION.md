@@ -45,7 +45,7 @@ break the census** (`CLAUDE.md` §3; this codebase has been bitten at least five
 | registry | count | file | what it governs |
 |---|---|---|---|
 | `PaymentSettingController::getPaymentGateways()` | **52** `id`s | `app/Http/Controllers/PaymentSettingController.php:630` | the admin settings screen; the `is_<x>_enabled` row and the credential fields; what the two manual-order writers store |
-| `Setting::paymentList($slug)` | **53** `name`s | `app/Models/Setting.php:70` | the storefront checkout's offered list; what the checkout posts |
+| `Setting::paymentList($slug)` | **53** `name`s | `app/Models/Setting.php:84` | the storefront checkout's offered list; what the checkout posts |
 | `PaymentController::getValidPaymentTypes()` | **52** | `app/Http/Controllers/PaymentController.php:2584` | which posted `payment_type` values the checkout accepts at all |
 | `PaymentService::process()` | **52** `case` arms | `app/Services/PaymentService.php:379` | the dispatch; an arm per provider plus the `default` refusal |
 
@@ -84,7 +84,7 @@ the class decides what a verification would have to be attached to:
 | **B** | `PaymentService` handed the provider `route('store.payment.status', …)` directly, so the browser or the gateway lands on the generic writer with no gateway-owned code in between | **32 rows** | the remainder |
 | **C** | the gateway returns to a handler that reads the stored checkout state and writes the order itself | **7 rows** | the files containing `storedCheckoutState(` — `AuthorizeNet`, `CinetPay`, `Easebuzz`, `Khalti`, `NMI`, `PaiementPro`, `PaymentController` |
 | **D** | no gateway: `cod`, `bank_transfer`, `whatsapp`, `telegram` | **4 rows** | — |
-| **—** | not a storefront checkout choice at all | **3 rows** | `other_payment` (`Models/Setting.php:110` hard-codes `status = 'off'` and `getValidPaymentTypes()` refuses it), `pos`, `lottery product` |
+| **—** | not a storefront checkout choice at all | **3 rows** | `other_payment` (`Models/Setting.php:124` hard-codes `status = 'off'` and `getValidPaymentTypes()` refuses it), `pos`, `lottery product` |
 
 11 + 32 + 7 + 4 + 3 = **57**.
 
@@ -191,7 +191,7 @@ Column notes, so nothing here is read as more than it is:
 | 23 | `myfatoorah` | gateway | A | NO VERIFICATION PATH | `PaymentVerificationService.php:339` | no | `PaymentController.php:3428` | MyFatoorahController.php:115 provider call, answer discarded | UnverifiedGatewayStaysPendingTest | first-party: provider answer discarded |
 | 24 | `nepalste` | gateway | B | NO VERIFICATION PATH | `PaymentVerificationService.php:339` | no | `PaymentController.php:3428` | — | UnverifiedGatewayStaysPendingTest | provider verify endpoint + `nepalste` keys |
 | 25 | `nmi` | gateway | C | VERIFIED | `NMIPayController.php:348` | yes | `NMIPayController.php:322` | — | UnguardedOrderWriterTrustBoundaryTest:404 | live nmi_api_private_key (provider half only) |
-| 26 | `other_payment` | not selectable | — | NO GATEWAY | `Models/Setting.php:110` | no | `—` | — | RetiredProviderSurfaceTest:243 | — |
+| 26 | `other_payment` | not selectable | — | NO GATEWAY | `Models/Setting.php:124` | no | `—` | — | RetiredProviderSurfaceTest:243 | — |
 | 27 | `ozow` | gateway | A | NO VERIFICATION PATH | `PaymentVerificationService.php:339` | no | `PaymentController.php:3428` | OzowController.php:302 request field only | UnverifiedGatewayStaysPendingTest | provider verify endpoint + `ozow` keys |
 | 28 | `paddle` | gateway | B | NO VERIFICATION PATH | `PaymentVerificationService.php:339` | no | `PaymentController.php:3428` | — | UnverifiedGatewayStaysPendingTest | provider verify endpoint + `paddle` keys |
 | 29 | `paiementpro` | gateway | C | NO VERIFICATION PATH | `PaymentVerificationService.php:339` | no | `PaiementProPaymentController.php:399` | — | UnverifiedGatewayStaysPendingTest | provider verify endpoint + `paiementpro` keys |

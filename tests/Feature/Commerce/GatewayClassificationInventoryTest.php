@@ -337,7 +337,7 @@ class GatewayClassificationInventoryTest extends TestCase
     }
 
     /**
-     * Resolve a citation like `PaymentController.php:3427` or `Models/Setting.php:110` to one file.
+     * Resolve a citation like `PaymentController.php:3427` or `Models/Setting.php:124` to one file.
      *
      * A suffix match under `app/` that must be UNIQUE. `Setting.php` alone is ambiguous
      * (`app/Models/Setting.php` and `app/Classes/Setting.php`), so an ambiguous citation fails
@@ -801,7 +801,7 @@ class GatewayClassificationInventoryTest extends TestCase
                     => ['OFFLINE_PAYMENT_TYPES', 'the offline-types branch'],
                 $citation === 'PaymentVerificationService.php:265'
                     => ['isCashOnDelivery', 'the COD branch'],
-                $citation === 'Models/Setting.php:110'
+                $citation === 'Models/Setting.php:124'
                     => ["'off'", "paymentList()'s hard-coded off status"],
                 default => [null, null],
             };

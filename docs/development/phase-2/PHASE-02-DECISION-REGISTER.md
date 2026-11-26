@@ -2116,7 +2116,7 @@ each self-consistent on its own surface.
 | site | spelling | role |
 |---|---|---|
 | `PaymentSettingController::getPaymentGateways():758` | `Senangpay` | the id the ADMIN picker posts, and the settings key `is_Senangpay_enabled` derives from it |
-| `Setting::paymentList()` `['name']` (`Setting.php:818`) | **`SenagePay`** | the value the STOREFRONT checkout posts — `payment_list.blade.php:12` renders `value="{{ $payment_data->name }}"` |
+| `Setting::paymentList()` `['name']` (`Setting.php:832`) | **`SenagePay`** | the value the STOREFRONT checkout posts — `payment_list.blade.php:12` renders `value="{{ $payment_data->name }}"` |
 | `PaymentService.php:404` | `case 'SenagePay':` | the storefront's own dispatch |
 | `Utility.php:1842` | `if ($payment == 'SenagePay')` | the storefront's second consumer |
 | `SenangPayController:166` | `__('SenangPay')` | what is STORED in `plan_orders.payment_type` — translated, and replay-keyed |

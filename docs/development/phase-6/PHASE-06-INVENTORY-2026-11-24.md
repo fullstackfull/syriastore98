@@ -2664,7 +2664,7 @@ Three distinct constraints, measured: 1. **The largest operator surface is first
 - **AND TWO DIFFERENT CHECKOUT PATHS READ THE TWO DIFFERENT ROWS. Row `stripe_secret` (the ADMIN API
   name) is read by Api\ApiController::payment_sheet at :8695 (`$sk_key =
   Utility::GetValueByName('stripe_secret', $store->id)`) and by the payment-list bridge at
-  Utility.php:1338 and Setting.php:119, which re-expose it under the ARRAY key `stripe_secret_key`.
+  Utility.php:1338 and Setting.php:133, which re-expose it under the ARRAY key `stripe_secret_key`.
   Row `stripe_secret_key` (the WEB name) is read directly by Services/PaymentService.php:685 in
   processStripe (`GetValueByName('stripe_secret_key', $store->id)`). A third reader,
   StripePaymentController.php:125, uses `getSuperAdminAllSetting()`, i.e. the PLATFORM operator's
@@ -2674,7 +2674,7 @@ Three distinct constraints, measured: 1. **The largest operator surface is first
   `/home/user/syriastore98/app/Http/Controllers/Api/ApiController.php:8695 (in payment_sheet, opened
     :8512); /home/user/syriastore98/app/Services/PaymentService.php:685 (processStripe);
     /home/user/syriastore98/app/Models/Utility.php:1336-1347;
-    /home/user/syriastore98/app/Models/Setting.php:119,132` — *first-party*
+    /home/user/syriastore98/app/Models/Setting.php:133,146` — *first-party*
 
 - **THE DEAD FLUTTER SCREENS ARE NOT BILINGUAL AND THE LIVE HUB IS. `grep -c '\.tr\b'` over the
   three dead screens returns 0, 0, 0; the live payment_setting_screen.dart has 4 `.tr` calls. The
@@ -3033,7 +3033,7 @@ NOTHING IN THIS AREA IS VENDORED, so the usual packages/workdo/ prohibition does
 
 - app/Http/Controllers/Api/ApiController.php:2368 and :2381 - a THIRD bridge between the two Stripe
   row names: payment_list reads row `stripe_secret` and re-exposes it under the array key
-  `stripe_secret_key`. The map named only Utility.php:1338/1346 and Setting.php:119/132. It IS
+  `stripe_secret_key`. The map named only Utility.php:1338/1346 and Setting.php:133/146. It IS
   redacted at ApiController.php:3362 via GatewaySecretRedactor::redactAll and pinned by
   tests/Feature/Security/PaymentListSecretDisclosureTest:98, so it is not a defect - but it is a
   fourth writer-to-reader path a reconciliation would have to account for.
