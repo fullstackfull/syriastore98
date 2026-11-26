@@ -168,6 +168,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Helper/helper.php:687` | an image upload was refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:323` | Delivery Syria order status transition refused |
 | `app/Http/Controllers/Api/DashboardController.php:1044` | Payment status changed on a settled order |
+| `app/Http/Controllers/OrderController.php:2206` | Payment status changed on a settled order |
 | `app/Http/Controllers/Api/DashboardController.php:2499` | api category delete refused: products would be cascade-deleted with it |
 | `app/Http/Controllers/Api/DashboardController.php:3333` | api variant delete refused: the variant is still referenced |
 | `app/Http/Controllers/Auth/RegisteredUserController.php:125` | Registration refused: no Role named |
@@ -290,8 +291,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderController.php:1660` | Return approval skipped a line whose product is not in the order |
 | `app/Http/Controllers/OrderController.php:1694` | Return approval skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/OrderController.php:1809` | Order replacement refused. |
-| `app/Http/Controllers/OrderController.php:2300` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:2518` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:2352` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:2570` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
@@ -536,6 +537,43 @@ a returned order and a bank transfer clearing after a cancellation are ordinary 
 deliberately `warning` and not `critical`: it is the audit trail for a permitted action, not a
 report of a fault. If it fires on an order whose financial row is non-terminal, that is the
 GAP-257 shape and the wallet is worth checking against `payments:reconcile`.
+
+### The SECOND copy of that row, added 2026-11-26 (`GAP-257`, the panel door)
+
+`app/Http/Controllers/OrderController.php:2206` —
+*Payment status changed on a settled order.*
+
+**Why a second copy, and why it is the more important one.** The section above says in its own text
+that the web twin — `OrderController::order_payment_status` — "writes `payment_status` with no
+`delivered_status` predicate of any kind, behind the same `Manage Order` ability", and that the API
+line "is what makes the interval reconstructible". **It made it reconstructible on one of the two
+doors.** The panel door had no audit line at all, so a merchant crediting a cancelled or returned
+order's wallet from the panel left nothing naming the actor — and the panel is the OLDER and WIDER
+door, because it never had a `delivered_status` predicate to begin with.
+
+**The predicate is identical to the API twin's, deliberately:** a settled `delivered_status` (2 or
+3) and a `payment_status` that actually changes (`strcasecmp`). Two copies of one decision are a
+drift risk, and the mitigation is that both are asserted — `SettledOrderPaymentCreditTest` pins
+this one in both directions, including a case proving it does NOT fire on a live order or on a
+`Paid` → `Paid` no-op, so a routine payment edit does not bury the settled-order case.
+
+**What is now measured rather than traced.** The section above describes the uncovered cases from a
+reading of the chain. They are now driven through this route and read off the raw `store_wallets`
+row: a RETURNED order moves the wallet **0.00 → 100.00**, and a cancellation whose financial row is
+non-terminal ends with **two `order_paid` credits and one `order_cancelled` debit for one order**,
+the wallet keeping **100.00**. The rule question is unchanged and is now asked as
+`OWNER-DECISION-PACKAGE.md` **J16**, which `GAP-257` had named as an owner decision without ever
+being put into that file.
+
+**Destination.** The default channel, as every other row in this inventory.
+
+**Reader: the same reader, for the same purpose** — the merchant's own operator, after the fact, not
+an alert. Same fields, so the two doors' traces are directly comparable: actor, store, order both
+ways round, `delivered_status`, and both payment values. **Expected to fire occasionally** for the
+same ordinary reasons (a COD bag handed over on a returned order, a bank transfer clearing after a
+cancellation), which is why it is `warning` and not `critical`. If it fires on an order whose
+financial row is non-terminal, that is the `GAP-257` shape and the wallet is worth checking against
+`payments:reconcile`.
 
 ### The row added 2026-11-24 (P06-2B review F9), with its destination and reader
 

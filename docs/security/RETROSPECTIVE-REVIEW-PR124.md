@@ -226,7 +226,7 @@ correction matters.
 
 That a duplicate commission *"is never replaced, updated or reconciled … the driver's
 `total_earning` stays overstated indefinitely."* **False, by measurement.** The cleanup at
-`OrderController.php:2371` and `Api/DashboardController.php:9432` is
+`OrderController.php:2423` and `Api/DashboardController.php:9432` is
 `DeliveryEarning::where('order_id', $order->id)->delete()` — keyed on the **order**, not the driver
 — so a genuine reassignment collapses N rows to one. Driven through the real web route with the
 legacy state seeded (2 rows, 4.00 owed where 2.00 is correct): three same-driver POSTs left
