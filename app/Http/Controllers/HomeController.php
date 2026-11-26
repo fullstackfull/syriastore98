@@ -2375,7 +2375,33 @@ class HomeController extends Controller
     {
         $store = getStore($request->route('storeSlug'));
         if ($store && $request->route('page_slug')) {
-            $page   = Page::where('page_slug', $request->route('page_slug'))->where('page_status', 1)->first();
+            /*
+             * THE `store_id` PREDICATE, WITHOUT WHICH THIS SERVED ANY STORE'S PAGE UNDER ANY SLUG.
+             *
+             * `$store` is resolved from the route on the line above and was then never used as a
+             * predicate, so `GET /store-b/page/<a-slug-belonging-to-store-a>` answered 200 with
+             * store A's `page_content` inside store B's theme — anonymously, on an open storefront
+             * route (`routes/customer.php:132`).
+             *
+             * NOTHING UNDERNEATH CONTAINED IT. `Page` is `use HasFactory, Cachable;` with no
+             * `BelongsToStore` and no `StoreScope`, and it appears ZERO times in
+             * `config/tenancy.php`'s `scoped_models` — the "no scope at all" variety rather than
+             * the inert-scope variety `Product` and `Category` have, so there was no predicate for
+             * any principal.
+             *
+             * ITS OWN SIBLING ALREADY HAD THE CLAUSE: `article_page` reads
+             * `Blog::where('slug', $blogSlug)->where('store_id', $store_id)` at `:1235`. This was a
+             * gap in one handler of a pair, not a platform design.
+             *
+             * A PAGE SLUG IS MERCHANT-CHOSEN FREE TEXT, so two stores both having `about-us` or
+             * `terms` is the ordinary case, not an exotic one — and before this, which of them
+             * `first()` returned was arbitrary. Found by the independent review of the GAP-117 SEO
+             * change, which did not introduce the leak but was about to classify this route as
+             * "a store's public content".
+             */
+            $page   = Page::where('page_slug', $request->route('page_slug'))
+                ->where('store_id', $store->id)
+                ->where('page_status', 1)->first();
             if ($page) {
                 $slug = $store->slug;               
                 return view('front_end.pages.page', compact('page', 'store'));
