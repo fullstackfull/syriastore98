@@ -4293,3 +4293,46 @@ if (! function_exists('storefront_image')) {
         return asset($fallback);
     }
 }
+
+if (!function_exists('platform_feature_decision')) {
+    /**
+     * PHASE 06 `CTRL-001` / `CTRL-002` — does this store have this feature?
+     *
+     * The three-valued answer, so a caller can tell "a flag refuses this" from "no flag governs
+     * this at all". `App\Support\Control\FeatureControl`'s and `FeatureDecision`'s docblocks carry
+     * the resolution order and why the answer is not a boolean.
+     *
+     * THE STORE IS AN EXPLICIT ARGUMENT AND IS NEVER RESOLVED FROM THE SESSION, which is the one
+     * design decision in this helper. CLAUDE.md records that `getCurrentStore()` reads the DEFAULT
+     * guard (`web`): it is null for a shopper, and for a shopper who ALSO holds a panel login it
+     * answers for *that merchant's* store. A helper that resolved its own subject would therefore
+     * decide a storefront request's feature availability from whichever merchant panel the visitor
+     * happens to be signed into — the exact shape CLAUDE.md names as "the single most productive
+     * pattern in the codebase". A storefront caller passes `getStore($slug)->id`; a panel caller
+     * passes `getCurrentStore()`; neither is guessed here.
+     *
+     * @param  string    $key      the feature key, case-insensitive
+     * @param  int|null  $storeId  the subject store, or null for a caller with no store in hand
+     */
+    function platform_feature_decision(string $key, ?int $storeId = null): \App\Support\Control\FeatureDecision
+    {
+        return \App\Support\Control\FeatureControl::decide($key, $storeId);
+    }
+}
+
+if (!function_exists('platform_feature_enabled')) {
+    /**
+     * PHASE 06 `CTRL-001` / `CTRL-002` — the boolean form, for a caller that has a default in mind.
+     *
+     * `$default` is what the answer is when NO flag governs `$key`. It is an argument rather than a
+     * choice made here because both possible choices are wrong for some caller: `false` makes an
+     * undeclared key hide an existing surface, `true` makes a mistyped key enable one. See
+     * `FeatureDecision`'s docblock.
+     *
+     * The store is an explicit argument for the reason `platform_feature_decision()` states.
+     */
+    function platform_feature_enabled(string $key, ?int $storeId = null, bool $default = false): bool
+    {
+        return \App\Support\Control\FeatureControl::enabled($key, $storeId, $default);
+    }
+}
