@@ -93,6 +93,42 @@ trait GuardsGatewayReturn
     public const CHECKOUT_NONCE_KEY = 'checkout_nonce';
 
     /**
+     * The key inside the stored state naming the RAIL the checkout was initiated for.
+     *
+     * GAP-284. Stamped in the same place and by the same mechanism as the nonce above -- one
+     * `merge()` in `PaymentService::process()`, before the switch -- so all 46
+     * `Session::put('request_data', ...)` sites inherit it and there is no census to keep in step.
+     *
+     * WHY IT IS NEEDED AT ALL. `storedCheckoutState()` took a `$gateway` argument FOR THE LOG LINE
+     * ONLY, so nothing stopped one rail's return handler consuming another rail's checkout. The
+     * `GAP-138` Benefit capture check guards `{slug}/get-payment-status`; the state it guards was
+     * readable by two anonymous `Route::any` siblings that write the order with no `payment_type`
+     * gate -- `PaiementProPaymentController::getProductStatus` (none at all) and
+     * `CinetPayController::getProductStatus` (only `$request->responsecode == 0`, which `null`
+     * satisfies). So the capture check was bypassable by changing the URL.
+     *
+     * IT IS THE SHOPPER'S OWN DECLARED RAIL, RECORDED BY THE SERVER, and that is sufficient here
+     * even though `$paymentMethod` is `$request->payment_type` (PaymentController:3185). The attack
+     * is not tampering with the stamp -- it is taking a legitimately stamped `benefit` state to a
+     * DIFFERENT handler. To obtain a `paiementpro`-stamped state the caller must initiate a
+     * paiementpro checkout, at which point the paiementpro handler is the right handler for it and
+     * nothing has been bypassed. What this binding removes is the CROSS-RAIL path, which is exactly
+     * what `GAP-284` records.
+     */
+    public const CHECKOUT_GATEWAY_KEY = 'checkout_gateway';
+
+    /**
+     * The `$gateway` label used by the ONE return handler that legitimately serves many rails.
+     *
+     * `PaymentController::getProductStatus` (`{slug}/get-payment-status`) is the storefront return
+     * for roughly forty rails -- benefit, Tap, stripe and the rest -- so it cannot be bound to a
+     * single stamp, and it is named here rather than left as a bare string in the gate. Its own
+     * control is the `payment_type` switch inside it, which is where the `GAP-138` capture check
+     * lives: a different control over a different question, not a missing one.
+     */
+    public const MULTI_RAIL_RETURN = 'storefront-return';
+
+    /**
      * How long a consumed return stays claimed.
      *
      * Longer than any gateway's retry window, so a claim cannot lapse while the gateway is still
@@ -145,6 +181,66 @@ trait GuardsGatewayReturn
             ]);
 
             return null;
+        }
+
+        /*
+         * GAP-284 -- THE STATE BELONGS TO THE RAIL IT WAS INITIATED FOR.
+         * =========================================================================================
+         *
+         * Until this gate, `$gateway` was used for the log line above and nothing else, so any of
+         * these handlers could consume any other's checkout. Measured path: initiate with
+         * `payment_type=benefit`, do not pay, then request `{slug}/get-payment-paiementpro` -- the
+         * Benefit state is adopted and the order is written, with stock decremented and the basket
+         * emptied, WITHOUT the `GAP-138` capture check ever running, because that check lives in a
+         * different handler. Pinned by `CrossRailCheckoutAdoptionTest`.
+         *
+         * TAKEN HERE, which is upstream of `claimGatewayReturn()` in every caller. That ordering is
+         * load-bearing rather than incidental: the checkout claim is keyed on the nonce ALONE, with
+         * no rail in the key (`gatewayReturnClaimKeys()`), so a sibling that claimed before
+         * refusing would deny the legitimate return of the very checkout it could not write -- the
+         * shopper pays, comes back, and is told it is a replay.
+         *
+         * CASE-INSENSITIVE, AND THAT IS MEASURED. The switch in `process()` keys on
+         * `$request->payment_type`, whose cases are spelled `Paiementpro`, `CinetPay`,
+         * `AuthorizeNet`, `NMI`, `khalti`, `easebuzz`; the handlers pass `paiementpro`, `cinetpay`,
+         * `authorizenet`, `nmi`, `khalti`, `easebuzz`. A case-sensitive comparison would refuse
+         * every legitimate return on FOUR of the six rails, which is a worse defect than the one
+         * being closed. Both spellings are asserted per rail, in both directions.
+         *
+         * AN ABSENT STAMP IS NOT A REFUSAL. A session stored before this change carries no stamp,
+         * and refusing those would strand every in-flight checkout at deploy -- the shopper charged
+         * and no order written, which is the failure the Phase 01 directive's second sentence
+         * forbids. So the gate fires only when the stamp is PRESENT and DISAGREES. That direction
+         * is pinned too, so it cannot be tightened without a red test.
+         *
+         * THE `responsecode` GATE IS NOT TOUCHED, and that is an owner-settled position rather than
+         * an omission. `GAP-284` also prescribes changing `CinetPayController`'s
+         * `$request->responsecode == 0` to `===`. That is the change this repository already made
+         * on the sibling rail and REVERSED -- `PaiementProPaymentController` records the full
+         * reasoning: `responsecode` is the caller's own field, so a strict test stops nothing a
+         * loose one admits; an independent pass found two ways to get a Paid order THROUGH a
+         * `=== '0'` gate; and owner decision D2 requires an unverifiable gateway to write its order
+         * and stay Pending rather than refuse a shopper already charged. A literal `=== 0` would in
+         * any case refuse the live return, because a query parameter arrives as the string `'0'`
+         * and `'0' === 0` is false. This gate closes the cross-rail path without touching that one.
+         */
+        if ($gateway !== self::MULTI_RAIL_RETURN) {
+            $stamped = $state[self::CHECKOUT_GATEWAY_KEY] ?? null;
+            $stamped = is_scalar($stamped) ? strtolower(trim((string) $stamped)) : '';
+
+            if ($stamped !== '' && $stamped !== strtolower(trim($gateway))) {
+                Log::warning('Gateway return refused: the stored checkout belongs to another rail.', [
+                    'handler_gateway' => $gateway,
+                    'checkout_gateway' => $state[self::CHECKOUT_GATEWAY_KEY] ?? null,
+                    'path' => $request->path(),
+                    'method' => $request->method(),
+                    'ip' => $request->ip(),
+                    'authenticated_customer' => optional(auth('customers')->user())->id,
+                    'store_id' => $state['store_id'] ?? null,
+                ]);
+
+                return null;
+            }
         }
 
         return $state;
