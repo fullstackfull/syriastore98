@@ -315,9 +315,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderRefundController.php:277` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:299` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:626` | Refund cancellation refused: the record does not match the order |
-| `app/Http/Controllers/OrderRefundController.php:1089` | Refund restock skipped a line with an unusable quantity |
-| `app/Http/Controllers/OrderRefundController.php:1105` | Refund restock clamped to the units the order lines lost |
-| `app/Http/Controllers/OrderRefundController.php:1718` | Refund settled but the order totals were left unchanged: product_json is unparseable |
+| `app/Http/Controllers/OrderRefundController.php:1095` | Refund restock skipped a line with an unusable quantity |
+| `app/Http/Controllers/OrderRefundController.php:1111` | Refund restock clamped to the units the order lines lost |
+| `app/Http/Controllers/OrderRefundController.php:1766` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/AccountProfileController.php:2014` | A refund request carried attachments to a store that accepts none; nothing was stored |
 | `app/Services/RefundPolicy.php:171` | A store refund policy could not be read; the action was refused |
 | `app/Http/Controllers/PaymentController.php:3653` | Benefit return refused: the capture was not established |

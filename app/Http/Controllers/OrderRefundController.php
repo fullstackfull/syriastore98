@@ -1062,6 +1062,11 @@ class OrderRefundController extends Controller
             // GAP-140: the products this call really did credit units for, so the marker below is
             // stamped only where a credit happened. See markRefundedLinesRestored().
             $creditedProducts = [];
+            /* RET-002: how many lines a RECORDED CONDITION kept off the shelf. Counted separately
+               from every other skip because it is the one reason that is meant to change — see the
+               marker's own note below for why that distinction decides whether the refund stays
+               retryable. */
+            $withheldByCondition = 0;
 
             \DB::transaction(function () use (
                 $product_refund_id_array,
@@ -1071,7 +1076,8 @@ class OrderRefundController extends Controller
                 $variantIds,
                 &$restored,
                 &$lostLeft,
-                &$creditedProducts
+                &$creditedProducts,
+                &$withheldByCondition
             ) {
                 foreach ($product_refund_id_array as $product_refund) {
                     $product_id = $product_refund['product_refund_id'] ?? null;
@@ -1143,6 +1149,8 @@ class OrderRefundController extends Controller
                         /* E13-C residual: recorded, so the refund's give-back nets against
                            the placement instead of being invisible to `movedOutFor()`. */
                         if ($this->returnedGoodsAreNotSellable($order_refund, $storeId, $product->id, 0)) {
+                            $withheldByCondition++;
+
                             continue;
                         }
 
@@ -1218,6 +1226,8 @@ class OrderRefundController extends Controller
                     }
 
                     if ($this->returnedGoodsAreNotSellable($order_refund, $storeId, $product->id, $variantProduct->id)) {
+                        $withheldByCondition++;
+
                         continue;
                     }
 
@@ -1246,7 +1256,45 @@ class OrderRefundController extends Controller
                  * even when every line was skipped, because a replay of a refund
                  * whose lines are all unresolvable must still not be retried into
                  * a partial double-restore later.
+                 *
+                 * RET-002 — ONE EXCEPTION, AND THE ONLY ONE: a call that credited NOTHING and was
+                 * stopped ONLY by a recorded condition stays retryable.
+                 *
+                 * ══════════════════════════════════════════════════════════════════════════════
+                 * FOUND BY A TEST, NOT BY READING. `ReturnConditionInspectionTest::
+                 * test_a_block_then_a_re_inspection_credits_the_line_exactly_once_across_both_doors`
+                 * went red: the fully-withheld call wrote this marker, `stockAlreadyRestored()`
+                 * then read it, and the goods could NEVER be credited after the merchant
+                 * re-inspected them and passed them. Stock the merchant physically holds,
+                 * permanently invisible — the exact failure direction that test's docblock warns
+                 * about one layer down, at the per-line marker.
+                 *
+                 * THE RULE ABOVE IS KEPT INTACT FOR EVERY OTHER SKIP. An unusable quantity, an
+                 * unresolvable variant, a product that is not this store's, a clamp to zero — all
+                 * still write the marker, because those are DATA problems that will read the same
+                 * way on every retry, and the paragraph above is the previous author's reason for
+                 * refusing a retry on them. A recorded condition is the opposite kind of fact: it
+                 * exists precisely to be changed by a person looking at the goods again.
+                 *
+                 * AND IT CANNOT CAUSE A DOUBLE RESTORE, which is what the rule protects. The
+                 * exception requires `$restored === 0` — nothing was credited, so a retry has
+                 * nothing to duplicate. A retry after re-inspection credits that line for the
+                 * FIRST time.
+                 *
+                 * THE MIXED CASE IS DELIBERATELY NOT COVERED, and the residual is real: when one
+                 * line is credited and another withheld, the marker IS written and the withheld
+                 * line cannot be credited after a re-inspection. Relaxing that would be unsafe,
+                 * because `markRefundedLinesRestored()` stamps `LINE_STOCK_RESTORED` only on a line
+                 * whose `qty` has reached 0 — a PARTIALLY refunded line is never stamped, so this
+                 * marker is the only replay guard it has, and dropping it could credit that line
+                 * twice. Pinned by
+                 * `test_a_mixed_order_keeps_the_marker_so_a_withheld_line_cannot_be_credited_later`,
+                 * which states the trade rather than leaving it to be discovered.
                  */
+                if ($restored === 0 && $withheldByCondition > 0) {
+                    return;
+                }
+
                 \App\Models\OrderNote::create([
                     'order_id' => $order->id,
                     'customer_id' => $order->customer_id,

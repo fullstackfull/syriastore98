@@ -579,8 +579,24 @@ class ReturnConditionInspectionTest extends TestCase
          * So this drives the whole sequence — block, re-inspect, then BOTH doors — and asserts the
          * units arrive exactly once.
          */
+        /*
+         * THE LINE SHAPE IS THE ONE THE STOREFRONT REALLY WRITES, and that is load-bearing. A
+         * first version of this case used a line with full `qty` and no `refunded_qty` — the
+         * "legacy" shape `RefundRestoreByProductTest::test_a_product_whose_lines_are_all_legacy_still_restores`
+         * documents — and the last leg read 8 instead of 6. That is not a defect this slice
+         * introduced: `markRefundedLinesRestored()` stamps `LINE_STOCK_RESTORED` only on a line
+         * whose `qty` has reached 0, so a counter-less line is never stamped and the two doors
+         * have knowingly both credited it since P1-ORD-14 recorded that residual. Measuring the
+         * condition gate against THAT shape would have been measuring the legacy allowance.
+         *
+         * `AccountProfileController::order_refund_request()` decrements `qty` and stamps
+         * `refunded_qty` on every real refund, so a fully returned line is `qty 0` /
+         * `refunded_qty 2` — which is what this uses.
+         */
         $product = $this->makeProduct(self::STORE_A, ['product_stock' => 4]);
-        $order = $this->makeOrder(self::STORE_A, [$this->line($product->id, 0, 2)], ['delivered_status' => 1]);
+        $order = $this->makeOrder(self::STORE_A, [
+            array_merge($this->line($product->id, 0, 0), ['refunded_qty' => 2, 'final_price' => 0]),
+        ], ['delivered_status' => 1]);
         $refund = $this->makeRefund($order, self::STORE_A, [
             ['product_refund_id' => $product->id, 'quantity' => 2],
         ]);
@@ -610,7 +626,17 @@ class ReturnConditionInspectionTest extends TestCase
             'the credit withheld earlier must still be available after a passing re-inspection'
         );
 
-        /* And now the OTHER door, on the same line. */
+        /* RET-006, FIRST BAR: the refund door's own marker is now written (a credit happened), so a
+           replay credits nothing. This is the half the condition gate could have broken by leaving
+           the marker unwritten on a call that DID credit. */
+        $this->callRefundStock($refund->id);
+        $this->assertSame(
+            6,
+            $this->stockOf($product),
+            'RET-006: replaying the refund door after a successful credit must add nothing'
+        );
+
+        /* RET-006, SECOND BAR: the OTHER door, on the same line. */
         Order::product_return([
             'product_id' => $product->id,
             'variant_id' => 0,
@@ -620,9 +646,76 @@ class ReturnConditionInspectionTest extends TestCase
         $this->assertSame(
             6,
             $this->stockOf($product),
-            'RET-006: the second door must credit nothing — the units arrived once, and the '
+            'RET-006: the second door must credit nothing either — the units arrived once, and the '
                 . 'condition gate must not have disturbed the no-double-credit rule'
         );
+    }
+
+    public function test_a_mixed_order_keeps_the_marker_so_a_withheld_line_cannot_be_credited_later(): void
+    {
+        /*
+         * THE RESIDUAL OF THE CASE ABOVE, PINNED RATHER THAN LEFT TO BE DISCOVERED — and it is a
+         * deliberate trade, not an oversight.
+         *
+         * `RefundStock()` skips the refund-level `order_notes` marker only when NOTHING at all was
+         * credited. On a MIXED order — one line credited, one withheld by a recorded condition —
+         * the marker IS written, `stockAlreadyRestored()` refuses every retry, and the withheld
+         * line cannot be credited even after the merchant re-inspects and passes it.
+         *
+         * WHY NOT RELAX IT: `markRefundedLinesRestored()` stamps `Order::LINE_STOCK_RESTORED` only
+         * on a line whose `qty` has reached 0 (`creditableReturnQty($line) > 0` is a `continue`), so
+         * a PARTIALLY refunded line is NEVER stamped. For such a line this marker is the only
+         * replay guard there is, and dropping it on a mixed call could credit it twice. Inflating
+         * stock is the worse of the two failures, so the marker stays.
+         *
+         * THE REMEDY A MERCHANT HAS TODAY is the one the existing machinery already offers:
+         * `RefundStockIdempotencyTest::test_a_second_refund_on_the_same_order_can_still_be_restocked`
+         * shows the marker is per REFUSAL REQUEST, not per order — so a second refund request on
+         * that order restocks independently. Stated here so the next reader does not have to find
+         * it. INVERT this case if the per-line marker is ever made reliable for a partial line.
+         */
+        $withheld = $this->makeProduct(self::STORE_A, ['product_stock' => 4]);
+        $passing = $this->makeProduct(self::STORE_A, ['product_stock' => 7]);
+        $order = $this->makeOrder(self::STORE_A, [
+            $this->line($withheld->id, 0, 2),
+            $this->line($passing->id, 0, 3),
+        ]);
+        $refund = $this->makeRefund($order, self::STORE_A, [
+            ['product_refund_id' => $withheld->id, 'quantity' => 2],
+            ['product_refund_id' => $passing->id, 'quantity' => 3],
+        ]);
+
+        app(ReturnInspection::class)
+            ->record(self::STORE_A, $order->id, $withheld->id, 0, ReturnInspection::VERDICT_DAMAGED, 7);
+
+        $this->callRefundStock($refund->id);
+
+        $this->assertSame(4, $this->stockOf($withheld), 'the damaged line is withheld');
+        $this->assertSame(10, $this->stockOf($passing), 'and the other line is credited');
+
+        $this->assertSame(
+            1,
+            \App\Models\OrderNote::withoutGlobalScopes()
+                ->where('note_type', \App\Http\Controllers\OrderRefundController::stockRestoredNoteType($refund->id))
+                ->count(),
+            'the marker IS written on a mixed call, because a credit happened and a partially '
+                . 'refunded line has no per-line guard of its own'
+        );
+
+        /* So a re-inspection cannot recover the withheld units through THIS refund request. */
+        app(ReturnInspection::class)
+            ->record(self::STORE_A, $order->id, $withheld->id, 0, ReturnInspection::VERDICT_RESELLABLE, 7);
+
+        $this->callRefundStock($refund->id);
+
+        $this->assertSame(
+            4,
+            $this->stockOf($withheld),
+            'MEASURED RESIDUAL: the retry is refused by the marker, so the withheld line stays off '
+                . 'the shelf for this refund request. The trade is stated in RefundStock()\'s own '
+                . 'note; inflating stock would be the worse failure.'
+        );
+        $this->assertSame(10, $this->stockOf($passing), 'and nothing was credited twice');
     }
 
     /*
