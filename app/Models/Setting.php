@@ -26,6 +26,20 @@ class Setting extends Model
             \App\Services\HostClaims::assertFree($setting);
             \App\Services\StoredPathPolicy::setting($setting);   // P1-SEC-28
             \App\Services\SettingOwnership::keep($setting);      // P1-PLT-07
+
+            /*
+             * GAP-104: only the platform operator may write the text published on the company's
+             * own website. A storeless merchant's `getCurrentStore()` is NULL, two HOST settings
+             * handlers write one row per POSTED KEY at that store_id, `where(store_id => null)` is
+             * `whereNull` so it matched the platform's own row, and `SettingOwnership::keep()`
+             * above then RESTORED the operator's `created_by` — so the hijacked row still
+             * satisfied the reader. Driven end to end before this line existed.
+             *
+             * It sits here rather than in the handlers because ten vendored module controllers
+             * have the same `$request->all()` shape and cannot be edited, and every Eloquent
+             * writer passes through this hook.
+             */
+            \App\Services\PlatformContentWriteGuard::assertOperator($setting);
         });
     }
 

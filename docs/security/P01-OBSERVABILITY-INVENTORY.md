@@ -94,7 +94,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 259 lines
+### `warning` — 260 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -426,6 +426,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaytmTransactionVerifier.php:242` | Paytm transaction status answered for a different order than the one asked about. |
 | `app/Services/PaytmTransactionVerifier.php:248` | Paytm transaction status answered for a different merchant than the one asked about. |
 | `app/Services/PaytmTransactionVerifier.php:311` | Paytm reported a successful transaction that also mentions a refund; not verifying it. |
+| `app/Services/PlatformContentWriteGuard.php:83` | Refused a non-operator write to the official website content |
 
 <!-- counts: error=95 info=22 debug=1 -->
 

@@ -460,7 +460,10 @@ final class PlatformContentPublishingTest extends SecurityTestCase
     #[Test]
     public function test_the_store_refuses_a_key_the_registry_does_not_declare(): void
     {
-        $this->makePlatformAdmin();
+        // ACTING AS the operator, not merely creating one: `PlatformContentWriteGuard` refuses a
+        // write to these names from any principal that is not the operator, and from no principal
+        // at all. This test drives `put()` directly, so it needs the actor as well as the row.
+        $this->actingAs($this->makePlatformAdmin());
 
         PlatformContentStore::put('en', [
             'home.hero.title' => 'FIXTURE HEADLINE EN',
@@ -495,17 +498,25 @@ final class PlatformContentPublishingTest extends SecurityTestCase
     }
 
     /**
-     * THE STORED ROW IS THE PLATFORM'S, AND A MERCHANT'S SETTINGS SAVE CANNOT REACH IT.
+     * THE READ PREDICATE IGNORES A ROW THAT IS NOT THE OPERATOR'S.
      *
-     * The content lives in the EXISTING `settings` table, which is also where every merchant's own
-     * store settings live, and `PaymentSettingController::saveSettings()` writes one row per key it
-     * is posted -- so "could a merchant write the platform's content row" is a real question and
-     * not a theoretical one. Two independent reasons it cannot, both asserted here rather than
-     * argued: the platform's row carries `store_id` NULL and `created_by` = the operator, while
-     * that writer pins `store_id` to `getCurrentStore() ?: '1'` (never null) and
-     * `SettingOwnership::keep()` re-stamps a merchant's create to their own tenant root.
+     * THIS TEST'S SCOPE WAS NARROWED AFTER AN INDEPENDENT REVIEW SHOWED ITS CLAIM WAS FALSE. It
+     * used to say it pinned "two independent reasons a merchant cannot write the platform's row",
+     * and it measured neither: it planted rows with `Setting::create()`, drove no
+     * merchant-reachable writer, and never made `getCurrentStore()` return null — so it stayed
+     * green against a live exploit in which a storeless merchant replaced the published text of
+     * the company's own website, legal documents included, through `POST /cookie-setting`.
+     *
+     * What it DOES pin is still worth having, so it is kept rather than deleted: the reader's
+     * `created_by` predicate. Revert that and this reddens.
+     *
+     * THE EXPLOIT ITSELF IS DRIVEN IN
+     * `tests/Feature/Security/PlatformSiteContentWriteGuardTest`, through the real route with a
+     * real merchant principal, against the guard in `Setting::booted()` that now closes it.
+     *
+     * The fixtures below act as the operator because that guard refuses these names from anybody
+     * else — including from no principal at all.
      */
-    #[Test]
     public function test_a_merchants_own_settings_row_cannot_become_the_platforms_content(): void
     {
         /*
@@ -517,6 +528,16 @@ final class PlatformContentPublishingTest extends SecurityTestCase
          */
         $operator = $this->makePlatformAdmin();
         [$merchant, $store] = $this->makeTenant();
+
+        /*
+         * ACTING AS **THIS** OPERATOR, not merely as an operator. PlatformContentWriteGuard
+         * refuses these names from any other principal, so the fixtures below need an actor --
+         * and it must be this one, because PlatformContentStore::ownerId() resolves the FIRST
+         * super admin by id. Creating a second operator to act as would make ownerId() return
+         * that one while these rows were planted under $operator, and the reader would then
+         * correctly ignore all three. Measured: that is exactly what my first attempt did.
+         */
+        $this->actingAs($operator);
 
         /* Three rows of the same name: one the platform owns, one a merchant owns in their store,
            and one a merchant owns with no store at all (the shape that would collide on name

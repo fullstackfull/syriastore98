@@ -35,7 +35,25 @@ DOC = os.path.join(ROOT, 'docs/security/P01-OBSERVABILITY-INVENTORY.md')
 LEVELS = ['critical', 'warning']
 PAT = re.compile(r"(?:\\?Log::|logger\(\)->)(" + "|".join(LEVELS) + r")\s*\(\s*(?:__\()?\s*['\"]([^'\"]{10,200})")
 
+OPENER = re.compile(r"(?:\\?Log::|logger\(\)->)(?:" + "|".join(LEVELS) + r")\s*\($")
+
 # --- the source census, same rule as the test ---
+#
+# THE OPENER-ONLY LOOKAHEAD, AND WITHOUT IT THIS TOOL AND THE TEST DISAGREED.
+#
+# The comment above said "same rule as the test", and on 2026-11-26 that stopped being true:
+# `SecurityLogInventoryTest` was widened to see a call whose MESSAGE sits on the next line --
+#
+#     \Illuminate\Support\Facades\Log::warning(
+#         'variant panel refused: the product is missing or belongs to another store',
+#
+# -- and this tool was not. It therefore reported FOUR messages as "source has 0 line(s)" when
+# `grep` finds each of them exactly once, and refused to write on those false problems, which
+# blocked the legitimate addition of a new entry.
+#
+# Joining only when a line ENDS at the opening parenthesis is the same narrow rule the test uses,
+# and it is narrow on purpose: an earlier attempt that joined every line with the two after it
+# reported 591 undeclared lines, because each call matched from three overlapping windows.
 source = {}                        # "path:line" -> message
 by_file_msg = collections.defaultdict(list)
 for dirpath, _dirs, files in os.walk(os.path.join(ROOT, 'app')):
@@ -44,8 +62,12 @@ for dirpath, _dirs, files in os.walk(os.path.join(ROOT, 'app')):
             continue
         full = os.path.join(dirpath, f)
         rel = os.path.relpath(full, ROOT)
-        for i, line in enumerate(io.open(full, encoding='utf-8', errors='replace').read().splitlines(), 1):
-            m = PAT.search(line)
+        lines = io.open(full, encoding='utf-8', errors='replace').read().splitlines()
+        for i, line in enumerate(lines, 1):
+            subject = line
+            if OPENER.search(line.rstrip()):
+                subject = line.rstrip() + (lines[i].lstrip() if i < len(lines) else '')
+            m = PAT.search(subject)
             if m:
                 msg = m.group(2).replace('\\', '').strip()
                 source['%s:%d' % (rel, i)] = msg
