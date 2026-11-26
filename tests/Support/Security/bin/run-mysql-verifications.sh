@@ -673,6 +673,20 @@ else
   CLI_CONN=(--host="${HOST}" --port="${PORT}" --user="${USER_NAME}" --pass="${PASS}")
 fi
 
+# GAP-295 -- verify-theme-publish-concurrency-on-mysql WAS THE ONE FLAKY SCRIPT ON THIS ROSTER,
+# and the finding was not a failing assertion but a VARYING one: the same tree and server reported
+# "20 checks, 0 failed" and then "18 checks, 1 failed". MEASURED ROOT CAUSE: its racing child had to
+# boot a Laravel application before parking, and the parent released the barrier after a FIXED
+# usleep(400000). Boot-to-barrier measures 363-476ms on an IDLE machine -- 6 of 10 samples already
+# over the 400ms budget -- and 1997-6592ms under the load of a roster run, 5x to 16x over. So under
+# the very conditions this roster creates the child found `.go` already present, never parked, and
+# the two publishes ran at whatever offset the scheduler produced. The dangerous outcome was the
+# PASS: a late child is usually refused cleanly, so the assertions held while measuring something
+# that was not a race.
+#
+# Now a two-phase handshake (the child writes `.racer-ready` BEFORE waiting; the parent blocks on
+# it), an assertion that the child really was parked, every check unconditional, and the check COUNT
+# declared and asserted so an aborted section is a named shortfall instead of a quieter pass.
 for label in \
   verify-gate-f-migrations-on-mysql \
   verify-interrupted-theme-migration-on-mysql \

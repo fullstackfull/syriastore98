@@ -118,8 +118,25 @@ if (in_array('--child', $argv, true)) {
         }
 
         if ($scenario === 'publish-racing') {
-            /* No outer transaction and no waiting: both racers simply publish, and the engine plus
-             * the service decide who wins. The parent is the other racer. */
+            /* No outer transaction: both racers simply publish, and the engine plus the service
+             * decide who wins. The parent is the other racer.
+             *
+             * GAP-295 -- THE HANDSHAKE, AND WHY THE SLEEP IT REPLACES MADE THIS SCRIPT FLAKY.
+             * The parent used to `usleep(400000)` and then touch `.go`, hoping this child had
+             * reached its wait. That is a timing assumption, not a barrier: booting a Laravel
+             * application here takes however long the machine allows, and under the load of a full
+             * roster run it exceeds 400ms -- so `.go` was ALREADY THERE on the first check, this
+             * child never parked, and the two publishes ran at whatever offset the scheduler
+             * happened to produce instead of together.
+             *
+             * `.racer-ready` is written BEFORE the wait and the parent blocks on it, so the release
+             * cannot precede the arrival. `.barrier` records which of the two actually happened, so
+             * the parent can ASSERT that this child was parked rather than trusting that it was --
+             * a deterministic check on the instrument, keyed on the fact and not on a clock.
+             */
+            file_put_contents($sem . '.barrier', file_exists($sem . '.go') ? 'LATE' : 'PARKED');
+            file_put_contents($sem . '.racer-ready', '1');
+
             if (! $waitFor('.go')) {
                 exit(3);
             }
@@ -302,7 +319,7 @@ $publisher = new ThemePublishingService();
 $sem = sys_get_temp_dir() . '/m3d-publish-' . getmypid();
 
 $clean = static function () use ($sem): void {
-    foreach (['.ready', '.go', '.done', '.abort', '.result', '.child-result', '.log'] as $s) {
+    foreach (['.ready', '.racer-ready', '.barrier', '.go', '.done', '.abort', '.result', '.child-result', '.log'] as $s) {
         @unlink($sem . $s);
     }
 };
@@ -366,7 +383,10 @@ try {
      * Publish on a store that has never been published. */
     $spawn('publish-racing', $v2->id, '0');
 
-    usleep(400000);                 // let the child reach its wait
+    /* GAP-295: block on the child's ARRIVAL, not on a clock. See the handshake in the child
+       branch above for the measurement that made this necessary. */
+    premise('the racing child reached the barrier', $waitFor('.racer-ready'));
+
     touch($sem . '.go');            // release both at once
 
     $parentResult = $publisher->publish($store->id, 'stylique', $v1->id, $merchant, 0);
@@ -391,6 +411,21 @@ try {
 
     check('neither racer threw', ! str_contains($childSays, 'THREW'),
         substr($childSays, 0, 160));
+
+    /*
+     * GAP-295 -- THE INSTRUMENT, ASSERTED. The child records `PARKED` when it reached its wait
+     * before the release and `LATE` when `.go` was already there. With the handshake above it can
+     * only be `PARKED`; if anyone reinstates a sleep-based release it reads `LATE` and this fails
+     * instead of the race quietly not being a race. Deterministic -- it is a fact about ordering,
+     * not a threshold -- so it cannot itself become the flake it exists to prevent.
+     */
+    $barrierState = file_exists($sem . '.barrier')
+        ? trim((string) file_get_contents($sem . '.barrier')) : 'MISSING';
+
+    check('both racers were released TOGETHER, so this was a race', $barrierState === 'PARKED',
+        "barrier={$barrierState} -- LATE means the child found .go already present and never "
+        . 'parked, so the two publishes ran at whatever offset the scheduler produced and every '
+        . 'assertion in this section is about something other than a race');
 
     $pointers = DB::table('theme_published_versions')
         ->where('store_id', $store->id)->where('theme_id', 'stylique')->count();
@@ -492,10 +527,15 @@ try {
         sprintf('took %.2fs -- a draft save contending with a publish would make the editor feel '
             . 'broken even though it is correct', $elapsed));
 
-    if ($concurrentDraft !== null) {
-        check('the concurrent draft is a DRAFT and did not become live',
-            $concurrentDraft->status === ThemeVersion::STATUS_DRAFT);
-    }
+    /* GAP-295: UNCONDITIONAL, so the number of checks does not depend on the outcome. It was
+       `if ($concurrentDraft !== null)`, which is why a run could report 19 checks and a run could
+       report 20 and both read as a pass. A null draft now fails this rather than skipping it, and
+       the line above has already said why it was null. */
+    check('the concurrent draft is a DRAFT and did not become live',
+        $concurrentDraft !== null && $concurrentDraft->status === ThemeVersion::STATUS_DRAFT,
+        $concurrentDraft === null
+            ? 'no draft was returned, so there is nothing to classify'
+            : 'status=' . var_export($concurrentDraft->status, true));
 
     touch($sem . '.go');
     $waitFor('.done');
@@ -592,6 +632,30 @@ try {
     catch (Throwable $e) {}
 }
 
+/*
+ * GAP-295 -- THE COUNT IS PART OF THE VERDICT.
+ *
+ * THE FINDING THAT MADE THIS NECESSARY was not a failing assertion, it was a VARYING ONE: the same
+ * tree and the same server reported "20 checks, 0 failed" and then "18 checks, 1 failed". A harness
+ * whose number of assertions depends on the race it measures cannot say whether a passing run
+ * exercised the same thing, so a green from it means less than it appears to -- and 18 of 20 green
+ * printed as a pass while two assertions had silently not run, because the `catch` below counts one
+ * failure for an abort and says nothing about what was skipped.
+ *
+ * So the expected count is declared and asserted. Every `check()` above is now unconditional, so
+ * this number is a property of the FILE and not of the run: if a section aborts, the shortfall is
+ * named and the exit code is non-zero. Change it only together with the checks it counts.
+ */
+const EXPECTED_CHECKS = 21;
+
 printf("\n  %d checks, %d failed, %d inconclusive\n", $checks, $failures, $inconclusive);
+
+if ($checks !== EXPECTED_CHECKS) {
+    printf("  INCOMPLETE RUN: %d of %d checks executed -- %d never ran, so this run did not\n"
+        . "  measure what a full one does. See the ABORTED trace above for where it stopped.\n",
+        $checks, EXPECTED_CHECKS, EXPECTED_CHECKS - $checks);
+
+    exit(1);
+}
 
 exit($inconclusive > 0 ? 3 : ($failures > 0 ? 1 : 0));
