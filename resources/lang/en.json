@@ -4736,5 +4736,12 @@
     "This order has no line items to pick.": "This order has no line items to pick.",
     "Items to pick and pack for this order, with quantities. No prices.": "Items to pick and pack for this order, with quantities. No prices.",
     "Picked": "Picked",
-    "Total units to pack": "Total units to pack"
+    "Total units to pack": "Total units to pack",
+    "Has at least this many loyalty points": "Has at least this many loyalty points",
+    "Verified": "Verified",
+    "Verified purchase": "Verified purchase",
+    "No purchase found": "No purchase found",
+    "This review was not checked against a purchase.": "This review was not checked against a purchase.",
+    "This reviewer bought this product in an order placed from their own account.": "This reviewer bought this product in an order placed from their own account.",
+    "No completed order from this customer's own account contains this product.": "No completed order from this customer's own account contains this product."
 }

@@ -100,15 +100,6 @@ class TestimonialDataTable extends DataTable
                     ? DsBadge::render('success', __('Verified purchase'), __('This reviewer bought this product in an order placed from their own account.'))
                     : DsBadge::render('warning', __('No purchase found'), __('No completed order from this customer\'s own account contains this product.'));
             })
-            /*
-             * SORTABLE BUT NOT SEARCHABLE. The stored value is 0/1/NULL, so a free-text search on
-             * it would match the digits rather than the words a merchant can see, and yajra's
-             * default `LIKE` over an integer column is a confusing no-op. Ordering groups the
-             * verified rows together, which is the action this column exists to support.
-             */
-            ->filterColumn('verified_purchase', function ($query, $keyword) {
-                /* Deliberately inert: see the comment above. */
-            })
             ->filterColumn('description', function ($query, $keyword) {
                 $query->whereRaw('LOWER(description) LIKE ?', ["%{$keyword}%"]);
             })

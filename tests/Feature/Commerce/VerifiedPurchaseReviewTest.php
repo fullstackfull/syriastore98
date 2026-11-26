@@ -645,6 +645,51 @@ final class VerifiedPurchaseReviewTest extends SecurityTestCase
     }
 
     /**
+     * **EVERY NEW USER-VISIBLE STRING HAS A REAL ARABIC ROW.**
+     *
+     * `CLAUDE.md` §6: the product is bilingual Arabic (RTL) and English (LTR), and any UI change
+     * must be checked in both directions. The five pre-existing segment-rule labels all carry
+     * Arabic rows, so an English-only addition beside them would render English on an Arabic screen
+     * — a defect that is invisible to every behavioural test in this file.
+     *
+     * Asserted on `\p{Arabic}` rather than on mere presence, because a row whose value is a copy of
+     * its English key satisfies "has a translation" and shows English anyway;
+     * `ArabicInventoryRatchetTest` carries the same instrument for the whole file and names its
+     * dispositioned exceptions, and nothing here may join that set silently.
+     */
+    public function test_every_new_user_visible_string_is_translated(): void
+    {
+        $ar = json_decode(
+            (string) file_get_contents(base_path('resources/lang/ar.json')), true, 512, JSON_THROW_ON_ERROR
+        );
+
+        $this->assertIsArray($ar);
+        $this->assertGreaterThan(4000, count($ar),
+            'premise: ar.json was read whole. A short read makes every assertion below vacuous.');
+
+        $strings = [
+            /* the merchant review list's column and its three cell states */
+            'Verified',
+            'Verified purchase',
+            'No purchase found',
+            'This review was not checked against a purchase.',
+            'This reviewer bought this product in an order placed from their own account.',
+            "No completed order from this customer's own account contains this product.",
+            /* MKT-005's segment rule label, offered in the same change */
+            'Has at least this many loyalty points',
+        ];
+
+        foreach ($strings as $english) {
+            $this->assertArrayHasKey($english, $ar, sprintf(
+                'no Arabic row for %s, so an Arabic merchant reads English on this screen.', $english
+            ));
+            $this->assertSame(1, preg_match('/\p{Arabic}/u', (string) $ar[$english]), sprintf(
+                'the Arabic row for %s carries no Arabic script, which renders as English.', $english
+            ));
+        }
+    }
+
+    /**
      * A MERCHANT-PANEL review is left NULL, not 0.
      *
      * `testimonials.user_id` holds ids from TWO different tables depending on which writer created

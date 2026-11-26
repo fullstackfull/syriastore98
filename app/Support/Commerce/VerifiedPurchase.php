@@ -41,9 +41,14 @@ use App\Models\Order;
  *    the billing e-mail the buyer typed* — `GAP-214` records that a guest who types a victim's
  *    address has that id adopted "with no proof of ownership". So a guest order's `customer_id` is
  *    an unproven claim and cannot verify anybody. `is_guest = 0` is set at exactly one condition in
- *    each checkout writer — `if (auth('customers')->check())`
- *    (`PaymentController.php:4305-4308`, `:5789-5792`) — so it means *the account holder was signed
- *    in*, which is the thing "verified" needs.
+ *    each checkout writer — `if (auth('customers')->check())` in
+ *    `PaymentController::getProductStatus()` and `PaymentController::whatsapp()` — so it means
+ *    *the account holder was signed in*, which is the thing "verified" needs.
+ *
+ *    THE METHOD, NOT THE LINE, and that is this project's convention rather than a preference:
+ *    `CLAUDE.md` §3 records four of five `place_order:<n>` citations being stale, each by a
+ *    different amount, and one workstream's citations going stale twice by the change that was
+ *    citing them. A method name cannot drift and a grep finds it.
  *
  *    Consequence, recorded rather than hidden: a **POS** counter sale attributed to a customer by
  *    the merchant does not verify them either, because the merchant typed the attribution. That is
@@ -73,8 +78,8 @@ use App\Models\Order;
  * -------------------------------------------------------------------------------------------------
  *
  * `orders` records its lines twice and neither is queryable portably. `orders.product_id` is a
- * **comma-joined string** of the distinct ids (`PaymentController.php:4288-4293`:
- * `array_unique(...)` then `implode(',', ...)`), which needs `FIND_IN_SET` — absent from SQLite, and
+ * **comma-joined string** of the distinct ids (`PaymentController::getProductStatus()` builds it
+ * with `array_unique(...)` then `implode(',', ...)`), which needs `FIND_IN_SET` — absent from SQLite, and
  * `CLAUDE.md` §1 records that MySQL-only SQL in `selectRaw` is how 3,660 lines of `ReportController`
  * became structurally untestable. `orders.product_json` is a `text` blob. So the candidate set is
  * narrowed in SQL by the three indexed/cheap columns and the line match runs in PHP, which keeps the
