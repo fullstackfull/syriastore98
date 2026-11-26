@@ -315,9 +315,18 @@ final class ImportLayerTenancyCensus
         return 'unscoped';
     }
 
+    /** Expressions whose value can only have come from the authenticated principal. */
+    private const PRINCIPAL_TOKENS = [
+        'getCurrentStore(',
+        'Auth::user(',
+        'auth()->user(',
+        'creatorId(',
+        'current_store',
+    ];
+
     private function isPrincipalDerived(string $lookup, string $file): bool
     {
-        foreach (['getCurrentStore(', 'Auth::user(', 'auth()->user(', 'creatorId('] as $token) {
+        foreach (self::PRINCIPAL_TOKENS as $token) {
             if (str_contains($lookup, $token)) {
                 return true;
             }
@@ -327,28 +336,59 @@ final class ImportLayerTenancyCensus
             return false;
         }
 
-        /*
-         * ONE LEVEL OF INDIRECTION AND NO MORE, and the direction of the failure is deliberate: a
-         * variable whose every assignment in the file is principal-derived counts, and a variable
-         * assigned anywhere from anything else does not. Unknown reads as `unscoped`, so the
-         * tracing cannot manufacture a credit.
-         */
-        $assignments = [];
+        return $this->variableIsPrincipalDerived($m[1], $file, 2);
+    }
 
-        if (preg_match_all('/\$' . preg_quote($m[1], '/') . '\s*=\s*([^;]+);/', $file, $all)) {
-            $assignments = $all[1];
-        }
-
-        if ($assignments === []) {
+    /**
+     * TWO LEVELS OF INDIRECTION AND NO MORE, and the second level was not a refinement — it was
+     * the difference between a finding and a false accusation.
+     *
+     * `ImportExport`'s `ProductsExportData::collection()` is
+     *
+     *     $storeId = getCurrentStore() ?? \Auth::user()->current_store;
+     *     $store   = Store::findOrFail($storeId);
+     *     $products = Product::where('store_id', $store->id)->...
+     *
+     * At one level, `$store`'s only assignment is `Store::findOrFail($storeId)`, which contains no
+     * principal token, so the export of the merchant's OWN catalogue read as `unscoped` and sat in
+     * the table beside six real cross-tenant defects. A reader who checked that row and found it
+     * correct would have had cause to distrust the other eighteen. Following `$storeId` one level
+     * further reaches `getCurrentStore()` and the row is `scoped`, which it is.
+     *
+     * THE FAILURE DIRECTION IS DELIBERATE. A variable counts only when EVERY assignment to it in
+     * the file is principal-derived; any assignment from anything else, and an unknown, both read
+     * `unscoped`. So the tracing can withdraw a false accusation and cannot manufacture a credit —
+     * which is the right way round for a census whose `unscoped` column is a lower bound.
+     */
+    private function variableIsPrincipalDerived(string $variable, string $file, int $depth): bool
+    {
+        if ($depth <= 0) {
             return false;
         }
 
-        foreach ($assignments as $value) {
+        if (! preg_match_all('/\$' . preg_quote($variable, '/') . '\s*=\s*([^;]+);/', $file, $all)) {
+            return false;
+        }
+
+        foreach ($all[1] as $value) {
             $ok = false;
 
-            foreach (['getCurrentStore(', 'Auth::user(', 'auth()->user(', 'creatorId(', '->store_id'] as $token) {
+            foreach (self::PRINCIPAL_TOKENS as $token) {
                 if (str_contains($value, $token)) {
                     $ok = true;
+                }
+            }
+
+            /*
+             * `$store = Store::findOrFail($storeId)` and `$x = $y` alike: follow the variables the
+             * right-hand side names. `request()` and `$request->` are NOT followed, deliberately —
+             * CLAUDE.md: a predicate built from caller-supplied input is not a tenant check.
+             */
+            if (! $ok && ! preg_match('/request\(|\$request->/', $value)) {
+                foreach (array_unique($this->variablesIn($value)) as $inner) {
+                    if ($inner !== $variable && $this->variableIsPrincipalDerived($inner, $file, $depth - 1)) {
+                        $ok = true;
+                    }
                 }
             }
 
@@ -358,6 +398,14 @@ final class ImportLayerTenancyCensus
         }
 
         return true;
+    }
+
+    /** @return list<string> the variable names an expression mentions */
+    private function variablesIn(string $expression): array
+    {
+        preg_match_all('/\$(\w+)/', $expression, $found);
+
+        return $found[1];
     }
 
     /**
