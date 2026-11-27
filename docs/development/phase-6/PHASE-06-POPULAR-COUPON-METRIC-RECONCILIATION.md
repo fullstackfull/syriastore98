@@ -324,8 +324,37 @@ changed claim keeps the three names, a changed name keeps the claim.
 | if the answer is | then |
 |---|---|
 | **keep rule B** (settled only) | the five tests' fixtures each gain a settled `plan_orders` row per redemption. That makes them rule-agnostic rather than rule-B-specific — a coupon with 2 settled redemptions beats one with 1 under **both** rules — so their real subjects (tie-break, cache freshness) are asserted again and the files stop being hostage to the definition. Nothing else changes; the disclosure is already true. |
-| **restore rule A** (every redemption) | revert the `whereExists` in `HomeController::handleSuperAdmin()` and the `whereIn` in `Plan::most_purchese_plan()`; the five tests go green with no edit. Then **three** things must move together or the screen starts lying: `OperatorDashboardRankingsCountSettledOnlyTest`, whose 8 cases state the settled rule as the contract for both cards; `OperatorDashboardAttemptCountDisclosureTest::CLAIMS` keys on the words *"actually paid for"* and *"whose order can be found"*; and the disclosure sentence itself, in **both** catalogues. The English replacement: *"Total Plan Orders, Popular Plan and Popular Coupon count every purchase attempt, whether or not it was ever paid."* The Arabic, naming the cards as they print: *«يَعُدّ إجمالي طلبات الاشتراك والخطة الشعبية والكوبون الشعبي كل محاولة شراء، سواء دُفعت أم لا.»* |
+| **restore rule A** (every redemption) | revert the `whereExists` in `HomeController::handleSuperAdmin()` and the `whereIn` in `Plan::most_purchese_plan()`; the five tests go green with no edit — **measured, not predicted; see §6.4.** Then **three** things must move together or the screen starts lying: `OperatorDashboardRankingsCountSettledOnlyTest`, whose 8 cases state the settled rule as the contract for both cards; `OperatorDashboardAttemptCountDisclosureTest::CLAIMS` keys on the words *"actually paid for"* and *"whose order can be found"*; and the disclosure sentence itself, in **both** catalogues. The English replacement: *"Total Plan Orders, Popular Plan and Popular Coupon count every purchase attempt, whether or not it was ever paid."* The Arabic, naming the cards as they print: *«يَعُدّ إجمالي طلبات الاشتراك والخطة الشعبية والكوبون الشعبي كل محاولة شراء، سواء دُفعت أم لا.»* |
 | **a third rule** (e.g. *rank on settled, but show the attempted count beside it* — the reading `ANA-005` most nearly asks for) | new work, not a revert. Both numbers exist in the fixture above (`LAUNCH20` 3 of 12) and `<x-dashboard-card>` has no second slot, so it needs a shape decision first. |
+
+### 6.4 The exchange, measured in both directions
+
+Not predicted. The two predicates were removed — one line in
+`HomeController::handleSuperAdmin()`, one in `Plan::most_purchese_plan()` — the four related files
+driven, and the predicates restored from the commit (`git checkout --`, both verified present and
+`php -l` clean afterwards).
+
+| the four dashboard files | rule B, as shipped | rule A, predicates removed |
+|---|---|---|
+| total | **5 failed, 24 passed** (94 assertions) | **6 failed, 23 passed** (100 assertions) |
+| the five old cases | **all 5 red** | **all 5 green** |
+| `OperatorDashboardRankingsCountSettledOnlyTest` (8 cases) | 8 green | **6 red, 2 green** |
+| `OperatorDashboardAttemptCountDisclosureTest` (4 cases) | 4 green | 4 green — it asserts the *words*, which do not change when the predicate does. **So the screen would state rule B while computing rule A, and nothing in the suite would say so.** That is the sentence §6.3 says must move in the same step. |
+
+The six that go red under rule A, by name:
+`test_a_plan_whose_purchases_all_failed_does_not_win_popular_plan`,
+`test_a_plan_bought_by_bank_transfer_approval_wins_despite_its_capitalised_status`,
+`test_a_plan_with_a_capitalised_succeeded_is_counted_too`,
+`test_no_settled_purchase_anywhere_ranks_nothing`,
+`test_a_coupon_redeemed_only_on_unpaid_orders_does_not_win_popular_coupon`,
+`test_a_redemption_naming_no_order_at_all_is_not_counted_as_settled`. The two that survive are the
+spelling-census premise and the tie-break — both orthogonal to the definition, which is the mirror
+of the finding in §6.1 about the five.
+
+**So the exchange is 5 red tests against 6, and neither side is the cheap one.** What the numbers
+do settle is that these two sets of tests are *each other's* contradiction and not anybody's bug:
+one set encodes rule A, the other rule B, and exactly one can be green at a time until the owner
+chooses. That is the clearest possible statement that this is a decision and not a defect.
 
 ---
 
@@ -357,6 +386,7 @@ changed claim keeps the three names, a changed name keeps the claim.
 > |---|---|
 > | **(a) keep every redemption** | The card ranks on *usage*: which coupon code merchants reach for. It is then led, as measured, by a coupon whose redemptions were three-quarters unpaid, and by rows that match no order at all. It is also the basis the REST of the product already uses for a plan coupon — see the row below. Four earlier slices met this shape of question and **not one of them narrowed a figure on engineering's authority**: `F257` was escalated (you then narrowed it), `e967e3788` relabelled, `P5-R7` item 3 disclosed, `D-N31` is held. |
 > | **(b) settled only** | The card ranks on *revenue influence*: which coupon code the platform was actually paid against. Already shipped, already disclosed in both languages, and `OperatorDashboardRankingsCountSettledOnlyTest`'s 8 cases state it as the contract. |
+> | **Neither choice is the cheap one, measured** | The two test files are each other's contradiction, so exactly one can be green at a time until you choose. Driven both ways by removing the two predicates and restoring them: rule (b) leaves **5** red (the old cases), rule (a) leaves **6** red (six of the eight new ones). That is the clearest statement available that this is a decision and not a defect. §6.4. |
 > | **What (b) already costs, measured** | **The product now holds two meanings of "used" for one plan coupon, and they can disagree about the same coupon.** The exhaustion limit every payment path enforces is `PlanCoupon::used_coupon()` — `hasMany(PlanUserCoupon::class)->count()`, **every** row, called from about 120 sites — and `/plan-coupon/{id}`, one click from the screen this card links to, lists every redemption row unfiltered (`PlanCouponDetailDataTable::query()` filters on `coupon_id` alone). So `LAUNCH20` can be **exhausted at 12 of 12**, show 12 rows on its detail screen, and be ranked third on 3 by this card, with nothing anywhere explaining the gap. `D-N31`'s own words: *"One name should carry one meaning."* |
 > | **(c) rank on settled, state the attempted count beside it** | The reading `ANA-005` (*separate sales, collection and settlements*) most nearly asks for. Not a revert — `<x-dashboard-card>` has one value slot, so it needs a shape decision. |
 > | **The standing rule nearest to this** | The `ANA-008` metric-definitions document's own words, about the sibling demand measure: *"**stated as an option, not a default** … The report must label which it used. **Never silently pick one.**"* And your one ruling on a comparable figure — `F257`, the merchant *Order value* — excluded **cancelled** orders while keeping every order *regardless of payment status*. Rule (b) is broader than that: it also drops `pending`, `failed` and `rejected`. |
@@ -390,7 +420,7 @@ counting differently.
 
 | suite | result |
 |---|---|
-| **Unit** — the blocking CI gate | **7,183 passed, 1 skipped, 70,620 assertions**, exit 0. (`CLAUDE.md` §3 still says 6,762 + 1 skip; the branch has grown since, and the four new localisation cases are inside this figure.) |
+| **Unit** — the blocking CI gate | **7,183 passed, 1 skipped, 70,620 assertions**, exit 0. Run twice: once before the commit and once on the committed tree. (`CLAUDE.md` §3 still says 6,762 + 1 skip; the branch has grown since, and the four new localisation cases are inside this figure.) |
 | `tests/Unit/Localisation/` | 59 passed |
 | `tests/Feature/Platform` + `tests/Feature/Saas` + the three raw-query censuses | **8 failed, 513 passed (3,795 assertions)** |
 | the same two directories on a **PRISTINE** tree — every change here reverted, both new files moved aside | **8 failed, 498 passed**, the **same eight names**. The +15 passed is the three census files the first run added. **So this workstream introduces no failure**; measured rather than argued, because three of the eight are not mine. |
