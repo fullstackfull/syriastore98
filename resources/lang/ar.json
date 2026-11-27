@@ -5163,5 +5163,7 @@
     "The state of this store could not be determined.": "تعذَّر تحديد حالة هذا المخزن.",
     "This deployment records failed jobs in a differently named table, which this screen does not read. The figures are withheld rather than taken from the wrong table.": "يُسجِّل هذا التثبيت المهامّ الفاشلة في جدول باسم مختلف لا تقرؤه هذه الشاشة. وتُحجب الأرقام بدلاً من أخذها من الجدول الخطأ.",
     "Failed jobs are configured to be recorded in the database and the :table table does not exist, so a failing job leaves no record at all.": "المهامّ الفاشلة مُهيَّأة لتُسجَّل في قاعدة البيانات وجدول :table غير موجود، فالمهمّة التي تفشل لا تترك أي سجل على الإطلاق.",
-    "No failure history can be read here.": "لا يمكن قراءة أي تاريخ للفشل هنا."
+    "No failure history can be read here.": "لا يمكن قراءة أي تاريخ للفشل هنا.",
+    "Identity and licence papers merchants have submitted, awaiting a platform decision. A merchant can never approve their own.": "أوراق الهوية والتراخيص التي أرسلها التجار وتنتظر قرار المنصة. ولا يمكن لأي تاجر الموافقة على أوراقه بنفسه.",
+    "Platform actions one operator has requested and a different operator must approve before they take effect. Nobody can approve their own request.": "إجراءات على المنصة طلبها مشغّل واحد ويجب أن يوافق عليها مشغّل آخر مختلف قبل أن تصبح سارية. ولا يمكن لأحد الموافقة على طلبه الخاص."
 }

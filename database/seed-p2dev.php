@@ -1065,3 +1065,141 @@ if (\App\Models\PlanUserCoupon::count() === 0 && \App\Models\PlanCoupon::count()
     ]);
     echo "seeded: plan_user_coupons=1 (so the coupon-detail grid renders a data row)\n";
 }
+
+/*
+ * ROWS FOR THE THREE OPERATOR QUEUES, SO THEY ARE MEASURABLE RATHER THAN MERELY REACHABLE.
+ * =================================================================================================
+ *
+ * NAV-004. `platform/verification`, `platform/approvals` and `platform/incidents` all render an
+ * EMPTY STATE with no rows -- a sentence and nothing else. Measured on this fixture before these
+ * rows existed: the verification queue and the incident log each reported ZERO contrast findings
+ * across every combination, and that figure was about an empty-state paragraph, not about the
+ * table, the status pills, the row actions or the decision forms that are the whole of what an
+ * operator looks at.
+ *
+ * THAT IS THE SLICE-3 FINDING AGAIN, in a third place. `/plan-coupon/{id}` was "clean" because
+ * `plan_coupons` was empty, so no trigger rendered anywhere and the 2.58:1 button the slice
+ * existed to close could not be seen. An EMPTY GRID and an ABSENT SURFACE hide a defect
+ * identically, and neither reads as a failure. The note above the coupon rows says exactly this;
+ * these three are the same lesson applied before the measurement rather than after it.
+ *
+ * WRITTEN THROUGH THE REAL WRITER WHERE ONE EXISTS. `PlatformIncidentLog::open()` mints the
+ * reference, sets the opening status and writes the first history event, so a hand-built incident
+ * row would be a shape the product cannot produce -- and the show screen reads that history. The
+ * other two have no host writer that can run outside a request, so they are `forceFill`ed with the
+ * columns their tables declare NOT NULL.
+ *
+ * ALL VALUES INVENTED. No real merchant, customer or document appears here, and the KYC document
+ * row deliberately names a file that does not exist on any disk: the queue screen lists metadata
+ * and links to the download, and a dev fixture must not put a plausible identity paper on disk.
+ * `KycVerification`, `KycDocument`, `OperatorActionApproval` and `PlatformIncident` are among the
+ * models that are NOT `Cachable`, so an Eloquent read sees these immediately either way.
+ */
+if (\App\Models\KycVerification::count() === 0) {
+    $kyc = new \App\Models\KycVerification();
+    $kyc->forceFill([
+        'store_id' => $store->id,
+        'authority' => \App\Services\Kyc\KycAuthority::STORE_SYRIA,
+        'subject_type' => \App\Models\KycVerification::COMPANY,
+        'status' => \App\Models\KycVerification::SUBMITTED,
+        'submitted_at' => now()->subDays(2),
+        'created_by' => $merchant->id,
+    ])->save();
+
+    $document = new \App\Models\KycDocument();
+    $document->forceFill([
+        'kyc_verification_id' => $kyc->id,
+        'store_id' => $store->id,
+        'authority' => \App\Services\Kyc\KycAuthority::STORE_SYRIA,
+        'document_kind' => 'commercial_register',
+        'disk' => 'local',
+        'storage_name' => 'kyc/p2dev/not-a-real-file.pdf',
+        'original_name' => 'commercial-register.pdf',
+        'mime' => 'application/pdf',
+        'size_bytes' => 48128,
+        'sha256' => str_repeat('0', 64),
+        'issued_on' => now()->subYear()->toDateString(),
+        'status' => \App\Models\KycDocument::PENDING,
+        'uploaded_by' => $merchant->id,
+    ])->save();
+
+    echo "seeded: kyc_verifications=1 kyc_documents=1 (so platform/verification renders a row)\n";
+}
+
+/*
+ * A SECOND PLATFORM OPERATOR, BECAUSE THE TWO-PERSON APPROVAL FEATURE CANNOT BE SEEN WITH ONE.
+ * =================================================================================================
+ *
+ * `platform/approvals` renders ONE of two branches per row, chosen by `requested_by === auth()->id()`:
+ * the requester sees the sentence "You requested this. A different operator must approve it.", and
+ * anybody else sees the `Approve and perform` button. With a single operator in the fixture, every
+ * row is the viewer's own, so THE PRIMARY ACTION ON THE SCREEN NEVER RENDERS AT ALL -- measured
+ * 2026-11-27: the four-combination harness reported `/platform/approvals` with zero failing
+ * controls, and the moment the row's requester was changed to another user the same run reported
+ * `button.btn.btn-sm.btn-primary` "Approve and perform" at 2.58:1 in dark. The screen was
+ * UNMEASURABLE, not clean, which is the slice-3 coupon finding a fourth time.
+ *
+ * AND A ROW REQUESTED BY A NON-OPERATOR WOULD NOT HAVE DONE. The writer records the requesting
+ * OPERATOR's id, so pointing `requested_by` at the merchant would be a shape the product cannot
+ * produce -- a fixture that lies about the data is worse than one that is thin. Two operators is
+ * what the feature requires to work at all: its own screen says "distinct platform operators are
+ * required".
+ *
+ * IT IS A NEW ROW IN `users` AND THAT IS VISIBLE TO OTHER HARNESSES. `/users` and `/stores` show
+ * one more row than they did; nothing in the PHPUnit suites reads this fixture (they run on
+ * `:memory:`), so the effect is on the committed capture logs under
+ * `docs/development/phase-6/evidence/`, which should be retaken rather than assumed.
+ *
+ * Invented, and deliberately NOT granted the production `super admin` role: this account exists to
+ * be a NAME on a request, never to sign in. `tests/Support/bin/grant-dev-operator-role.php` grants
+ * that role to `operator@example.test` alone and is unchanged.
+ */
+$secondOperator = User::firstOrCreate(['email' => 'operator.two@example.test'], [
+    'name' => 'Second Platform Operator',
+    'type' => 'super admin',
+    'password' => Hash::make('password'),
+    'language' => 'en',
+    'created_by' => null,
+    'is_active' => 1,
+    'email_verified_at' => now(),
+]);
+
+if (\App\Models\OperatorActionApproval::count() === 0) {
+    /*
+     * TWO ROWS, ONE PER BRANCH, so both halves of the screen are on the page at once: the pending
+     * request somebody else made (which renders `Approve and perform`) and the pending request the
+     * viewing operator made (which renders the refusal sentence instead). A fixture that renders
+     * one branch measures half a screen.
+     */
+    foreach ([
+        ['store.delete', $secondOperator->id, 'p2dev-store-delete-'],
+        ['user.delete', $op->id, 'p2dev-user-delete-'],
+    ] as [$action, $requestedBy, $saltPrefix]) {
+        $approval = new \App\Models\OperatorActionApproval();
+        $approval->forceFill([
+            'action' => $action,
+            'payload' => ['store_id' => $store->id],
+            'fingerprint' => hash('sha256', $saltPrefix . $store->id),
+            'state' => \App\Models\OperatorActionApproval::STATE_PENDING,
+            'requested_by' => $requestedBy,
+        ])->save();
+    }
+
+    echo "seeded: operator_action_approvals=2 (one per branch of platform/approvals)\n";
+}
+
+if (\App\Models\PlatformIncident::count() === 0) {
+    $log = app(\App\Services\PlatformIncidentLog::class);
+
+    $incident = $log->open(
+        'Queue worker stopped consuming the default queue',
+        \App\Support\Operations\IncidentSeverity::MAJOR,
+        'Dev fixture only. Invented incident so the log, its status pills and its history render.',
+        \Carbon\CarbonImmutable::now()->subHours(6),
+        $op->id,
+    );
+
+    $log->note($incident, 'Dev fixture note, so the history block is not empty.', $op->id);
+
+    echo "seeded: platform_incidents=1 (+history, so platform/incidents renders a row)\n";
+}

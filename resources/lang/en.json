@@ -5198,5 +5198,7 @@
     "The state of this store could not be determined.": "The state of this store could not be determined.",
     "This deployment records failed jobs in a differently named table, which this screen does not read. The figures are withheld rather than taken from the wrong table.": "This deployment records failed jobs in a differently named table, which this screen does not read. The figures are withheld rather than taken from the wrong table.",
     "Failed jobs are configured to be recorded in the database and the :table table does not exist, so a failing job leaves no record at all.": "Failed jobs are configured to be recorded in the database and the :table table does not exist, so a failing job leaves no record at all.",
-    "No failure history can be read here.": "No failure history can be read here."
+    "No failure history can be read here.": "No failure history can be read here.",
+    "Identity and licence papers merchants have submitted, awaiting a platform decision. A merchant can never approve their own.": "Identity and licence papers merchants have submitted, awaiting a platform decision. A merchant can never approve their own.",
+    "Platform actions one operator has requested and a different operator must approve before they take effect. Nobody can approve their own request.": "Platform actions one operator has requested and a different operator must approve before they take effect. Nobody can approve their own request."
 }

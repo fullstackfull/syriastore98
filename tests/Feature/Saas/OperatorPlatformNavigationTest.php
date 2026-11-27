@@ -44,6 +44,14 @@ use Tests\Feature\Security\SecurityTestCase;
  * screen names would be satisfied forever by whatever was true the day it was written, and the
  * NEXT operator screen would ship unreachable exactly as these five did.
  *
+ * AND IT DID EXACTLY THAT, which is the only evidence that the mechanism works. On 2026-11-27 this
+ * file was red on FOUR screens at once -- `kyc.queue`, `platform.approvals.index`,
+ * `platform.incidents.index` and `platform.operations` -- each built, gated and tested by a
+ * different workstream, and not one of them had a navigation entry. No list typed into this file
+ * would have named them. NAV-004 added the four entries; nothing in this file changed to make it
+ * pass, and the counted nouns in the prose below were corrected to say "every entry" instead,
+ * because a number in a comment beside a computed set is the next thing to go stale.
+ *
  * So the subject set is computed: every GET route that carries `PlatformOperatorOnly`, whose uri
  * is `platform/<one segment>` with no route parameter. That shape is a top-level operator screen.
  * It deliberately excludes `platform/analytics/export` (three segments — a download reached from
@@ -343,7 +351,7 @@ final class OperatorPlatformNavigationTest extends SecurityTestCase
      * `config('platform.is_mobile')` is `'yes'`, so "in the menu" and "on the screen" are not the
      * same statement. A group could be in `$menu->menu` and absent from the page.
      *
-     * `dash-submenu` IS ASSERTED TOO, because the six entries are CHILDREN: if the parent lost its
+     * `dash-submenu` IS ASSERTED TOO, because every entry in the group is a CHILD: if the parent lost its
      * children they would each render as a flat top-level item and the group would be gone while
      * every other assertion in this file stayed green.
      */
@@ -365,7 +373,7 @@ final class OperatorPlatformNavigationTest extends SecurityTestCase
         /*
          * SCOPED TO THE GROUP'S OWN BLOCK, AND THIS IS THE SECOND DEFECT MUTATION FOUND IN THIS
          * FILE RATHER THAN READING. The first version asserted `dash-submenu` appeared ANYWHERE in
-         * the page. Re-pointing all six children to `'parent' => null` — which flattens the group
+         * the page. Re-pointing every child to `'parent' => null` — which flattens the group
          * out of existence — left that assertion GREEN, because three other sidebar groups already
          * render a `dash-submenu` and the string merely existed somewhere. CLAUDE.md's measured
          * example of exactly this: a mutation dropping one component's 44px target survived
@@ -382,8 +390,8 @@ final class OperatorPlatformNavigationTest extends SecurityTestCase
         $block = $next === false ? substr($body, $start) : substr($body, $start, $next - $start);
 
         $this->assertStringContainsString('dash-submenu', $block,
-            'the platform group rendered without a submenu of its own, so its six entries are no '
-            . 'longer its children and the sidebar is six flat items instead.');
+            'the platform group rendered without a submenu of its own, so its entries are no '
+            . 'longer its children and the sidebar is that many flat items instead.');
 
         foreach ($this->operatorScreens() as $name => $uri) {
             $this->assertStringContainsString('href="' . route($name) . '"', $block,
