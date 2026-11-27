@@ -19,6 +19,77 @@ or authorization policy. Where an option would do that, it is marked and not tak
 
 ---
 
+## INDEX — every open decision, grouped by what kind of thing it is
+
+**Why this index exists and the sections below do not replace it.** Sections A–O are in the order
+the decisions were *raised*, which is a log. A log is the wrong shape for deciding: it puts a legal
+text next to a line-citation question and buries the money paths. This index is the same decisions
+grouped by **what kind of judgement each needs**, so you can take them a kind at a time. Nothing
+here is new; every row points at its own entry.
+
+**If you read only one group, read the first two.**
+
+### 1. Money — what somebody is charged, refunded or credited
+
+Engineering may not answer any of these, by the standing rule at the top of this file.
+
+| | the question in one line | what ships today |
+|---|---|---|
+| `J39` | What is a refund capped **against**? | the ORDER TOTAL, so a one-unit return worth 100.00 on a 540.00 order admits **540.00** — and is not reported as capped |
+| `J17` | A flash sale makes a product FREE, and the repair moves prices | a blank sale price charges **0.00** through the wholesale reader with no flash sale involved |
+| `J18` | Which discounts may stack, in what order, against which base | a two-level priority vocabulary ships; `PRICE-005`'s forbidden rule ships **commented out**, so the prohibition is honoured by an omission rather than a rule |
+| `J20` | May a `Paid` on a CANCELLED or RETURNED order credit the merchant's wallet? | it can |
+| `J23` | Should a Benefit/Tap return be refused when the charged amount does not match? | one missing fact (a BHD store's stored total); BHD has 3 decimals and the comparison refuses rather than rounds |
+| `J41` | The exchange: which price, who pays the difference, may a delivered order reopen at all | the link machinery exists and **cannot** serve an exchange — `performProductReturn()` needs `delivered_status == 1` and `cancelAndReplace()` needs `0` |
+| `A2` `A3` `A4` `B1` `B3` | three development-only payment migrations · scheduling `payments:reconcile` · `PAYTM_CALLBACK_ENABLED` · should a late payment auto-apply · the order↔wallet axis | see section A/B |
+| `J28` | Does renewing a plan ADD unused time or restart from today? | restarts: 20 of 30 days paid for can be days already held |
+| `J29` | What allowance does a merchant with **no readable plan** get? | the exhausted-allowance refusal (conservative) |
+
+### 2. Security — a control that is absent, unenforced, or off by default
+
+| | the question | state |
+|---|---|---|
+| `J32` | **Activate P1-SEC-40's written deny rules?** Identity documents are stored under a document root that *serves files* — the live measurement records `/storage/logs/laravel.log` answering **200**. Engineering made the path unguessable and mints no URL; it cannot refuse a client that already knows the path. | rules written, not active |
+| `J43` | What should the `xss` middleware do to prose? Its strip is **case-sensitive** and corrupts merchant text; its two entity needles are **dead code** (a decode runs first), and it stores escaped text as live markup. | being patched route by route, which is the worst of the three options |
+| `J30` | Support access: enforce at the door? plus duration, scopes, approver count | mechanism built; `enforce` ships **false**, and every ungranted login already writes a row, so the size of the gap is **countable before enforcing** |
+| `J42` | Alerting: thresholds, recipients, response targets, merchant visibility, retention | **nothing on this platform alerts anybody**, and a test asserts that `isAlertingConfigured()` returns false so it cannot be switched on silently |
+| `J22` | 39 ungated landing-page editor routes are reachable only because they crash | as described |
+| `J25` | A competitor reads your unit cost from your public slug | `GAP-244` |
+| `G2` | What may a storefront product payload contain? It includes `cost_price` and a `users.email` | as described |
+| `C1` `C2` `C3` `G1` `G3` `J16` | five authorization questions that change what a live user can do | sections C and G |
+| `J21` | May the assigned delivery DRIVER declare goods returned? | section J |
+
+### 3. Commercial and product policy
+
+`J27` grace-period length (the mechanism is **inert**: the period ships NULL) · `J33` the marketplace's commercial model — **not actionable by the plan's own words**, which make it conditional on an approval that is nowhere in the repository · `J34` the app review standard · `J37` activate the existing referral engine or leave referrals unbuilt · `J40` must a returned item be inspected before restock (mandating it would **stop every restock on day one**, since every store has zero verdicts) · `J19` must a product review require a purchase · `J14` may a basket holding another store's product complete without it · `J35` must the platform dashboard carry operator decision queues · `J45` may a maintenance announcement target a subset · `J47` may a merchant see which pilots they are in · `H1` `H2` `H4` `D1` `D2`.
+
+### 4. Text only the owner can write
+
+| | |
+|---|---|
+| `J44` | **The five public policies** — terms of service, privacy notice, acceptable use, billing-and-refunds, customers'-data handling. All five are marked `owed => true` with **no built-in copy**; the editor, the public page and the operator-only write guard all exist and are tested. The words bind the business. |
+| `J31` | Which identity documents, per subject type and per authority. `config('kyc.document_kinds')` ships **empty**, so no merchant can be verified at all. |
+| `D3` | The Arabic catalogue |
+| `H5` | Translate the storefront chrome, or keep the merchant's ability to rename it |
+
+### 5. What a figure MEANS — reporting definitions
+
+`J24` a caveat on eleven merchant surfaces overstates its own risk by a thousandfold · `J26` a field the Flutter app receives is permanently null and its column does not exist · **Popular Coupon** — whether `GAP-231`'s settled-only rule redefined a figure the owner reads, under reconciliation as of 2026-11-27; five tests are deliberately red rather than rewritten to match an unapproved rule.
+
+### 6. Human acceptance — a person must look, and no measurement substitutes
+
+`E1` 24 premium-verified surfaces of 295 · `E2` Flutter visual evidence · `E3` the security attestation's checklist · `E6` the two platform screens · plus, newly owed and **not** claimed as measured: the Store 360 screens, the KYC screens, CTRL's three views and the operations/incidents screens — each asserted bilingual in content with no colour declared and no side pinned, **none** put through the compositing contrast harness with `APP_DEBUG` off.
+
+### 7. Scope and mapping
+
+`J11` is `P06-05` a derived duplicate of `ADM-001` + `ADM-002`? — **rule on the mapping before the scope**, because it may dissolve the requirement · `E4` two recovered requirements whose scope cannot be read from their text · `J36` which of 26 storefront product reads must filter `status` (several **must not**: an order already placed must still resolve its product) · `J38` what "dynamic filters" means · `J10` the theme editor's generated form · `J12` the web and the app disagree in Arabic · `J13` `D-25`'s corrected inputs · `J15` the storefront focus ring · `A1` the disabled-application boundary · `B2` `F1`, and section I's scope questions.
+
+### Already decided — do not re-ask
+
+**`H1`, `H2`, `H3`, `H4`, `H5`** were decided 2026-11-25 (section H's own heading records it). `J1`…`J9` are recorded in section J's table with their reasoning. Two exclusions were **resolved by measurement** rather than by decision: `EX-011` (nothing deletes merchant data on subscription end — verified by execution, with a standing guard) and `EX-010` (which was **violated**, and is now enforced).
+
+---
+
 ## A. Decisions that block the most work
 
 ### A1 — The disabled-application boundary: `storefront` (100 routes) and `oauth` (16)
