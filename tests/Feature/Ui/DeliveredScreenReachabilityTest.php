@@ -207,20 +207,27 @@ final class DeliveredScreenReachabilityTest extends SecurityTestCase
         \App\Http\Controllers\CurrencyRateController::class => 'OPEN — same finding as '
             . '`currency-rates.index` above, stated once per question.',
 
-        \App\Http\Controllers\KycVerificationController::class => 'OPEN — KYC-001..003. The '
-            . 'merchant\'s own verification screen and the operator\'s verification queue are '
-            . 'named only from inside the KYC views themselves, so nothing leads to either. The '
-            . 'package\'s own author recorded it as "reachable only by URL". The operator\'s '
-            . 'navigation is owned by the workstream that owns `SuperAdminMenuListener`, and the '
-            . 'merchant\'s entry belongs with `MerchantPageDirectory`; neither is this file\'s to '
-            . 'add.',
-
-        \App\Http\Controllers\OperatorApprovalController::class => 'OPEN — Phase 06 IAM\'s '
-            . 'two-person approval queue. `platform.approvals.index` is named ONLY by its own '
-            . 'controller\'s redirects, so an operator who has not been handed the url cannot '
-            . 'find the queue they are supposed to act in. Navigation for the platform screens is '
-            . 'owned by another workstream.',
-
+        /*
+         * BOTH DEBTS BELOW WERE PAID ON 2026-11-27 BY `NAV-004` AND THIS FILE'S OTHER DIRECTION
+         * SAID SO -- it reported them as "in SELF_CONTAINED_ALLOWANCE and now have an entry
+         * point: delete the entry, the debt is paid", which is the half of a ratchet that stops
+         * an allowance outliving its reason. `platform.approvals.index` and `kyc.queue` are both
+         * in `SuperAdminMenuListener`'s `Across the platform` group and in the dashboard panel.
+         *
+         * ONE HALF OF THE KYC ENTRY WAS NOT PAID, AND THIS FILE CANNOT EXPRESS THAT. Its removed
+         * text named two screens for two principals: the operator's queue (`kyc.queue`, now in
+         * the sidebar) and **the merchant's own `GET verification`** (`kyc.index`), which is still
+         * named only from `kyc/queue.blade.php` and `kyc/access-log.blade.php` -- both inside KYC.
+         * The allowance is keyed per CONTROLLER, so one principal's entry point answers the
+         * question for both, and the finer fact is invisible here.
+         *
+         * It is NOT an oversight and must not be "fixed" by adding a merchant nav entry: the KYC
+         * feature is INERT (`config('kyc.document_kinds')` ships empty, so every upload is
+         * refused) and `Manage Store Verification` is not seeded, so an entry gated on it is
+         * invisible to everyone while an ungated one advertises a feature nobody can use. That is
+         * owner decision `J31`, and the residual is recorded as `GAP-379` rather than left to be
+         * re-derived from a deleted comment.
+         */
         \App\Http\Controllers\OtpIntegrationController::class => 'OPEN — the OTP integration '
             . 'settings screen (`/otp-integration`) has no navigation entry and no link. '
             . 'Pre-dates this project\'s phases.',
