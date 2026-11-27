@@ -5869,7 +5869,7 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
 
         // Category Search
         if ($request->type == 'product_search' && !empty($request->name)) {
-            $product_query = Product::where('store_id', $store->id)->where('status', 1)->Where('name', 'like',  '%' . $request->name . '%');
+            $product_query = \App\Support\Search\ProductNameIndex::applyNameFilter(Product::where('store_id', $store->id)->where('status', 1), $request->name); // CUST-003: folded name, grouped OR
             $Data = $product_query->paginate(10);
         }
 
@@ -5878,7 +5878,7 @@ $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($store
             $product_query = Product::where('store_id', $store->id)->where('status', 1);
 
             if (!empty($request->name)) {
-                $product_query->Where('name', 'like',  '%' . $request->name . '%');
+                \App\Support\Search\ProductNameIndex::applyNameFilter($product_query, $request->name); // CUST-003: folded name, grouped OR
             }
 
             if (!empty($request->tag)) {

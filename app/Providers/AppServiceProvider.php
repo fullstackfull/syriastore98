@@ -124,6 +124,24 @@ class AppServiceProvider extends ServiceProvider
         ProductImage::observe(ProductImageVariantObserver::class);
 
         /*
+         | CUST-003 / GAP-190 / J38 -- THE ARABIC FOLD OF A PRODUCT NAME IS STORED WHERE THE NAME IS.
+         |
+         | `products.name` is assigned at fifteen sites in seven files and SIX of those sites are
+         | inside `packages/workdo/`, which must not be edited -- the auction module, the digital
+         | product module and the ImportExport CSV importer, which mass-assigns the name straight
+         | from a spreadsheet cell. So "hook every writer" is not available as stated, and keying on
+         | the DATA covers all fifteen plus the next writer somebody adds.
+         |
+         | Here rather than in `Product::booted()` for the reason the block above gives:
+         | `app/Models/Product.php` is named by `ResidualTenancyExposureTest`'s raw-query inventory
+         | at a FILE:LINE (CLAUDE.md §6b).
+         |
+         | See App\Observers\ProductNameIndexObserver for the census, and for why a `saving` hook
+         | that fills a NULL fold must not turn a no-op save into an `updated_at` bump.
+         */
+        Product::observe(\App\Observers\ProductNameIndexObserver::class);
+
+        /*
          | ANA — A STOREFRONT VISIT NOW SAYS WHICH STORE IT WAS. Measured 2026-11-20: it said nobody's.
          |
          | `ActiveTheme` logs every themed page view with `visitor()->visit($store)`, but the vendored
