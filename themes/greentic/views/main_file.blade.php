@@ -97,7 +97,8 @@
                             <div class="card text-center p-4 cursor-pointer flex flex-col items-center justify-center gap-3 transition-all duration-300 rounded-md hover:bg-gray-100 hover:scale-105">
                                 <a href="{{ url($store->slug . '/' . $category->slug) }}" class="flex items-center flex-col gap-2 w-full">
                                     <div class="category-img md:w-14 md:h-14 h-10 w-10">
-                                        <img src="{{ storefront_image($category->icon_path) }}" alt="Vegetables"
+                                        {{-- GAP-274: the alt named ONE category ("Vegetables") for every category in the loop. --}}
+                                        <img src="{{ storefront_image($category->icon_path) }}" alt="{{ $category->name }}"
                                             class="w-full h-full object-cover" loading="lazy">
                                     </div>
                                     <h3 class="font-semibold">{{ $category->name }}</h3>
@@ -153,7 +154,8 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 @foreach ($top_categories as $category)
                 <div class="collection-card group relative overflow-hidden rounded-lg p-4 md:pt-[20%] pt-[10%]">
-                    <img src="{{ storefront_image($category->image_path) }}" alt="Organic Pantry Staples"
+                    {{-- GAP-274: the alt named ONE collection for every collection in the loop. --}}
+                    <img src="{{ storefront_image($category->image_path) }}" alt="{{ $category->name }}"
                         class="absolute inset-0 w-full h-full object-cover z-0 transition-transform duration-500 rtl:scale-x-[-1]" loading="lazy">
                     <div class="relative flex flex-col justify-end gap-4 h-full max-w-[220px] w-full">
                         <h3 class="text-lg font-semibold text-white line-clamp-2 !leading-[1.4]">{{ $category->name }}</h3>

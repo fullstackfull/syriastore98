@@ -3,7 +3,12 @@
 <div class="card flex flex-col h-full">
     <div class="relative h-48 bg-gray-100">
         <a href="{{ route('page.article', [$store->slug, $blog->slug]) }}">
-            <img src="{{ storefront_image($blog->cover_image_path) }}" alt="5G Technology" class="w-full h-full object-cover">
+            {{-- GAP-274: this file sits outside the trees the markup half's census reads, which is
+                 how it kept the browser default AND a shipped demo alt that announced every article
+                 in the blog as one named "5G Technology" -- to a screen reader and a crawler alike.
+                 A blog card is always in a listing or a slider, never the first paint. --}}
+            <img src="{{ storefront_image($blog->cover_image_path) }}" alt="{{ $blog->title ?? '' }}"
+                loading="lazy" decoding="async" class="w-full h-full object-cover">
         </a>
     </div>
     <div class="flex flex-col h-full p-4">

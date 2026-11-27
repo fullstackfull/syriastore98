@@ -3,8 +3,10 @@
 <div class="h-full flex flex-col bg-white rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
     <div class="relative">
         <a href="{{ route('page.article', [$store->slug, $blog->slug]) }}">
+            {{-- GAP-274: outside the trees the markup half's census reads. The alt stays as it is --
+                 generic and HONEST, unlike techzonix's, which named an article. --}}
             <img src="{{ storefront_image($blog->cover_image_path) ?? asset('assets/images/blog-image1.png') }}"
-            width="400" height="400" alt="Blog post image" class="w-full h-60 object-cover object-top"/>
+            width="400" height="400" alt="Blog post image" loading="lazy" decoding="async" class="w-full h-60 object-cover object-top"/>
         </a>
     </div>
     <div class="h-full flex flex-col">

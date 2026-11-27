@@ -5,8 +5,16 @@
         
                 <div class="relative h-48 bg-gray-100">
                     <a href="{{ url($store->slug . '/product/' . $product->slug) }}">
-                        <img src="{{ storefront_image($product->cover_image_path) }}" alt="Ultra HD Smart Watch Pro"
+                        {{-- GAP-274: the <img> gains the loading policy the markup half gave the other
+                             46 tags -- this file is outside the trees that census reads, which is how
+                             it kept both the browser default and a shipped demo alt that announced
+                             every product in the catalogue as one named watch. --}}
+                        <picture>
+                        {!! storefront_webp_source($product->cover_image_path, \App\Support\Storefront\StorefrontImageSizes::PRODUCT_CARD, $product->store_id) !!}
+                        <img src="{{ storefront_image($product->cover_image_path) }}" alt="{{ $product->name }}"
+                            loading="lazy" decoding="async"
                             class="w-full h-full object-contain p-4">
+                        </picture>
                     </a>
 
                     {{-- MKT-010 — MOVED OUT OF THE `<a>`.

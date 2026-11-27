@@ -28,8 +28,16 @@
         
         <a href="{{ route('page.product', [$store->slug, $product->slug]) }}" class="relative">
             <div class="h-60 relative overflow-hidden product-img p-3">
-                <img src="{{ storefront_image($product->cover_image_path) }}" alt="Fresh Organic Onion"
+                {{-- GAP-274: the <img> gains the loading policy the markup half gave the other 46
+                     tags -- this file is outside the trees that census reads, which is how it kept
+                     both the browser default and a shipped demo alt that announced every product in
+                     the catalogue as one named onion. --}}
+                <picture>
+                {!! storefront_webp_source($product->cover_image_path, \App\Support\Storefront\StorefrontImageSizes::PRODUCT_CARD, $product->store_id) !!}
+                <img src="{{ storefront_image($product->cover_image_path) }}" alt="{{ $product->name }}"
+                    loading="lazy" decoding="async"
                     class="w-full h-full object-contain group-hover:scale-105 transition duration-500">
+                </picture>
                 @if(isset($product->label) && !empty($product->label))
                     <div class="absolute top-4 left-4 flex flex-col gap-2">
                         <span class="bg-accent text-white text-xs font-bold px-2 py-1 rounded-md shadow-sm">{{ optional($product->label)->name ?? '' }}</span>

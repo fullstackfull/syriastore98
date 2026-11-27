@@ -161,6 +161,18 @@ __pycache__/
 /uploads/5/p3fixt/
 /uploads/6/p3fixt/
 
+# GAP-274. The two store folders the image-variant tests write REAL files into.
+#
+# `ImageVariants` resolves through `realpath(base_path(...))` and `gd` reads and writes with
+# ordinary file functions -- the `Storage` facade is not in that path at all -- so `Storage::fake()`
+# would put the fixture where `base_path()` cannot see it and every assertion would be satisfied by
+# "the original was not found". The tests therefore write into `base_path('uploads')`, under store
+# ids no store has, and remove them in `tearDown()`; each also asserts in `setUp()` that its folder
+# did not already exist, so a leftover cannot make a later run read a previous one's files. These
+# two rules are insurance against a crashed run leaving artefacts staged.
+/uploads/987321/
+/uploads/987654/
+
 # Workflow-tool git worktrees. These are live checkouts created by the Workflow tool for
 # isolated subagents; they are embedded git repositories and must never be committed.
 .claude/worktrees/

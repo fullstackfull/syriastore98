@@ -58,10 +58,75 @@ class StorefrontImageDeliveryTest extends TestCase
      * not override.
      */
     private const TREES = [
-        'themes/techzonix/views/front_end',
-        'themes/greentic/views/front_end',
-        'themes/stylique/views/front_end',
+        'themes/techzonix/views',
+        'themes/greentic/views',
+        'themes/stylique/views',
         'resources/views/front_end',
+    ];
+
+    /**
+     * Storefront views that are NOT under any of those roots, named one by one.
+     *
+     * `resources/views/components` holds the merchant panel's components as well (`dashboard-card`
+     * carries an image and is not a storefront surface at all), so the directory cannot be added
+     * wholesale. These are the ones the storefront renders: measured by grepping every storefront
+     * view for `<x-`, which answers `product-card`, `blog-card` and `search-popup` -- and of those
+     * three fallback copies only `product-card` carries an image.
+     *
+     * @var list<string>
+     */
+    private const EXTRA_VIEWS = [
+        'resources/views/components/product-card.blade.php',
+    ];
+
+    /**
+     * WHY THE ROOTS ARE `themes/<t>/views` AND NOT `themes/<t>/views/front_end`.
+     * =============================================================================================
+     *
+     * THE NARROWER FORM WAS A CENSUS KEYED ON A DIRECTORY, AND IT MISSED 30 TAGS -- including the
+     * single most repeated image on the whole storefront. Measured 2026-11-26 while building the
+     * pipeline half of GAP-274: the three themes keep their home page at
+     * `themes/<t>/views/main_file.blade.php` and their cards at `themes/<t>/views/components/`,
+     * both one level ABOVE `front_end`, so neither was ever read. The census's own premise
+     * (`>= 40` tags) was satisfied by the 45 it could see while:
+     *
+     *   - every product card -- `<x-product-card>`, rendered on every listing, every slider and
+     *     the similar-products row of every product page -- was invisible, and techzonix's and
+     *     greentic's copies carried NO loading policy at all plus a shipped demo alt that announced
+     *     every product in the catalogue as "Ultra HD Smart Watch Pro" and "Fresh Organic Onion"
+     *     respectively. The markup half had fixed exactly that family of defect in the files it
+     *     could see;
+     *   - techzonix's blog card did the same with "5G Technology";
+     *   - all three theme HOME pages (22 tags) were unread.
+     *
+     * That is CLAUDE.md §7's fourth failure mode -- an exemption scoped to the files somebody
+     * happened to look at -- and it is why these roots are now the whole `views` directory of each
+     * theme, which is storefront by construction: a theme renders nothing else.
+     */
+    private const WIDENING_NOTE = 'see the docblock above EXTRA_VIEWS';
+
+    /**
+     * THE FILES WHOSE LOADING POLICY IS STILL UNDECIDED, with the number of silent tags in each.
+     *
+     * NOT A RELAXATION: these tags were outside the census entirely until this widening, and the
+     * count is asserted EXACTLY, so adding a tenth silent image to techzonix's home page fails this
+     * test and so does fixing one without updating the number. The list can only shrink.
+     *
+     * WHY THEY ARE DEFERRED RATHER THAN SET TO `lazy`. The storefront home page is the one surface
+     * whose largest contentful paint has NOT been measured -- the browser measurement behind
+     * `App\Support\Storefront\StorefrontImageSizes` covers the product detail page and the
+     * product list, and `/{storeSlug}` answered 404 in that harness. `loading="lazy"` on the
+     * element that paints largest DELAYS it by a round trip, which is the reason "lazy everything"
+     * was rejected as a performance defect when the markup half was written; guessing which of a
+     * hero slider's nine images is the LCP element would be making that same mistake with less
+     * information. greentic's home page is absent from this list because all six of its tags
+     * already declare a policy.
+     *
+     * @var array<string, int>
+     */
+    private const LOADING_POLICY_UNDECIDED = [
+        'themes/techzonix/views/main_file.blade.php' => 9,
+        'themes/stylique/views/main_file.blade.php' => 2,
     ];
 
     /**
@@ -135,6 +200,15 @@ class StorefrontImageDeliveryTest extends TestCase
         'Emma Wilson',
         'Fresh Organic Onion',
         'article-banner',
+        /* THE WIDENING FOUND FIVE MORE OF EXACTLY THIS FAMILY, in the files the narrower roots could
+         * not see. `Fresh Organic Onion` above was already on this list and the test was GREEN --
+         * because greentic's product card, the file that carries it, was outside the census. So the
+         * list was not wrong; it was unenforced. These five are now both fixed and enforced. */
+        'Ultra HD Smart Watch Pro',
+        '5G Technology',
+        'Seasonal Eating',
+        'Vegetables',
+        'Organic Pantry Staples',
     ];
 
     private function root(): string
@@ -159,6 +233,14 @@ class StorefrontImageDeliveryTest extends TestCase
                 if ($entry->isFile() && str_ends_with($entry->getFilename(), '.blade.php')) {
                     $files[] = $entry->getPathname();
                 }
+            }
+        }
+
+        foreach (self::EXTRA_VIEWS as $view) {
+            $path = $this->root() . '/' . $view;
+
+            if (is_file($path)) {
+                $files[] = $path;
             }
         }
 
@@ -213,11 +295,30 @@ class StorefrontImageDeliveryTest extends TestCase
         $tags = $this->imageTags();
 
         $this->assertGreaterThanOrEqual(
-            40,
+            70,
             count($tags),
-            'the storefront carried 46 image tags when this was written; a collapse here means the '
+            'the storefront carried 46 image tags when this was written and 74 once the census was '
+            . 'widened to the whole of each theme\'s views directory; a collapse here means the '
             . 'census stopped seeing the view tree and every other assertion in this file is vacuous'
         );
+
+        /* AND IT REACHES THE PLACES THE NARROWER FORM MISSED. Without these three, widening the
+         * roots could be undone by a typo and the count floor above would still be met by
+         * `resources/views/front_end` alone -- which is exactly how the 30 missing tags went
+         * unnoticed. Each needle is a file the old roots could not see. */
+        $views = array_unique(array_column($tags, 'view'));
+
+        foreach ([
+            'themes/techzonix/views/components/product-card.blade.php',
+            'themes/techzonix/views/main_file.blade.php',
+            'resources/views/components/product-card.blade.php',
+        ] as $missedBefore) {
+            $this->assertContains(
+                $missedBefore,
+                $views,
+                $missedBefore . ' is not being read, so the widening that found 30 unread tags has been undone'
+            );
+        }
 
         /* AND NO TAG WAS TRUNCATED MID-EXPRESSION, which is the way this census failed when it
          * was written. A match that stopped at `$loop->` ends in `->`, so the character before
@@ -248,12 +349,33 @@ class StorefrontImageDeliveryTest extends TestCase
     public function test_every_storefront_image_declares_when_it_loads(): void
     {
         $silent = [];
+        $undecided = [];
 
         foreach ($this->imageTags() as $tag) {
-            if (! str_contains($tag['tag'], 'loading=')) {
-                $silent[] = $tag['view'] . ' :: ' . trim(preg_replace('/\s+/', ' ', $tag['tag']) ?? '');
+            if (str_contains($tag['tag'], 'loading=')) {
+                continue;
             }
+
+            if (isset(self::LOADING_POLICY_UNDECIDED[$tag['view']])) {
+                $undecided[$tag['view']] = ($undecided[$tag['view']] ?? 0) + 1;
+
+                continue;
+            }
+
+            $silent[] = $tag['view'] . ' :: ' . trim(preg_replace('/\s+/', ' ', $tag['tag']) ?? '');
         }
+
+        ksort($undecided);
+        $expected = self::LOADING_POLICY_UNDECIDED;
+        ksort($expected);
+
+        $this->assertSame(
+            $expected,
+            $undecided,
+            "the number of images with no loading policy in a file whose policy is recorded as\n"
+            . "undecided has CHANGED. This list can only shrink: if one was fixed, lower the\n"
+            . 'number; if one was added, it needs a policy like every other storefront image.'
+        );
 
         $this->assertSame(
             [],
