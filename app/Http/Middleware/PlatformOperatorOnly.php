@@ -96,32 +96,36 @@ class PlatformOperatorOnly
          * (`app/Policies/UserPolicy.php:239`) -- and `customers` HAS a `type` column, with
          * `'type'` in `Customer::$fillable` (`app/Models/Customer.php:35`). So a `Customer` row
          * whose `type` read `super admin` passed this middleware, which is the ONLY check on
-         * 51 routes. THIS SAID "14 ... AND THE THREE `platform/*` SCREENS" UNTIL 2026-11-26, when
-         * it was measured at 37. FOUR WORKSTREAMS THEN ADDED TO THIS GATE INDEPENDENTLY, FROM
+         * 57 routes. THIS SAID "14 ... AND THE THREE `platform/*` SCREENS" UNTIL 2026-11-26, when
+         * it was measured at 37. FIVE WORKSTREAMS THEN ADDED TO THIS GATE INDEPENDENTLY, FROM
          * THAT SAME BASE, AND EACH CORRECTLY UPDATED THIS TABLE TO ITS OWN TOTAL: `ADM-002` added
          * Store 360's `platform/stores` and `platform/stores/{store}` and wrote 39; `IAM-003`
          * added three `platform/approvals` routes (the two-person approval queue) and wrote 40;
-         * `KYC-002` added three `platform/verification` routes and did not touch this table.
-         * None was wrong and none was the answer -- the merged total is the UNION, 51, and taking
+         * `KYC-002` added three `platform/verification` routes and did not touch this table;
+         * `OPS-001`/`OPS-003` added `platform/operations` and five `platform/incidents` and wrote
+         * 43; and `CTRL-001`/`002`/`003` added four `platform/feature-control` routes and two
+         * `platform/maintenance` ones and also wrote 43.
+         * None was wrong and none was the answer -- the merged total is the UNION, 57, and taking
          * any one side would have dropped the others' routes out of a partition whose purpose is
          * to account for every one. THE INTEGRATOR'S OWN ARITHMETIC SAID 42, because it reconciled
          * the two conflicting sides and never asked whether a THIRD branch had added routes without
          * conflicting. The ratchet measured 45 and refused it. The number is written out as a partition
          * because a count living only in prose is exactly what went stale here -- measured from
          * the booted route table, and asserted in both directions by
-         * `PlatformOperatorOnlyPrincipalTest::test_premise_the_measured_blast_radius_is_still_51`,
+         * `PlatformOperatorOnlyPrincipalTest::test_premise_the_measured_blast_radius_is_still_57`,
          * so the next route that joins the
          * gate reddens a test instead of quietly making this comment wrong again:
          *
          *     LynomiaChat super-admin group                                      15
          *     platform/* operator screens (NOT three: analytics x2, documentation
          *       x2, resources, revenue, site-content x3, stores x2,
-         *       approvals x3, verification x3, operations, incidents x5)         23
+         *       approvals x3, verification x3, operations, incidents x5,
+         *       feature-control x4, maintenance x2)                              29
          *     plan-coupon                                                         7
          *     plan.order.refund, plan.disable, order.approve, order.reject        4
          *     zid/{storeId}/*                                                     2
          *                                                                       ---
-         *                                                                        51
+         *                                                                        57
          *
          * AND THE SIX `OPS-001`/`OPS-003` ROUTES CHANGED WHAT A BYPASS WOULD COST, which is worth
          * saying exactly where the blast radius is counted. Restored on 2026-11-27 from
@@ -136,6 +140,24 @@ class PlatformOperatorOnly
          * `PlatformIncidentsScreenTest::test_every_action_refuses_a_non_operator_with_the_route_gate_removed`
          * drives each of them directly, with no middleware in the way, asserting EXACTLY 403 and
          * that the tables are unchanged.
+         *
+         * AND `CTRL-001`/`002`/`003`'S FOUR WRITE ROUTES ARE A NARROWER CATEGORY STILL, which is
+         * why both paragraphs stand rather than one replacing the other. OPS-003's writes RECORD
+         * what already happened to the platform; these four CHANGE ITS CONFIGURATION -- three
+         * `platform/feature-control` writes decide which features reach which stores, and
+         * `platform/maintenance` publishes a notice to every merchant on the platform. So the
+         * clause below now stands between a non-`User` principal and a feature switch, not only
+         * between it and a disclosure or a log entry. CTRL's own docblock claimed these were "the
+         * first on this gate that change platform configuration rather than read it", which was
+         * true from its base of 37 and is not after OPS-003 landed first; the distinction that
+         * survives is CONFIGURATION against HISTORY, not first against later.
+         *
+         * `PlatformFeatureControlController` and `PlatformMaintenanceController` each repeat the
+         * test in every action (`refuseAnyoneButTheOperator()`, copied character-for-character
+         * from `SuperAdminResourcesController`), and
+         * `PlatformFeatureControlScreenTest` and `MaintenanceAnnouncementTest` drive them with the
+         * route gate removed -- mandatory here, because CLAUDE.md records that a handler-level
+         * check behind an `abort()`ing middleware is invisible to an HTTP test (`GAP-307`).
          *
          * It grew with the Lynomia group and with the screens `GAP-192`, `GAP-195`, `GAP-107` and
          * `GAP-232` (Store 360: `platform/stores` and `platform/stores/{store}`)

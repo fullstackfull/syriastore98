@@ -353,7 +353,37 @@ class TenantModelClassificationTest extends TestCase
         // then read back in a later request, the shape CLAUDE.md records as three measured false
         // readings -- and for the approval model a stale answer costs a SECOND execution of a
         // dangerous action.
-        $this->assertSame(114, $total, 'The model count changed. Re-run the classification and '
+        // 119, UP FROM 114 [2026-11-27, CTRL-001/002/003], MEASURED by running this test rather
+        // than added to the eight below: the paragraph that stood here before got its arithmetic
+        // from the diffs and was wrong about which partition three of those eight belong to.
+        // CTRL's own account of its five, kept verbatim:
+        //
+        // 111, UP FROM 106. Phase 06 `CTRL-001`/`002`/`003` added the five platform-control models:
+        // App\Models\PlatformFeatureFlag, PlatformFeatureFlagTarget, PlatformPilotGroupMember,
+        // PlatformControlChange and PlatformMaintenanceAnnouncement.
+        //
+        // THEY DO NOT PARTITION THE WAY THE NAMES SUGGEST, and that is the review this assertion
+        // exists to force. FOUR are platform-global (no `store_id` column at all: a feature flag,
+        // its targets, a change-log entry and an announcement are the PLATFORM's, not a tenant's).
+        // The FIFTH, `PlatformPilotGroupMember`, carries `store_id` -- so the census puts it in the
+        // tenant-discriminated partition, and the honest answer to "is it a tenant's row" is still
+        // NO: it is the OPERATOR's record that a given store is in a given pilot group. The column
+        // is a REFERENCE to a store, not a discriminator of ownership, exactly as `zid_stores`'
+        // is not this platform's discriminator either.
+        //
+        // NONE OF THE FIVE IS ALLOWLISTED FOR SCOPE ENFORCEMENT, none carries BelongsToStore, and
+        // for the pilot-membership model that is a decision rather than an omission: the operator's
+        // feature-control screen reads EVERY store's memberships, so a global scope would show them
+        // only their own and the screen would be wrong for the one principal it exists for.
+        // `FeatureControl::subject()` asks the question with an explicit `where('store_id', ...)`
+        // instead, which is inventoried in RawQueryTenancyInventoryTest's per-table map at [1, 0].
+        //
+        // NONE OF THE FIVE IS `Cachable` EITHER, which is also a measured decision and not a
+        // convention: an availability control must answer current truth (CLAUDE.md records an owner
+        // whose plan had lapsed passing a gate until the queue worker restarted), and on
+        // production's non-taggable `database` store a model-cache flush degrades to a
+        // `Cache::flush()` over everything, so every flag edit would erase the application cache.
+        $this->assertSame(119, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -414,8 +444,23 @@ class TenantModelClassificationTest extends TestCase
         // marketing_unsubscribe_tokens all carry `store_id` (D8 / MKT-008). The column is real and the
         // rows are tenant-owned; what changed is the count, not the classification rule. The reason none
         // is scope-enforced is recorded beside the model count above.
+        // 77, UP FROM 76 [2026-11-26, CTRL-001 / GAP-199]: `platform_pilot_group_members` carries
+        // `store_id`, so this census -- whose rule is "does the table have a column called
+        // store_id" -- counts it here. THE RULE DID NOT CHANGE AND THE CLASSIFICATION IS STILL
+        // WORTH READING: the column is a REFERENCE to a store on a PLATFORM-owned table, not a
+        // discriminator of tenant ownership. The rows are the operator's record of which stores are
+        // in which pilot group, and the reason the model must NOT be scope-enforced is recorded
+        // beside the model count above -- the operator's own screen reads every store's
+        // memberships, so a scope would blank the screen for the principal it exists for. It is
+        // NOT in `doNotScopeDespiteHavingTheColumn()`, because that list is for BelongsToStore
+        // CARRIERS and this model does not carry the trait -- the same reason `ZidStore` and
+        // `ZidEvent` are recorded here rather than there.
+        // 80, UP FROM 79 [2026-11-27, CTRL-001 / GAP-199], MEASURED: `platform_pilot_group_members`,
+        // the one of CTRL's five whose table carries `store_id`. CTRL's reasoning for it is the
+        // paragraph immediately above, which arrived with the branch and declared 77 from a base
+        // of 76 -- the reasoning is right and only the total had moved underneath it.
         $this->assertCount(
-            79,
+            80,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)
@@ -423,7 +468,7 @@ class TenantModelClassificationTest extends TestCase
     }
 
     /*
-     * `_thirty_three`, NOT `_twenty_eight`. RESTORED ON 2026-11-27: `ws/p6-iam` renamed this
+     * `_thirty_seven`, NOT `_twenty_eight`. RESTORED ON 2026-11-27: `ws/p6-iam` renamed this
      * method in the same change that moved its number (28 -> 29), and the integration merge took
      * the other side's name while keeping the reconciled count. The assertion below then read 33
      * under a name that said 28 -- a method name encoding a figure is a citation, and CLAUDE.md §3
@@ -434,7 +479,7 @@ class TenantModelClassificationTest extends TestCase
      * is NOT touched here: no branch in this integration renamed it, so nothing was lost there --
      * it is pre-existing drift of 21, reported rather than absorbed.
      */
-    public function test_platform_global_models_are_the_measured_thirty_three(): void
+    public function test_platform_global_models_are_the_measured_thirty_seven(): void
     {
         // 28, UP FROM 25 -- GATE F CLOSED ON 2026-11-02. Three models' tables now exist and have
         // NO `store_id` column, which is a finding rather than a bookkeeping change:
@@ -470,8 +515,23 @@ class TenantModelClassificationTest extends TestCase
            Neither is `Cachable` either, for the reason `AuditLog` is not: an operations log is read
            by two people at once while something is going wrong, and one of them must not be served
            the row as it was before the other acknowledged it. */
+        /* 33 -> 37 on 2026-11-27 [CTRL-001/002/003]: four of CTRL's five platform-control models,
+           MEASURED by running this test. The fifth, `PlatformPilotGroupMember`, carries `store_id`
+           and is in the tenant-discriminated partition above. CTRL's own account of the four, kept
+           verbatim because each has a different reason:
+
+           Four of the five new platform-control models have NO `store_id` column --
+           `PlatformFeatureFlag`, `PlatformFeatureFlagTarget`, `PlatformControlChange` and
+           `PlatformMaintenanceAnnouncement`. That is deliberate in the schema rather than an
+           omission, and each is a different reason: a feature flag and its targets belong to the
+           platform (which stores they REACH is the targets table's content, not its owner); a
+           change-log entry records what the operator did to the platform's own configuration; and
+           a maintenance announcement reaches every tenant, because maintenance of a shared
+           platform does. `CTRL-003` names no audience for an announcement and none was invented.
+           The fifth, `PlatformPilotGroupMember`, is in the tenant-discriminated partition -- see
+           the note there, and the model count above for why none of the five is enforced. */
         $this->assertCount(
-            33,
+            37,
             $this->platformGlobal,
             "The set of models whose table has NO `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->platformGlobal)

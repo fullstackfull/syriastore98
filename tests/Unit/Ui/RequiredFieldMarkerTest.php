@@ -83,9 +83,29 @@ class RequiredFieldMarkerTest extends TestCase
      * to 101 in silence and the figure that proves `isRequired()` was NARROWED and not WEAKENED
      * would then live only in a docblock.
      *
-     * 165 is measured on this tree: 167 before the translated-copy redaction, 165 after, the two
+     * 165 was measured on this tree: 167 before the translated-copy redaction, 165 after, the two
      * removed being `AppSetting/index.blade.php` (pre-existing, a note rather than a control) and
      * `setting/recaptcha_setting.blade.php` (GAP-060 WS5's instruction). See `isRequired()`.
+     *
+     * **167 since 2026-11-26**, and the rise is a rise rather than a drift: Phase 06 `CTRL-001`'s
+     * feature-control screen added THREE required controls -- a feature key, a pilot group and a
+     * store number -- and all three carry the marker. This ratchet is what MADE them carry it: they
+     * shipped unmarked, this test failed, and the markers were added in the same change. Which is
+     * the ratchet working, and is why the number lives here and not in prose.
+     *
+     * THREE CONTROLS, +2 ON THIS COUNT, AND THE DISCREPANCY IS THE INSTRUMENT RATHER THAN A MISSING
+     * MARKER. Measured, after 168 was tried first and read 167. `blocks()` splits on an opening
+     * `<div>` whose class names `form-group` or a `col-*`, and a block is then judged as a WHOLE:
+     * `isRequired($block)` is a boolean. The feature key sits in one `col-12` card and the pilot
+     * group and the store number sit together in another, so the second pair is one block and is
+     * counted once.
+     *
+     * So this figure is "blocks containing at least one required control", not "required controls"
+     * -- which the method's own name slightly misdescribes, and the name is a frozen identity (see
+     * the note on this method) rather than something to correct here. Recorded because the next
+     * person to add two required fields to one column will see +1 and reasonably wonder which of
+     * them the census lost. It lost neither; marking is judged per block too, and both markers are
+     * present.
      *
      * IF THIS FAILS LEGITIMATELY — somebody added or removed a required merchant field — the fix
      * is to change the number here in the same commit, so the change is visible in a diff rather
@@ -96,35 +116,43 @@ class RequiredFieldMarkerTest extends TestCase
     {
         [, $withMarker, $without] = $this->census();
 
-        /* 165 -> 169 on 2026-11-26, AND IT IS TWO WORKSTREAMS, NOT ONE. The +4 is written out
-           because the integration merge took `ws/p6-ops`'s side of this block and credited the
-           whole move to OPS-003's "three controls", which left the arithmetic one short and the
-           other workstream unnamed. Restored on 2026-11-27 and MEASURED per view rather than
-           reasoned from the diffs:
+        /* 165 -> 171 on 2026-11-27, AND IT IS THREE WORKSTREAMS. The decomposition is written out
+           because this block has twice been credited to one of them: the integration merge took
+           `ws/p6-ops`'s side and attributed the whole move to OPS-003's "three controls", leaving
+           the arithmetic one short, and `ws/p6-ctrl` then arrived from the same base of 165 with
+           its own +2. MEASURED per view, not reasoned from the diffs:
 
              +2  `superadmin/platform_incidents/index.blade.php` [OPS-003] -- `title` and
                  `severity` on the "record an incident" form.
              +1  `superadmin/platform_incidents/show.blade.php` [OPS-003] -- `note` on the
                  add-a-note form.
              +1  `kyc/index.blade.php` [GAP-194 / KYC-002] -- the document upload form.
+             +2  `platform/feature_control.blade.php` [CTRL-001] -- a feature key in one card, and
+                 a pilot group with a store number in another.
 
-           THE KYC BLOCK CARRIES FOUR REQUIRED CONTROLS AND MOVES THIS COUNT BY ONE, which is the
-           part worth keeping: `blocks()` splits on the field WRAPPER, so one `col-12` is one row
-           however many controls sit inside it. All four labels carry the marker. A reader who saw
-           `+4` attributed to three incident controls would conclude three of KYC's four were
-           unmarked; measured 2026-11-27, `kyc/index.blade.php` contributes exactly 1 counted
-           block and 0 unmarked ones.
+           TWO OF THE THREE MOVED THIS COUNT BY LESS THAN THEIR CONTROL COUNT, which is the
+           instrument and not a missing marker -- the same fact found independently by both
+           workstreams, which is why their notes agree and both are kept. `blocks()` splits on the
+           field WRAPPER and `isRequired($block)` judges a block as a WHOLE, so one `col-12` is one
+           row however many required controls sit inside it. KYC's upload form carries FOUR and
+           moves this by one; CTRL's screen carries THREE in two cards and moves it by two.
+           Measured 2026-11-27: `kyc/index.blade.php` contributes exactly 1 counted block and 0
+           unmarked ones. A reader seeing `+4` against three incident controls would conclude three
+           of KYC's four were unmarked, and one seeing `+2` against CTRL's three would look for the
+           third.
 
-           A RISE, which this docblock names as the benign direction, and all four arrive MARKED --
-           the first version of the incident views had the `required` attribute and no marker beside
-           the label, and this ratchet is what said so. */
-        $this->assertSame(169, $withMarker + count($without), sprintf(
-            'The detector now finds %d required merchant fields; it measured 169 after the '
-            . 'platform incident log and kyc/index.blade.php\'s upload form landed (165 when the '
-            . 'translated-copy redaction was added to isRequired()). A RISE means a required field '
-            . 'was added (fine — update this number, and say which view). A DROP means one lost '
-            . 'its attribute, or the detector stopped matching a shape, which is the direction that '
-            . 'turns this whole ratchet vacuous.',
+           A RISE, which this docblock names as the benign direction, and every one arrives MARKED
+           -- but only because this ratchet said so first. The incident views and the
+           feature-control screen BOTH shipped with the `required` attribute and no marker beside
+           the label; nothing about the rendered page, and none of either workstream's own tests,
+           could see it. */
+        $this->assertSame(171, $withMarker + count($without), sprintf(
+            'The detector now finds %d required merchant fields; it measured 171 after the '
+            . 'platform incident log, kyc/index.blade.php\'s upload form and CTRL-001\'s '
+            . 'feature-control screen landed (165 when the translated-copy redaction was added to '
+            . 'isRequired()). A RISE means a required field was added (fine -- update this number, '
+            . 'and say which view). A DROP means one lost its attribute, or the detector stopped '
+            . 'matching a shape, which is the direction that turns this whole ratchet vacuous.',
             $withMarker + count($without)
         ));
     }

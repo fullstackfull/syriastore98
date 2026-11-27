@@ -706,6 +706,24 @@
                 </div>
             </div>
             <!-- [ breadcrumb ] end -->
+            {{-- PHASE 06 CTRL-003 — what the platform is telling its merchants, above the content
+                 of whatever screen they are on.
+
+                 ONE LINE, AND IT RENDERS NOTHING WHEN THERE IS NOTHING LIVE. The component is
+                 wrapped entirely in `@if ($announcements !== [])`, so with no live announcement
+                 this layout emits exactly the markup it emitted before — no wrapper, no margin,
+                 nothing to re-measure on 334 screens in two themes and two directions.
+                 `MaintenanceAnnouncementTest` asserts that absence by its marker, in both
+                 directions, because "the banner is not there" and "the banner is there and empty"
+                 look identical to a status assertion.
+
+                 HERE AND NOT IN THE SIDEBAR OR THE HEADER: a maintenance window is time-critical
+                 and belongs where the merchant's eye already is, above the page they opened. And
+                 HERE AND NOT ON THE STOREFRONT: `CTRL-003`'s announcements are the platform
+                 talking to its tenants, not to their shoppers — and CLAUDE.md records that a
+                 storefront layout change must be made in FOUR places, which is a different
+                 decision with a different audience. --}}
+            <x-ss.maintenance-notice />
             @yield('content')
         </div>
     </div>
