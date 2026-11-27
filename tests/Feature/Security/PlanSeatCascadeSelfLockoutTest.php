@@ -55,7 +55,8 @@ use PHPUnit\Framework\Attributes\Test;
  * the next reader one too. A first version of this file asserted `auth('web')->check()` on a subject
  * built with `makeMerchant()`. It went red -- with NO plan applied at all, and `session('status')`
  * empty: a merchant with no store is signed out of `/dashboard` by design
- * (`HomeController:694`, flash `'You have been logged out.'`, pinned by
+ * (`HomeController::handleRegularUser()`'s `! $store` guard, flash `'You have been logged out.'`,
+ * pinned by
  * `StorelessMerchantDashboardTest`). A bare authentication assertion cannot tell this defect from
  * that one. So the subject here owns a store, `satisfyUpdaterGate()` is called, the pre-plan request
  * is ASSERTED to answer 200, and the post-plan assertion names the suspension guard's own flash

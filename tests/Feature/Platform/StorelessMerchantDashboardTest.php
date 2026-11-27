@@ -113,29 +113,47 @@ final class StorelessMerchantDashboardTest extends SecurityTestCase
     }
 
     /**
-     * THE PRINCIPAL WHO REACHES THE GUARD STILL SIGNED IN, which is the only case that can tell
-     * the guard's own `auth()->logout()` apart from the one `getOrderChart()` performs two lines
-     * above it. Without this case, removing that call changes nothing observable -- measured: that
-     * mutation SURVIVED the rest of this file.
+     * THE GUARD ENDS THE SESSION ITSELF, which is the only property that can tell its own
+     * `auth()->logout()` apart from the one `getOrderChart()` performs two lines above it. Without
+     * this case, removing that call changes nothing observable -- measured: that mutation SURVIVED
+     * the rest of this file.
      *
-     * IT IS REACHABLE BECAUSE TWO OPERATOR TESTS IN THE SAME REQUEST DISAGREE, and the
-     * disagreement is documented in the codebase rather than invented here. `index()` branches on
-     * `$user->type == 'super admin'` -- an exact PHP comparison -- while `getOrderChart()` asks
-     * `UserPolicy::isOperator()`, which lowercases and rtrims a SPACE "matching MySQL's PAD
-     * SPACE: a trailing space is ignored by the engine, a leading one is not" (that class's own
-     * measured note). So a `users.type` of `'super admin '` is the operator to one and a merchant
-     * to the other:
+     * =============================================================================================
+     *  IT IS DRIVEN THROUGH THE HANDLER RATHER THAN OVER HTTP, AND THAT IS A FIX UPSTREAM OF IT
+     *  RATHER THAN A WEAKENING HERE.
+     * =============================================================================================
      *
-     *   index()            'super admin ' == 'super admin'  -> false -> handleRegularUser()
-     *   getOrderChart()    isOperator()                     -> true  -> NO sign-out
-     *   getCurrentStore()  exact compare again              -> false -> no store, no fallback
+     * This case used to drive `GET /dashboard` as a `users.type` of `'super admin '`. It reached
+     * the guard with a live session because two operator tests in ONE request disagreed:
+     * `HomeController::index()` compared the raw string while `getOrderChart()` asked
+     * `UserPolicy::isOperator()`, which rtrims a space to match MySQL's PAD SPACE collation.
      *
-     * and the guard is reached with a live session. A row like that passes
-     * `where('type', 'super admin')` in MySQL, which is how it survives unnoticed.
+     * ADM-001 / GAP-231 (`3d72820e6`) CLOSED THAT DIVERGENCE -- `index()` now asks the same helper,
+     * and `OperatorDashboardOneOperatorDefinitionTest::
+     * test_a_trailing_space_operator_gets_the_operator_dashboard` pins it. So that principal is now
+     * the operator to every test on the path and is handed the OPERATOR dashboard, never reaching
+     * `handleRegularUser()` at all. The old premise assertion here said in so many words that
+     * `handleSuperAdmin()` "is not the branch under test"; after ADM-001 it is exactly the branch
+     * that answers, so the HTTP drive was measuring the wrong screen and failed on a 200.
      *
-     * THIS CASE DOES NOT CLAIM THE DIVERGENCE IS CORRECT -- it is reported, not fixed, because
-     * normalising `index()` would move a principal between two whole dashboards. What it pins is
-     * that the storeless refusal ends the session on its own, whoever else did or did not.
+     * NO HTTP PRINCIPAL CAN REACH THIS GUARD SIGNED IN ANY MORE, established rather than assumed:
+     *
+     *   - `index()` routes to `handleRegularUser()` only when `isOperator()` is FALSE;
+     *   - for such a principal `getOrderChart()` signs out unless `getStoreById($user->current_store)`
+     *     resolves a row;
+     *   - and when `current_store` is non-empty `getCurrentStore()` returns that same value, so the
+     *     guard's own `getStoreById(getCurrentStore())` resolves the same row and does not fire.
+     *
+     * The guard's `logout()` is therefore DEFENSIVE -- which is what the handler's own comment
+     * already claims ("`logout()` is idempotent ... depending on it having happened would make
+     * this screen's termination a side effect of a chart helper"). An undriven claim is how that
+     * call gets deleted by the next person simplifying the method, so it is driven at the level it
+     * is reachable at. CLAUDE.md section 1 is explicit about the instrument: a check the HTTP layer
+     * cannot reach is invisible to an HTTP test, "so call the handler directly". The reflection
+     * idiom is `TopSalesReportPairingTest`'s.
+     *
+     * THE TWO CASES ABOVE STILL DRIVE THE SAME GUARD OVER HTTP for the principals that can reach
+     * it, so what moved here is this one property and not the guard's coverage.
      */
     public function test_the_refusal_ends_the_session_itself(): void
     {
@@ -150,15 +168,40 @@ final class StorelessMerchantDashboardTest extends SecurityTestCase
             'premise: this principal is not an operator to UserPolicy, so getOrderChart() signs '
             . 'them out and this case cannot tell the two sign-outs apart.'
         );
-        $this->assertFalse(
-            $operatorish->type === 'super admin',
-            'premise: index() would send this principal to handleSuperAdmin(), which is not the '
-            . 'branch under test.'
+
+        /*
+         * AND THE HTTP DRIVE REALLY DOES GO SOMEWHERE ELSE NOW, asserted rather than argued. This
+         * is what makes the direct call below the only instrument instead of the lazy one: if
+         * `index()` is ever reverted to a literal comparison, this redirects to `login` instead and
+         * this file says so.
+         */
+        $overHttp = $this->actingAs($operatorish->fresh())->get('/dashboard');
+
+        $overHttp->assertOk();
+        $this->assertAuthenticatedAs($operatorish->fresh(), 'web');
+
+        /* THE HANDLER, ENTERED WITH A LIVE SESSION. `newInstanceWithoutConstructor()` because
+           `HomeController::__construct()` `exit`s the process when `storage/installed` is absent,
+           which would take the whole suite with it. */
+        $this->actingAs($operatorish->fresh());
+
+        $this->assertTrue(auth()->check(), 'premise: the handler is entered with a live session.');
+
+        $method = new \ReflectionMethod(\App\Http\Controllers\HomeController::class, 'handleRegularUser');
+        $method->setAccessible(true);
+
+        $answer = $method->invoke(
+            (new \ReflectionClass(\App\Http\Controllers\HomeController::class))->newInstanceWithoutConstructor(),
+            $operatorish->fresh()
         );
 
-        $response = $this->actingAs($operatorish->fresh())->get('/dashboard');
-
-        $response->assertRedirect(route('login'));
+        $this->assertInstanceOf(
+            \Illuminate\Http\RedirectResponse::class,
+            $answer,
+            'the storeless branch of handleRegularUser() no longer answers a redirect, so '
+            . 'HomeController::index() would hand this to view() -- a second fault on the same path.'
+        );
+        $this->assertSame(route('login'), $answer->getTargetUrl());
         $this->assertGuest();
     }
 

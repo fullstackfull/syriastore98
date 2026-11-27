@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Models\Plan;
 use App\Models\PlanCoupon;
+use App\Models\PlanOrder;
 use App\Models\PlanUserCoupon;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -80,6 +82,9 @@ class PlanCouponRankingFreshnessTest extends SecurityTestCase
 
     private User $operator;
 
+    /** Memoised by `settledPlan()`; see `redeem()` for why there is exactly one. */
+    private ?Plan $settledPlan = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -98,19 +103,79 @@ class PlanCouponRankingFreshnessTest extends SecurityTestCase
         return $response->viewData('couponName');
     }
 
+    /**
+     * EACH REDEMPTION NAMES A SETTLED `plan_orders` ROW, AND THAT IS A FIXTURE REPAIR RATHER THAN
+     * A CHANGED EXPECTATION.
+     * ----------------------------------------------------------------------------------------
+     * `GAP-231` (`8cb288150`) made the ranking count SETTLED purchases only:
+     * `SettledPlanOrders::redeemedAgainstSettledOrder()` is an `EXISTS` on
+     * `plan_orders.order_id = plan_user_coupons.order`, and its own docblock states the
+     * consequence — *"A REDEMPTION NAMING NO ORDER AT ALL IS NOT SETTLED."* These rows named
+     * `PUC-<coupon>-<n>-<hex>`, which is no order, so after that change all three cases below
+     * failed on their FIRST assertion, the one labelled `PREMISE` — "the first request does not
+     * name the only redeemed coupon". That is the premise going stale, and it is exactly what a
+     * premise assertion is for.
+     *
+     * THE SUBJECT OF THIS FILE IS MODEL-CACHE STALENESS, NOT SETTLEMENT. Nothing here asserts
+     * whether an unsettled redemption should count, and nothing here is weakened: the three
+     * assertions that matter — the lead MOVES on the next request, it moves BACK when redemptions
+     * are deleted, and the card EMPTIES when the last one goes — are untouched. The fixture also
+     * takes no side on `GAP-231`'s rule, because a redemption backed by a settled order counts
+     * under the old unfiltered `COUNT(*)` as well.
+     *
+     * THE STALENESS MECHANISM SURVIVES THE EXTRA WRITE, and that was checked rather than assumed.
+     * `laravel-model-caching` tags a query's result under the model being queried, and the
+     * `ArrayStore` the suite uses is taggable, so a `plan_orders` insert invalidates
+     * `plan_orders` and nothing else — in particular not `plan_coupons`, which is the tag the
+     * defect this file catches was cached under. Measured by mutation: rooting the production
+     * ranking on `PlanCoupon` with a correlated count still reddens all three cases with this
+     * fixture in place.
+     */
     private function redeem(PlanCoupon $coupon, int $times): void
     {
         // Through ELOQUENT, not `DB::table()`. A raw write flushes no model cache at all, so it
         // would make this test pass against the stale implementation -- CLAUDE.md's recorded
         // reading, and the exact mistake that made the first MySQL probe report two defects that
-        // did not exist.
+        // did not exist. The `plan_orders` write below is Eloquent for the same reason.
         for ($i = 0; $i < $times; $i++) {
+            $orderRef = 'PUC-' . $coupon->id . '-' . $i . '-' . bin2hex(random_bytes(3));
+
+            PlanOrder::forceCreate([
+                'order_id' => $orderRef,
+                'plan_id' => (int) $this->settledPlan()->id,
+                'plan_name' => (string) $this->settledPlan()->name,
+                'user_id' => (int) $this->operator->id,
+                'price' => 10,
+                'price_currency' => 'USD',
+                'txn_id' => 'TXNF-' . $coupon->id . '-' . $i . '-' . bin2hex(random_bytes(3)),
+                'payment_type' => 'manually',
+                'payment_status' => 'succeeded',
+            ]);
+
             PlanUserCoupon::forceCreate([
                 'coupon_id' => (int) $coupon->id,
                 'user_id' => (int) $this->operator->id,
-                'order' => 'PUC-' . $coupon->id . '-' . $i . '-' . bin2hex(random_bytes(3)),
+                'order' => $orderRef,
             ]);
         }
+    }
+
+    /**
+     * ONE plan for every redemption, so the coupon ranking stays the only thing that varies.
+     *
+     * `plans.themes` and `plans.storage_limit` are TEXT/NOT NULL with no default, so a bare
+     * `forceCreate` is refused — read from `create_plans_table`, not guessed.
+     */
+    private function settledPlan(): Plan
+    {
+        return $this->settledPlan ??= Plan::forceCreate([
+            'name' => 'FRESHNESSFIXTUREPLAN',
+            'price' => 10,
+            'duration' => 'Lifetime',
+            'description' => 'FRESHNESSFIXTUREPLAN',
+            'themes' => '[]',
+            'storage_limit' => 100,
+        ]);
     }
 
     public function test_a_new_redemption_moves_the_named_coupon_on_the_next_request(): void

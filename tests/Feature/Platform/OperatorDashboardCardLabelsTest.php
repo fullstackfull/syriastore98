@@ -102,6 +102,9 @@ class OperatorDashboardCardLabelsTest extends SecurityTestCase
 
     private User $operator;
 
+    /** Memoised by `settledPlan()`; see `redeem()` for why there is exactly one. */
+    private ?Plan $settledPlan = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -619,17 +622,75 @@ class OperatorDashboardCardLabelsTest extends SecurityTestCase
         ]);
     }
 
-    /** `plan_user_coupons.order` is a NOT NULL string; there is no `order_id` and no `plan_id`. */
+    /**
+     * `plan_user_coupons.order` is a NOT NULL string; there is no `order_id` and no `plan_id`.
+     *
+     * EACH REDEMPTION NOW NAMES A SETTLED `plan_orders` ROW, AND THAT IS A FIXTURE REPAIR RATHER
+     * THAN A CHANGED EXPECTATION.
+     * ------------------------------------------------------------------------------------------
+     * `GAP-231` (`8cb288150`) made this ranking count SETTLED purchases only:
+     * `SettledPlanOrders::redeemedAgainstSettledOrder()` is an `EXISTS` on
+     * `plan_orders.order_id = plan_user_coupons.order` with a settled `payment_status`, and its own
+     * docblock states the consequence — *"A REDEMPTION NAMING NO ORDER AT ALL IS NOT SETTLED.
+     * `EXISTS` is false for it, so it is excluded."*
+     *
+     * These rows named `PUC-<coupon>-<n>-<hex>`, which is no order at all. So after that change
+     * the card was CORRECTLY empty and the two cases below failed on `''` — not because either of
+     * them is about settlement, but because neither established a redemption that counts under the
+     * rule in force. The premise went stale; the subject did not.
+     *
+     * WHAT IS NOT TOUCHED, because the owner's instruction is explicit that a test must not be
+     * rewritten to match a new rule: every assertion below is the one it always was — BUSYCOUPON
+     * outranks QUIETCOUPON two to one, a coupon nobody redeemed is never named, and a tie goes to
+     * the lower id. Neither case asserts anything about settlement, and nothing here says an
+     * unsettled redemption should or should not count.
+     *
+     * AND THIS FIXTURE TAKES NO SIDE ON THAT QUESTION, which is what makes it safe to repair while
+     * the metric's business meaning is still being reconciled: a redemption backed by a settled
+     * order counts under the OLD unfiltered `COUNT(*)` too. If `GAP-231`'s rule is ever revisited,
+     * these cases keep measuring what they were written to measure either way.
+     */
     private function redeem(int $couponId, int $times): void
     {
         for ($i = 0; $i < $times; $i++) {
+            $orderRef = 'PUC-' . $couponId . '-' . $i . '-' . bin2hex(random_bytes(3));
+
+            /* `plan_orders` has FOUR non-nullable columns besides the keys — `plan_name`,
+               `price_currency`, `txn_id` and `payment_status` — and `user_id` carries a foreign key
+               to `users`, so the operator owns the purchase. `plan_id` has NO foreign key, but a
+               real plan is used anyway so the fixture is a purchase somebody could have made.
+               `'succeeded'` is in `SaasRevenueFigures::SETTLED_PLAN_STATUSES` as stored. */
+            PlanOrder::forceCreate([
+                'order_id' => $orderRef,
+                'plan_id' => (int) $this->settledPlan()->id,
+                'plan_name' => (string) $this->settledPlan()->name,
+                'user_id' => (int) $this->operator->id,
+                'price' => 10,
+                'price_currency' => 'USD',
+                'txn_id' => 'TXNC-' . $couponId . '-' . $i . '-' . bin2hex(random_bytes(3)),
+                'payment_type' => 'manually',
+                'payment_status' => 'succeeded',
+            ]);
+
             DB::table('plan_user_coupons')->insert([
                 'coupon_id' => $couponId,
                 'user_id' => (int) $this->operator->id,
-                'order' => 'PUC-' . $couponId . '-' . $i . '-' . bin2hex(random_bytes(3)),
+                'order' => $orderRef,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
         }
+    }
+
+    /**
+     * One plan for every redemption in a case, so the coupon ranking is the only thing that varies.
+     *
+     * A SINGLE plan deliberately: the `Popular Plan` card beside the coupon card reads
+     * `Plan::most_purchese_plan()`, and giving each redemption its own plan would make that figure
+     * depend on the coupon fixture. Neither coupon case asserts it, and this keeps it that way.
+     */
+    private function settledPlan(): Plan
+    {
+        return $this->settledPlan ??= $this->makePlan('COUPONFIXTUREPLAN');
     }
 }

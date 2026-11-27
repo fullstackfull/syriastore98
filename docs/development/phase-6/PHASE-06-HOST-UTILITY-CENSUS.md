@@ -40,6 +40,38 @@ population is replaced rather than re-walked: every route's **resolved** middlew
 its own filter; this reproduces the **19** independently, which is what makes the comparison a
 measurement rather than a rhetorical one.
 
+### RE-MEASURED 2026-11-27 on the integration candidate — the figures above are kept as the dated original
+
+The table above is the 2026-11-26 measurement and is **not corrected in place**, because every ratio
+and estimate in the rest of this document was formed from it. The same script, same command
+(`php tests/Support/bin/census-host-utility-surfaces.php`), on `int/checkpoint` at `b2e823561`:
+
+| | definition | routes | views attributed |
+|---|---|---|---|
+| **OLD** (GAP-179) | GET, not `api/`, carries `PlatformOperatorOnly` | **26** | 31 |
+| **NEW** | GET, not `api/`, authenticated | **838** | 408 |
+
+3,018 resolved route rows, 70 modules, 0 load failures. The old population is **3.1%** of the new.
+Two already-repaired defect classes: `btn-primary` **421** occurrences (417 outside the old
+population), `badge bg-warning` **7** (7 outside), across **243** views (240 outside).
+
+**WHY THE OLD POPULATION GREW 19 → 26, AND IT IS NOT A CENSUS REGRESSION.** Seven operator-gated GET
+routes landed between the two measurements, every one a real new operator screen — `kyc.queue`
+(`4774ddbc8`), `platform.approvals.index` (`1a722c08e`), `platform.incidents.index` and
+`platform.incidents.show` (`7006d474d`), `platform.operations` (`3056c1dae`),
+`platform.stores.index` and `platform.stores.show` (`3d72820e6`). Established by `git show
+60e7ef589:routes/web.php`, the commit that pinned the 19: all five of their uri prefixes are absent
+from it, and 26 − 7 = 19 closes the arithmetic.
+
+**AND THE RATCHET NOW ASSERTS THE MEMBERSHIP RATHER THAN THE NUMBER.**
+`HostUtilityCensusPopulationTest` held `assertSame(19, …)` and failed `26 !== 19` — true, not a
+regression, and silent about which route moved; worse, nineteen routes swapped for nineteen others
+would have passed it. It now declares GAP-179's nineteen and the seven additions by name and
+asserts both directions, and the census script emits `old_population_route_names` for it to read.
+`new_population_routes` fell 853 → 838 and `routes_total_rows` 3,066 → 3,018 over the same window;
+both floors in that test (≥ 800 routes, ≥ 380 views) still hold, and the test's own 5% convergence
+bound is satisfied at 3.1%.
+
 ### Why 505 of the 853 routes attribute to no view — classified, not left as a residue
 
 | | |
