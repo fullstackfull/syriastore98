@@ -68,6 +68,33 @@ use Tests\Feature\Security\SecurityTestCase;
  *
  * `test_the_per_merchant_store_badge_still_says_total_store` is the guard for the correct label
  * that the first version would have destroyed.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * TWO CASES IN THIS FILE ARE RED ON PURPOSE SINCE 2026-11-27, AND THIS IS THE RECORDED REASON.
+ * ---------------------------------------------------------------------------------------------
+ *
+ * `test_the_coupon_card_still_names_the_most_used_coupon` and
+ * `test_a_tie_is_broken_the_way_the_original_broke_it` both get `''` from the card, because
+ * `GAP-231` narrowed the ranking in `HomeController::handleSuperAdmin()` to redemptions whose
+ * `order` string matches a SETTLED `plan_orders` row
+ * (`App\Support\Operator\SettledPlanOrders::redeemedAgainstSettledOrder()`), and this file's
+ * `redeem()` helper writes `plan_user_coupons` rows and no `plan_orders` row at all.
+ *
+ * **They are NOT repaired, and that is deliberate rather than unfinished.** Which redemptions this
+ * card counts is an open OWNER question: no approved text defines the metric, and the four earlier
+ * slices that met the same question on this same screen answered it by DISCLOSING the inclusion
+ * rule rather than narrowing the figure. Adding settled plan orders to these fixtures would make
+ * the new rule's precondition true in order to go green, which is the one thing the owner's
+ * instruction of 2026-11-27 forbade.
+ *
+ * Note what each case's subject is, because the two are not alike:
+ * `test_the_coupon_card_still_names_the_most_used_coupon` asserts "most-used", unqualified, which
+ * IS the contested definition; the tie-break case's subject is orthogonal and it fails only
+ * because its fixture predates the predicate.
+ *
+ * The question, both rules' measured numbers, and the one-step repair for whichever way it is
+ * answered: `docs/development/phase-6/PHASE-06-POPULAR-COUPON-METRIC-RECONCILIATION.md`. Nothing
+ * was added to `.github/known-test-outcomes.json`.
  */
 class OperatorDashboardCardLabelsTest extends SecurityTestCase
 {

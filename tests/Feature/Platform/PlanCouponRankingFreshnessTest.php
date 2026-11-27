@@ -48,6 +48,31 @@ use Tests\Feature\Security\SecurityTestCase;
  * cache that survives between two requests in one process, and `phpunit.xml` sets
  * `CACHE_STORE=array`, which is exactly that. It needs no MySQL. The `ONLY_FULL_GROUP_BY` half is
  * in `tests/Support/Security/bin/verify-dashboard-rankings-on-mysql.php`, which cannot be a test.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * ALL THREE CASES ARE RED ON PURPOSE SINCE 2026-11-27, AND THIS IS THE RECORDED REASON.
+ * ---------------------------------------------------------------------------------------------
+ *
+ * Each fails on its own PREMISE assertion, getting `''` where it expects a coupon name, and the
+ * cause is not the staleness this file is about. `GAP-231` narrowed the ranking in
+ * `HomeController::handleSuperAdmin()` to redemptions whose `order` string matches a SETTLED
+ * `plan_orders` row (`App\Support\Operator\SettledPlanOrders::redeemedAgainstSettledOrder()`), and
+ * `redeem()` above writes `plan_user_coupons` rows and no `plan_orders` row at all. So every
+ * fixture redemption is now excluded and the card is empty before caching is ever exercised.
+ *
+ * **THE SUBJECT OF THIS FILE IS ORTHOGONAL TO THAT CHANGE.** It is about which MODEL a cached
+ * aggregate keys under, not about which redemptions count, and it is the only thing in the suite
+ * that catches the `withCount` staleness described above. It is nevertheless left red rather than
+ * repaired, because which redemptions the card counts is an open OWNER question — no approved text
+ * defines the metric — and adding settled plan orders to these fixtures would make the new rule's
+ * precondition true in order to go green, which the owner's instruction of 2026-11-27 forbade.
+ *
+ * **So the staleness guard is temporarily unenforced**, which is the real cost of leaving these red
+ * and is stated rather than buried. The repair is one line per fixture and is spelled out, for
+ * either answer, in `docs/development/phase-6/PHASE-06-POPULAR-COUPON-METRIC-RECONCILIATION.md`
+ * §6.3 — a fixture whose every redemption is settled passes under BOTH candidate rules, so the
+ * repair decides nothing once the owner has. Nothing was added to
+ * `.github/known-test-outcomes.json`.
  */
 class PlanCouponRankingFreshnessTest extends SecurityTestCase
 {
