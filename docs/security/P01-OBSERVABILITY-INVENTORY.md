@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 292 lines
+### `warning` — 293 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -445,6 +445,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Support/Modules/ModuleAvailability.php:99` | ModuleAvailability could not read the enable flag; treating the module as available. |
 | `app/Services/ImageVariants.php:457` | an image variant could not be generated |
 | `app/Services/ImageVariants.php:492` | an image variant directory does not resolve to the folder beside its original and was not used |
+| `app/Support/Help/MerchantAnnouncements.php:185` | MerchantAnnouncements could not read the announcement feed. |
 | `app/Support/Modules/ModuleTrust.php:132` | module trust: the review register exists and could not be read, so the package is refused |
 | `app/Support/Modules/ModuleTrust.php:176` | module trust: an uploaded package was not loaded because no approved review decision exists for it |
 | `app/Support/Modules/ModuleTrust.php:207` | module trust: an upload could not be recorded because the review register is not migrated |

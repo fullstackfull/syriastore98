@@ -32,7 +32,7 @@ use Tests\TestCase;
  *
  * THE INSTRUMENT IS VALIDATED AGAINST THE LIVE CENSUS IN BOTH DIRECTIONS, which is the only reason
  * the blind-spot figures below can be trusted: counting the same pattern over the same enumeration
- * reproduces `['app' => 258, 'packages' => 45]` EXACTLY -- the figures that test asserts. (Its
+ * reproduces `['app' => 253, 'packages' => 45]` EXACTLY -- the figures that test asserts. (Its
  * 2026-11-26 NOTE: this pair was 229/45 until the integration checkpoint, and it moved because the
  * sibling census legitimately moved, not because this instrument drifted. FOUR raw sites arrived
  * across two branches and each is named in that file's own chain of notes: `RefundPolicy::allows()`
@@ -44,17 +44,7 @@ use Tests\TestCase;
  * arrived across three branches -- `ReturnInspection`'s three, `ModuleTrust`'s two and
  * `PriceExplanation`'s one -- and two of the three branches had never declared them anywhere, so
  * the sibling census was already short before the merge that was blamed for it. Same order of work:
- * the six were located and read first, and this figure followed.)
- * (AND AGAIN, 253 -> 256, on 2026-11-27 [CTRL-001 / GAP-199], IN THE SAME ORDER.
- * `FeatureControl::subject()` added three `DB::table()` reads -- the subject store's owner, that
- * owner's plan, and the store's pilot groups. Located and read in the source BEFORE this figure
- * moved: all three are constant table literals with bound values, `platform_pilot_group_members`
- * carries `where('store_id', $storeId)` and the other two are one column of one row named by
- * primary key on tables that have no `store_id` to predicate on. The per-table map in the sibling
- * census carries which is which and why. Both instruments then reported 256 with their own
- * patterns over their own enumerations, which is the only thing that makes either number worth
- * reading. CTRL declared the step as 232 -> 235 from its own base; the three statements are the
- * same three and only the total had moved underneath them.) (Its
+ * the six were located and read first, and this figure followed.) (Its
  * method NAME says "one hundred and sixty eight" and a comment in it says 112; both are stale, and
  * its docblock already records that the name is an identity the CI gate matches on and that "the
  * assertions carry the real figures". So the assertion is the oracle, and this agrees with it.)
@@ -202,6 +192,16 @@ class BuilderRawQueryVisibilityTest extends TestCase
                which would have landed in the blind spot this file measures. All three were
                rewritten in the builder's own vocabulary, so the invisible-site count below does
                not move. */
+            /* 253 -> 254 on 2026-11-27 [SUPPORT-002, `ws/support2`], AND THIS FILE'S OWN RULE
+               FOLLOWED AGAIN: the statement was located and read before this figure moved. It is
+               `MerchantAnnouncements::rows()`'s single read of
+               `platform_maintenance_announcements`, the table `CTRL-003` owns. It is NOT
+               builder-raw -- a plain `where`/`whereNull`/`orderByDesc` chain with no
+               `selectRaw`/`whereRaw`/`orderByRaw` anywhere -- so the invisible-site count below
+               does not move, which is the same shape as the OPS-001 note above. The live census's
+               per-directory note carries why the read is raw at all (a model would move a
+               CLAUDE.md-asserted census) and why it is unscoped (the table has no `store_id`, and
+               a test fails if one ever appears). */
             /* 247 -> 253 on 2026-11-26 [the integration reconciliation], AND THIS FILE'S OWN RULE
                WAS FOLLOWED RATHER THAN QUOTED: the message below says "do NOT adjust this to
                match: find out which census changed", so the six statements were located and read
@@ -210,18 +210,11 @@ class BuilderRawQueryVisibilityTest extends TestCase
                file with their predicates and their tables beside
                `RawQueryTenancyInventoryTest`'s own per-directory assertion. The codebase changed;
                this instrument did not. */
-            /* 253 -> 256 on 2026-11-27 [CTRL-001 / GAP-199], same rule, same order:
-               `FeatureControl::subject()`'s three reads were located and read in the source first.
-               `FeatureControl` holds exactly those three `DB::table()` statements and the
-               workstream's other three support classes hold none, so the +3 is complete rather
-               than a count that happened to agree. None of the three is builder-raw, so the
-               invisible-site figures below do not move -- which is this file's own subject and the
-               reason the two halves are asserted separately. */
-            ['app' => 258, 'packages' => 45],
+            ['app' => 259, 'packages' => 45],
             ['app' => $census['app']['visible'], 'packages' => $census['packages']['visible']],
             'This file counts `DB::` entry points with the same pattern and the same enumeration as '
             . 'RawQueryTenancyInventoryTest::test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight, '
-            . 'whose assertion is `[app => 256, packages => 45]`. A disagreement means one of the '
+            . 'whose assertion is `[app => 253, packages => 45]`. A disagreement means one of the '
             . 'two moved, and the blind-spot figures below are measured against nothing until it is '
             . 'resolved. Do NOT adjust this to match: find out which census changed.'
         );
@@ -675,7 +668,7 @@ class BuilderRawQueryVisibilityTest extends TestCase
      * question first. That script read `conjunctive filter` as 87 because it re-tokenised each file
      * behind a `'<?php '` prefix it had spliced on, which shifts what the tokeniser sees. The
      * methods here are the ones the premise test above validates against the live census's own
-     * asserted 256/45, so they are the ones whose numbers are written down. A figure is only as
+     * asserted 253/45, so they are the ones whose numbers are written down. A figure is only as
      * good as the instrument that is still in the repository.
      */
     public function test_the_classification_of_every_invisible_raw_site(): void

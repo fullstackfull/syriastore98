@@ -108,9 +108,27 @@ class FlutterEndpointManifestTest extends TestCase
     public function test_the_endpoint_count_is_the_measured_one(): void
     {
         $this->assertCount(
-            92,
+            94,
             $this->manifest()['endpoints'],
-            'flutter-endpoints.json no longer holds 92 endpoints. That is not automatically '
+            /*
+             * 92 -> 94 on 2026-11-27 [SUPPORT-002], and it was a REGENERATION rather than an
+             * edit: `php tests/Support/ApiContract/bin/generate-manifests.php --app-repo=<repo B>`
+             * against repo B's branch `claude/magical-bardeen-b04pbh`.
+             *
+             * THE DELTA, both additions and both GETs:
+             *     announcementsUrl   /announcements
+             *     helpTopicsUrl      /help-topics
+             *
+             * Repo A declares both inside `Route::prefix('admin')` in the same change, so they are
+             * `api/admin/announcements` and `api/admin/help-topics`, and `server-api-routes.json`
+             * moved 208 -> 210 in step. `SUPPORT-002` is contextual help and announcements on the
+             * web AND Flutter, and a merchant who only uses the app had NO announcement surface at
+             * all -- `CTRL-003` shipped the web banner and left `api/admin` untouched.
+             *
+             * The two new query FRAGMENTS (`langUrl`, `andSurfaceUrl`) are in the manifest's
+             * `fragments` list, which this count does not cover.
+             */
+            'flutter-endpoints.json no longer holds 94 endpoints. That is not automatically '
             . 'wrong -- repo B may legitimately have added or removed one -- but it must be a '
             . 'REGENERATION rather than an edit, and this number moves in the same commit. If it '
             . 'DROPPED, find out which endpoint left the gate before accepting it.'
@@ -129,7 +147,7 @@ class FlutterEndpointManifestTest extends TestCase
         $hash = hash('sha256', json_encode($actual, JSON_UNESCAPED_SLASHES));
 
         $this->assertSame(
-            '433efc06fd20dcfba8b98e39261b8a5d2f6c63cde5a88b5792d50a45bb413aa5',
+            '755c6c819956b9c1bd294114515e4c86e1b38859199dd96e8e9380e849d9f63e',
             $hash,
             "The committed field-to-path map has changed.\n\n"
             . "If you regenerated from repo B, this is expected: recompute the hash with\n"

@@ -233,6 +233,12 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                         </a>
                     </li>
 
+                    {{-- PHASE 06 SUPPORT-002 -- «مساعدة سياقية»: help for the screen you are on.
+                         A LINK, not a dropdown, for the reason the bell above records in full. The
+                         component resolves the surface from the current route name; everything it
+                         says is in the component so this partial gains one line. --}}
+                    <x-ss.contextual-help-link />
+
                     @if (auth()->user() && auth()->user()->type == 'admin')
                     <li class="web-browse-icon">
                         {{-- `rel="noopener noreferrer"`: this opens the merchant's own storefront

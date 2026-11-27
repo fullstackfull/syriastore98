@@ -462,6 +462,16 @@
             "field": "deleteOrderNoteUrl",
             "path": "/orders/notes/delete",
             "commented": false
+        },
+        {
+            "field": "announcementsUrl",
+            "path": "/announcements",
+            "commented": false
+        },
+        {
+            "field": "helpTopicsUrl",
+            "path": "/help-topics",
+            "commented": false
         }
     ],
     "fragments": [
@@ -480,6 +490,8 @@
         "pageUrl",
         "andPageUrl",
         "customerIdUrl",
-        "deliveryBoyIdUrl"
+        "deliveryBoyIdUrl",
+        "langUrl",
+        "andSurfaceUrl"
     ]
 }

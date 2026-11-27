@@ -455,8 +455,33 @@ Route::post('/wallet/add-balance', [\App\Http\Controllers\StoreFinanceController
     
     Route::post('/wallet/deduct-balance', [\App\Http\Controllers\StoreFinanceController::class, 'deductBalanceApi'])
     ->middleware(['custom.auth','AdminApiLog']);
-    
-    
+
+    /*
+     * PHASE 06 SUPPORT-002 -- «مساعدة سياقية وإعلانات للويب وFlutter»: THE FLUTTER HALF.
+     *
+     * CTRL-003 shipped maintenance announcements to the WEB panel and deliberately left api/admin
+     * untouched, so a merchant who only uses the Flutter admin app was told nothing at all when the
+     * platform announced an outage. These two GETs close that, and they serve the SAME reader the
+     * panel's list page uses (App\Support\Help\MerchantAnnouncements) so the two clients cannot
+     * disagree about what was announced.
+     *
+     * `custom.auth` AND `AdminApiLog`, the same pair every other route in this group carries.
+     * `custom.auth` is NOT an audience check -- it logs a token's owner into the guard matching the
+     * TOKENABLE CLASS, so a shopper's and a driver's token both pass it -- so each handler derives
+     * its principal with `auth('web')->user()` and an `instanceof User` test, and refuses with
+     * ApiResponser::error()'s HTTP 200 + `status: 0` rather than a 401 the shipped app would log a
+     * merchant out over. MerchantHelpApiTest drives all three token kinds.
+     *
+     * READS ONLY. Nothing here writes, so neither route needs `xss` dropped and neither carries a
+     * prose parameter: `surface` is a key lookup in a constant and `lang` picks one of two
+     * repository locales.
+     */
+    Route::get('announcements', [\App\Http\Controllers\Api\MerchantHelpController::class, 'announcements'])
+    ->middleware(['custom.auth','AdminApiLog']);
+
+    Route::get('help-topics', [\App\Http\Controllers\Api\MerchantHelpController::class, 'helpTopics'])
+    ->middleware(['custom.auth','AdminApiLog']);
+
 });
 
 

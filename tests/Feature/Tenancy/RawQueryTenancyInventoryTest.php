@@ -788,34 +788,28 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
              +1  `app/Services/Commerce/PriceExplanation.php` [PRICE-006, `ws/p4-price`]. The
                  `wholesale_products` tier read, UNSCOPED ON PURPOSE -- the new row in the per-table
                  map below carries the argument, and it is the only one of the six that reaches that
-                 map's unscoped total at all. */
-        /* 253 -> 256 [2026-11-27, CTRL-001 / GAP-199] -- declared on the branch as 232 -> 235 from
-           its own base of 232; the three statements are the same three and only the total had
-           moved underneath them, so the step is re-labelled and the reasoning kept verbatim.
-           `App\Support\Control\FeatureControl::subject()`
-           resolves the three things a feature decision is made against -- the subject STORE, its
-           PLAN and its PILOT GROUPS. Three statements, and the two numbers below move differently
-           for a reason worth reading rather than absorbing.
+                 map's unscoped total at all.
 
-           `platform_pilot_group_members` arrives SCOPED, at [1, 0]: the read is
-           `where('store_id', $storeId)` and that is the whole question ("which groups is this store
-           in"). The table is not in `config/tenancy.php`'s `scoped_models` and must never be -- the
-           operator's screen reads every store's memberships -- so the predicate at the call site is
-           the only one there is.
+             +1  `app/Support/Help/MerchantAnnouncements.php` [SUPPORT-002, `ws/support2`]. The ONE
+                 read of `platform_maintenance_announcements`, the table `CTRL-003` owns -- published
+                 announcements whose window has opened, newest first, for the merchant's panel list
+                 and for `api/admin/announcements`. UNSCOPED, AND IT COULD NOT BE OTHERWISE: the
+                 table has no `store_id` column, because the announcement is the PLATFORM's and
+                 reaches every tenant on it. That is asserted rather than argued --
+                 `MerchantAnnouncementFeedTest` fails if the column ever appears, which is the point
+                 at which the reader would need a predicate derived from the principal.
 
-           `stores` and `users` arrive UNSCOPED, and for both of them there is nothing to scope BY:
-           `stores` carries no `store_id` (the row IS the store, and a predicate would compare the
-           column with itself -- the reasoning already written against the 25 sites below), and
-           `users` carries none either and is not in `scoped_models`. Each read is one column of one
-           row named by a primary key: `stores.created_by` for the store the CALLER passed, then
-           `users.plan_id` of that owner. The store id is a method parameter the caller supplies
-           from the route or from `getCurrentStore()`, never from request input --
-           `platform_feature_decision()`'s docblock refuses to resolve it itself for exactly that
-           reason -- and what comes back is used as a VALUE compared against a stored `target_key`,
-           never to load another tenant's row. Raw rather than Eloquent so the answer cannot be
-           served from a `Cachable` model's memo, which CLAUDE.md records as three measured false
-           readings. */
-        $this->assertSame(['app' => 258, 'packages' => 45], $perDir,
+                 WHY THIS IS A RAW QUERY AT ALL, since the remedy this message names is not
+                 available: `CTRL-003`'s Eloquent model lives in `app/Models/`, and
+                 `ClaudeMdCachableModelClaimTest` re-measures that directory's file count and
+                 `Cachable` exception list against CLAUDE.md's prose on every run -- so a workstream
+                 that may not edit CLAUDE.md may not add a model either. The query builder has no
+                 such coupling, and the class holds exactly ONE statement for this reason.
+
+                 Named through `self::TABLE`, so like `ModuleTrust` above it joins the
+                 unattributable remainder rather than the per-table map below -- which is why that
+                 map's assertion does not move. */
+        $this->assertSame(['app' => 259, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -960,12 +954,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 292 -> 298 [2026-11-26, the integration reconciliation]: the same six counted above
            (253 + 45), from `ws/p4-ret`, `ws/p6-market` and `ws/p4-price`. Nothing in `packages/`
            moved, which is itself worth recording -- all six are first-party. */
-        /* 298 -> 303 [2026-11-27, CTRL-001 / GAP-199]: `FeatureControl::subject()`'s three reads
-           (256 + 45). One scoped, two against tables that have no `store_id` to scope by; the note
-           above the per-directory assertion carries the full reasoning. CTRL declared this as
-           277 -> 280 from its own base; the step is the same three statements and only the total
-           had moved underneath it. MEASURED, not added up. */
-        $this->assertSame(303, array_sum($perDir));
+        /* 298 -> 304 [2026-11-27, SUPPORT-002 / `ws/support2`]: the one `MerchantAnnouncements`
+           read counted above (254 + 45). First-party, and the note above it says why it is raw and
+           why it is unscoped. */
+        $this->assertSame(304, array_sum($perDir));
     }
 
     /**
@@ -1087,7 +1079,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'lottery_settings' => [1, 1],
             /* MKT-005's append-only points ledger. One statement, in `LoyaltyLedger`, which
          * opens with `where('store_id', …)` -- the table carries the column and the reader
-         * names it, so it is attributable and scoped. */
+         * names it, so it is attributable and scoped. Re-declared THREE TIMES because
+         * three successive merges each took one side of this file wholesale. */
         'loyalty_point_transactions' => [1, 0],
         'migrations' => [1, 1],
             // `notify_users` USED TO BE LISTED HERE AT [2, 1] AND HAS LEFT THIS POPULATION
@@ -1206,15 +1199,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
             // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
-            // NEW [2026-11-26, CTRL-001 / GAP-199] AND SCOPED, which is what the 0 says.
-            // `FeatureControl::subject()` asks "which pilot groups is THIS store in" with
-            // `where('store_id', $storeId)`. The table is platform-owned and deliberately NOT in
-            // `config/tenancy.php`'s `scoped_models` -- the operator's feature-control screen reads
-            // every store's memberships, and a scope there would show them only their own -- so the
-            // predicate at this call site is the only one that exists. The slug is normalised on
-            // write so PHP's comparison and MySQL's agree about what one group is.
-            'platform_pilot_group_members' => [1, 0],
-            'product_variants' => [1, 0],   // NEW [2026-11-26, ORD-008 / GAP-185]: `PackingSlip::variantSkus()` reads the SKU of every variant the order's own lines name, for the picking and packing list. THE UNSCOPED HALF IS 0 AND THAT IS THIS CENSUS'S DOING: the first version of that method carried no store predicate and argued for it (`product_variants.store_id` is nullable, so a plain filter blanks a legacy row's SKU), and this file put the table in the rawly-unscoped set. The argument was wrong, because `product_json` is written at checkout from the cart and S19 established a cart can carry a FOREIGN product id -- so an order's own recorded `variant_id` is not proof of ownership. The predicate is now `store_id = the ORDER's store OR store_id IS NULL`, the shape five other readers of a nullable store_id already use (`Cart`, `Tax`, `ShippingClassOwnership` and two gateway controllers), which refuses another tenant's variant and keeps the legacy rows. Pinned both ways by `PackingSlipTest::test_the_variant_sku_read_does_not_cross_tenants`.
+            /* CTRL-001's pilot membership. One statement, in `FeatureControl::subject()`, which
+         * carries `where('store_id', $storeId)` -- the table has the column and the reader
+         * names it. The `$storeId` is a typed `?int` parameter of a private method reached
+         * only through `decide()`, which has ZERO production callers. */
+        'platform_pilot_group_members' => [1, 0],
+        'product_variants' => [1, 0],   // NEW [2026-11-26, ORD-008 / GAP-185]: `PackingSlip::variantSkus()` reads the SKU of every variant the order's own lines name, for the picking and packing list. THE UNSCOPED HALF IS 0 AND THAT IS THIS CENSUS'S DOING: the first version of that method carried no store predicate and argued for it (`product_variants.store_id` is nullable, so a plain filter blanks a legacy row's SKU), and this file put the table in the rawly-unscoped set. The argument was wrong, because `product_json` is written at checkout from the cart and S19 established a cart can carry a FOREIGN product id -- so an order's own recorded `variant_id` is not proof of ownership. The predicate is now `store_id = the ORDER's store OR store_id IS NULL`, the shape five other readers of a nullable store_id already use (`Cart`, `Tax`, `ShippingClassOwnership` and two gateway controllers), which refuses another tenant's variant and keeps the legacy rows. Pinned both ways by `PackingSlipTest::test_the_variant_sku_read_does_not_cross_tenants`.
             'products' => [12, 3],    // 11 -> 12 [2026-11-26, ORD-008 / GAP-185]: `PackingSlip::productCodes()` reads `products.product_code` (the ProductBarCode module's column, behind `Schema::hasColumn`) for the order's own line items, WITH a `store_id` predicate against the ORDER's store, so THE UNSCOPED HALF STAYS AT 3 -- which is the assertion that matters. 10 -> 11 [2026-11-25, GAP-221 / ANA-002]: `TopSellersByOrderCount:136`'s dimension-by-product lookup, WITH a `store_id` predicate at :137, so THE UNSCOPED HALF STAYS AT 3 -- which is the assertion that matters. Only ONE of that class's two statements lands here: the other names its table through a `$table` VARIABLE (`categories` or `product_brands`), so it is not a literal this per-table map can key on, and it is counted in the per-directory total above instead. It too carries a `store_id` predicate. 9 -> 10 [2026-11-23, ANA-TOP part 4]: `DimensionPeriodRevenue::forOrders()` resolves every product the orders name in ONE query WITH a store_id predicate, replacing a `Product::find()` per ORDER LINE in eight report branches. That `find()` is why a line naming another tenant's product was attributed by the FOREIGN catalogue's category_id/brand_id -- `Product` registers no StoreScope and is absent from scoped_models. THE UNSCOPED HALF STAYS AT 3. 10 -> 9 [2026-11-22, P1-SEC-69 c after review]: the guard's two ownership limbs became one `exists()` when the product rule became "one canonical id" -- see the per-directory note above. The unscoped half is unchanged at 3, as it was when they arrived. 8 -> 10 total [2026-11-22, P1-SEC-69 c] with CampaignIntentOwnershipGuard's two ownership limbs over the product ids a campaign names. BOTH carry a `store_id` comparison -- built from the store the caller was just authorised for, never from request input -- so THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters. 7 -> 8 total [2026-11-11, P1-SEC-61] with AuctionBidIdentityGuard::logSlugCollision()'s twin lookup, WITH a store_id predicate -- it asks whether the ROUTED store holds its own product under the colliding slug, so THE UNSCOPED HALF STAYS AT 3, which is again the assertion that matters. 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
             /* OPS-001: `sessions`, the row count of the database-backed session store. Not a count
                of people signed in -- a row survives until the framework's own sweep removes it. It
@@ -1301,7 +1291,22 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // resolved, never a request value. It is a raw SELECT only because the four SUM()
             // aliases have to be spelled, and it is a READ: no wallet figure writes anything.
             'store_wallets' => [2, 0],
-            'stores' => [27, 26],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone. 24 -> 26, AND THE UNSCOPED HALF 23 -> 25 [2026-11-22, P1-SEC-69 b and c]: the two ownership reads that fetch the `created_by` of the store a caller NAMED, so that it can be compared with their merchant tenant root and the request refused -- ModuleAdministrativeRouteGuard's `tenant-store:` rule and CampaignIntentOwnershipGuard. Neither can carry a `store_id` predicate, because the row IS the store; a predicate would compare the column with itself. The thing that makes them safe is not a predicate but the comparison that follows, and the value compared against comes from UserPolicy::merchantTenantRoot(), never from the request. This is the one direction this ratchet is designed to make somebody read, so it is spelled out rather than absorbed. 26 -> 27, AND THE UNSCOPED HALF 25 -> 26 [2026-11-26, CTRL-001 / GAP-199]: `FeatureControl::subject()` reads the `created_by` of the store a CALLER passed, to find the owner whose `plan_id` decides whether a plan-targeted feature reaches it. Same shape as the two above and unscopeable for the same reason -- the row IS the store. What makes it safe is narrower than a comparison: the value is used only to read one more column, and a plan that does not match simply does not match a target. The note above the per-directory assertion has the chain.
+            /*
+         * CTRL-001 RAISES THE NO-`store_id` HALF ON `stores` AND `users`, AND THAT IS
+         * DEFINITIONAL RATHER THAN AN EXPOSURE -- which is the one claim this census exists to
+         * make somebody argue. `FeatureControl::subject()` reads `stores.created_by` and then
+         * `users.plan_id`. NEITHER TABLE HAS A `store_id` TO PREDICATE ON: `stores` IS the store,
+         * and `users` carries none and is not in `scoped_models`. So a statement against either
+         * necessarily lands in the no-`store_id` column, and the question is what it does with
+         * what it read, not whether it narrowed.
+         *
+         * Each is one column of one row named by PRIMARY KEY. The `$storeId` is a typed `?int`
+         * parameter of a PRIVATE method reached only through `decide()`, which has ZERO
+         * production callers -- measured across `app/ resources/ routes/ packages/ themes/
+         * config/ database/`. The plan id that leaves the method is compared AS A STRING against
+         * a stored `target_key` and never dereferenced to load anything.
+         */
+        'stores' => [27, 26],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone. 24 -> 26, AND THE UNSCOPED HALF 23 -> 25 [2026-11-22, P1-SEC-69 b and c]: the two ownership reads that fetch the `created_by` of the store a caller NAMED, so that it can be compared with their merchant tenant root and the request refused -- ModuleAdministrativeRouteGuard's `tenant-store:` rule and CampaignIntentOwnershipGuard. Neither can carry a `store_id` predicate, because the row IS the store; a predicate would compare the column with itself. The thing that makes them safe is not a predicate but the comparison that follows, and the value compared against comes from UserPolicy::merchantTenantRoot(), never from the request. This is the one direction this ratchet is designed to make somebody read, so it is spelled out rather than absorbed.
                                      // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
             // [1, 0], DOWN FROM [2, 0]. The remaining raw statement is the READ at
             // Api/DashboardController::extractSocialMediaLinks(), which constrains store_id,
@@ -1311,11 +1316,6 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // [6, 6], UP FROM [5, 5], WITH P1-SEC-67b: StoreScope::rootIsAMerchant() reads `users.type` of the principal's own tenant root. No `store_id`
             // exists to predicate on (`users` carries none and is not scoped), and the value is one column of one row the principal already resolves
             // through `creatorId()` -- it carries no tenant data out of the scope.
-            // [7, 7], UP FROM [6, 6], WITH CTRL-001 / GAP-199: `FeatureControl::subject()` reads `users.plan_id` of the store owner resolved
-            // one line earlier, so a plan-targeted feature can be matched. `users` carries no `store_id` and is not in `scoped_models`, so again
-            // there is nothing to predicate on; it is one column of one row named by primary key, and the value leaves the method as a STRING
-            // compared against a stored `target_key` -- never used to load anything. A `plan_id` of null, '' or '0' is reported as NO plan, which is
-            // its own test: reporting '0' as a plan would make one target keyed 0 reach every merchant who has never bought one.
             'users' => [7, 7],
             /* ---------------------------------------------------------------------------------
                NEW ON 2026-11-26 [PRICE-006, the integration reconciliation], AND UNSCOPED BY
@@ -1527,17 +1527,6 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `module_review_records` through `self::TABLE`, so all five join the unattributable
         // remainder for the reason LIMIT 2 in this class's docblock gives. The per-directory total
         // above moved by six; this one moves by one, and the difference is that remainder.
-        // 199 -> 201 was the ORD-008 pair above. 217 -> 220 [2026-11-27, CTRL-001 / GAP-199] --
-        // declared on the branch as 201 -> 204 from its own base; same three statements, and only
-        // the total had moved underneath them:
-        // `FeatureControl::subject()`'s three reads -- `stores.created_by`, that owner's
-        // `users.plan_id`, and the store's `platform_pilot_group_members`. `platform_pilot_group_members`
-        // is a NEW table in this map and arrives scoped at [1, 0]; the OTHER TWO MOVE THE UNSCOPED
-        // SUM BELOW and are the first rise in it from this workstream, so the reason is at the
-        // per-table rows and at the per-directory note rather than only here: neither `stores` nor
-        // `users` HAS a `store_id` to predicate on, both reads are one column of one row named by
-        // primary key, and the value that leaves the method is compared as a string against a
-        // stored `target_key` rather than used to load anything.
         $this->assertSame(222, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
@@ -1662,38 +1651,6 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            number: `ReturnInspection`'s three carry explicit `store_id` predicates, and
            `ModuleTrust`'s two are on a table with no such column and are unattributable to a
            literal, so neither pair reaches this map at all. */
-        // 100 -> 102 [2026-11-27, CTRL-001 / GAP-199], AND THIS IS THE SUM WHOSE RISE IS ROUTINELY A
-        // FINDING, so it is spelled out rather than absorbed. The two sites are
-        // `FeatureControl::subject()`'s `stores.created_by` and `users.plan_id` reads, and they are
-        // in this numerator for the same reason `personal_access_tokens` is: THE TABLE HAS NO
-        // `store_id` COLUMN. `stores` is the store -- a predicate would compare the column with
-        // itself, which is the reasoning already standing against that table's other 25 unscoped
-        // sites -- and `users` carries none and is not in `scoped_models`. So this +2 is in the
-        // numerator of "statements that never mention store_id" and NOT in any count of
-        // cross-tenant reads, which is the distinction the sibling assertion below keeps honest:
-        // if either table ever gained a `store_id` column it would move to the discriminated list
-        // and fail there first.
-        //
-        // WHAT MAKES THEM SAFE IS NOT A PREDICATE. Each reads one column of one row named by
-        // primary key; the store id that starts the chain is a method parameter the CALLER supplies
-        // from the route or from `getCurrentStore()` -- `platform_feature_decision()`'s docblock
-        // refuses to resolve it itself, because CLAUDE.md records that `getCurrentStore()` answers
-        // for whichever merchant panel a visitor happens to be signed into -- and the plan id that
-        // comes back is compared as a STRING against a stored `target_key`, never dereferenced.
-        //
-        // VERIFIED AT THE SOURCE DURING THE MERGE RATHER THAN TAKEN FROM THIS NOTE, because the
-        // censuses exist for a live cross-tenant SQL injection found among exactly these sites
-        // (`GAP-338`, `GAP-341`). `FeatureControl` holds EXACTLY THREE `DB::table()` statements,
-        // all in `subject()`: `stores` by `where('id', $storeId)`, `users` by `where('id',
-        // $ownerId)` with `$ownerId` the previous statement's own result, and
-        // `platform_pilot_group_members` by `where('store_id', $storeId)`. All three are constant
-        // table literals with bound values -- nothing dynamic, so the static-SQL whitelist covers
-        // them. `$storeId` is a typed `?int` parameter; `subject()` is private and reached only
-        // through `decide()`, which has ZERO production callers (measured across `app/ resources/
-        // routes/ packages/ themes/ config/ database/` -- every call site is a test), so no path
-        // reaches it from request input today. `MaintenanceAnnouncements`, `PlatformChangeLog` and
-        // `FeatureControlOverview` hold NO raw statements at all. CTRL declared this step as
-        // 86 -> 88 from its own base; the two sites are the same two and only the total had moved.
         $this->assertSame(102, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 

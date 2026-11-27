@@ -2085,6 +2085,58 @@ Route::get(
         ->name('merchant.notifications.read-all');
 
     /*
+     * PHASE 06 SUPPORT-002 -- «وإعلانات للويب وFlutter»: the merchant's durable list of what the
+     * PLATFORM announced.
+     *
+     * NOT THE SAME THING AS THE NOTIFICATIONS ABOVE, and the distinction is the reason this is a
+     * separate screen rather than a tab on that one. A `store_notifications` row is a TENANT's own
+     * row about its own orders and customers, scoped and per-merchant. An announcement is the
+     * PLATFORM talking to every tenant on it, with no `store_id` to scope by. Folding them would
+     * mean one screen whose rows answer to two different isolation rules, which is how a
+     * cross-tenant read gets written by somebody who reasonably assumed the other kind.
+     *
+     * NOT A SECOND ANNOUNCEMENT SYSTEM EITHER. CTRL-003 owns the table, the operator's writes and
+     * the transient in-panel banner; this reads the same rows through
+     * App\Support\Help\MerchantAnnouncements, which is also what `api/admin/announcements` calls,
+     * so the web and the Flutter app cannot drift. ARCH-002 forbids a parallel engine and a second
+     * table would have been one.
+     *
+     * `merchant-announcements`, NOT `announcements`, for the reason the block above records about
+     * `merchant-notifications`: `routes/api.php` declares `announcements` inside
+     * `Route::prefix('admin')`, so the two cannot collide TODAY -- and two identically-named
+     * declarations in `routes/` are a hazard whether or not today's prefixes happen to separate
+     * them, because CLAUDE.md records that a later declaration silently REPLACES an earlier one for
+     * the same method+URI and drops its middleware with it.
+     *
+     * GET ONLY. A merchant cannot dismiss, delete or acknowledge a platform announcement: what the
+     * platform told its merchants, and when, is the record somebody asks for after an incident, and
+     * CTRL-003 offers the operator no delete for the same reason.
+     */
+    Route::get('merchant-announcements', [\App\Http\Controllers\MerchantAnnouncementController::class, 'index'])
+        ->name('merchant.announcements');
+
+    /*
+     * PHASE 06 SUPPORT-002 -- «مساعدة سياقية»: the help for the screen the merchant came from.
+     *
+     * The header's help control resolves the CURRENT route name to a surface key server-side and
+     * links here carrying it, so a screen gains contextual help by one line in
+     * ContextualHelp::routeSegments() and no view is edited at all.
+     *
+     * `surface` ARRIVES IN THE QUERY STRING AND IS NOT A PREDICATE OVER DATA. It selects between
+     * entries of a class constant whose values are filenames in `resources/docs/`; there is no
+     * tenant row in the answer and an unknown key answers with the full map and says so. The
+     * handler derives its PRINCIPAL from `auth('web')` and tests `instanceof User` itself, because
+     * CLAUDE.md records that a handler check behind an abort()ing middleware is invisible to an
+     * HTTP test.
+     *
+     * NOT UNDER `platform/docs/`, deliberately. Those patterns are declared EARLIER in this file,
+     * are unauthenticated, and `docs/{category}` would swallow a two-segment sibling -- the same
+     * trap the operator's documentation preview route records.
+     */
+    Route::get('merchant-help', [\App\Http\Controllers\ContextualHelpController::class, 'index'])
+        ->name('merchant.help');
+
+    /*
      * P2-03-6. The product quick-preview fragment, read-only.
      *
      * Unlike the order preview, this needs NO entry in OrderDocumentAccessGuard -- that guard is

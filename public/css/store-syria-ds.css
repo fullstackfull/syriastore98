@@ -7685,8 +7685,16 @@ td.dataTables-empty:has(.ss-empty) {
     unicode-bidi: isolate;
 }
 
-/* ===============================================================================================
-   PHASE 06 CTRL-003 -- the maintenance announcement a merchant reads on every panel page.
+/* BOTH BLOCKS BELOW ARE KEPT, AND THE AGREEMENT IS THE EVIDENCE. CTRL-003 and SUPPORT-002
+   each added `white-space: pre-line` for their own announcement body class, independently,
+   and each wrote down the same reasoning: `nl2br()` is wrong twice over, because Blade
+   escapes the `<br>` so the merchant reads the tag, and emitting it raw would print
+   operator-authored text through `{!! !!}` on a write route that deliberately drops the
+   `xss` sweep -- where Blade escaping is the only control left standing. Two agents
+   reaching that conclusion separately is worth more than either one asserting it.
+   SUPPORT-002 recorded the sibling class as a follow-up it could not take; CTRL-003 had
+   already taken it, so the union closes both. */
+/* ========================================================================================   PHASE 06 CTRL-003 -- the maintenance announcement a merchant reads on every panel page.
 
    ONE RULE, ONE PROPERTY, AND NO COLOUR. The announcement's chrome is `x-ss.card` and
    `x-ss.status-badge`, both of which already re-theme by token; the only thing this component
@@ -7707,5 +7715,28 @@ td.dataTables-empty:has(.ss-empty) {
    own, and `SuperAdminPremiumSurfaceTest`'s rule about hex literals applies here as everywhere.
    ============================================================================================== */
 .ss-maintenance-notice__body {
+=======
+/* ==============================================================================================
+   SUPPORT-002 — OPERATOR PROSE IN AN ANNOUNCEMENT KEEPS ITS LINE BREAKS.
+   ==============================================================================================
+
+   An announcement's body is words the platform operator typed, and they type line breaks. The
+   obvious fix is `nl2br()`, and it is wrong twice over: the `<br>` it emits would be escaped by
+   Blade and the merchant would read the tag, and emitting it raw would mean printing operator text
+   through `{!! !!}` -- which is the one thing the announcement views must not do, because
+   `CTRL-003`'s write routes drop `xss` deliberately and Blade's escaping is therefore the only
+   control on that text.
+
+   `pre-line` rather than `pre-wrap`: runs of spaces and tabs collapse (so an operator's stray
+   indentation does not reach the merchant) while newlines are honoured. It is a layout property
+   only -- no colour, so there is no new contrast pair on this screen.
+
+   A COMMENT IN THE VIEW CLAIMED THIS RULE EXISTED BEFORE IT DID. Found while checking every `.ss-`
+   class the new screens use against this file: `ss-announcement__body` had zero rules, so the view
+   documented behaviour it did not have. `CTRL-003`'s `.ss-maintenance-notice__body` has the same
+   gap and the same comment; it is not this branch's class to add, and it is recorded as a
+   follow-up in `docs/development/phase-6/PHASE-06-CONTEXTUAL-HELP-AND-ANNOUNCEMENTS.md` §7.
+   ============================================================================================== */
+.ss-announcement__body {
     white-space: pre-line;
 }
