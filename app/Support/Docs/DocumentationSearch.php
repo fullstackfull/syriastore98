@@ -2,6 +2,8 @@
 
 namespace App\Support\Docs;
 
+use App\Support\Search\ArabicSearchText;
+
 /**
  * PHASE 03 M6 — SEARCH OVER THE DOCUMENTATION CENTRE, INCLUDING IN ARABIC.
  * =================================================================================================
@@ -172,29 +174,40 @@ final class DocumentationSearch
     }
 
     /**
+     * PROSE TYPOGRAPHY, AND IT IS THIS CORPUS'S ALONE.
+     *
+     * An article is written with curly quotes and em dashes; a reader types ASCII. A PRODUCT NAME
+     * IS NOT PROSE, so `App\Support\Search\ProductNameIndex` deliberately does not fold these —
+     * doing so would make a shopper's Latin `Sony - WH-1000` match a product stored
+     * `Sony — WH-1000`, a row today's product search does not return.
+     *
+     * Public because `Tests\Unit\Search\ArabicSearchTextTest` walks its whole key/value alphabet to
+     * pin that `normalise()` is still exactly "the shared Arabic fold, then this", and proves this
+     * map and `ArabicSearchText::MAP` cannot see each other's output — which is what makes the two
+     * `strtr` passes below equivalent to the single pass they replaced.
+     *
+     * @var array<string, string>
+     */
+    public const PROSE_MAP = [
+        '«' => '"', '»' => '"', '“' => '"', '”' => '"', '’' => "'", '‘' => "'",
+        '—' => '-', '–' => '-',
+    ];
+
+    /**
      * Fold away everything a reader will not type.
      *
      * Each rule is here because of a specific miss it prevents; see the class docblock.
+     *
+     * THE ARABIC HALF NOW LIVES IN `App\Support\Search\ArabicSearchText` and is shared with
+     * storefront product search (`CUST-003`, `GAP-190`, owner decision `J38`). It was extracted
+     * rather than copied: two Arabic normalisers that drift are worse than one, and the drift would
+     * be invisible — a shopper would simply stop finding things the documentation centre finds.
+     * This method's OUTPUT is unchanged, over the whole key alphabet of both maps and in both
+     * directions, by `Tests\Unit\Search\ArabicSearchTextTest`.
      */
     public static function normalise(string $text): string
     {
-        $text = mb_strtolower($text, 'UTF-8');
-
-        /* Tashkeel (U+064B..U+0652), superscript alef (U+0670) and tatweel (U+0640). */
-        $text = preg_replace('/[\x{064B}-\x{0652}\x{0670}\x{0640}]/u', '', $text) ?? $text;
-
-        $map = [
-            'أ' => 'ا', 'إ' => 'ا', 'آ' => 'ا', 'ٱ' => 'ا',
-            'ى' => 'ي', 'ئ' => 'ي',
-            'ؤ' => 'و',
-            'ة' => 'ه',
-            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
-            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
-            '«' => '"', '»' => '"', '“' => '"', '”' => '"', '’' => "'", '‘' => "'",
-            '—' => '-', '–' => '-',
-        ];
-
-        return strtr($text, $map);
+        return strtr(ArabicSearchText::fold($text), self::PROSE_MAP);
     }
 
     /** Markdown in, readable prose out. Used for snippets and for body scoring. */

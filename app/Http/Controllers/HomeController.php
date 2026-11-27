@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Cache;
 use App\Support\Metrics\GrossMerchandiseValue;
 use App\Support\Metrics\MetricScope;
 use App\Support\Metrics\MetricWindow;
+use App\Support\Search\ProductNameIndex;
 
 class HomeController extends Controller
 {
@@ -1733,7 +1734,28 @@ class HomeController extends Controller
          * STILL UNBOUNDED (`get()`, no `limit`), deliberately: a cap on a typeahead is a UX decision
          * about how many suggestions to show and is reported rather than taken here.
          */
-        $products = Product::where('name', 'LIKE', '%' . $search_pro . '%')->where('store_id', $store->id)->where('status', 1)->get();
+        /*
+         * CUST-003 / GAP-190 / J38 — THE ARABIC HALF. «بحث ذكي ومرادفات وفلاتر ديناميكية».
+         *
+         * `LIKE` cannot normalise the haystack, so a shopper typing `شاشه` never reached a product
+         * the merchant stored as `شاشة` however the query was cleaned up. The fold is now STORED
+         * (`products.name_normalised`) and `ProductNameIndex::applyNameFilter()` asks both columns
+         * in a PARENTHESISED group.
+         *
+         * THE GROUP IS THE TENANT CONTROL, NOT A TIDINESS CHOICE. `Product` is absent from
+         * `config/tenancy.php`'s `scoped_models`, so `StoreScope` adds no predicate for any
+         * principal and the `store_id` below is the whole isolation. `AND` binds tighter than `OR`,
+         * so an ungrouped second limb would answer with every store's catalogue — the measured
+         * shape of `GAP-341` in the API twin of this door.
+         *
+         * IT ONLY EVER ADDS ROWS. The raw `name LIKE` limb stays first and is the authority, so a
+         * product whose fold is NULL (every row until the owner runs the backfill) or stale is
+         * found exactly as it is found today, and a Latin-script query's answer is unchanged.
+         */
+        $products = ProductNameIndex::applyNameFilter(
+            Product::where('store_id', $store->id)->where('status', 1),
+            $search_pro
+        )->get();
        
         // Check if any matching products were found
         if (!$products->isEmpty()) {
