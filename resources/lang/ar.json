@@ -4598,7 +4598,6 @@
     "Measurement": "القياس",
     "Path": "المسار",
     "The filesystem holding :path.": "نظام الملفات الذي يحتوي :path.",
-    "This screen measures the machine only. Queue depth, database size and integration reachability are not measured here, and no alerting is configured anywhere in this product.": "تقيس هذه الشاشة الجهاز وحده. فلا يُقاس هنا عمق الطوابير ولا حجم قاعدة البيانات ولا إمكانية الوصول إلى التكاملات، ولا يوجد أي تنبيه مُهيَّأ في أي موضع من هذا المنتج.",
     "Monthly recurring revenue: the monthly value of the subscriptions that are live today. A yearly plan contributes a twelfth of its price. This is what merchants pay Store Syria and has nothing to do with what shoppers pay merchants.": "الإيرادات المتكررة الشهرية: القيمة الشهرية للاشتراكات السارية اليوم. والباقة السنوية تساهم بجزء من اثني عشر من سعرها. هذا ما يدفعه التجار إلى Store Syria، ولا علاقة له بما يدفعه المشترون للتجار.",
     "Annual recurring revenue: the monthly figure multiplied by twelve. It is a restatement of the same subscriptions and not a forecast, so it assumes nothing about renewals, upgrades or churn.": "الإيرادات المتكررة السنوية: الرقم الشهري مضروبًا باثني عشر. وهي إعادة صياغة للاشتراكات نفسها لا تنبؤًا، فلا تفترض شيئًا عن التجديد أو الترقية أو التسرب.",
     "Merchants on a live, paid, recurring plan today. Every other subscription is counted in its own row below rather than folded into this number.": "التجار المشتركون اليوم في باقة متكررة مدفوعة وسارية. وكل اشتراك آخر معدود في سطره أدناه لا مدمجًا في هذا الرقم.",

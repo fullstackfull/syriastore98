@@ -96,17 +96,35 @@ class RequiredFieldMarkerTest extends TestCase
     {
         [, $withMarker, $without] = $this->census();
 
-        /* 165 -> 169 on 2026-11-26 [OPS-003]: three controls on the platform incident log --
-           `title` and `severity` on the "record an incident" form, and `note` on the add-a-note
-           form. A RISE, which this docblock names as the benign direction, and all three arrive
-           MARKED: the first version of those views had the `required` attribute and no marker
-           beside the label, and this ratchet is what said so. */
+        /* 165 -> 169 on 2026-11-26, AND IT IS TWO WORKSTREAMS, NOT ONE. The +4 is written out
+           because the integration merge took `ws/p6-ops`'s side of this block and credited the
+           whole move to OPS-003's "three controls", which left the arithmetic one short and the
+           other workstream unnamed. Restored on 2026-11-27 and MEASURED per view rather than
+           reasoned from the diffs:
+
+             +2  `superadmin/platform_incidents/index.blade.php` [OPS-003] -- `title` and
+                 `severity` on the "record an incident" form.
+             +1  `superadmin/platform_incidents/show.blade.php` [OPS-003] -- `note` on the
+                 add-a-note form.
+             +1  `kyc/index.blade.php` [GAP-194 / KYC-002] -- the document upload form.
+
+           THE KYC BLOCK CARRIES FOUR REQUIRED CONTROLS AND MOVES THIS COUNT BY ONE, which is the
+           part worth keeping: `blocks()` splits on the field WRAPPER, so one `col-12` is one row
+           however many controls sit inside it. All four labels carry the marker. A reader who saw
+           `+4` attributed to three incident controls would conclude three of KYC's four were
+           unmarked; measured 2026-11-27, `kyc/index.blade.php` contributes exactly 1 counted
+           block and 0 unmarked ones.
+
+           A RISE, which this docblock names as the benign direction, and all four arrive MARKED --
+           the first version of the incident views had the `required` attribute and no marker beside
+           the label, and this ratchet is what said so. */
         $this->assertSame(169, $withMarker + count($without), sprintf(
-            'The detector now finds %d required merchant fields; it measured 169 when the '
-            . 'translated-copy redaction was added to isRequired(). A RISE means a required field '
-            . 'was added (fine — update this number). A DROP means one lost its attribute, or the '
-            . 'detector stopped matching a shape, which is the direction that turns this whole '
-            . 'ratchet vacuous.',
+            'The detector now finds %d required merchant fields; it measured 169 after the '
+            . 'platform incident log and kyc/index.blade.php\'s upload form landed (165 when the '
+            . 'translated-copy redaction was added to isRequired()). A RISE means a required field '
+            . 'was added (fine — update this number, and say which view). A DROP means one lost '
+            . 'its attribute, or the detector stopped matching a shape, which is the direction that '
+            . 'turns this whole ratchet vacuous.',
             $withMarker + count($without)
         ));
     }

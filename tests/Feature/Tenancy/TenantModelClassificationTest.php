@@ -396,7 +396,19 @@ class TenantModelClassificationTest extends TestCase
         );
     }
 
-    public function test_platform_global_models_are_the_measured_twenty_eight(): void
+    /*
+     * `_thirty_three`, NOT `_twenty_eight`. RESTORED ON 2026-11-27: `ws/p6-iam` renamed this
+     * method in the same change that moved its number (28 -> 29), and the integration merge took
+     * the other side's name while keeping the reconciled count. The assertion below then read 33
+     * under a name that said 28 -- a method name encoding a figure is a citation, and CLAUDE.md §3
+     * records that a citation nobody asserts goes stale silently. This one is the name of the test
+     * that asserts it, so it is renamed with the figure from now on.
+     *
+     * Its sibling `test_tenant_discriminated_models_are_the_measured_fifty_eight()` asserts 79 and
+     * is NOT touched here: no branch in this integration renamed it, so nothing was lost there --
+     * it is pre-existing drift of 21, reported rather than absorbed.
+     */
+    public function test_platform_global_models_are_the_measured_thirty_three(): void
     {
         // 28, UP FROM 25 -- GATE F CLOSED ON 2026-11-02. Three models' tables now exist and have
         // NO `store_id` column, which is a finding rather than a bookkeeping change:

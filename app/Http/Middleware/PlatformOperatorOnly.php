@@ -123,6 +123,20 @@ class PlatformOperatorOnly
          *                                                                       ---
          *                                                                        51
          *
+         * AND THE SIX `OPS-001`/`OPS-003` ROUTES CHANGED WHAT A BYPASS WOULD COST, which is worth
+         * saying exactly where the blast radius is counted. Restored on 2026-11-27 from
+         * `ws/p6-ops`, whose docblock carried it at a total of 43; the integration merge took the
+         * reconciled 51 and dropped this paragraph with the number, and nothing replaced it.
+         * `platform/operations` (1) and the incident log (5 -- index, store, show, transition,
+         * note) ARE THE FIRST WRITING ROUTES BEHIND THIS GATE: every route in the table above this
+         * line DISCLOSES, and three of those six let a caller WRITE the platform's own operational
+         * history. A `Customer` row typed `super admin` getting through would not have read a
+         * number -- it would have signed one. `SuperAdminIncidentsController` repeats the test in
+         * all five actions, and
+         * `PlatformIncidentsScreenTest::test_every_action_refuses_a_non_operator_with_the_route_gate_removed`
+         * drives each of them directly, with no middleware in the way, asserting EXACTLY 403 and
+         * that the tables are unchanged.
+         *
          * It grew with the Lynomia group and with the screens `GAP-192`, `GAP-195`, `GAP-107` and
          * `GAP-232` (Store 360: `platform/stores` and `platform/stores/{store}`)
          * added. Nothing behaved wrongly at 14; what was understated by 23 routes is how much
