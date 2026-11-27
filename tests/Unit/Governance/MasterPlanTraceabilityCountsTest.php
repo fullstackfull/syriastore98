@@ -255,6 +255,68 @@ class MasterPlanTraceabilityCountsTest extends TestCase
     }
 
     /**
+     * CLAUDE.md §4's PER-PHASE FIGURES, which nothing asserted until 2026-11-27.
+     *
+     * The sibling test above covers the project-wide line in §5. §4's table carries a verified/total
+     * pair per phase, in prose, and all three were stale: 03 read "14 of 36" against a real 38, 04
+     * read "18 of 43" against 48, and 05/06 read "1 of 35" against a real **3 of 57** -- wrong by 22
+     * recovered requirements, in the one row a reader uses to judge how much of Phases 05 and 06 is
+     * left.
+     *
+     * This is the same shape as the eleven `app/` docblocks that carried a stale model-caching
+     * figure: a figure duplicated into a second file is only safe if something checks it. The
+     * remedy there was to stop restating it and point at the source. Here the figures are
+     * load-bearing at a glance for somebody deciding what to work on, so they stay -- and are
+     * asserted instead.
+     *
+     * Keyed on the PHASE LABEL, not on row order, so inserting a phase cannot silently re-point a
+     * pair at the wrong row.
+     */
+    public function test_the_instruction_file_quotes_the_per_phase_figures(): void
+    {
+        $claude = (string) file_get_contents(base_path('CLAUDE.md'));
+
+        /* phase label in the matrix => the sentence CLAUDE.md uses for it */
+        $pairs = [
+            '03 Storefront' => '/\*\*(\d+) of (\d+)\*\* requirements verified\. Not authorised to merge or release \|\n\| 04/',
+            '04 Commerce' => '/\*\*(\d+) of (\d+)\*\* requirements verified\. Not authorised to merge or release \|\n\| 05/',
+            '05 Marketing & Analytics AND 06' => '/\*\*05 and 06 together: (\d+) of (\d+)\*\* requirements verified/',
+        ];
+
+        $checked = 0;
+
+        foreach ($pairs as $label => $pattern) {
+            $this->assertSame(
+                1,
+                preg_match('/^\| ' . preg_quote($label, '/') . '[^|]*\| (\d+) \| (\d+) \|/m', $this->doc, $row),
+                sprintf('PREMISE: the matrix has no per-phase row starting "%s". Re-point this test '
+                    . 'at the label the table really uses -- do NOT drop the phase.', $label)
+            );
+
+            $this->assertSame(
+                1,
+                preg_match($pattern, $claude, $quoted),
+                sprintf('PREMISE: CLAUDE.md no longer states a verified/total pair for "%s" in the form '
+                    . 'this test reads. If the wording changed, re-point the pattern; if the figure was '
+                    . 'removed, remove it here in the same change and say why.', $label)
+            );
+
+            $this->assertSame(
+                [(int) $row[2], (int) $row[1]],
+                [(int) $quoted[1], (int) $quoted[2]],
+                sprintf('CLAUDE.md says phase "%s" is %d of %d; the matrix rows say %d of %d. CLAUDE.md '
+                    . 'is read BEFORE the matrix, so its figure is the one somebody acts on.',
+                    $label, (int) $quoted[1], (int) $quoted[2], (int) $row[2], (int) $row[1])
+            );
+
+            $checked++;
+        }
+
+        $this->assertSame(3, $checked, 'Three per-phase pairs are expected; a different number means a '
+            . 'phase was added or dropped from the pairing without this test being told.');
+    }
+
+    /**
      * AND THE HANDOFF DOCUMENT, WHICH IS READ BEFORE EITHER OF THEM.
      *
      * `PROJECT-STATE.md` is the first file CLAUDE.md tells a new or transferred session to open, and
