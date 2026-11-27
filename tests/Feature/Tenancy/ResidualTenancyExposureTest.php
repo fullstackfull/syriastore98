@@ -562,12 +562,22 @@ class ResidualTenancyExposureTest extends TestCase
             // instead.
             // [2026-11-24] all six +24, located by the truncate statement each one brackets
             // rather than by its own text, which is identical in all three blocks.
-            'app/Models/Utility.php:3456',
-            'app/Models/Utility.php:3458',
-            'app/Models/Utility.php:3481',
-            'app/Models/Utility.php:3483',
-            'app/Models/Utility.php:3497',
-            'app/Models/Utility.php:3499',
+            // [2026-11-26] all six +56, and the cause is a change about neither tenancy nor
+            // reference data: MARKET-001 hardened `Utility::BuyMoreTheme()` -- the vendor add-on
+            // catalogue fetch that used to return null and render HTTP 500 -- some 2,200 lines
+            // above these sites, net +56. Located exactly as the previous note describes, by the
+            // truncate statement each one brackets rather than by its own text, which is identical
+            // in all three blocks: each old line was read out of `git show
+            // ws/p6-ops:app/Models/Utility.php` and compared as a string with the line at old+56.
+            // All six are byte-identical, the shift is uniform, and no raw-query site was added or
+            // removed. `EloquentScopeBypassInventoryTest` records the same shift for the three
+            // truncate sites interleaved with these.
+            'app/Models/Utility.php:3512',
+            'app/Models/Utility.php:3514',
+            'app/Models/Utility.php:3537',
+            'app/Models/Utility.php:3539',
+            'app/Models/Utility.php:3553',
+            'app/Models/Utility.php:3555',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '

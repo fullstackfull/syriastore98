@@ -611,8 +611,47 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            STORE in PHP ("how many stores have this gateway switched on, and how many of those have
            every required credential"), which is what the screen shows. Recorded here so that
            nobody later reads a `$scoped` count as a tenant guarantee it is not. */
+        /* 85 -> 88 on 2026-11-26 [RET-002, THE INTEGRATION RECONCILIATION]: the three statements of
+           `app/Services/ReturnInspection.php`, and THE WHOLE OF THE +3 LANDS IN `$scoped`
+           (34 -> 37) while `$storeLess` IS UNCHANGED AT 51. That split is the evidence the change
+           added no cross-tenant exposure: the total would have moved either way, and the store-less
+           count is the one that would have risen had a predicate been omitted.
+
+           AND HERE THE SPLIT IS A REAL PREDICATE, not the `settings` shape recorded immediately
+           above -- which is why it is said rather than counted. `ReturnInspection::record()`'s
+           `upsert()` writes `store_id` as one of the four KEY columns and names it again in the
+           conflict target, so a re-inspection can only ever match a row of the same store;
+           `ReturnInspection::blocksRestock()` and `ReturnInspection::forOrder()` each open with
+           `->where('store_id', ...)`. Every caller derives that value from the authenticated
+           principal or from a row a policy has already authorised:
+           `OrderController::order_return_inspection()` passes `$order->store_id` after
+           `OrderPolicy::updateStatus`; `OrderRefundController::show()` passes `getCurrentStore()`;
+           and of the three `returnedGoodsAreNotSellable()` helpers,
+           `Order::returnedGoodsAreNotSellable()` and
+           `OrderController::returnedGoodsAreNotSellable()` are passed the ORDER's own `store_id`
+           while `OrderRefundController::returnedGoodsAreNotSellable()` is passed the
+           `getCurrentStore()` the same handler already scoped the refund row lookup with. Not one
+           of them reads it from request input, which is the distinction four separate defects in
+           this codebase were made of -- and each origin was traced to its assignment rather than
+           assumed from the parameter name.
+
+           WHY THIS FIGURE WAS SHORT BY THREE FIRST. Two branches declared it from the same base of
+           70 -- `ws/p4-ret` asserted 73/35/38 and `ws/p6-ops` asserted 85/34/51 -- and the
+           integration merge took one side of this file, which discarded the other's declarations
+           rather than composing them. Note that neither branch's figures are the union, which is
+           why this one is MEASURED by running the test rather than added up from the two diffs:
+           arithmetic over two deltas was wrong twice in the session that produced this
+           reconciliation.
+
+           A BLIND SPOT THIS DELTA MADE VISIBLE, recorded rather than silently widened: `census()`
+           globs `app/Services/*.php`, which is NOT recursive, so `app/Services/Commerce/` is
+           outside this file entirely. `app/Services/Commerce/PriceExplanation.php` holds one raw
+           statement that this census therefore never sees. It is not unclassified --
+           `RawQueryTenancyInventoryTest` is recursive and carries it, per-table and in its
+           entry-point total -- but whether this census should reach subdirectories is a change to
+           its own definition and belongs to whoever owns it, not to a merge reconciliation. */
         $this->assertSame(
-            85,
+            88,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -631,7 +670,11 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            `plan_purchase_intents`, which has no `store_id` and could not have one, and every one
            addresses its row by primary key or the server-minted reference rather than by anything a
            caller supplied. */
-        $this->assertSame(34, $scoped, 'statements naming store_id');
+        /* 34 -> 37 on 2026-11-26 [RET-002]: all three of `ReturnInspection`'s statements, and
+           `$storeLess` is UNCHANGED at 51 -- the argument for why these three really do predicate
+           on `store_id`, rather than merely containing the string the way the two `settings`
+           statements above do, is written beside the total. */
+        $this->assertSame(37, $scoped, 'statements naming store_id');
         $this->assertCount(51, $storeLess, 'statements naming store_id nowhere');
     }
 

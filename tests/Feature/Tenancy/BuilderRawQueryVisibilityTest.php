@@ -5,7 +5,9 @@ namespace Tests\Feature\Tenancy;
 use Tests\TestCase;
 
 /**
- * GAP-253 -- RAW SQL WRITTEN AS A QUERY-BUILDER METHOD IS IN NO INVENTORY, AND THAT IS 113 SITES.
+ * GAP-253 -- RAW SQL WRITTEN AS A QUERY-BUILDER METHOD IS IN NO INVENTORY, AND THAT WAS 113 SITES.
+ * (115 now; every figure in this docblock is GAP-253's original measurement, and the assertions
+ * below are the oracle for the live ones -- the same split the sibling census records about itself.)
  * =================================================================================================
  *
  * THE ROW NAMED TWO STATEMENTS. `SaasRevenueFigures` holds two `selectRaw` calls that
@@ -30,14 +32,19 @@ use Tests\TestCase;
  *
  * THE INSTRUMENT IS VALIDATED AGAINST THE LIVE CENSUS IN BOTH DIRECTIONS, which is the only reason
  * the blind-spot figures below can be trusted: counting the same pattern over the same enumeration
- * reproduces `['app' => 247, 'packages' => 45]` EXACTLY -- the figures that test asserts. (Its
+ * reproduces `['app' => 253, 'packages' => 45]` EXACTLY -- the figures that test asserts. (Its
  * 2026-11-26 NOTE: this pair was 229/45 until the integration checkpoint, and it moved because the
  * sibling census legitimately moved, not because this instrument drifted. FOUR raw sites arrived
  * across two branches and each is named in that file's own chain of notes: `RefundPolicy::allows()`
  * (GAP-140), `OrderCurrencyStamp::configuredSymbolFor()` (GAP-278) and `PackingSlip`'s two reads
  * (ORD-008). This file's own instrument measured 232 live BEFORE the figure here was touched,
  * which is the order this test demands -- it says "do NOT adjust this to match: find out which
- * census changed" -- and the answer is that the codebase did.) (Its
+ * census changed" -- and the answer is that the codebase did.)
+ * (AND AGAIN, 247 -> 253, at the integration reconciliation of 2026-11-26: SIX more raw sites
+ * arrived across three branches -- `ReturnInspection`'s three, `ModuleTrust`'s two and
+ * `PriceExplanation`'s one -- and two of the three branches had never declared them anywhere, so
+ * the sibling census was already short before the merge that was blamed for it. Same order of work:
+ * the six were located and read first, and this figure followed.) (Its
  * method NAME says "one hundred and sixty eight" and a comment in it says 112; both are stale, and
  * its docblock already records that the name is an identity the CI gate matches on and that "the
  * assertions carry the real figures". So the assertion is the oracle, and this agrees with it.)
@@ -185,18 +192,27 @@ class BuilderRawQueryVisibilityTest extends TestCase
                which would have landed in the blind spot this file measures. All three were
                rewritten in the builder's own vocabulary, so the invisible-site count below does
                not move. */
-            ['app' => 247, 'packages' => 45],
+            /* 247 -> 253 on 2026-11-26 [the integration reconciliation], AND THIS FILE'S OWN RULE
+               WAS FOLLOWED RATHER THAN QUOTED: the message below says "do NOT adjust this to
+               match: find out which census changed", so the six statements were located and read
+               BEFORE this figure moved. They are `ReturnInspection`'s three (RET-002),
+               `ModuleTrust`'s two (MARKET-004) and `PriceExplanation`'s one (PRICE-006), named per
+               file with their predicates and their tables beside
+               `RawQueryTenancyInventoryTest`'s own per-directory assertion. The codebase changed;
+               this instrument did not. */
+            ['app' => 253, 'packages' => 45],
             ['app' => $census['app']['visible'], 'packages' => $census['packages']['visible']],
             'This file counts `DB::` entry points with the same pattern and the same enumeration as '
             . 'RawQueryTenancyInventoryTest::test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight, '
-            . 'whose assertion is `[app => 232, packages => 45]`. A disagreement means one of the '
+            . 'whose assertion is `[app => 253, packages => 45]`. A disagreement means one of the '
             . 'two moved, and the blind-spot figures below are measured against nothing until it is '
             . 'resolved. Do NOT adjust this to match: find out which census changed.'
         );
     }
 
     /**
-     * THE BLIND SPOT, RATCHETED. 113 sites of raw SQL that no inventory counts.
+     * THE BLIND SPOT, RATCHETED. 115 sites of raw SQL that no inventory counts (113 when GAP-253
+     * was written; the assertion below carries the live figure and its history).
      */
     public function test_the_builder_raw_blind_spot_is_exactly_this_many_sites(): void
     {
@@ -211,7 +227,23 @@ class BuilderRawQueryVisibilityTest extends TestCase
 
         $this->assertSame(
             [
-                'app builder-raw' => 69,
+                /* 69 -> 71 on 2026-11-26 [the integration reconciliation]. TWO builder-raw lines,
+                   from two branches, and each is classified below rather than counted here:
+
+                     `app/Http/Controllers/ModuleReviewController.php` [MARKET-004] -- one
+                     `orderByRaw` that sorts pending reviews first. A PROJECTION, so it cannot add a
+                     row to any result, and DYNAMIC by this file's whitelist because a class
+                     constant is concatenated into it; declared in DYNAMIC_RAW_FRAGMENTS with that
+                     mechanism.
+
+                     `app/Support/Segments/SegmentDefinition.php` [MKT-005] -- that file's count
+                     goes 4 -> 5 with `SegmentDefinition::applyLoyaltyPoints()`'s
+                     `whereRaw('1 = 0')`, taken when the loyalty column does not exist at all. A
+                     static REFUSAL, which is a tenancy control rather than a bypass of one:
+                     `1 = 0` can only narrow, and the alternative the method's own docblock rejects
+                     -- skipping the rule -- would have widened a merchant's segment to every
+                     customer the other rules allow. */
+                'app builder-raw' => 71,
                 'app DB::raw' => 23,
                 'packages builder-raw' => 17,
                 'packages DB::raw' => 4,
@@ -225,10 +257,13 @@ class BuilderRawQueryVisibilityTest extends TestCase
             . json_encode($actual)
         );
 
+        /* 113 -> 115 [2026-11-26]: the two lines named above. The VISIBLE figure in the message
+           moves with them -- 298 now (253 + 45), per the premise test -- so the coverage sentence
+           is re-derived rather than left to read as though nothing moved. */
         $this->assertSame(
-            113,
+            115,
             array_sum($actual),
-            'the blind spot total; 274 sites are visible, so the inventory reaches about 71% of the '
+            'the blind spot total; 298 sites are visible, so the inventory reaches about 72% of the '
             . 'raw SQL in this codebase'
         );
     }
@@ -339,6 +374,26 @@ class BuilderRawQueryVisibilityTest extends TestCase
            data is a constant in the same file, so the SQL is fixed at compile time in everything
            but form. */
         'app/Support/Metrics/WalletEntitlementFigure.php' => [
+            'count' => 1,
+            'mechanism' => 'built from a class constant, so the text is fixed at compile time',
+        ],
+
+        /* ALSO A CLASS CONSTANT, and it arrived undeclared [MARKET-004, 2026-11-26]. The fragment
+           is `ModuleReviewController::index()`'s
+               orderByRaw("CASE WHEN review_state = '" . ModuleReviewRecord::STATE_PENDING . "' ...")
+           and `ModuleReviewRecord::STATE_PENDING` is `'pending'`, a plain string constant in
+           first-party code -- read, not assumed. So the SQL text is fixed at compile time in
+           everything but form, exactly as WalletEntitlementFigure's is, and the detector calls it
+           dynamic because a non-literal token appears in the argument, which is the whitelist
+           being conservative in the right direction.
+
+           TWO FURTHER PROPERTIES, both checked rather than inferred, because this is an
+           OPERATOR-ONLY screen over a PLATFORM-WIDE register and neither fact excuses the other:
+           `orderByRaw` is a projection, so this fragment cannot add a row to any result whatever it
+           says; and nothing from the request reaches it -- the method takes no `Request`, reads
+           nothing from one, and is gated by `$this->authorize('manage-platform-addons')` on its
+           first line. */
+        'app/Http/Controllers/ModuleReviewController.php' => [
             'count' => 1,
             'mechanism' => 'built from a class constant, so the text is fixed at compile time',
         ],
@@ -593,16 +648,17 @@ class BuilderRawQueryVisibilityTest extends TestCase
      *
      * AND THE TWO FIGURES ARE DIFFERENT UNITS, which is worth stating because they look like a
      * contradiction: `test_the_builder_raw_blind_spot_is_exactly_this_many_sites` counts LINES
-     * matching a pattern (113), because that is the unit the inventories it is compared against
+     * matching a pattern (115), because that is the unit the inventories it is compared against
      * use. This counts CALL SITES, so a line holding two raw calls counts twice and a `DB::raw()`
-     * nested inside another call counts on its own. Both are measured; neither is wrong: 113 lines,
-     * 214 call sites.
+     * nested inside another call counts on its own. Both are measured; neither is wrong: 115 lines,
+     * 216 call sites (113 and 214 when this was written -- the two integration deltas of 2026-11-26
+     * moved both units, and the assertions below are the oracle for each).
      *
      * AND THE FIGURES CAME FROM THIS INSTRUMENT, not from the scratch script that explored the
      * question first. That script read `conjunctive filter` as 87 because it re-tokenised each file
      * behind a `'<?php '` prefix it had spliced on, which shifts what the tokeniser sees. The
      * methods here are the ones the premise test above validates against the live census's own
-     * asserted 232/45, so they are the ones whose numbers are written down. A figure is only as
+     * asserted 253/45, so they are the ones whose numbers are written down. A figure is only as
      * good as the instrument that is still in the repository.
      */
     public function test_the_classification_of_every_invisible_raw_site(): void
@@ -624,10 +680,17 @@ class BuilderRawQueryVisibilityTest extends TestCase
             }
         }
 
+        /* 2026-11-26 [the integration reconciliation], and the two buckets that moved are the two
+           that cannot widen a row set, which is the half that matters:
+             projection 111 -> 112  `ModuleReviewController::index()`'s `orderByRaw` ordering.
+             refusal     17 -> 18   `SegmentDefinition::applyLoyaltyPoints()`'s `whereRaw('1 = 0')`.
+           `conjunctive filter` and `can widen` are UNCHANGED at 84 and 2. Had either moved, the
+           sibling assertions above would have had something to say first: a new widening-capable
+           fragment fails `test_no_undeclared_raw_fragment_can_widen_a_row_set` by name. */
         $this->assertSame(
             [
-                'projection' => 111,
-                'refusal' => 17,
+                'projection' => 112,
+                'refusal' => 18,
                 'conjunctive filter' => 84,
                 'can widen' => 2,
             ],
