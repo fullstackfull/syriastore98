@@ -192,6 +192,16 @@ class BuilderRawQueryVisibilityTest extends TestCase
                which would have landed in the blind spot this file measures. All three were
                rewritten in the builder's own vocabulary, so the invisible-site count below does
                not move. */
+            /* 253 -> 254 on 2026-11-27 [SUPPORT-002, `ws/support2`], AND THIS FILE'S OWN RULE
+               FOLLOWED AGAIN: the statement was located and read before this figure moved. It is
+               `MerchantAnnouncements::rows()`'s single read of
+               `platform_maintenance_announcements`, the table `CTRL-003` owns. It is NOT
+               builder-raw -- a plain `where`/`whereNull`/`orderByDesc` chain with no
+               `selectRaw`/`whereRaw`/`orderByRaw` anywhere -- so the invisible-site count below
+               does not move, which is the same shape as the OPS-001 note above. The live census's
+               per-directory note carries why the read is raw at all (a model would move a
+               CLAUDE.md-asserted census) and why it is unscoped (the table has no `store_id`, and
+               a test fails if one ever appears). */
             /* 247 -> 253 on 2026-11-26 [the integration reconciliation], AND THIS FILE'S OWN RULE
                WAS FOLLOWED RATHER THAN QUOTED: the message below says "do NOT adjust this to
                match: find out which census changed", so the six statements were located and read
@@ -200,7 +210,7 @@ class BuilderRawQueryVisibilityTest extends TestCase
                file with their predicates and their tables beside
                `RawQueryTenancyInventoryTest`'s own per-directory assertion. The codebase changed;
                this instrument did not. */
-            ['app' => 253, 'packages' => 45],
+            ['app' => 254, 'packages' => 45],
             ['app' => $census['app']['visible'], 'packages' => $census['packages']['visible']],
             'This file counts `DB::` entry points with the same pattern and the same enumeration as '
             . 'RawQueryTenancyInventoryTest::test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight, '

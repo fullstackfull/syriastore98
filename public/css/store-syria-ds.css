@@ -7684,3 +7684,28 @@ td.dataTables-empty:has(.ss-empty) {
     word-break: break-all;
     unicode-bidi: isolate;
 }
+
+/* ==============================================================================================
+   SUPPORT-002 — OPERATOR PROSE IN AN ANNOUNCEMENT KEEPS ITS LINE BREAKS.
+   ==============================================================================================
+
+   An announcement's body is words the platform operator typed, and they type line breaks. The
+   obvious fix is `nl2br()`, and it is wrong twice over: the `<br>` it emits would be escaped by
+   Blade and the merchant would read the tag, and emitting it raw would mean printing operator text
+   through `{!! !!}` -- which is the one thing the announcement views must not do, because
+   `CTRL-003`'s write routes drop `xss` deliberately and Blade's escaping is therefore the only
+   control on that text.
+
+   `pre-line` rather than `pre-wrap`: runs of spaces and tabs collapse (so an operator's stray
+   indentation does not reach the merchant) while newlines are honoured. It is a layout property
+   only -- no colour, so there is no new contrast pair on this screen.
+
+   A COMMENT IN THE VIEW CLAIMED THIS RULE EXISTED BEFORE IT DID. Found while checking every `.ss-`
+   class the new screens use against this file: `ss-announcement__body` had zero rules, so the view
+   documented behaviour it did not have. `CTRL-003`'s `.ss-maintenance-notice__body` has the same
+   gap and the same comment; it is not this branch's class to add, and it is recorded as a
+   follow-up in `docs/development/phase-6/PHASE-06-CONTEXTUAL-HELP-AND-ANNOUNCEMENTS.md` §7.
+   ============================================================================================== */
+.ss-announcement__body {
+    white-space: pre-line;
+}

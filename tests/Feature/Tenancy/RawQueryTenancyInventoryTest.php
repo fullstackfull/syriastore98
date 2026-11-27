@@ -788,8 +788,28 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
              +1  `app/Services/Commerce/PriceExplanation.php` [PRICE-006, `ws/p4-price`]. The
                  `wholesale_products` tier read, UNSCOPED ON PURPOSE -- the new row in the per-table
                  map below carries the argument, and it is the only one of the six that reaches that
-                 map's unscoped total at all. */
-        $this->assertSame(['app' => 253, 'packages' => 45], $perDir,
+                 map's unscoped total at all.
+
+             +1  `app/Support/Help/MerchantAnnouncements.php` [SUPPORT-002, `ws/support2`]. The ONE
+                 read of `platform_maintenance_announcements`, the table `CTRL-003` owns -- published
+                 announcements whose window has opened, newest first, for the merchant's panel list
+                 and for `api/admin/announcements`. UNSCOPED, AND IT COULD NOT BE OTHERWISE: the
+                 table has no `store_id` column, because the announcement is the PLATFORM's and
+                 reaches every tenant on it. That is asserted rather than argued --
+                 `MerchantAnnouncementFeedTest` fails if the column ever appears, which is the point
+                 at which the reader would need a predicate derived from the principal.
+
+                 WHY THIS IS A RAW QUERY AT ALL, since the remedy this message names is not
+                 available: `CTRL-003`'s Eloquent model lives in `app/Models/`, and
+                 `ClaudeMdCachableModelClaimTest` re-measures that directory's file count and
+                 `Cachable` exception list against CLAUDE.md's prose on every run -- so a workstream
+                 that may not edit CLAUDE.md may not add a model either. The query builder has no
+                 such coupling, and the class holds exactly ONE statement for this reason.
+
+                 Named through `self::TABLE`, so like `ModuleTrust` above it joins the
+                 unattributable remainder rather than the per-table map below -- which is why that
+                 map's assertion does not move. */
+        $this->assertSame(['app' => 254, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -934,7 +954,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 292 -> 298 [2026-11-26, the integration reconciliation]: the same six counted above
            (253 + 45), from `ws/p4-ret`, `ws/p6-market` and `ws/p4-price`. Nothing in `packages/`
            moved, which is itself worth recording -- all six are first-party. */
-        $this->assertSame(298, array_sum($perDir));
+        /* 298 -> 299 [2026-11-27, SUPPORT-002 / `ws/support2`]: the one `MerchantAnnouncements`
+           read counted above (254 + 45). First-party, and the note above it says why it is raw and
+           why it is unscoped. */
+        $this->assertSame(299, array_sum($perDir));
     }
 
     /**

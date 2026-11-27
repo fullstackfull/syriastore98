@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 284 lines
+### `warning` — 285 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -449,6 +449,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Support/Modules/ModuleTrust.php:176` | module trust: an uploaded package was not loaded because no approved review decision exists for it |
 | `app/Support/Modules/ModuleTrust.php:207` | module trust: an upload could not be recorded because the review register is not migrated |
 | `app/Support/Modules/ModuleTrust.php:244` | module trust: an upload could not be recorded, so nothing holds this package back from loading |
+| `app/Support/Help/MerchantAnnouncements.php:185` | the merchant announcement feed could not be read, so the panel and the app were told there is nothing to say |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
