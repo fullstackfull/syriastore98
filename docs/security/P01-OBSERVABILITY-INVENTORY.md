@@ -84,8 +84,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/OrderFinancialService.php:530` | Refused to credit a financial record whose entitlement was reversed. |
 | `app/Services/PaymentService.php:232` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:3368` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Services/ProductStockService.php:139` | Stock decremented below zero on an order path that cannot refuse |
-| `app/Services/ProductStockService.php:250` | Stock decremented below zero on an order path that cannot refuse |
+| `app/Services/ProductStockService.php:146` | Stock decremented below zero on an order path that cannot refuse |
+| `app/Services/ProductStockService.php:260` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Helper/helper.php:444` | paid download url not issued |
 | `app/Http/Controllers/PaidDownloadController.php:353` | paid download refused: resolved path escapes the uploads root |
 | `app/Http/Controllers/PaidDownloadController.php:373` | paid download refused |
@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 284 lines
+### `warning` — 286 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -191,6 +191,24 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 > has to be readable rather than silent. `ReturnInspection`'s two `error` lines (a verdict that
 > could not be written, an attribution that could not be recorded) are not enumerated here: only
 > `critical` and `warning` are.
+>
+> **[2026-11-27] `warning` 284 -> 286 (`P04-P4-02`, the warehouse dimension), and four rows
+> RE-POINTED with no change of meaning.** Two new lines, both of which record that a *bookkeeping*
+> write did not happen and neither of which is a refusal of anything a caller asked for:
+> `WarehouseInventory::sourceFrom()`'s write failure, and `ProductStockService::
+> sourceFromWarehouse()`'s catch-all. Both exist because that step runs AFTER the stock decrement
+> has already succeeded, so it must never raise — the F121/F123 shape, and the posture
+> `StockMovement::record()` already takes. **What a reader needs to know about these two:** the
+> degraded state they report is CONSISTENT, not broken. Units whose sourcing was not recorded stay
+> attributed to the store's default warehouse by arithmetic (its figure is the remainder of
+> `products.product_stock`, not a stored number), so no total is wrong and nothing is lost — only
+> the *location* detail is missing, and a merchant can correct it. They are `warning` rather than
+> `error` for that reason.
+>
+> The four re-pointed rows are `ProductStockService`'s own existing lines, shifted by the ~110
+> lines that change added above them. **Nothing about them changed but their line number** —
+> exactly the §6b cascade CLAUDE.md records, and `resync-observability-inventory.py --write` is
+> what re-pointed them.
 
 | line | message |
 |---|---|
@@ -422,8 +440,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentVerificationService.php:802` | COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored |
 | `app/Services/PaymentVerificationService.php:810` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
 | `app/Services/ProductStockService.php:111` | Stock decrement rejected: insufficient stock |
-| `app/Services/ProductStockService.php:221` | Variant stock decrement rejected: insufficient stock |
-| `app/Services/ProductStockService.php:452` | Could not flush the model cache after a stock change |
+| `app/Services/ProductStockService.php:228` | Variant stock decrement rejected: insufficient stock |
+| `app/Services/ProductStockService.php:565` | Could not flush the model cache after a stock change |
+| `app/Services/ProductStockService.php:521` | Warehouse sourcing was not recorded for a stock decrement |
 | `app/Services/RefundIntegrityService.php:147` | Refund recorded as approved but NOT settled: no gateway refund was made |
 | `app/Services/RefundIntegrityService.php:247` | Refunds awaiting settlement could not be listed. |
 | `app/Services/ShopifyAdminApi.php:137` | a Shopify Admin API address was refused before the request was made |
@@ -449,6 +468,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Support/Modules/ModuleTrust.php:176` | module trust: an uploaded package was not loaded because no approved review decision exists for it |
 | `app/Support/Modules/ModuleTrust.php:207` | module trust: an upload could not be recorded because the review register is not migrated |
 | `app/Support/Modules/ModuleTrust.php:244` | module trust: an upload could not be recorded, so nothing holds this package back from loading |
+| `app/Services/WarehouseInventory.php:626` | Warehouse sourcing could not be recorded |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
