@@ -35,7 +35,7 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * For a model that is NOT on that list, `apply()` adds no predicate at all, so attaching the trait
  * alone still leaves the emitted queries -- and therefore every `genealabs/laravel-model-caching`
- * cache key on the 78 models using `Cachable` -- byte-identical. SIX trait-carrying models are
+ * cache key on every model using `Cachable` -- byte-identical. SIX trait-carrying models are
  * not allowlisted and are in exactly that position: Category, Product, Shipping, StoreWallet,
  * StoreWalletTransaction, StoreWithdrawal. (This sentence read "the 11" while the one above it read
  * "TEN models are now really scoped", which cannot both be true of 17 carriers -- it was left stale

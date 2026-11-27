@@ -314,14 +314,32 @@ class TenantModelClassificationTest extends TestCase
         // side of this comment kept that side's arithmetic ("OPS-003 added two") against a total
         // that had moved by eight, so the account below is the union, reconstructed by measuring:
         //
-        //   SUPPORT-004/005  +2  SupportAccessGrant, SupportAccessApproval
-        //   KYC-002          +2  KycDocument, KycVerification
+        //   SUPPORT-004/005  +2  SupportAccessGrant (store_id), SupportAccessApproval
+        //   KYC-002          +2  KycDocument (store_id), KycVerification (store_id)
         //   MARKET-004       +1  ModuleReviewRecord
         //   IAM-003          +1  OperatorActionApproval
         //   OPS-003          +2  PlatformIncident, PlatformIncidentEvent
         //
-        // EVERY ONE lands in the platform-global partition, and in each case that is a decision
-        // rather than an omission. `OperatorActionApproval`: every action the two-person mechanism
+        // THEY SPLIT FIVE AND THREE, AND THIS PARAGRAPH SAID "EVERY ONE lands in the
+        // platform-global partition" UNTIL 2026-11-27. That was false for three of the eight and
+        // green, because the partition counts beneath it were measured while the sentence above
+        // them was reasoned from the two branches the merge had a conflict with. MEASURED from the
+        // migrations: `support_access_grants`, `kyc_documents` and `kyc_verifications` each carry a
+        // `store_id` column, so those three are TENANT-DISCRIMINATED (76 -> 79 below) and the other
+        // five are platform-global (28 -> 33). Getting that backwards in THIS file is the specific
+        // thing it exists to prevent -- it is the record of which models carry a tenant
+        // discriminator, so a sentence saying a tenant-owned table has none is worse here than
+        // anywhere else.
+        //
+        // NONE OF THE THREE IS SCOPE-ENFORCED, and for each that is a decision with its reason in
+        // the model's own docblock rather than an omission: `SupportAccessGrant` carries no
+        // `BelongsToStore` (its docblock paragraph 2 says so and why), and `KycVerification` and
+        // `KycDocument` are absent from `config/tenancy.php`'s `scoped_models` because every read
+        // carries its own `store_id` predicate derived from the authenticated principal, never from
+        // request input. All three are deliberately not `Cachable`.
+        //
+        // FOR THE FIVE THAT ARE PLATFORM-GLOBAL the absence of the column is a decision rather than
+        // an omission. `OperatorActionApproval`: every action the two-person mechanism
         // governs is a platform action (a plan, a module, another tenant's money), and a `store_id`
         // here would be the `getCurrentStore()` fabrication `App\Support\Audit\AuditAttribution`
         // exists to undo -- that helper returns the hardcoded literal 1 for a `super admin`, so
@@ -374,7 +392,15 @@ class TenantModelClassificationTest extends TestCase
         // 68, UP FROM 65: theme_versions, theme_published_versions and theme_publication_events all
         // carry `store_id` (P3-M3-C). The column is real and the rows are tenant-owned; what
         // changed is the count, not the classification rule.
-        // 79, UP FROM 75: `marketing_recovery_candidates` carries `store_id` (MKT-007). The column is real and the rows are
+        // 79, UP FROM 76 [2026-11-27, THE INTEGRATION RECONCILIATION]: the three of the eight new
+        // models whose tables carry `store_id` -- `support_access_grants` (SUPPORT-004/005),
+        // `kyc_documents` and `kyc_verifications` (KYC-002). Measured from the migrations, not
+        // reasoned from the diffs; the model count above carries why none of the three is
+        // scope-enforced. THIS STEP WAS MISSING AND THE LINE BELOW READ "79, UP FROM 75", which
+        // both sides of the merge had written as "76, UP FROM 75": the resolution raised a
+        // HISTORICAL step to the new total, so one model appeared to move the count by four and the
+        // chain -- which is read bottom-up, each line recording its own step -- stopped composing.
+        // 76, UP FROM 75: `marketing_recovery_candidates` carries `store_id` (MKT-007). The column is real and the rows are
         // tenant-owned; what changed is the count, not the classification rule.
         // 75, UP FROM 73: `customer_segments` and `customer_segment_members` both carry `store_id` (MKT-004). The column is real on
         // both and the rows are tenant-owned; what changed is the count, not the classification rule. `customer_segment_members`
@@ -419,7 +445,16 @@ class TenantModelClassificationTest extends TestCase
         // handler filtering by that driver. Measured, docs/GATE-F-VERIFIED-SCHEMA.md section 2:
         // all three foreign-key to `delivery_boys` (and `orders`) with ON DELETE CASCADE and
         // none to `stores`.
-        /* 28 -> 33 on 2026-11-26 [OPS-003]: `App\Models\PlatformIncident` and
+        /* 28 -> 33 on 2026-11-26, AND IT IS FIVE MODELS FROM FOUR WORKSTREAMS -- this note read
+           "[OPS-003]" and named two of them until 2026-11-27, which attributed a +5 move to a +2
+           change. The five, measured from the migrations as having no `store_id` column at all:
+           `App\Models\SupportAccessApproval` (SUPPORT-004/005 -- the GRANT beside it does carry
+           one and is in the tenant-discriminated partition), `App\Models\ModuleReviewRecord`
+           (MARKET-004 -- the subject is a package extracted into one directory shared by every
+           tenant, so "may this code run" has no per-store answer), `App\Models\OperatorActionApproval`
+           (IAM-003 -- reasoned at the model count above), and OPS-003's two below.
+
+           `App\Models\PlatformIncident` and
            `App\Models\PlatformIncidentEvent`. Both tables exist and NEITHER has a `store_id`
            column, and the absence is the design rather than an omission: an incident is something
            that went wrong with the SHARED INFRASTRUCTURE — the database, the queue, an integration,

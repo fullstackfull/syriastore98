@@ -8,8 +8,8 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * MARKET-004. The review decision that stands between an uploaded package and its own `register()`.
  *
- * **DELIBERATELY NOT `Cachable`**, and this is the one design note that must not be lost. 79 of the
- * 95 models in `app/Models/` carry the trait and CLAUDE.md's standing advice is to assume a model
+ * **DELIBERATELY NOT `Cachable`**, and this is the one design note that must not be lost. Most
+ * models in `app/Models/` carry the trait (CLAUDE.md) and its standing advice is to assume a model
  * is cached. This one must not be, for the same reason `App\Models\MarketingNudgeSend` is not: a
  * cached MISS on "has this been reviewed" is not a stale read, it is the execution of unreviewed
  * third-party code. Under `CACHE_STORE=array` a stale miss lives for the rest of a request; under
