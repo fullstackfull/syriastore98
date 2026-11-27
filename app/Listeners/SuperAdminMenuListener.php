@@ -190,6 +190,55 @@ class SuperAdminMenuListener
             'permission' => ''
         ]);
 
+        /*
+         * PHASE 06 `CTRL-001`/`002`/`003`, AND THIS IS A CROSS-AGENT DEPENDENCY BEING DISCHARGED
+         * RATHER THAN A DECISION BEING REVISITED.
+         *
+         * `ws/p6-ctrl` linked both screens from the operator's dashboard and deliberately added
+         * nothing here, recording in `superadmin/dashboard.blade.php` that "THE OPERATOR'S SIDEBAR
+         * IS SOMEBODY ELSE'S FILE ... a sidebar entry is recorded as a cross-agent dependency".
+         * That was the right call on its own base. It is not sufficient any more:
+         * `OperatorPlatformNavigationTest::test_every_platform_wide_operator_screen_is_in_the_operators_navigation`
+         * landed since, and it asserts that EVERY platform-wide operator route is named here --
+         * "a built screen nobody can find is not delivered" (ADM-001). So the deferral is
+         * discharged at the merge, which is where the two halves of it finally meet.
+         *
+         * `ORDER 110 AND 120, NOT 7 AND 8.` This file's `platform-command` orders are 1..6 on this
+         * branch and 10..100 on `int/checkpoint`, where `NAV-004` renumbered them while adding the
+         * four screens that were missing for the same reason. 110 and 120 are free in BOTH, so
+         * these two entries compose with that change as a union instead of colliding with it --
+         * which is the whole lesson of the merge this commit belongs to.
+         *
+         * `toggle-right` AND `tool`: the subject, not a state. Neither glyph may read as "a
+         * feature is on" or "the platform is down right now" -- the label carries the meaning,
+         * for the reason `NAV-004` gives about `alert-triangle` on the incident log.
+         */
+        $menu->add([
+            'title' => __('Feature control'),
+            'icon' => 'toggle-right',
+            'name' => 'platform-feature-control',
+            'parent' => 'platform-command',
+            'order' => 110,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'platform.feature_control.index',
+            'module' => $module,
+            'permission' => ''
+        ]);
+
+        $menu->add([
+            'title' => __('Maintenance announcements'),
+            'icon' => 'tool',
+            'name' => 'platform-maintenance',
+            'parent' => 'platform-command',
+            'order' => 120,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'platform.maintenance.index',
+            'module' => $module,
+            'permission' => ''
+        ]);
+
         $menu->add([
             'title' => __('Users'),
             'icon' => 'user',
