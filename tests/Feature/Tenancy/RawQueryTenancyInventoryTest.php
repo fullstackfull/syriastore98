@@ -788,8 +788,25 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
              +1  `app/Services/Commerce/PriceExplanation.php` [PRICE-006, `ws/p4-price`]. The
                  `wholesale_products` tier read, UNSCOPED ON PURPOSE -- the new row in the per-table
                  map below carries the argument, and it is the only one of the six that reaches that
-                 map's unscoped total at all. */
-        $this->assertSame(['app' => 253, 'packages' => 45], $perDir,
+                 map's unscoped total at all.
+
+             +2  THE LOYALTY POINT LEDGER [MKT-005 / P05-11, `ws/loyalty`]. Both carry an explicit
+                 `store_id` predicate, so neither reaches the unscoped total:
+
+                   `app/Support/Loyalty/LoyaltyBalance.php` -- `forCustomer()` reads
+                   `customers.total_club_point`. RAW ON PURPOSE, and for three measured reasons
+                   recorded in that method: `Customer` is `Cachable` and a reconciliation must
+                   compare against what the table holds NOW rather than a cached instance;
+                   `Customer` soft-deletes and a points dispute is most likely to be raised about a
+                   closed account; and the raw builder lets the column be selected conditionally,
+                   which is what keeps the VENDORED, frequently-absent `total_club_point` from
+                   throwing `no such column`. It states `where('store_id', $storeId)` itself.
+
+                   `app/Support/Loyalty/LoyaltyReconciliation.php` -- `forStore()` plucks the
+                   distinct customer ids this store's ledger has movements for. Raw because it is a
+                   `distinct()->pluck()` over one indexed column, and it states
+                   `where('store_id', $storeId)` as the leading predicate. */
+        $this->assertSame(['app' => 255, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -934,7 +951,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 292 -> 298 [2026-11-26, the integration reconciliation]: the same six counted above
            (253 + 45), from `ws/p4-ret`, `ws/p6-market` and `ws/p4-price`. Nothing in `packages/`
            moved, which is itself worth recording -- all six are first-party. */
-        $this->assertSame(298, array_sum($perDir));
+        /* 298 -> 300 [2026-11-27, MKT-005 / P05-11, `ws/loyalty`]: the same two counted above
+           (255 + 45) -- `LoyaltyBalance::forCustomer()` and `LoyaltyReconciliation::forStore()`,
+           both first-party and both carrying their own `store_id` predicate. Nothing in
+           `packages/` moved. */
+        $this->assertSame(300, array_sum($perDir));
     }
 
     /**
@@ -1028,7 +1049,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'coupon_requests' => [3, 3],
             'coupons' => [2, 0],
             'currency' => [3, 3],
-            'customers' => [8, 3],   // 5 -> 6 with P1-SEC-04 ModuleStorefrontInputGuard::customerBelongsTo (it READS `store_id` as the value to compare); 6 -> 7 with the follow-up's sameShopperInStore, WITH a store_id predicate -- so the unscoped column does not move either time; 7 -> 8 with P4-F132's ownership predicate in OrderController::store(), which is `where('id', ...)->where('store_id', $ssOrderStoreId)` -- the unscoped half does not move for that one either
+            // 8 -> 9 with MKT-005 / P05-11's `LoyaltyBalance::forCustomer()`, WITH a `store_id`
+            // predicate -- so the unscoped half does not move. `Customer` IS one of the eleven
+            // models whose `StoreScope` really filters, but `null_tenant => 'open'` means it adds
+            // NO predicate when no tenant resolves, which is the state of the console command and
+            // the payment path this reader runs in; the predicate is therefore the reader's own.
+            'customers' => [9, 3],   // 5 -> 6 with P1-SEC-04 ModuleStorefrontInputGuard::customerBelongsTo (it READS `store_id` as the value to compare); 6 -> 7 with the follow-up's sameShopperInStore, WITH a store_id predicate -- so the unscoped column does not move either time; 7 -> 8 with P4-F132's ownership predicate in OrderController::store(), which is `where('id', ...)->where('store_id', $ssOrderStoreId)` -- the unscoped half does not move for that one either
             // NEW WITH P1-INV-20, and the only WRITE in this population.
             // LotteryMailTemplatePrerequisite inserts the authenticated merchant's own
             // `Lottery Win` / `Lottery Fail` / `Lottery Remainder` rows before a draw, because
@@ -1054,6 +1080,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'helpdesk_tickets' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsTicket
             'jobs' => [3, 3],   // OPS-001, see the note above 'cache'.
             'lottery_settings' => [1, 1],
+            /* NEW WITH MKT-005 / P05-11, and SCOPED -- second number 0. The only raw site is
+               `LoyaltyReconciliation::forStore()`, whose leading predicate is
+               `where('store_id', $storeId)`. It must stay 0: this table is NOT in
+               `config/tenancy.php`'s `scoped_models`, so `StoreScope::isActiveFor()`
+               short-circuits and no global scope reaches it for ANY principal -- an unscoped read
+               here would return every tenant's loyalty movements. */
+            'loyalty_point_transactions' => [1, 0],
             'migrations' => [1, 1],
             // `notify_users` USED TO BE LISTED HERE AT [2, 1] AND HAS LEFT THIS POPULATION
             // ALTOGETHER: it now has no literal raw statement at all. P01-SEC-14 Work Package C
@@ -1479,7 +1512,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `module_review_records` through `self::TABLE`, so all five join the unattributable
         // remainder for the reason LIMIT 2 in this class's docblock gives. The per-directory total
         // above moved by six; this one moves by one, and the difference is that remainder.
-        $this->assertSame(217, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 217 -> 219 [2026-11-27, MKT-005 / P05-11]: BOTH new sites are attributable, which is why
+        // this total moves by the same two as the per-directory one for once. `LoyaltyBalance`
+        // names `customers` and `LoyaltyReconciliation` names `loyalty_point_transactions`, each
+        // as a quoted LITERAL rather than through a class constant, so neither joins the
+        // unattributable remainder. Both are scoped, so the second-number sum is unchanged.
+        $this->assertSame(219, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '

@@ -335,7 +335,26 @@ class TenantModelClassificationTest extends TestCase
         // then read back in a later request, the shape CLAUDE.md records as three measured false
         // readings -- and for the approval model a stale answer costs a SECOND execution of a
         // dangerous action.
-        $this->assertSame(114, $total, 'The model count changed. Re-run the classification and '
+        // 115, UP FROM 114: `LoyaltyPointTransaction` (MKT-005 / P05-11, the «سجل حركات» point
+        // ledger). It lands in the tenant-discriminated partition -- `loyalty_point_transactions`
+        // carries `store_id` -- and it is deliberately NOT allowlisted for scope enforcement and
+        // NOT `Cachable`, both of which are decisions rather than omissions:
+        //
+        //   NOT SCOPED, because every reader states the store itself. `LoyaltyLedger::historyFor()`
+        //   and `LoyaltyReconciliation::forCustomer()` both take `$storeId` and put it in the
+        //   query, and the writer takes it from the CUSTOMER'S OWN ROW rather than from a resolved
+        //   tenant -- `getCurrentStore()` returns the hardcoded literal 1 for a `super admin` with
+        //   an empty `current_store`, which would file a store-7 customer's movement under store 1.
+        //   The ledger is also written from inside payment confirmation, where no tenant need
+        //   resolve at all (`null_tenant => open` then adds no predicate), so a scope would be the
+        //   kind of isolation that is absent exactly when it is needed.
+        //
+        //   NOT `Cachable`, for the reason `AuditLog` is not: a ledger exists to be read back
+        //   immediately after it is written, by the reconciliation and by the merchant screen one
+        //   request later. CLAUDE.md records three measured false readings from a write leaving an
+        //   Eloquent read serving the pre-write row, and under `CACHE_STORE=array` that stale
+        //   answer lives for the rest of the process. A cached audit log can disagree with itself.
+        $this->assertSame(115, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -388,8 +407,12 @@ class TenantModelClassificationTest extends TestCase
         // marketing_unsubscribe_tokens all carry `store_id` (D8 / MKT-008). The column is real and the
         // rows are tenant-owned; what changed is the count, not the classification rule. The reason none
         // is scope-enforced is recorded beside the model count above.
+        // 80, UP FROM 79: `loyalty_point_transactions` carries `store_id` (MKT-005 / P05-11). The
+        // column is real and the rows are tenant-owned; what changed is the count, not the
+        // classification rule. Why it is not scope-enforced is recorded beside the model count
+        // above.
         $this->assertCount(
-            79,
+            80,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)

@@ -200,11 +200,19 @@ class BuilderRawQueryVisibilityTest extends TestCase
                file with their predicates and their tables beside
                `RawQueryTenancyInventoryTest`'s own per-directory assertion. The codebase changed;
                this instrument did not. */
-            ['app' => 253, 'packages' => 45],
+            /* 253 -> 255 on 2026-11-27 [MKT-005 / P05-11, `ws/loyalty`], AND THE SAME RULE
+               FOLLOWED RATHER THAN QUOTED: the two statements were located and read before this
+               figure moved. They are `LoyaltyBalance::forCustomer()`'s read of
+               `customers.total_club_point` and `LoyaltyReconciliation::forStore()`'s pluck of the
+               distinct customer ids in `loyalty_point_transactions`, each named per file with its
+               predicate beside `RawQueryTenancyInventoryTest`'s own per-directory assertion. Both
+               state `where('store_id', ...)` themselves, so the blind-spot figures below do not
+               move. The codebase changed; this instrument did not. */
+            ['app' => 255, 'packages' => 45],
             ['app' => $census['app']['visible'], 'packages' => $census['packages']['visible']],
             'This file counts `DB::` entry points with the same pattern and the same enumeration as '
             . 'RawQueryTenancyInventoryTest::test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight, '
-            . 'whose assertion is `[app => 253, packages => 45]`. A disagreement means one of the '
+            . 'whose assertion is `[app => 255, packages => 45]`. A disagreement means one of the '
             . 'two moved, and the blind-spot figures below are measured against nothing until it is '
             . 'resolved. Do NOT adjust this to match: find out which census changed.'
         );

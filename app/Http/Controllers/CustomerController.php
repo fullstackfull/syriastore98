@@ -415,7 +415,51 @@ public function destroy(Customer $customer)
             } else {
                 $orders = Order::where('customer_id', $id)->where('store_id', $customerStoreId)->get();
             }
-            return view('customer.view', compact('orders'));
+
+            /*
+             * MKT-005 / P05-11 -- «سجل حركات», THE LOYALTY POINT HISTORY.
+             *
+             * `MKT-005` is «نقاط ولاء وVIP وإحالات مع سجل حركات» -- loyalty points, VIP and
+             * referrals, WITH A TRANSACTION LOG. This screen is where the log is read: a merchant
+             * is already here to answer a question about one customer.
+             *
+             * READ-ONLY, AND THAT IS LOAD-BEARING. Nothing here writes a balance. The ledger is an
+             * observer of record; `customers.total_club_point` stays the authority. Points are
+             * money-adjacent, so making the log authoritative -- or correcting a drift from it --
+             * is the owner's decision and is reported as one.
+             *
+             * THE STORE IS `$customerStoreId`, THE SAME ONE THE ORDERS ABOVE USE, and for the same
+             * reason F169 gives: `getCurrentStore()` returns the hardcoded literal `1` for a
+             * `super admin` with an empty `current_store`, and the operator branch deliberately
+             * SKIPS the customer-store check -- so a `getCurrentStore()` predicate would show a
+             * store-7 customer alongside another store's history. The customer row has already
+             * been resolved and, for a merchant, already store-checked; its own `store_id` is the
+             * authority on whose movements these are.
+             *
+             * CAPABILITY-GATED ON `Schema::hasColumn`, inside `LoyaltyBalance`, and never on
+             * `module_is_active()` -- which resolves its principal from `Auth::check()` and so
+             * answers false wherever nobody is signed in while every other indicator reads true.
+             * The column is vendored and absent on most environments, so the view has an explicit
+             * branch that SAYS the programme is not installed rather than showing an empty table,
+             * which would read as "this customer never earned a point".
+             */
+            $loyalty = [
+                'available' => \App\Support\Loyalty\LoyaltyBalance::available(),
+                'balance' => \App\Support\Loyalty\LoyaltyBalance::forCustomer(
+                    $customerStoreId,
+                    (int) $customer->id
+                ),
+                'history' => \App\Support\Loyalty\LoyaltyLedger::historyFor(
+                    $customerStoreId,
+                    (int) $customer->id
+                ),
+                'verdict' => \App\Support\Loyalty\LoyaltyReconciliation::forCustomer(
+                    $customerStoreId,
+                    (int) $customer->id
+                ),
+            ];
+
+            return view('customer.view', compact('orders', 'loyalty'));
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
         }

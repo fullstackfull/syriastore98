@@ -8,9 +8,12 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use App\Listeners\EnforceLotteryTicketPrice;
 use App\Listeners\NormaliseRewardRedemptionFlag;
+use App\Listeners\RecordLoyaltyPointAttribution;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductImage;
+use App\Observers\CustomerLoyaltyPointObserver;
 use App\Observers\OrderObserver;
 use App\Observers\ProductImageVariantObserver;
 
@@ -94,6 +97,20 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton('shetabit-visitor', function () {
             return new \App\Services\SanitisedVisitor(app(\Illuminate\Http\Request::class), config('visitor'));
         });
+
+        /*
+         | MKT-005 -- the note that tells the loyalty ledger WHY a balance moved.
+         |
+         | A SINGLETON, which is the whole point: `RecordLoyaltyPointAttribution` writes the note and
+         | `CustomerLoyaltyPointObserver` claims it a moment later in the same request, so they must
+         | be handed the same instance. Resolved without a binding, the container builds a fresh one
+         | per `app()` call and every note would be lost -- a failure that shows up as ledger rows
+         | correctly recording the movement and silently never naming its order.
+         |
+         | Bound rather than made static so it does not outlive the request: a static would persist
+         | across tests in one process and across queued jobs in one worker.
+         */
+        $this->app->singleton(\App\Support\Loyalty\LoyaltyAttribution::class);
        
     }
 
@@ -191,6 +208,33 @@ class AppServiceProvider extends ServiceProvider
          * pins that, so running twice is harmless. Full mechanism in the listener's docblock.
          */
         Event::listen(NormaliseRewardRedemptionFlag::EVENT, NormaliseRewardRedemptionFlag::class);
+
+        /*
+         | MKT-005 / P05-11 -- «سجل حركات», THE LOYALTY POINT TRANSACTION LOG.
+         |
+         | THE OBSERVER IS THE CHOKEPOINT. The vendored `AddRewardClubPointLis` moves
+         | `customers.total_club_point` with an assignment and `$customer->save()` -- an ordinary
+         | Eloquent save, measured by reading the module -- and it is the only writer of that column
+         | anywhere in this tree. So an observer sees the REAL before and after and re-derives none of
+         | the module's arithmetic, which is what keeps this from becoming the "second copy of a
+         | decision the host already makes elsewhere" that the project skill forbids. A listener on
+         | `AddRewardClubPoint` could not do it: module providers are brought in from `app->booted()`,
+         | so every first-party listener runs strictly EARLIER than the write (the ordering measured
+         | in `NormaliseRewardRedemptionFlag`'s docblock).
+         |
+         | IT CHANGES NO BALANCE. The only write in this slice is an INSERT into
+         | `loyalty_point_transactions`; a store without the vendored module has no such column, so
+         | `LoyaltyBalance::available()` is false and the observer returns on its first line, leaving
+         | today's behaviour exactly as it is.
+         |
+         | THE LISTENER ONLY ANNOTATES. It names the order about to cause the movement and touches
+         | `$event` not at all, so unlike the normaliser above it changes nothing any later listener
+         | reads. Registered explicitly here AND discovered out of `app/Listeners` -- discovery is on
+         | whatever `EventServiceProvider::shouldDiscoverEvents()` returns -- so
+         | `LoyaltyAttribution::attribute()` is idempotent and a test pins that.
+         */
+        Customer::observe(CustomerLoyaltyPointObserver::class);
+        Event::listen(RecordLoyaltyPointAttribution::EVENT, RecordLoyaltyPointAttribution::class);
 
         /*
          * P06-EVENT-DUP -- every provider extending Laravel's base `EventServiceProvider` registers
