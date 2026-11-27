@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\Auth;
 /**
  * ANA-003 — one standing request for an analytics export: this period, this often, to this address.
  *
- * NOT `Cachable`, and the reason is the same shape as the nudge ledger's. CLAUDE.md records that 79
- * of the 95 models are `Cachable` and that a stale read has produced three measured false readings.
+ * NOT `Cachable`, and the reason is the same shape as the nudge ledger's. CLAUDE.md records that
+ * most models are `Cachable` and that a stale read has produced three measured false readings.
  * The runner's whole correctness rests on reading `next_due_at` as it is RIGHT NOW and winning a
  * conditional write against it; a cached answer to "is this due" is a report sent twice or not at
  * all.

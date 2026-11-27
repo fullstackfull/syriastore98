@@ -11,8 +11,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * OPS-003 — ONE THING THAT WENT WRONG WITH THE PLATFORM.
  * =================================================================================================
  *
- * NOT `Cachable`, AND THAT IS THE DECISION IN THIS FILE. 79 of the 95 models in `app/Models/` are,
- * so the exception needs its reason: the 16 that are not include `AuditLog`, and this is the same
+ * NOT `Cachable`, AND THAT IS THE DECISION IN THIS FILE. CLAUDE.md records that most models in
+ * `app/Models/` are, so the exception needs its reason: the ones that are not include `AuditLog`,
+ * and this is the same
  * kind of record. `CLAUDE.md` records what the cache does — a raw write leaves Eloquent reads,
  * route-model binding included, serving the pre-write row, and under `CACHE_STORE=array` it lives
  * for the rest of the test; three measured false readings. An operations log read during an

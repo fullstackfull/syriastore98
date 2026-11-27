@@ -67,7 +67,7 @@ use Illuminate\Support\Facades\Log;
  *
  * Three reasons, each one a trap this codebase has already paid for:
  *
- *   1. **79 of the 95 models in `app/Models/` are `Cachable`** (CLAUDE.md). A gate on stock that
+ *   1. **Most models in `app/Models/` are `Cachable`** (CLAUDE.md). A gate on stock that
  *      can serve a verdict from before the merchant's own save is worse than no gate: it would
  *      restock damaged goods *and* show the merchant their verdict on the screen. `RefundPolicy`
  *      reads `order_refund_settings` raw for exactly this reason and says so.

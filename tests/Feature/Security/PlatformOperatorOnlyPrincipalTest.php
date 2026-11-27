@@ -30,25 +30,39 @@ use PHPUnit\Framework\Attributes\Test;
  * measuring the booted table. A FOURTH then arrived the same way: `OPS-001`/`OPS-003` added
  * `platform/operations` and five `platform/incidents` routes and wrote 43, from the same base of
  * 37 again. The integrator predicted 42, measured 45, and would have predicted 51 wrongly too --
- * each round the only reliable step was running this test and reading its number. Measured from the booted route table, and the partition is
+ * each round the only reliable step was running this test and reading its number.
+ *
+ * A FIFTH, `CTRL-001`/`002`/`003`, arrived the same way and from the same base of 37: four
+ * `platform/feature-control` routes and two `platform/maintenance` ones, declared as 43. IT IS NOW
+ * 57, MEASURED BY RUNNING THIS TEST, which reported `platform/` at 29 against the 23 standing
+ * here. The arithmetic would have reached the same number this time; it is still not where the
+ * number came from, because four earlier rounds established that arithmetic over two diffs cannot
+ * see a branch that did not conflict.
+ *
+ * Measured from the booted route table, and the partition is
  * written out so the arithmetic is checkable from the file rather than trusted:
  *
  *     LynomiaChat super-admin group   15
- *     platform/* operator screens     23   (the file said "three", then 9, then 11/12/14/17)
+ *     platform/* operator screens     29   (the file said "three", then 9, then 11/12/14/17/23)
  *     plan-coupon                      7
  *     plan.order.refund, plan.disable,
  *       order.approve, order.reject    4
  *     zid/{storeId}/*                  2
  *                                     --
- *                                     51
+ *                                     57
  *
  * The figure grew with the Lynomia group and with the `platform/*` screens that `GAP-192`,
- * `GAP-195`, `GAP-107`, `GAP-232` (Store 360's two), `IAM-003` (three `platform/approvals`)
- * `KYC-002` (three `platform/verification`) and `OPS-001`/`OPS-003` (`platform/operations` plus five
- * `platform/incidents`) added. Nothing behaved wrongly at 14; a reader's threat model was
- * understated by 37 routes, which is why
- * `test_premise_the_measured_blast_radius_is_still_51`
+ * `GAP-195`, `GAP-107`, `GAP-232` (Store 360's two), `IAM-003` (three `platform/approvals`),
+ * `KYC-002` (three `platform/verification`), `OPS-001`/`OPS-003` (`platform/operations` plus five
+ * `platform/incidents`) and `CTRL-001`/`002`/`003` (four `platform/feature-control` plus two
+ * `platform/maintenance`) added. Nothing behaved wrongly at 14; a reader's threat model was
+ * understated by 43 routes, which is why
+ * `test_premise_the_measured_blast_radius_is_still_57`
  * asserts the partition instead of leaving the number in prose where it went stale once already.
+ *
+ * AND THE RATCHET DID ITS JOB AGAIN: the `CTRL` change did not have to remember this file. It
+ * reddened here first, with the arithmetic in the failure message, which is the whole point of
+ * asserting a partition rather than a total.
  *
  * LATENT RATHER THAN LIVE, measured on both links before the fix was called hardening: nothing in
  * production makes `customers` the default guard (`shouldUse(` appears zero times outside tests
@@ -108,10 +122,11 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
     private const GROUP_SIZES = [
         'super-admin/lynomia' => 15,
         // 9, then +2 Store 360 (`ADM-002`), +3 `platform/approvals` (`IAM-003`),
-        // +3 `platform/verification` (`KYC-002`), +6 operations/incidents (`OPS-001`/`OPS-003`)
-        // -- four branches off one base of 9, so the merged value is the union of all four.
+        // +3 `platform/verification` (`KYC-002`), +6 operations/incidents (`OPS-001`/`OPS-003`),
+        // +6 feature-control x4 and maintenance x2 (`CTRL-001`/`002`/`003`)
+        // -- five branches off one base of 9, so the merged value is the union of all five.
         // MEASURED each time, never computed: the integrator's arithmetic was wrong twice.
-        'platform/' => 23,
+        'platform/' => 29,
         'plan-coupon' => 7,
         'plan/order actions' => 4,
         'zid/' => 2,
@@ -156,14 +171,26 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
     /**
      * THE FIGURE THIS FILE AND THE MIDDLEWARE BOTH GOT WRONG, now asserted instead of stated.
      *
-     * Both said 14, then 37. It is 39 -- `platform/stores` and `platform/stores/{store}`,
-     * GAP-232 / ADM-002, joined the `platform/` group. A count living only in prose is exactly what went stale here, so the
+     * Both said 14, then 37, then 39/40/43 on four separate branches. IT IS 57, measured by
+     * running this test against the booted route table -- and this sentence said "It is 39" while
+     * the assertion below said 51, which is the drift a figure in prose always has and the reason
+     * the number is in the method's NAME as well. A count living only in prose is exactly what
+     * went stale here, so the
      * partition is measured against the booted route table in both directions: a group that grows
      * fails, and a group that shrinks fails too. When it does fail, update BOTH this const and the
      * table in `PlatformOperatorOnly`'s docblock -- they are the same claim in two files.
+     *
+     * THE SIX ROUTES THAT TOOK IT TO 57 ARE DRIVEN ELSEWHERE, so `REPRESENTATIVES` is unchanged:
+     * they are all in the `platform/*` group, which already has one, and
+     * `Tests\Feature\Control\PlatformFeatureControlScreenTest` and
+     * `Tests\Feature\Control\MaintenanceAnnouncementTest` drive every one of them against a
+     * merchant AND against a `Customer` typed `super admin` -- the latter with the route gate
+     * removed, which is the only way to see the handler's own clause. FOUR of the six are WRITES
+     * that change platform CONFIGURATION, which is a narrower category than OPS-003's writes to
+     * the platform's operational history and is recorded in the middleware's own docblock.
      */
     #[Test]
-    public function test_premise_the_measured_blast_radius_is_still_51(): void
+    public function test_premise_the_measured_blast_radius_is_still_57(): void
     {
         $measured = $this->measuredGroups();
 
@@ -179,9 +206,9 @@ class PlatformOperatorOnlyPrincipalTest extends SecurityTestCase
         );
 
         $this->assertSame(
-            51,
+            57,
             array_sum($measured),
-            'the group counts no longer sum to the 51 this file documents.'
+            'the group counts no longer sum to the 57 this file documents.'
         );
     }
 

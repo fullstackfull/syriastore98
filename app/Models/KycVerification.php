@@ -15,7 +15,7 @@ use InvalidArgumentException;
  * There is deliberately no row, column or method anywhere that answers "is this store verified"
  * without naming an authority: that conflation is exactly what KYC-003 forbids.
  *
- * NOT `Cachable`, DELIBERATELY, and that is a departure from the 79-of-95 majority in
+ * NOT `Cachable`, DELIBERATELY, and that is a departure from the majority CLAUDE.md records in
  * `app/Models/`. Three reasons, each one measured by this project rather than assumed:
  *
  *   - CLAUDE.md records THREE false test readings caused by a raw write leaving an Eloquent read

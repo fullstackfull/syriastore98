@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 284 lines
+### `warning` — 292 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -478,6 +478,14 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderRefundController.php:348` | Refund restock withheld a line from sale: its recorded condition is not resellable |
 | `app/Models/Order.php:1066` | Order return withheld a line from sale: its recorded condition is not resellable |
 | `app/Http/Controllers/OrderController.php:1804` | Return approval withheld a line from sale: its recorded condition is not resellable |
+| `app/Support/Control/FeatureControl.php:595` | FeatureControl refused a target with an unknown type or an empty key. |
+| `app/Support/Control/FeatureControl.php:765` | FeatureControl could not resolve a subject; plan and pilot targeting will not match. |
+| `app/Support/Control/FeatureControl.php:790` | FeatureControl could not read a feature flag; treating it as not controlled. |
+| `app/Support/Control/FeatureControl.php:818` | FeatureControl could not read the targets of a feature flag. |
+| `app/Support/Control/MaintenanceAnnouncements.php:79` | MaintenanceAnnouncements could not read the live announcements. |
+| `app/Support/Control/PlatformChangeLog.php:120` | PlatformChangeLog recorded an unknown subject type. |
+| `app/Support/Control/PlatformChangeLog.php:128` | PlatformChangeLog recorded an unknown action. |
+| `app/Support/Control/PlatformChangeLog.php:148` | PlatformChangeLog could not record a platform control change. |
 
 <!-- counts: error=95 info=22 debug=1 -->
 

@@ -111,11 +111,41 @@ class Ord004Ord005OrderEditContractTest extends TestCase
      * `mutates_stored_line` is the load-bearing field: TRUE means this site changes a line on an
      * order that already exists, which is what `ORD-004` is about.
      *
-     * @var array<string, array{keys: list<string>, what: string, mutates_stored_line: bool}>
+     * `assignments` IS THE SAFE SET, AND IT IS WHAT STOPS `identity_keys_off_line` BEING AN
+     * UNFALSIFIABLE CLAIM. Restored from `ws/census` on 2026-11-27: the integration merge resolved
+     * this file by taking the mainline's side, which had answered the same hazard with the
+     * per-key exemption below, and the two mechanisms are NOT equivalent. `keys` is measured per
+     * FILE, so once `variant_id` is exempted for `OrderRefundController` the exemption covers
+     * every assignment of that key in the file -- including a SECOND one, onto a stored line.
+     * MEASURED 2026-11-27 before this field was restored: adding
+     * `$product['variant_id'] = 0;` inside `CancelRefundStatus()`'s `foreach ($productJson ...)`
+     * loop, whose result is `json_encode`d straight back into `orders.product_json`, left this
+     * file GREEN -- 9 passed, 778 assertions. That is a real `ORD-004` identity rewrite the
+     * census could not see.
+     *
+     * So every line-key assignment in a declared file is now written down by its TARGET
+     * EXPRESSION and asserted in both directions by
+     * {@see self::test_every_line_key_assignment_in_a_declared_file_is_pinned_by_name}. This is
+     * CLAUDE.md §3's rule -- when a census hunts for something dangerous, enumerate the SAFE SET
+     * instead, because a list of dangerous spellings is always short by the one nobody thought of.
+     * `$productRefundData[$pid]['variant_id']` and `$product['qty']` are the same key SHAPE and
+     * opposite facts, and the whole difference is in what precedes the key, which
+     * `LINE_KEY_ASSIGNMENT` does not capture at all.
+     *
+     * @var array<string, array{keys: list<string>, assignments: list<string>, what: string,
+     *     mutates_stored_line: bool, identity_keys_off_line?: array<string, string>}>
      */
     private const LINE_KEY_WRITERS = [
         'Http/Controllers/Api/ApiController.php' => [
             'keys' => ['product_id', 'qty', 'variant_id'],
+            'assignments' => [
+                "\$cart_array['product_list'][\$key]['product_id']",
+                "\$cart_array['product_list'][\$key]['qty']",
+                "\$cart_array['product_list'][\$key]['variant_id']",
+                "\$data['product_id']",
+                "\$data['variant_id']",
+                "\$return['variant_id']",
+            ],
             'what' => 'the cart response array; the product_return() request payload, which NAMES '
                 . 'a line rather than editing one; and one API response field',
             'mutates_stored_line' => false,
@@ -123,6 +153,7 @@ class Ord004Ord005OrderEditContractTest extends TestCase
 
         'Http/Controllers/OrderController.php' => [
             'keys' => ['product_id', 'variant_id'],
+            'assignments' => ["\$data['product_id']", "\$data['variant_id']"],
             'what' => 'the product_return() request payload, web side, behind '
                 . "authorize('updateStatus')",
             'mutates_stored_line' => false,
@@ -130,6 +161,7 @@ class Ord004Ord005OrderEditContractTest extends TestCase
 
         'Http/Controllers/PosController.php' => [
             'keys' => ['quantity'],
+            'assignments' => ["\$sales['data'][\$key]['quantity']"],
             'what' => 'the POS sales REPORT display array; in-memory, never written back',
             'mutates_stored_line' => false,
         ],
@@ -138,6 +170,7 @@ class Ord004Ord005OrderEditContractTest extends TestCase
 
         'Http/Controllers/AccountProfileController.php' => [
             'keys' => ['qty'],
+            'assignments' => ["\$product['qty']"],
             'what' => 'the storefront refund REQUEST subtracts refunded units from the line and '
                 . 'writes product_json back',
             'mutates_stored_line' => true,
@@ -145,6 +178,7 @@ class Ord004Ord005OrderEditContractTest extends TestCase
 
         'Http/Controllers/OrderRefundController.php' => [
             'keys' => ['qty', 'variant_id'],
+            'assignments' => ["\$product['qty']", "\$productRefundData[\$pid]['variant_id']"],
             'what' => 'cancelling a refund request adds the units back, bounded by the line\'s own '
                 . 'refunded_qty counter (`qty`). THE `variant_id` ENTRY IS NOT A LINE WRITE, and '
                 . 'this file\'s inclusion is the LIMIT OF THIS CENSUS rather than a finding: '
@@ -498,6 +532,122 @@ class Ord004Ord005OrderEditContractTest extends TestCase
             . 'no longer match the declared set. Read each difference against ORD-004 before '
             . 'declaring it: a new quantity or identity writer may be a violated decision rather '
             . 'than a missing allowlist entry.'
+        );
+    }
+
+    /**
+     * WHAT MAKES `identity_keys_off_line` FALSIFIABLE: every line-key assignment in a declared file
+     * is pinned by its TARGET EXPRESSION, measured from source.
+     *
+     * RESTORED FROM `ws/census` ON 2026-11-27, and it is not a duplicate of the premise above.
+     * That premise asks whether the exempted key is assigned on the named variable SOMEWHERE in
+     * the file, and the answer stays yes however many OTHER assignments of the same key arrive.
+     * So the exemption is granted per FILE and per KEY while the hazard is per STATEMENT. Measured
+     * before this test was restored: `$product['variant_id'] = 0;` added inside
+     * `OrderRefundController::CancelRefundStatus()`'s `foreach ($productJson as $key => &$product)`
+     * loop -- a real `ORD-004` identity rewrite on a stored line, `json_encode`d back into
+     * `orders.product_json` eleven lines later -- left this file reporting 9 passed, 778
+     * assertions. With this test it is a failure that names the new assignment.
+     *
+     * The claim `identity_keys_off_line` makes ("this assignment is on a view array, not on a
+     * stored line") is exactly the kind no regex can decide. So this test does not try to. It
+     * enumerates the SAFE SET instead, per CLAUDE.md §3: a census that hunts for something
+     * dangerous is always short by the spelling nobody thought of, so the assignments that exist
+     * today are written down by name and ANY new one fails here, whatever it targets and whether or
+     * not it reaches `product_json`. The reader then has to decide which field it belongs in.
+     *
+     * Asserted in both directions, so a declaration cannot outlive its assignment either.
+     */
+    public function test_every_line_key_assignment_in_a_declared_file_is_pinned_by_name(): void
+    {
+        /* The target expression as well as the key, which LINE_KEY_ASSIGNMENT does not capture:
+           `$productRefundData[$pid]['variant_id']` and `$product['qty']` are the same key shape and
+           opposite facts, and the difference is entirely in what precedes the key. */
+        $withTarget = "/(\\$[A-Za-z_][A-Za-z0-9_]*(?:\s*\[[^\]]*\])*)\s*"
+            . "\[\s*'(qty|quantity|product_id|variant_id)'\s*\]\s*=(?!=|>)/";
+
+        $this->assertSame(
+            1,
+            preg_match($withTarget, "\$productJson[\$key]['variant_id'] = 1;"),
+            'The target-aware pattern must catch a stored-line identity assignment, or this test '
+            . 'measures nothing.'
+        );
+
+        foreach (self::LINE_KEY_WRITERS as $file => $declaration) {
+            preg_match_all($withTarget, $this->codeOf($file), $hits, PREG_SET_ORDER);
+
+            $measured = [];
+
+            foreach ($hits as $hit) {
+                // Whitespace squeezed out of the target, so a reformat cannot invalidate a
+                // declaration -- the same reason the sibling censuses normalise before matching.
+                $measured[preg_replace('/\s+/', '', $hit[1]) . "['" . $hit[2] . "']"] = true;
+            }
+
+            $measured = array_keys($measured);
+            sort($measured);
+
+            $declared = $declaration['assignments'];
+            sort($declared);
+
+            $this->assertSame(
+                $declared,
+                $measured,
+                "$file gained or lost a line-key assignment. Read it before declaring it: if it "
+                . 'writes a key onto a line of an order that already EXISTS, then ORD-004 has '
+                . 'something to say about it and the file\'s `keys`, `mutates_stored_line` and '
+                . '`identity_keys_off_line` must be re-read together -- an identity key assigned on '
+                . 'a stored line may NOT be carried by an existing off-line exemption, which is '
+                . 'granted per key and per file rather than per statement. If it only shapes a '
+                . 'request payload, an API response or a screen, it belongs in `assignments` alone '
+                . '-- and say which, because that distinction is the whole load this declaration '
+                . 'carries.'
+            );
+        }
+    }
+
+    /**
+     * AND THE NARROWING CANNOT BE WIDER THAN THE MEASUREMENT IT NARROWS.
+     *
+     * `ws/census` asserted this of its own `stored_line_keys`; the same guard belongs on the
+     * mainline's `identity_keys_off_line`, which is the field that actually switches the identity
+     * assertion off. An exemption for a key the detector never found in the file is an exemption
+     * for nothing -- and a file declared not to mutate a stored line cannot need one at all,
+     * because the identity test skips it before the exemption is ever read.
+     */
+    public function test_no_off_line_exemption_is_wider_than_the_keys_measured_in_the_file(): void
+    {
+        $checked = 0;
+
+        foreach (self::LINE_KEY_WRITERS as $file => $declaration) {
+            $offLine = $declaration['identity_keys_off_line'] ?? [];
+
+            $this->assertSame(
+                [],
+                array_values(array_diff(array_keys($offLine), $declaration['keys'])),
+                "$file exempts a key that is not among the keys measured in the file. A key no "
+                . 'detector found cannot be one this file assigns, so the exemption hides nothing '
+                . 'and one of the two declarations is wrong.'
+            );
+
+            if (! $declaration['mutates_stored_line']) {
+                $this->assertSame(
+                    [],
+                    $offLine,
+                    "$file is declared not to mutate a stored line, so the identity test never "
+                    . 'reaches its exemptions. An exemption here is either dead or the '
+                    . '`mutates_stored_line` beside it is wrong.'
+                );
+            }
+
+            $checked += count($offLine);
+        }
+
+        $this->assertGreaterThan(
+            0,
+            $checked,
+            'No exemption was examined, so this guard measured nothing. If the last exemption was '
+            . 'legitimately removed, delete this test and its sibling premise in the same change.'
         );
     }
 

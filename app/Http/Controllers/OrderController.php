@@ -2909,7 +2909,8 @@ public function store(Request $request)
              * change still replaces the row: the delete removes it, `exists()` is false, and the
              * new driver's earning is written.
              *
-             * `DeliveryEarning` is one of the 16 models that are NOT `Cachable`, so this read sees
+             * `DeliveryEarning` is one of the models that are NOT `Cachable` (CLAUDE.md keeps the
+             * census; this comment deliberately does not restate it), so this read sees
              * the delete above rather than a cached pre-delete row.
              */
             $alreadyRecorded = \App\Models\DeliveryEarning::where('order_id', $order->id)->exists();

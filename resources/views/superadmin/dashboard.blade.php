@@ -209,10 +209,27 @@
                         {{-- GAP-104. Linked here for the reason the note at the top of this file
                              records about `platform.analytics`: a screen nothing links to is a
                              screen only somebody who already knows the URL can reach. --}}
-                        <li>
+                        <li class="mb-3">
                             <a class="ss-link" href="{{ route('platform.site_content.index') }}">{{ __('Official website content') }}</a>
                             <span class="ss-field__hint d-block">
                                 {{ __('The text on the official Store Syria website, changed here rather than in a release. Plan prices and limits are not editable: they are read from the plans the subscription flow charges against.') }}
+                            </span>
+                        </li>
+                        {{-- PHASE 06 CTRL-001/002/003. Linked for the reason the note at the top of
+                             this file records: a screen nothing links to is a screen only somebody
+                             who already knows the URL can reach, and a control plane nobody can
+                             reach is not a capability. The `mb-3` moved to the row above because
+                             the margin belongs on every item but the last. --}}
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.feature_control.index') }}">{{ __('Feature control') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('Which features reach which stores: by plan, by one store, or by a pilot group. Widen a release gradually, or switch one off without losing where it had got to.') }}
+                            </span>
+                        </li>
+                        <li>
+                            <a class="ss-link" href="{{ route('platform.maintenance.index') }}">{{ __('Maintenance announcements and the record of them') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('What the platform tells every merchant: a maintenance window, written in both languages, published and withdrawn on a schedule you set.') }}
                             </span>
                         </li>
                     </ul>

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * ONE AUTHORISATION FOR SUPPORT TO REACH ONE STORE, FOR A WHILE, FOR A REASON.
  *
  * `SUPPORT-004` / `SUPPORT-005`. The migration carries the schema reasoning; this class carries the
- * two model-level decisions, both of which are deliberate departures from what the other 79 models
+ * two model-level decisions, both of which are deliberate departures from what most models
  * in this directory do.
  *
  * -------------------------------------------------------------------------------------------------

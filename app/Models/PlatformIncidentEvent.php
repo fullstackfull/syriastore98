@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Model;
  * beside a `notes` field.
  *
  * NOT `Cachable`, for its parent's reason: this is audit data read while something is going wrong,
- * and `AuditLog` is the precedent among the 16 models in `app/Models/` that are not.
+ * and `AuditLog` is the precedent among the models in `app/Models/` that are not.
  *
  * A ROW WITH NEITHER STATUS IS A NOTE. Both status columns are nullable — the first event of an
  * incident comes from nowhere, and a note comes from no state and goes to none — so the shape

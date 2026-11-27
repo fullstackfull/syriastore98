@@ -44,7 +44,8 @@ use Throwable;
  * allowlisting stays behaviour-neutral.
  *
  * GATE G2 (the model-cache question) IS SETTLED, GREEN, AND MEASURED.
- *   - 78 of the 95 models use `GeneaLabs\LaravelModelCaching\Traits\Cachable`, and
+ *   - Most models use `GeneaLabs\LaravelModelCaching\Traits\Cachable` (CLAUDE.md carries the
+ *     asserted census; this file deliberately does not restate it), and
  *     `config/laravel-model-caching.php` does not exist, so package defaults apply. The open
  *     question was whether its cache keys incorporate global-scope constraints; if they did not,
  *     enabling this scope would make tenant B serve tenant A's warmed rows and so CREATE a
@@ -309,7 +310,7 @@ class StoreScope implements Scope
         // ONE ADMISSIBLE STORE -> the SAME single-column equality this scope has always
         // emitted, bindings included. That is not a micro-optimisation: it is what keeps the
         // emitted SQL -- and therefore every `genealabs/laravel-model-caching` cache key on the
-        // 78 models using `Cachable` -- byte-for-byte identical for a single-store merchant,
+        // models using `Cachable` -- byte-for-byte identical for a single-store merchant,
         // which is the overwhelming majority of principals. See `admissibleStoreIds()`.
         if (count($storeIds) === 1) {
             $builder->where($qualified, $storeIds[0]);
