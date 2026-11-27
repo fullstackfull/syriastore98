@@ -1,0 +1,31 @@
+  CAUGHT   1. the verification-queue entry is removed from the sidebar  ->  Tests:    1 failed (1 assertions)
+  CAUGHT   2. the approval-queue entry is removed from the sidebar  ->  Tests:    1 failed (1 assertions)
+  CAUGHT   3. the operations entry is removed from the sidebar  ->  Tests:    1 failed (1 assertions)
+  CAUGHT   4. the incident-log entry is removed from the sidebar  ->  Tests:    1 failed (1 assertions)
+  CAUGHT   5. a permission name is added to the verification-queue entry (declarations case)  ->  Tests:    1 failed (1 assertions)
+  CAUGHT   6. a permission name is added to the approvals entry (declarations case)  ->  Tests:    1 failed (1 assertions)
+  CAUGHT   7. the operations entry is flattened out of the group (parent => null)  ->  Tests:    1 failed (9 assertions)
+  CAUGHT   8. the incident-log entry names a route that does not exist  ->  Tests:    1 failed (1 assertions)
+  CAUGHT   9. the group header goes back to the undefined `layout-dashboard` glyph  ->  Tests:    1 failed (8 assertions)
+  CAUGHT   10. a NEW entry names an icon that does not exist  ->  Tests:    1 failed (8 assertions)
+  CAUGHT   11. a top-level entry loses its icon entirely  ->  Tests:    1 failed (8 assertions)
+  CAUGHT   12. an entry title is no longer passed through __()  ->  Tests:    1 failed (9 assertions)
+  CAUGHT   13. an entry title is an undeclared string  ->  Tests:    1 failed (29 assertions)
+  CAUGHT   14. the Arabic for a label is the English sentence copied across  ->  Tests:    1 failed (28 assertions)
+  CAUGHT   15. two entries in the group share one Arabic label  ->  Tests:    1 failed (25 assertions)
+  CAUGHT   16. the verification-queue link is removed from the dashboard panel  ->  Tests:    1 failed (8 assertions)
+  CAUGHT   17. the approvals link loses the sentence that tells it from verification  ->  Tests:    1 failed (8 assertions)
+  CAUGHT   18. the operations screen prints an UNDECLARED sentence (English on the Arabic page)  ->  Tests:    1 failed, 3 passed (19 assertions)
+  CAUGHT   19. the incident log hard-codes a left margin (physical, not logical)  ->  Tests:    1 failed (7 assertions)
+
+ALL CAUGHT
+
+=== the refusal arm: two independent guards, three readings each ===
+  SURVIVED 20A. approvals: route middleware removed, handler left alone  ->  Tests:    4 passed (4 assertions)   [expected SURVIVED: as expected]
+  SURVIVED 20B. approvals: handler check removed, route middleware left alone  ->  Tests:    4 passed (4 assertions)   [expected SURVIVED: as expected]
+  CAUGHT   20C. approvals: BOTH guards removed  ->  Tests:    1 failed, 3 passed (4 assertions)   [expected CAUGHT: as expected]
+  SURVIVED 21A. KYC queue: route middleware removed, handler left alone  ->  Tests:    4 passed (4 assertions)   [expected SURVIVED: as expected]
+  SURVIVED 21B. KYC queue: handler check removed, route middleware left alone  ->  Tests:    4 passed (4 assertions)   [expected SURVIVED: as expected]
+  CAUGHT   21C. KYC queue: BOTH guards removed  ->  Tests:    1 failed, 3 passed (4 assertions)   [expected CAUGHT: as expected]
+
+LAYERED: all as expected
