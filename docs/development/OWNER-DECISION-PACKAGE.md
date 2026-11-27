@@ -74,7 +74,13 @@ Engineering may not answer any of these, by the standing rule at the top of this
 
 ### 5. What a figure MEANS — reporting definitions
 
-`J24` a caveat on eleven merchant surfaces overstates its own risk by a thousandfold · `J26` a field the Flutter app receives is permanently null and its column does not exist · **Popular Coupon** — whether `GAP-231`'s settled-only rule redefined a figure the owner reads, under reconciliation as of 2026-11-27; five tests are deliberately red rather than rewritten to match an unapproved rule.
+| | the question | measured |
+|---|---|---|
+| `J48` | **What do the operator's two ranking cards count — purchases, or paid purchases?** `Popular Coupon` and `Popular Plan` were narrowed to settled purchases on engineering's reading of an argument. **No approved text defines either metric.** | one fixture, 5 coupons, 30 redemptions, MariaDB at the production collation **and** SQLite, 16 checks 0 failed: the card prints a **different coupon**, the leader's count goes **12 → 5**, and **all five change position**. One coupon with 7 redemptions **disappears**, because its rows name no existing order — a second, larger exclusion than "unpaid", which nothing on the screen distinguishes. |
+| `J24` | a caveat on eleven merchant surfaces overstates its own risk by a thousandfold | |
+| `J26` | a field the Flutter app receives is permanently null, and its column does not exist | |
+
+**Why `J48` is not a defect report.** Four earlier slices met this same shape and **not one narrowed a figure on engineering's authority** — `F257` was escalated (and your ruling excluded only *cancelled* orders while keeping every order **regardless of payment status**, so the shipped rule is *broader* than the one exclusion you have approved), `e967e3788` relabelled rather than refigured, `P5-R7` disclosed, and `D-N31` — the same question about the panel beside it — **is still open**. Its own words are the argument: *"extending a decision to a figure it does not name is exactly how a rule gets invented."* And neither answer is the cheap one: the two test files are each other's contradiction, so **exactly one can be green until you choose** (driven both ways: 5 red under one rule, 6 under the other).
 
 ### 6. Human acceptance — a person must look, and no measurement substitutes
 
@@ -1161,3 +1167,48 @@ none of the host colour classes) and to pin no physical side. **That is a census
 measurement** — nobody has run the compositing contrast harness with `APP_DEBUG` off, and nobody has
 looked at the RTL rendering or at the announcement banner's placement above `@yield('content')` on a
 real dashboard, order list or product form.
+
+---
+
+## P. The decision raised by the 2026-11-27 Popular Coupon reconciliation
+
+Raised by asking the question the owner directed: *has this metric's business meaning changed without owner approval?* The answer is **yes, and no approved text defines it in either direction** — so the entry below is the decision, and the five tests encoding the previous rule are **deliberately red** rather than rewritten to match an unapproved one.
+
+### J48 — `ADM-001` / `GAP-231`: what do the operator's two ranking cards count — purchases, or paid purchases?
+
+`Popular Coupon` and `Popular Plan` on `/dashboard` were changed on 2026-11-26 to rank on
+**settled** purchases only. Before that they ranked on every row. **No approved text defines
+either metric** — `ADM-001`'s whole recovered text is *«لوحة قيادة شاملة للمنصة»*, the `ANA-008`
+metric-definitions document has zero mentions of plan coupons, and no entry in this package
+governs it — so the new meaning shipped on engineering's reading of an argument, not on a
+decision. Reported here rather than left, because it is a figure you read.
+
+**Measured, one fixture of 5 coupons and 30 redemptions, on MariaDB 10.11 at the production
+collation and on the suite's SQLite, 16 checks 0 failed**
+(`tests/Support/Security/bin/measure-popular-coupon-ranking-rules.php`):
+
+| | the card prints | the leader's count |
+|---|---|---|
+| **(a) every redemption** — as shipped until 2026-11-26 | `LAUNCH20` | **12**, of which 9 were never paid |
+| **(b) settled, matchable redemptions** — as shipped today | `LOYAL10` | **5**, all paid |
+
+A different coupon, and **all five change position**. One coupon with **7** redemptions
+disappears entirely under (b) — its rows name orders that do not exist, which is a second and
+larger exclusion than "unpaid", and nothing on the screen tells the two exclusions apart.
+
+| | |
+|---|---|
+| **(a) keep every redemption** | The card ranks on *usage*: which coupon code merchants reach for. It is then led, as measured, by a coupon whose redemptions were three-quarters unpaid, and by rows that match no order at all. It is also the basis the REST of the product already uses for a plan coupon — see the row below. Four earlier slices met this shape of question and **not one of them narrowed a figure on engineering's authority**: `F257` was escalated (you then narrowed it), `e967e3788` relabelled, `P5-R7` item 3 disclosed, `D-N31` is held. |
+| **(b) settled only** | The card ranks on *revenue influence*: which coupon code the platform was actually paid against. Already shipped, already disclosed in both languages, and `OperatorDashboardRankingsCountSettledOnlyTest`'s 8 cases state it as the contract. |
+| **Neither choice is the cheap one, measured** | The two test files are each other's contradiction, so exactly one can be green at a time until you choose. Driven both ways by removing the two predicates and restoring them: rule (b) leaves **5** red (the old cases), rule (a) leaves **6** red (six of the eight new ones). That is the clearest statement available that this is a decision and not a defect. §6.4. |
+| **What (b) already costs, measured** | **The product now holds two meanings of "used" for one plan coupon, and they can disagree about the same coupon.** The exhaustion limit every payment path enforces is `PlanCoupon::used_coupon()` — `hasMany(PlanUserCoupon::class)->count()`, **every** row, called from about 120 sites — and `/plan-coupon/{id}`, one click from the screen this card links to, lists every redemption row unfiltered (`PlanCouponDetailDataTable::query()` filters on `coupon_id` alone). So `LAUNCH20` can be **exhausted at 12 of 12**, show 12 rows on its detail screen, and be ranked third on 3 by this card, with nothing anywhere explaining the gap. `D-N31`'s own words: *"One name should carry one meaning."* |
+| **(c) rank on settled, state the attempted count beside it** | The reading `ANA-005` (*separate sales, collection and settlements*) most nearly asks for. Not a revert — `<x-dashboard-card>` has one value slot, so it needs a shape decision. |
+| **The standing rule nearest to this** | The `ANA-008` metric-definitions document's own words, about the sibling demand measure: *"**stated as an option, not a default** … The report must label which it used. **Never silently pick one.**"* And your one ruling on a comparable figure — `F257`, the merchant *Order value* — excluded **cancelled** orders while keeping every order *regardless of payment status*. Rule (b) is broader than that: it also drops `pending`, `failed` and `rejected`. |
+| **What the sibling card's precedent suggests** | **(a) plus disclosure.** `e967e3788` relabelled `Total Orders` → `Total Plan Orders` on this exact screen *"rather than changing its figure"*, writing down that *"changing the number … is a product decision"*. `GAP-231` kept `Total Plan Orders` unfiltered for the same reason and said so: *"a predicate there would silently redefine a figure the owner reads"*. **That argument applies word for word to the two cards beside it, and was not applied to them.** `D-N31` is the same question about the *Top Selling Store* panel on the same screen, is still open, and its own reasoning is the answer to this one: *"extending a decision to a figure it does not name is exactly how a rule gets invented."* |
+| **Engineering has not chosen** | Both rules are measured, neither is pinned as the contract by anything this workstream wrote, and the five tests that encode the old rule are **left red with the reason recorded** rather than rewritten. The one change made is bilingual, not definitional: the Arabic disclosure named none of its three cards and now names all three. |
+| **What an answer releases** | (a): a two-line revert, plus one disclosure sentence in two catalogues and two test files, all named in §6.3 of `PHASE-06-POPULAR-COUPON-METRIC-RECONCILIATION.md`. (b): five test fixtures gain a settled plan order each, which makes them rule-agnostic. (c): a card shape. |
+| **Also yours, and smaller** | The ranking states **no period** (it is all-time, while every other figure this product ships states its window) and does not filter `plan_coupons.is_active`, so a switched-off coupon can be the `Popular Coupon`. Both pre-existing, both recorded in `PHASE-06-DASHBOARD-CARD-LABELS.md`, neither touched. |
+| **Full analysis** | `docs/development/phase-6/PHASE-06-POPULAR-COUPON-METRIC-RECONCILIATION.md` |
+**One ruling should cover `Popular Plan` too.** The same commit applied the same predicate to
+`Plan::most_purchese_plan()` on the same argument. Splitting the ruling would leave two cards
+side by side counting differently.

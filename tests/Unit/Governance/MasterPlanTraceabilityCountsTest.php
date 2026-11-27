@@ -255,6 +255,44 @@ class MasterPlanTraceabilityCountsTest extends TestCase
     }
 
     /**
+     * CLAUDE.md §4's PHASE-06 DOCUMENT COUNT, which drifted by TEN before anything checked it.
+     *
+     * The table said "14 documents under `docs/development/phase-6/`" while the directory held 24 --
+     * found by a workstream that had read the directory for its own reasons, not by any gate. Ten
+     * documents is the difference between "a phase with some notes" and "a phase with a body of
+     * analysis", which is exactly the judgement a reader makes from this sentence.
+     *
+     * It is the third unasserted figure in this file to be caught in two days, after the per-phase
+     * pairs below and the model-caching census in §1. The rule the three of them establish: a count
+     * that lives in prose drifts, and the only question is whether something notices.
+     */
+    public function test_the_instruction_file_states_the_phase_six_document_count(): void
+    {
+        $found = glob(base_path('docs/development/phase-6/*.md'));
+
+        $this->assertNotEmpty(
+            $found,
+            'PREMISE: no markdown found under docs/development/phase-6/, so this test is measuring '
+            . 'nothing. If the directory moved, re-point this test rather than deleting it.'
+        );
+
+        $claude = (string) file_get_contents(base_path('CLAUDE.md'));
+
+        $this->assertSame(
+            1,
+            preg_match('/\((\d+) documents under `docs\/development\/phase-6\/`/', $claude, $m),
+            'PREMISE: CLAUDE.md no longer states a phase-6 document count in the form this test reads.'
+        );
+
+        $this->assertSame(
+            count($found),
+            (int) $m[1],
+            sprintf('CLAUDE.md says %d documents under docs/development/phase-6/; there are %d. It '
+                . 'drifted by ten before this assertion existed.', (int) $m[1], count($found))
+        );
+    }
+
+    /**
      * CLAUDE.md §4's PER-PHASE FIGURES, which nothing asserted until 2026-11-27.
      *
      * The sibling test above covers the project-wide line in §5. §4's table carries a verified/total
