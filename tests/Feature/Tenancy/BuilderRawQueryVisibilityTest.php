@@ -184,6 +184,17 @@ class BuilderRawQueryVisibilityTest extends TestCase
         $census = $this->census();
 
         $this->assertSame(
+            /* 253 -> 272 in app/ on 2026-11-27 [`P04-P4-02` / `INV-001` / `INV-007`]: the
+               nineteen `DB::table()` statements of `app/Services/WarehouseInventory.php`. THE
+               CENSUS THAT MOVED IS THE LIVE ONE AND THE REASON IS KNOWN, which is what this
+               premise's own message asks for: nineteen statements were added to
+               `app/Services/`, every one naming `store_id`, and
+               `ServiceLayerRawQueryInventoryTest` carries the scoped/store-less split.
+               RELEVANT TO THIS FILE'S OWN SUBJECT TOO: none of the nineteen is builder-raw.
+               They are plain `where`/`decrement`/`updateOrInsert`/`insertGetId` calls with
+               bound parameters and no `DB::raw`, `selectRaw`, `whereRaw` or `havingRaw`
+               anywhere in the file, so the invisible-site count below does not move and no
+               new dynamic fragment needs declaring. */
             /* 232 -> 247 in app/ on 2026-11-26 [OPS-001]: the fifteen `DB::table()` statements of
                `app/Services/SaasOperationsProbe.php`. The figure here only has to follow the live
                census's, which is this test's whole job — and the probe is relevant to this file's
@@ -192,16 +203,6 @@ class BuilderRawQueryVisibilityTest extends TestCase
                which would have landed in the blind spot this file measures. All three were
                rewritten in the builder's own vocabulary, so the invisible-site count below does
                not move. */
-            /* 253 -> 254 on 2026-11-27 [SUPPORT-002, `ws/support2`], AND THIS FILE'S OWN RULE
-               FOLLOWED AGAIN: the statement was located and read before this figure moved. It is
-               `MerchantAnnouncements::rows()`'s single read of
-               `platform_maintenance_announcements`, the table `CTRL-003` owns. It is NOT
-               builder-raw -- a plain `where`/`whereNull`/`orderByDesc` chain with no
-               `selectRaw`/`whereRaw`/`orderByRaw` anywhere -- so the invisible-site count below
-               does not move, which is the same shape as the OPS-001 note above. The live census's
-               per-directory note carries why the read is raw at all (a model would move a
-               CLAUDE.md-asserted census) and why it is unscoped (the table has no `store_id`, and
-               a test fails if one ever appears). */
             /* 247 -> 253 on 2026-11-26 [the integration reconciliation], AND THIS FILE'S OWN RULE
                WAS FOLLOWED RATHER THAN QUOTED: the message below says "do NOT adjust this to
                match: find out which census changed", so the six statements were located and read
@@ -210,11 +211,11 @@ class BuilderRawQueryVisibilityTest extends TestCase
                file with their predicates and their tables beside
                `RawQueryTenancyInventoryTest`'s own per-directory assertion. The codebase changed;
                this instrument did not. */
-            ['app' => 259, 'packages' => 45],
+            ['app' => 278, 'packages' => 45],
             ['app' => $census['app']['visible'], 'packages' => $census['packages']['visible']],
             'This file counts `DB::` entry points with the same pattern and the same enumeration as '
             . 'RawQueryTenancyInventoryTest::test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight, '
-            . 'whose assertion is `[app => 253, packages => 45]`. A disagreement means one of the '
+            . 'whose assertion is `[app => 272, packages => 45]`. A disagreement means one of the '
             . 'two moved, and the blind-spot figures below are measured against nothing until it is '
             . 'resolved. Do NOT adjust this to match: find out which census changed.'
         );

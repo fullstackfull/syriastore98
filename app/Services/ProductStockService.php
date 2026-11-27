@@ -130,6 +130,13 @@ class ProductStockService
 
         $remaining = $this->refreshStock($product, Product::class, 'product_stock');
 
+        /* INV-001 / INV-007 — record WHICH WAREHOUSE the units came off, for a store that has
+           said. Placed here rather than in each of the two success arms below so the oversold
+           path inherits it: the goods really left in that case too. A no-op for every store on
+           the platform as it stands, and it cannot change the figure above or the array returned
+           below -- see sourceFromWarehouse(). */
+        $this->sourceFromWarehouse($product, false, $quantity, $evidence);
+
         // A negative remainder on a product that forbids overselling means the
         // guard was deliberately bypassed and the shop is now oversold. That is a
         // real operational exception for the merchant to resolve, so it is reported
@@ -240,6 +247,9 @@ class ProductStockService
         }
 
         $remaining = $this->refreshStock($variant, ProductVariant::class, 'stock');
+
+        /* INV-001 / INV-007 — see the matching call in decrementProductStock(). */
+        $this->sourceFromWarehouse($variant, true, $quantity, $evidence);
 
         // A negative remainder on a product that forbids overselling means the
         // guard was deliberately bypassed and the shop is now oversold. That is a
@@ -415,6 +425,112 @@ class ProductStockService
      * CLAUDE.md's own section 6 records as having been wrong in both directions before. Found
      * by independent review.
      */
+    /**
+     * `INV-001` / `INV-007` — RECORD WHICH WAREHOUSE GAVE UP THE UNITS. ADDITIVE, AND A NO-OP FOR
+     * EVERY STORE THAT HAS NOT CONFIGURED ONE.
+     *
+     * Plan text, verbatim from `docs/development/master-plan/DECISION-ID-REGISTER.md` §04-B:
+     *
+     *     INV-001  مستودع افتراضي واحد مع إمكانية تعدد المستودعات.
+     *     INV-007  اختيار مستودع التنفيذ تلقائياً مع تعديل مصرح به.
+     *
+     * **IT CANNOT CHANGE WHAT THIS SERVICE DOES.** It runs AFTER the conditional
+     * `UPDATE ... WHERE product_stock >= ?` has already decided whether the sale may proceed, it
+     * writes only to `product_warehouse_stock`, and it returns nothing — so neither the stock
+     * figure, the oversell decision, the returned array nor the movement record can be affected by
+     * it. `WarehouseStockSourcingTest::test_an_allocation_cannot_make_a_sale_succeed_or_fail` drives
+     * both directions of that, and `test_a_store_with_no_warehouses_behaves_exactly_as_before`
+     * asserts the byte-for-byte control with a positive control beside it.
+     *
+     * **A REFUSED DECREMENT NEVER REACHES HERE**, by position: both call sites are past the
+     * `$affected === 0` return. Crediting a sourcing for a sale that did not happen would take units
+     * off a depot for nothing.
+     *
+     * **THE STORE COMES FROM THE DECREMENTED ROW, NEVER FROM `$evidence`.** `$evidence['store_id']`
+     * is written by `AppliesCartStockChanges::stockEvidence()` from `$model->store_id` and is
+     * trustworthy there, but it is an ARRAY a caller composes and this method is reachable from six
+     * call sites plus every vendored module. Reading the row's own `store_id` makes a wrong claim
+     * unable to matter — CLAUDE.md §1: a tenant predicate built from caller-supplied input is not a
+     * tenant check, and that shape has produced four separate defects here.
+     * `test_a_claimed_store_cannot_reach_another_tenants_allocation` drives the hostile case.
+     *
+     * **NO STORE, NO SOURCING.** A `product_variants` row with a NULL `store_id` — a live open
+     * owner decision recorded in `AppliesCartStockChanges`'s docblock — has no tenant to attribute
+     * units to, and inventing one would put a row where another tenant's query might read it. It is
+     * also unreachable: `WarehouseInventory::allocate()` refuses such a row, so there is nothing
+     * there to source. Both halves are asserted together.
+     *
+     * **IT NEVER THROWS.** The stock write has already happened, so raising here would turn a
+     * successful order into an error after money may have been taken — the F121/F123 shape this
+     * project has been bitten by twice, and the reason `StockMovement::record()` has the same
+     * posture. The degraded state is CONSISTENT rather than merely survivable: units whose sourcing
+     * was not recorded stay attributed to the default warehouse's derived remainder, which is a true
+     * statement about a store that has not recorded otherwise.
+     *
+     * `$evidence['warehouse_id']` carries `INV-007`'s override and
+     * `$evidence['warehouse_override_by']` the principal who must be authorised for it;
+     * `WarehouseSelector` refuses a foreign warehouse before it asks the permission, so neither can
+     * be used to reach another tenant. **No shipped caller threads either yet** — the fulfilment /
+     * picking surface `ORD-008` asks for does not exist, and inventing one is that requirement's
+     * work rather than this one's.
+     *
+     * @param  mixed $model     the Product or ProductVariant just decremented
+     * @param  bool  $isVariant which of the two, rather than an instanceof on a mocked model
+     */
+    private function sourceFromWarehouse($model, bool $isVariant, int $quantity, array $evidence): void
+    {
+        try {
+            if ($quantity <= 0 || ! \App\Services\WarehouseInventory::available()) {
+                return;
+            }
+
+            $storeId = (int) ($model->store_id ?? 0);
+
+            if ($storeId <= 0) {
+                return;
+            }
+
+            $productId = $isVariant ? (int) ($model->product_id ?? 0) : (int) ($model->id ?? 0);
+            $variantId = $isVariant ? (int) ($model->id ?? 0) : \App\Services\WarehouseInventory::NO_VARIANT;
+
+            if ($productId <= 0) {
+                return;
+            }
+
+            $plan = \App\Support\Commerce\WarehouseSelector::planFor(
+                $storeId,
+                $productId,
+                $variantId,
+                $quantity,
+                $evidence['warehouse_override_by'] ?? null,
+                /* `FILTER_VALIDATE_INT` rather than `is_numeric`, which the tenancy skill names
+                   explicitly: `is_numeric('5.9')` is TRUE and `(int) '5.9'` is 5, so a caller's
+                   near-miss would silently become a real warehouse id. It cannot cross a tenant
+                   either way -- `WarehouseSelector` refuses a warehouse the store does not own --
+                   but parsing strictly removes the need to rely on that. */
+                filter_var($evidence['warehouse_id'] ?? null, FILTER_VALIDATE_INT) ?: null
+            );
+
+            foreach ($plan['lines'] as $line) {
+                \App\Services\WarehouseInventory::sourceFrom(
+                    $storeId,
+                    (int) $line['warehouse_id'],
+                    $productId,
+                    $variantId,
+                    (int) $line['units']
+                );
+            }
+        } catch (\Throwable $theSourcingCouldNotBeRecorded) {
+            Log::warning('Warehouse sourcing was not recorded for a stock decrement', [
+                'store_id' => $model->store_id ?? null,
+                'is_variant' => $isVariant,
+                'id' => $model->id ?? null,
+                'quantity' => $quantity,
+                'error' => $theSourcingCouldNotBeRecorded->getMessage(),
+            ]);
+        }
+    }
+
     private function recordMovement(array $evidence, array $movement): void
     {
         /*

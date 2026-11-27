@@ -650,8 +650,31 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            `RawQueryTenancyInventoryTest` is recursive and carries it, per-table and in its
            entry-point total -- but whether this census should reach subdirectories is a change to
            its own definition and belongs to whoever owns it, not to a merge reconciliation. */
+        /*
+         * 88 -> 107 on 2026-11-27 [`P04-P4-02` / `INV-001` / `INV-007`]: all NINETEEN of
+         * `app/Services/WarehouseInventory.php`'s statements, and **EVERY ONE OF THEM NAMES
+         * `store_id`, so `$scoped` moves 37 -> 56 and `$storeLess` is UNCHANGED at 51.** That
+         * split is the evidence the warehouse dimension added no cross-tenant exposure; the total
+         * above would have moved either way.
+         *
+         * Neither `warehouses` nor `product_warehouse_stock` is in `config/tenancy.php`'s
+         * `scoped_models` — there is no model for either, deliberately (a new file in `app/Models/`
+         * fails `ClaudeMdCachableModelClaimTest`, and a `Cachable` model would serve a pre-write
+         * stock row on the checkout path) — so nothing supplies a predicate for free and every read
+         * and write carries one at the call site.
+         *
+         * ONE of the nineteen has its tenancy as an ARGUMENT rather than a predicate on the match,
+         * and it is called out here rather than left for a reader to find: `allocate()`'s
+         * `updateOrInsert()` matches the unique key `(warehouse_id, product_id, variant_id)` and
+         * writes `store_id` from a verified value. `ownsWarehouse()` and `totalFor()` have both
+         * already refused a foreign warehouse and a foreign product by then, and a warehouse row
+         * has exactly one store, so the key can only name a row of that store. The argument is
+         * written out at the statement itself, and
+         * `WarehouseDimensionTest::test_one_stores_dimension_is_invisible_to_another` drives both
+         * refusals rather than reading them.
+         */
         $this->assertSame(
-            88,
+            107,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -674,7 +697,11 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
            `$storeLess` is UNCHANGED at 51 -- the argument for why these three really do predicate
            on `store_id`, rather than merely containing the string the way the two `settings`
            statements above do, is written beside the total. */
-        $this->assertSame(37, $scoped, 'statements naming store_id');
+        /* 37 -> 56 on 2026-11-27 [`P04-P4-02`]: the whole of `WarehouseInventory`'s +19 lands
+           here, and `$storeLess` is UNCHANGED at 51. The argument for why these nineteen really do
+           predicate on `store_id`, rather than merely containing the string the way the two
+           `settings` statements above do, is written beside the total. */
+        $this->assertSame(56, $scoped, 'statements naming store_id');
         $this->assertCount(51, $storeLess, 'statements naming store_id nowhere');
     }
 

@@ -35,8 +35,15 @@ use Tests\Support\StripsSourceComments;
  *     authorised override. **The override exists and the suggestion does not**:
  *     `OrderController::order_assign()` validates `delivery_boy` as `required`, so a human always
  *     names the driver. There is nothing to override.
- *  3. شحنات جزئية ومستودعات متعددة — partial shipments, multiple warehouses. **NO mechanism**:
- *     no shipment table, no warehouse table, asserted over all 213 tables below.
+ *  3. شحنات جزئية ومستودعات متعددة — partial shipments, multiple warehouses. **THE TWO HALVES NOW
+ *     HAVE DIFFERENT ANSWERS, and they did not when this file was written (2026-11-27).** The
+ *     WAREHOUSE half has a mechanism: `warehouses` and `product_warehouse_stock` exist, delivered
+ *     for `INV-001`/`INV-007` under `P04-P4-02`, with per-warehouse quantities and automatic
+ *     fulfilment selection (`App\Support\Commerce\WarehouseSelector`). The PARTIAL-SHIPMENT half
+ *     still has **NO mechanism**: no shipment table under any spelling, asserted over the whole
+ *     schema below. So this bullet is **half built**, and a reconciliation that reads "warehouses
+ *     exist" as the bullet being green would be marking partial shipments delivered on the strength
+ *     of an unrelated table.
  *  4. بيانات تتبع وتكلفة وناقل لكل شحنة — tracking, cost and carrier PER SHIPMENT. **NO mechanism
  *     for the platform's own orders**: `orders` has no carrier, tracking or shipment column, and
  *     the one `parcel_tracking` column in the schema belongs to `zid_orders`, a channel table.
@@ -121,14 +128,23 @@ final class ShipCod04DFamilyCensusTest extends TestCase
     */
 
     /**
-     * **NO SHIPMENT AND NO WAREHOUSE EXIST AS THINGS**, so bullets 3 and 4 have no mechanism and
-     * bullets 5 and 6 inherit their answers from that.
+     * **NO SHIPMENT EXISTS AS A THING. A WAREHOUSE NOW DOES.**
      *
-     * The census enumerates the tables the schema HAS and asserts that none of them is a shipment
-     * or a warehouse, rather than searching for a list of hoped-for names — so a table called
-     * `consignments` or `parcels` would be caught by the same predicate.
+     * RE-MEASURED AND RENAMED 2026-11-27. This method read
+     * `test_bullets_3_and_4_no_shipment_or_warehouse_entity_exists_in_the_whole_schema` and
+     * asserted both absences together. `P04-P4-02` delivered the warehouse half for `INV-001` /
+     * `INV-007`, so the old name stated something false and the old assertion had to be re-read
+     * rather than relaxed — the method is narrowed to the SHIPMENT concept and the two warehouse
+     * tables are declared below with the argument for why their arrival does not touch bullet 3's
+     * partial-shipment half or bullet 4 at all.
+     *
+     * The census still enumerates the tables the schema HAS and asserts that none of them is a
+     * shipment, rather than searching for a list of hoped-for names — so a table called
+     * `consignments` or `parcels` would be caught by the same predicate. The warehouse tables are
+     * subtracted BY NAME, and {@see test_bullets_3_and_4_the_warehouse_half_really_does_exist_now}
+     * asserts the other direction, so a stale declaration fails too.
      */
-    public function test_bullets_3_and_4_no_shipment_or_warehouse_entity_exists_in_the_whole_schema(): void
+    public function test_bullets_3_and_4_no_shipment_entity_exists_in_the_whole_schema(): void
     {
         $tables = $this->tableNames();
 
@@ -137,11 +153,28 @@ final class ShipCod04DFamilyCensusTest extends TestCase
             $t
         )));
 
+        /*
+         * DECLARED 2026-11-27 (`P04-P4-02`, `INV-001` / `INV-007`). These two tables are the
+         * warehouse half of bullet 3, and they change NOTHING about the rest of this family:
+         *
+         *   - they carry no carrier, tracking, cost or shipment column, so bullet 4 is untouched;
+         *   - nothing splits an order, so bullet 5 (one unified invoice) is still vacuously held
+         *     for the same reason it was, and bullet 6's shipment-split cause is still UNREACHABLE
+         *     rather than satisfied;
+         *   - the order path writes to them only to record WHERE units came from. The oversell
+         *     control is still `ProductStockService`'s conditional UPDATE on
+         *     `products.product_stock`, so bullet 6's "duplicate stock deduction" half is not
+         *     affected either.
+         */
+        $declaredWarehouseTables = ['product_warehouse_stock', 'warehouses'];
+
+        $suspects = array_values(array_diff($suspects, $declaredWarehouseTables));
+
         $this->assertSame([], $suspects, sprintf(
-            'bullets 3 and 4 ask for partial shipments, multiple warehouses, and tracking/cost/'
-            . 'carrier PER SHIPMENT. A table matching one of those concepts has appeared, so the '
-            . 'mechanism may now exist and this whole reconciliation must be re-read before the '
-            . 'family is disposed. Candidates: %s', implode(', ', $suspects)
+            'bullet 3 asks for partial SHIPMENTS and bullet 4 for tracking/cost/carrier PER '
+            . 'SHIPMENT. A table matching one of those concepts has appeared, so the mechanism may '
+            . 'now exist and this whole reconciliation must be re-read before the family is '
+            . 'disposed. Candidates: %s', implode(', ', $suspects)
         ));
 
         // PREMISE, the other direction: the census input really is this repository's schema, so
@@ -156,6 +189,42 @@ final class ShipCod04DFamilyCensusTest extends TestCase
             . 'name/description/slug lookup of shipping providers -- not a shipment record. A '
             . 'census keyed on the word "shipping" would read it as shipment support and be '
             . 'wrong, which is why the predicate above keys on the CONCEPT.');
+    }
+
+    /**
+     * THE OTHER DIRECTION OF THE DECLARATION ABOVE: bullet 3's warehouse half really does exist.
+     *
+     * Added 2026-11-27 with `P04-P4-02`. Without it the subtraction in the method above could
+     * outlive the tables it names — a declaration that blunts a census for a table that is no
+     * longer there, which is the failure `InventoryQuantitySourceAndWarehouseTest`'s own
+     * `PERMITTED_COLUMNS` loop exists to prevent.
+     *
+     * It deliberately asserts only the SCHEMA. What those tables do, and the per-warehouse
+     * quantities and automatic fulfilment selection built on them, are driven by
+     * `WarehouseDimensionTest`, `WarehouseSelectorTest` and `WarehouseStockSourcingTest`; this file
+     * is a census and says so in its header.
+     */
+    public function test_bullets_3_and_4_the_warehouse_half_really_does_exist_now(): void
+    {
+        $tables = $this->tableNames();
+
+        foreach (['warehouses', 'product_warehouse_stock'] as $declared) {
+            $this->assertContains(
+                $declared,
+                $tables,
+                "The shipment census above subtracts `$declared` by name as bullet 3's warehouse "
+                . 'half. That table is gone, so the subtraction is stale: delete it rather than '
+                . 'leaving a declaration that silently widens what the census would wave through.'
+            );
+        }
+
+        /* AND THE PARTIAL-SHIPMENT HALF IS STILL ABSENT, stated here beside the half that exists so
+           the two cannot be read as one answer. `INV-008`'s «شحنات جزئية» needs a shipment entity
+           and there is none; a partial shipment would also change what `orders.delivered_status`
+           means, which is `P04-P4-03`'s open owner question `H4`. */
+        $this->assertNotContains('shipments', $tables,
+            'bullet 3 is HALF built. If a shipment entity has arrived, the warehouse half is no '
+            . 'longer the whole of what exists and this reconciliation must be re-read.');
     }
 
     /**

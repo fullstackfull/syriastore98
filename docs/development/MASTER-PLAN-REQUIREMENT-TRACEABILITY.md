@@ -198,8 +198,8 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **182** |
-| PARTIALLY IMPLEMENTED | **120** |
-| NOT IMPLEMENTED | **10** |
+| PARTIALLY IMPLEMENTED | **121** |
+| NOT IMPLEMENTED | **9** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **26** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **13** |
@@ -4572,14 +4572,14 @@ against a pre-reorganization original.
 
 ### `P04-P4-02` — Multi-warehouse inventory
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
 
-- **Requirement (original wording / faithful reference):** Phase 04 scope, as the surviving derivation states it: '04 Commerce \| products, MULTI-WAREHOUSE STOCK, pricing, fulfilment, COD, returns, channels'.
-- **Source:** `CLAUDE.md §4 (DERIVED summary of the owner-approved Master Product Plan); echoed by docs/development/phase-2/PHASE-02-SCOPE.md:35 which routes 'multi-warehouse stock, returns workflow, channels' to Phase 04`
-- **Owner decisions:** None. Do not read the plan's silence as approval.
+- **Requirement (original wording / faithful reference):** **CORRECTED 2026-11-27 — THIS ROW CITED A DERIVED SUMMARY AND CALLED THE PLAN SILENT. THE PLAN WAS NOT SILENT.** `MASTER-PRODUCT-PLAN-v1.0-BASE.md` §**04-B — المخزون والمستودعات** carries ten bullets under «القرارات: INV-001 إلى INV-010», three of which are this requirement's subject, verbatim: «مستودع افتراضي واحد مع إمكانية تعدد المستودعات» (`INV-001` — one default warehouse, with multi-warehouse capability), «اختيار مستودع التنفيذ تلقائياً مع تعديل مصرح به» (`INV-007` — automatic fulfilment-warehouse selection with an authorised override), «توزيع التنفيذ على عدة مستودعات وشحنات جزئية» (`INV-008` — split fulfilment across warehouses, and partial shipments). §04-D repeats the pair: «شحنات جزئية ومستودعات متعددة». Bounded by `INV-002`, `INV-009`, `INV-010`/`EX-004`, `EX-002`, and `ARCH-002` «عدم تكرار محركات المنتجات والمخزون والطلبات والتسعير».
+- **Source:** `docs/development/master-plan/MASTER-PRODUCT-PLAN-v1.0-BASE.md §04-B` (identical in `-WITH-AMENDMENTS.md`) and `DECISION-ID-REGISTER.md`'s `INV-001`, `INV-007`, `INV-008`. **The previous Source line cited `CLAUDE.md §4`, a DERIVED summary**, which is how the row came to describe its own requirement as absent from the plan. A derived summary is never the source when the plan itself is in the repository.
+- **Owner decisions:** `INV-008` (split fulfilment and partial shipments — needs a `shipments` entity, absent under every spelling across all 285 migrations, and changes what `orders.delivered_status` means, which is open question `H4`); `INV-003` (stocktakes and adjustments — they move `products.product_stock` itself); `INV-002`'s reserved/available split (a reservation changes **when** stock becomes unbuyable, i.e. oversell behaviour); and whether a return goes back to the warehouse it was sourced from. **The previous line read "None. Do not read the plan's silence as approval" — the warning was right and its premise was wrong.**
 - **Expected behaviour:** Stock held and decremented per warehouse/location, with fulfilment choosing a source.
-- **Actual behaviour:** NOTHING EXISTS AND NOTHING WAS ATTEMPTED. `grep -ril warehouse` over app/, database/migrations/, routes/ returns zero code hits; no WorkDo module in packages/workdo/ is a warehouse module (the only matches repo-wide are font files and a vendored tinymce plugin). PHASE-04-EXECUTION-PLAN.md never uses the word; PHASE-04-FINAL-REPORT.md never uses the word. This requirement was not deferred, refused or escalated — it was silently absent from the plan.
-- **Gap:** The entire capability, and the scope decision behind it.
+- **Actual behaviour:** **THE ENGINE IS BUILT (2026-11-27); THE MERCHANT UI IS NOT.** The absence was re-measured first and held: `warehouse`, `location`, `branch`, `bin`, `depot`, `outlet`, `rack`, `shelf`, `مخزن`, `مستودع`, `فرع` across `app/`, `database/migrations/`, `routes/`, `resources/`, `config/`, `tests/` **and all 70 vendored modules** — the 8 `warehouse` hits in module PHP are **six prose docblocks and two Tabler icon names**, and the only location-shaped tables among all **285** migrations are `store_locators` (one address per store, no product or stock column), `shipping_zones` (a *destination*) and `stock_movements`. So `ARCH-002` was never in conflict with a module — it was in conflict with `products.product_stock`, and that drove the design. **Built:** `warehouses` + `product_warehouse_stock` (additive, documented no-op `down()`), `App\Services\WarehouseInventory`, `App\Support\Commerce\WarehouseSelector` (`INV-007`), and **116 lines added to `ProductStockService` with 0 removed and 0 changed**, so all five decrement sites inherit it. **The invariant is `Σ(breakdown) === products.product_stock`, because the default warehouse's figure is DERIVED rather than stored** — a stored default could disagree with `product_stock`, and then something would have to reconcile them; nothing reconciles anything here. Consequences, each pinned rather than implied: no backfill, no column's meaning changed, no total's value changed, oversell behaviour untouched (the conditional `UPDATE` is still the only sale gate), and all six restore doors unchanged because a restore raises `product_stock` and the remainder rises with it.
+- **Gap:** **`INV-001`'s capability is delivered at the service layer only — a merchant cannot create a warehouse through the product**, and `INV-007`'s override is implemented and tested at the service boundary with **no door**, because the picking surface `ORD-008` asks for does not exist. No route, API handler or Flutter contract surface is touched. The UI is engineering's next slice and is deliberately not rushed: `tests/Unit/Ui` holds 165 files, 128 referencing `resources/views`, plus a bilingual render and a contrast run — a hurried screen that reddens a dozen ratchets is worse than none. `INV-008`, `INV-003` and `INV-002`'s reservation split are owner decisions, listed above.
 - **Responsible:** owner dependency (scope), then a future phase
 - **Next action:** Ask the owner whether multi-warehouse stock was EX-* excluded or is still required; it cannot be settled from this repository because the Decision Register and its exclusions were never committed.
 

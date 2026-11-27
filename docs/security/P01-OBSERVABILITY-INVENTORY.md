@@ -84,8 +84,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/OrderFinancialService.php:530` | Refused to credit a financial record whose entitlement was reversed. |
 | `app/Services/PaymentService.php:232` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:3368` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Services/ProductStockService.php:139` | Stock decremented below zero on an order path that cannot refuse |
-| `app/Services/ProductStockService.php:250` | Stock decremented below zero on an order path that cannot refuse |
+| `app/Services/ProductStockService.php:146` | Stock decremented below zero on an order path that cannot refuse |
+| `app/Services/ProductStockService.php:260` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Helper/helper.php:444` | paid download url not issued |
 | `app/Http/Controllers/PaidDownloadController.php:353` | paid download refused: resolved path escapes the uploads root |
 | `app/Http/Controllers/PaidDownloadController.php:373` | paid download refused |
@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 | `app/Http/Controllers/PaymentCallbackController.php:327` | Paytm plan callback: the payment is verified but could not be settled. Nothing was activated and this needs a human. |
 
-### `warning` — 293 lines
+### `warning` — 295 lines
 
 > **[2026-11-26] 238 -> 259. TWENTY-ONE LINES THIS DOCUMENT'S OWN RATCHET COULD NOT SEE.** Not
 > twenty-one new log calls: twenty-one that have been in `app/` all along, invisible because their
@@ -422,8 +422,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentVerificationService.php:802` | COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored |
 | `app/Services/PaymentVerificationService.php:810` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
 | `app/Services/ProductStockService.php:111` | Stock decrement rejected: insufficient stock |
-| `app/Services/ProductStockService.php:221` | Variant stock decrement rejected: insufficient stock |
-| `app/Services/ProductStockService.php:452` | Could not flush the model cache after a stock change |
+| `app/Services/ProductStockService.php:228` | Variant stock decrement rejected: insufficient stock |
+| `app/Services/ProductStockService.php:568` | Could not flush the model cache after a stock change |
 | `app/Services/RefundIntegrityService.php:147` | Refund recorded as approved but NOT settled: no gateway refund was made |
 | `app/Services/RefundIntegrityService.php:247` | Refunds awaiting settlement could not be listed. |
 | `app/Services/ShopifyAdminApi.php:137` | a Shopify Admin API address was refused before the request was made |
@@ -445,6 +445,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Support/Modules/ModuleAvailability.php:99` | ModuleAvailability could not read the enable flag; treating the module as available. |
 | `app/Services/ImageVariants.php:457` | an image variant could not be generated |
 | `app/Services/ImageVariants.php:492` | an image variant directory does not resolve to the folder beside its original and was not used |
+| `app/Services/ProductStockService.php:524` | Warehouse sourcing was not recorded for a stock decrement |
+| `app/Services/WarehouseInventory.php:659` | Warehouse sourcing could not be recorded |
 | `app/Support/Help/MerchantAnnouncements.php:185` | MerchantAnnouncements could not read the announcement feed. |
 | `app/Support/Modules/ModuleTrust.php:132` | module trust: the review register exists and could not be read, so the package is refused |
 | `app/Support/Modules/ModuleTrust.php:176` | module trust: an uploaded package was not loaded because no approved review decision exists for it |
