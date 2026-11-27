@@ -100,6 +100,31 @@ $hasOperatorOnly = static fn (array $r): bool => (bool) array_filter(
 $oldPopulation = array_values(array_filter($routes, static fn ($r) => $isGet($r) && $notApi($r) && $hasOperatorOnly($r)));
 $newPopulation = array_values(array_filter($routes, static fn ($r) => $isGet($r) && $notApi($r) && $r['authenticated']));
 
+/*
+ * THE OLD POPULATION BY NAME, NOT ONLY BY COUNT.
+ *
+ * A COUNT CANNOT TELL A ROUTE LEAVING THE OPERATOR GATE FROM ANOTHER ONE JOINING IT, and that is
+ * not hypothetical: the population went 19 -> 26 between 2026-11-26 and 2026-11-27 as five Phase 06
+ * operator screens landed (`platform/verification`, `platform/approvals`, `platform/incidents`,
+ * `platform/operations`, `platform/stores`, two of them with a parameterised sibling), and the only
+ * signal `HostUtilityCensusPopulationTest` could give was `26 !== 19`. Worse, nineteen routes
+ * swapped for nineteen different ones would have passed. Emitted so the test can assert the SET.
+ *
+ * Two of the routes carry no name at all (`zid/{storeId}/orders`, `zid/{storeId}/webhooks`), so the
+ * identifier falls back to the uri rather than to an empty string that would collide.
+ *
+ * ONE ENTRY PER ROUTE ROW, NOT DEDUPLICATED, so that `count(old_population_route_names)` is always
+ * `old_population_routes`. Deduplicating would let two rows sharing one name read as a route that
+ * had LEFT the population, which is the reading this list exists to make reliable; the test asserts
+ * the two agree.
+ */
+$routeIdentity = static fn (array $r): string => ($r['name'] ?? '') !== ''
+    ? (string) $r['name']
+    : 'GET ' . $r['uri'];
+
+$oldPopulationNames = array_map($routeIdentity, $oldPopulation);
+sort($oldPopulationNames);
+
 // -------------------------------------------------------------------------------------------------
 // 2. route -> view attribution
 // -------------------------------------------------------------------------------------------------
@@ -436,6 +461,7 @@ $sum = static function (array $rows, string $key, ?bool $inOld = null): int {
 $report = [
     'routes_total_rows' => count($routes),
     'old_population_routes' => count($oldPopulation),
+    'old_population_route_names' => $oldPopulationNames,
     'new_population_routes' => count($newPopulation),
     'old_population_views' => count($oldViews),
     'new_population_views' => count($newViews),

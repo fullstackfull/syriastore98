@@ -53,8 +53,12 @@ use Tests\Support\StripsSourceComments;
  * METRIC LAYER. It is not the only thing that sums an order. Measured below: order money is
  * aggregated at sites OUTSIDE `app/Support/Metrics/`, in `ReportController` ("Gross Sale"),
  * `HomeController` (the merchant dashboard's own gross sale), `Api/DashboardController` (what the
- * shipped Flutter app shows) and three models. Each one would count an imported historical order as
- * a new sale.
+ * shipped Flutter app shows) and TWO models — `ActivityLog::totalspend()` and
+ * `Customer::total_spend()`. Each one would count an imported historical order as a new sale.
+ *
+ * ("three models" until 2026-11-27, and it was never right: the declared list has held exactly two
+ * `app/Models/` entries since it was written. Corrected while re-keying the census, because a
+ * figure in the prose beside a measurement is read as part of it.)
  *
  * SO THE COST OF DATA-007 IS KNOWN RATHER THAN GUESSED, and that is what this file delivers:
  * the exclusion is not one line at a chokepoint, it is the metric accessors PLUS every site in the
@@ -89,28 +93,73 @@ final class HistoricalOrderImportSalesExclusionTest extends SecurityTestCase
     use StripsSourceComments;
 
     /**
-     * EVERY SITE THAT AGGREGATES ORDER MONEY OUTSIDE `app/Support/Metrics/`, measured 2026-11-26.
+     * EVERY SITE THAT AGGREGATES ORDER MONEY OUTSIDE `app/Support/Metrics/`, measured 2026-11-26,
+     * RE-KEYED 2026-11-27 ON THE METHOD RATHER THAN THE LINE.
      *
      * Each is a place a historical order would be counted as a new sale. The value is what the site
-     * feeds, because "13 sites" is not actionable and "the merchant dashboard's gross sale" is.
+     * feeds and how many aggregations it holds, because "13 sites" is not actionable and "the
+     * merchant dashboard's gross sale, twice" is.
      *
-     * @var array<string, string>  "file:line" => what the figure feeds
+     * =============================================================================================
+     *  WHY THE KEY IS A METHOD NOW. IT WAS `file:line`, AND TWO OF THE TEN WENT STALE IN ONE DAY.
+     * =============================================================================================
+     *
+     * `HomeController.php:2123` and `:2138` were correct when this census was written and were
+     * `:2185` and `:2200` the next day. Both lines are BYTE-IDENTICAL to the citing commit's own
+     * tree (`git show 0628e8fdf:app/Http/Controllers/HomeController.php` at 2123 and 2138), so
+     * nothing about the subject changed: 62 lines were inserted ABOVE them by three commits that
+     * touched neither —
+     *     a422c18f3  CUST-003, an unpublished product must not be offered     +13 −1
+     *     3d72820e6  ADM-001/ADM-002, one operator definition and Store 360   +29 −1
+     *     8cb288150  GAP-231, the two operator rankings count settled only    +22 −0
+     * = +62 exactly. CLAUDE.md §3's convention exists for this: *cite the METHOD, not the line. It
+     * cannot drift and a grep finds it.*
+     *
+     * AND THE DRIFT HAD TO BE MEASURED AGAINST THE CITING COMMIT'S OWN TREE, NOT `HEAD~1`, which
+     * CLAUDE.md also records: 88 commits separate `0628e8fdf` from HEAD, exactly FIVE touch this
+     * file, and `git diff HEAD~1 HEAD`, `HEAD~2 HEAD` and `HEAD~3 HEAD` all report it unchanged —
+     * so any of those three parents would have shown a drift of zero while the real drift was 62.
+     *
+     * A METHOD KEY ALONE IS NOT ENOUGH, AND THAT IS MEASURED TOO. Three of the ten sites share a
+     * method with another: `file::method()` alone is 7 distinct keys for 10 sites
+     * (`best_selling_brand_chart`, `order_reports_chart` and `order_reports_chart_data` hold two
+     * each — a per-date series and a running total). So the declared value carries the COUNT, and
+     * `test_the_metric_layer_is_not_the_only_place_order_money_is_summed` asserts the method set
+     * AND the count per method in both directions: a new aggregation inside an existing method
+     * moves its count, and a new method appears as a new key. The failure message names the
+     * matched lines, so a reader still gets the code without the key having to embed it.
+     *
+     * (`file::method()` plus the matched LINE TEXT would also be 10 distinct keys — measured. It is
+     * not used because it would make each declared key a 130-character copy of the expression it
+     * points at, which drifts on any reformat of that line, and a key nobody can read is not a
+     * better citation than one that is merely coarse.)
+     *
+     * @var array<string, array{sites: int, feeds: string}>  "file::method()" => how many, and what it feeds
      */
     private const AGGREGATION_SITES = [
-        /* IN THE CENSUS'S OWN `ksort` ORDER, which is why 11078 precedes 8451: these are STRING
-           keys, so '1' sorts before '8'. Declared in that order rather than sorted in the
-           assertion, so the diff a reader is shown on a failure is a one-line insertion rather
-           than a reordering of ten. */
-        'app/Http/Controllers/Api/DashboardController.php:11078' => 'THE SHIPPED FLUTTER ADMIN APP',
-        'app/Http/Controllers/Api/DashboardController.php:8451' => 'THE SHIPPED FLUTTER ADMIN APP',
-        'app/Http/Controllers/HomeController.php:2123' => 'THE MERCHANT DASHBOARD gross-sale series',
-        'app/Http/Controllers/HomeController.php:2138' => 'THE MERCHANT DASHBOARD gross-sale total',
-        'app/Http/Controllers/ReportController.php:1039' => 'report "Gross Sale" series, per date',
-        'app/Http/Controllers/ReportController.php:1054' => 'report "Gross Sale" total',
-        'app/Http/Controllers/ReportController.php:1652' => 'report "Gross Sale" series, per date',
-        'app/Http/Controllers/ReportController.php:1665' => 'report "Gross Sale" total',
-        'app/Models/ActivityLog.php:217' => 'SUM(final_price) and COUNT(*) per activity window',
-        'app/Models/Customer.php:328' => "a customer's lifetime spend in this store",
+        /* IN THE CENSUS'S OWN `ksort` ORDER, declared rather than sorted in the assertion, so the
+           diff a reader is shown on a failure is a one-line insertion rather than a reordering. */
+        'app/Http/Controllers/Api/DashboardController.php::CustomerList()' => [
+            'sites' => 1, 'feeds' => 'THE SHIPPED FLUTTER ADMIN APP',
+        ],
+        'app/Http/Controllers/Api/DashboardController.php::getCustomerOrdersApi()' => [
+            'sites' => 1, 'feeds' => 'THE SHIPPED FLUTTER ADMIN APP',
+        ],
+        'app/Http/Controllers/HomeController.php::best_selling_brand_chart()' => [
+            'sites' => 2, 'feeds' => 'THE MERCHANT DASHBOARD gross-sale series, and its total',
+        ],
+        'app/Http/Controllers/ReportController.php::order_reports_chart()' => [
+            'sites' => 2, 'feeds' => 'report "Gross Sale" series per date, and its total',
+        ],
+        'app/Http/Controllers/ReportController.php::order_reports_chart_data()' => [
+            'sites' => 2, 'feeds' => 'report "Gross Sale" series per date, and its total',
+        ],
+        'app/Models/ActivityLog.php::totalspend()' => [
+            'sites' => 1, 'feeds' => 'SUM(final_price) and COUNT(*) per activity window',
+        ],
+        'app/Models/Customer.php::total_spend()' => [
+            'sites' => 1, 'feeds' => "a customer's lifetime spend in this store",
+        ],
     ];
 
     /**
@@ -125,7 +174,10 @@ final class HistoricalOrderImportSalesExclusionTest extends SecurityTestCase
      */
     private const AGGREGATES_ORDER_MONEY = '/(?:SUM\(\s*`?(?:orders\.)?final_price`?\s*\)|sum\(\s*[\'"]final_price[\'"]\s*\))/i';
 
-    /** @return array<string, string> "file:line" => the matched line, over app/ with comments stripped */
+    /**
+     * @return array<string, list<string>> "file::method()" => the matched lines, over app/ with
+     *                                     comments stripped
+     */
     private function aggregationSites(): array
     {
         $found = [];
@@ -150,16 +202,44 @@ final class HistoricalOrderImportSalesExclusionTest extends SecurityTestCase
                 continue;
             }
 
-            foreach (explode("\n", $this->sourceWithoutComments($relative)) as $index => $line) {
-                if (preg_match(self::AGGREGATES_ORDER_MONEY, $line)) {
-                    $found[$relative . ':' . ($index + 1)] = trim($line);
+            $lines = explode("\n", $this->sourceWithoutComments($relative));
+
+            foreach ($lines as $index => $line) {
+                if (! preg_match(self::AGGREGATES_ORDER_MONEY, $line)) {
+                    continue;
                 }
+
+                $found[$relative . '::' . $this->enclosingMethod($lines, $index) . '()'][] = trim($line);
             }
         }
 
         ksort($found);
 
         return $found;
+    }
+
+    /**
+     * The name of the method a matched line sits in, by scanning BACK to the nearest named
+     * `function`.
+     *
+     * NOT A PHP PARSER, and the two ways that matters are both deliberate. A CLOSURE cannot be
+     * mistaken for the enclosing method: `function (` and `fn (` have no name, so the pattern
+     * requires a word character after `function` and scans past them to the real declaration.
+     * And a line that sits in no method at all answers `?`, which is a key no declaration below
+     * carries, so it FAILS loudly rather than being silently attributed to the method above the
+     * class.
+     *
+     * @param  list<string>  $lines
+     */
+    private function enclosingMethod(array $lines, int $index): string
+    {
+        for ($i = $index; $i >= 0; $i--) {
+            if (preg_match('/function\s+(\w+)\s*\(/', $lines[$i], $m) === 1) {
+                return $m[1];
+            }
+        }
+
+        return '?';
     }
 
     /**
@@ -267,15 +347,44 @@ final class HistoricalOrderImportSalesExclusionTest extends SecurityTestCase
     {
         $sites = $this->aggregationSites();
 
-        $this->assertSame(array_keys(self::AGGREGATION_SITES), array_keys($sites),
-            'the set of order-money aggregations outside app/Support/Metrics/ has changed. These '
-            . 'are the sites a historical-order exclusion must reach IN ADDITION to the Metric '
-            . "accessors; add the new one with what its figure feeds, or remove the stale entry.");
+        /*
+         * THE METHOD SET AND THE COUNT PER METHOD, IN ONE TWO-DIRECTIONAL COMPARISON. A new method
+         * appears as a new key; a new aggregation inside an existing method moves its count. The
+         * matched lines go in the MESSAGE rather than the key, so re-keying on the method (see
+         * `AGGREGATION_SITES`) cost a reader nothing: they still get the code, and the key no
+         * longer goes stale when 62 lines are inserted above it.
+         */
+        $measured = array_map('count', $sites);
+        $declared = array_map(fn (array $entry) => $entry['sites'], self::AGGREGATION_SITES);
 
-        $this->assertGreaterThan(1, count($sites),
+        $lines = [];
+
+        foreach ($sites as $key => $matched) {
+            foreach ($matched as $line) {
+                $lines[] = $key . '  ' . $line;
+            }
+        }
+
+        $this->assertSame($declared, $measured,
+            "the set of order-money aggregations outside app/Support/Metrics/ has changed. These\n"
+            . "are the sites a historical-order exclusion must reach IN ADDITION to the Metric\n"
+            . "accessors; add the new one with what its figure feeds, or remove the stale entry.\n"
+            . "What the sweep found:\n  " . implode("\n  ", $lines));
+
+        $this->assertGreaterThan(1, array_sum($measured),
             'if this ever reaches zero the metric layer really IS the only door and DATA-007 '
             . 'becomes a one-place change -- which would be good news worth noticing rather than '
             . 'a test to delete.');
+
+        /*
+         * WHAT THIS STILL CANNOT SEE, stated rather than implied: REPLACING one aggregation with a
+         * different one inside the same method keeps the count and passes. That is not a
+         * regression from the `file:line` key this replaced -- that version's `assertSame` compared
+         * KEYS only, so a changed expression on an unchanged line passed it too. Catching it would
+         * mean declaring the expressions, which is the 130-character key `AGGREGATION_SITES`
+         * explains and rejects. What matters for DATA-007 is that no site is ADDED unnoticed, and
+         * both keys catch that.
+         */
     }
 
     /**

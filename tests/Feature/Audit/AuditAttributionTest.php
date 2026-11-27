@@ -9,6 +9,7 @@ use App\Support\Audit\AuditAttribution;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Security\SecurityTestCase;
+use Tests\Support\StripsSourceComments;
 
 /**
  * THE OPERATOR'S AUDIT ROWS WERE ALL FILED UNDER STORE 1, WHOEVER THEY WERE TAKEN AGAINST.
@@ -32,6 +33,68 @@ use Tests\Feature\Security\SecurityTestCase;
 class AuditAttributionTest extends SecurityTestCase
 {
     use RefreshDatabase;
+    use StripsSourceComments;
+
+    /**
+     * THE SWEEP'S TRIPWIRE: what counts as an authorization check somewhere in the same FILE as an
+     * audit read. Unchanged in content — hoisted out of the sweep so that it has a name, and so
+     * that `GATE_IS_AUTHORIZATION` below can state what it is deliberately NOT.
+     */
+    private const GATE_TOKENS = '/isAbleTo\(|super admin|Gate::|authorize\(/';
+
+    /**
+     * What makes a NAMED GATE an authorization check — a wider list than `GATE_TOKENS`, asked of
+     * one METHOD BODY rather than of a whole file.
+     *
+     * TWO DIFFERENT QUESTIONS, AND MEASURING THEM WITH ONE PATTERN WAS WRONG. `GATE_TOKENS` asks
+     * "does this FILE contain an authorization check anywhere" — a tripwire. This asks "is the
+     * method I have just named as the gate really one", which is answerable precisely because the
+     * subject is one method.
+     *
+     * AND THE FOUR TRIPWIRE TOKENS DO NOT COVER THIS CODEBASE'S OWN IDIOM. Measured:
+     * `app/Services/Kyc/KycAccess.php` matches NONE of them with comments stripped. It gates with
+     * `UserPolicy::isOperator()` and `UserPolicy::merchantTenantRoot()` — which is not a gap in the
+     * gate, it is CLAUDE.md §1's operator-first rule written the way that document asks for, and
+     * `P1-SEC-11` criterion 3 asks for the operator to be defined ONCE rather than spelled a fifth
+     * time as `'super admin'`.
+     *
+     * `GATE_TOKENS` IS DELIBERATELY NOT WIDENED TO MATCH. It is another slice's tripwire and
+     * widening what counts as "gated" makes a tripwire weaker, not stronger. Measured, so the
+     * decision is not a guess: the only non-write `AuditLog::` calls in `app/` are the two in
+     * `KycAccessLog`, so adding these spellings to the sweep would change nothing it reports today
+     * and would only lower the bar for whatever is added next.
+     */
+    private const GATE_IS_AUTHORIZATION = '/UserPolicy::isOperator\(|isPlatformAdmin\(|merchantTenantRoot\(|isAbleTo\(|super admin|Gate::|authorize\(/';
+
+    /**
+     * READERS WHOSE GATE IS ONE CLASS AWAY — each EARNED by
+     * `test_every_reader_gated_by_a_caller_really_is_gated_by_that_caller`, not merely declared.
+     *
+     * THE SWEEP BELOW ASKS WHETHER A GATE TOKEN APPEARS IN THE SAME FILE AS THE READ. That is a
+     * fair question of a controller and a structurally impossible one of a SERVICE that returns a
+     * query builder: `KycAccessLog::forDocument()` cannot gate anybody, because it is handed a
+     * `KycDocument` whose caller has already proved the principal may see it. Its own docblock
+     * says exactly that — *"WHO may call this is `KycAccess`'s decision, made before the query is
+     * built: a query is not a gate"* — and both of its reads carry an explicit
+     * `where('store_id', …)` as defence in depth.
+     *
+     * SO THE FIX IS THE CENSUS'S POPULATION, NOT THE CODE, AND THE ENTRY IS NOT A SUPPRESSION.
+     * Simply skipping the file would leave the thing this ratchet exists to catch — an UNGATED
+     * CALLER — undetected forever. The companion test asserts the whole chain instead: the named
+     * gate exists, it really is an authorization check, each reader narrows by `store_id` in its
+     * own body, and EVERY first-party file that calls one of those readers names the gate. A new
+     * `accessLog`-shaped action that forgets `KycAccess` therefore fails — which the same-file
+     * heuristic could never see, because it would be satisfied by any `authorize()` anywhere in
+     * the controller.
+     *
+     * @var array<string, array{gate: string, readers: list<string>}>
+     */
+    private const READERS_GATED_BY_A_CALLER = [
+        'app/Services/Kyc/KycAccessLog.php' => [
+            'gate' => \App\Services\Kyc\KycAccess::class . '::permitsOwnDocuments',
+            'readers' => ['forDocument', 'forVerification'],
+        ],
+    ];
 
     private function storeOwnedBy(User $owner, string $name): Store
     {
@@ -289,9 +352,7 @@ class AuditAttributionTest extends SecurityTestCase
         $readers = [];
         $writesSeen = 0;
 
-        foreach ($this->firstPartyPhpFiles() as $path) {
-            $source = (string) file_get_contents($path);
-
+        foreach ($this->firstPartyPhpSources() as $relative => $source) {
             $touches = preg_match_all('/AuditLog::(\w+)\(/', $source, $m);
 
             if ($touches === 0) {
@@ -317,10 +378,21 @@ class AuditAttributionTest extends SecurityTestCase
                     continue;
                 }
 
-                $gated = preg_match('/isAbleTo\(|super admin|Gate::|authorize\(/', $source) === 1;
+                /*
+                 * A READER WHOSE GATE IS IN ANOTHER CLASS, declared at the top of this class and
+                 * EARNED by `test_every_reader_gated_by_a_caller_really_is_gated_by_that_caller`.
+                 * Skipped here rather than tolerated: that test asserts the gate exists, is an
+                 * authorization check, and is named by every file that calls the reader — which
+                 * this same-file question cannot express at all.
+                 */
+                if (array_key_exists($relative, self::READERS_GATED_BY_A_CALLER)) {
+                    continue;
+                }
+
+                $gated = preg_match(self::GATE_TOKENS, $source) === 1;
 
                 if (! $gated) {
-                    $readers[] = basename($path) . '::' . $method . '()';
+                    $readers[] = basename($relative) . '::' . $method . '()';
                 }
             }
         }
@@ -350,23 +422,203 @@ class AuditAttributionTest extends SecurityTestCase
         );
     }
 
-    /** @return list<string> */
-    private function firstPartyPhpFiles(): array
+    /**
+     * EVERY DECLARED "GATED BY A CALLER" ENTRY IS EARNED, NOT ASSERTED.
+     *
+     * Four properties, because the declaration above removes a file from the sweep and an unearned
+     * removal is exactly the suppression this file's ratchet exists to prevent:
+     *
+     *   1. the named gate exists and is callable;
+     *   2. the gate's OWN source carries one of the tokens the sweep looks for, so "the gate" is a
+     *      gate rather than a helper somebody called one;
+     *   3. each declared reader narrows by `store_id` in its own body. Every row for a subject
+     *      already carries the subject's store, so this changes no result today; it is what stops
+     *      a row written with a different attribution — by a future caller, or by a bug — being
+     *      shown on a merchant's screen, and this file's own docblock explains why that matters
+     *      (the historical rows are ALL filed under store 1);
+     *   4. every first-party file that CALLS one of those readers also names the gate's class.
+     *      This is the property the same-file heuristic cannot express and the only one that
+     *      really protects anything: a new action that reads the trail and forgets `KycAccess`
+     *      fails here.
+     */
+    #[Test]
+    public function test_every_reader_gated_by_a_caller_really_is_gated_by_that_caller(): void
     {
-        $files = [];
+        $this->assertNotSame([], self::READERS_GATED_BY_A_CALLER,
+            'premise: nothing is declared, so this test asserts nothing. If the last entry went '
+            . 'away because its reader did, delete this test with it — do not leave it passing '
+            . 'vacuously beside a sweep it is meant to keep honest.');
+
+        $sources = $this->firstPartyPhpSources();
+
+        foreach (self::READERS_GATED_BY_A_CALLER as $relative => $entry) {
+            [$gateClass, $gateMethod] = explode('::', $entry['gate']);
+
+            $this->assertTrue(method_exists($gateClass, $gateMethod),
+                $relative . ' names ' . $entry['gate'] . ' as its gate, and that method does not '
+                . 'exist. The entry removes a file from the reader sweep, so a dangling gate name '
+                . 'is a silent hole.');
+
+            /* The gate's own file, derived from its class rather than typed again, so renaming the
+               class moves this with it. */
+            $gateRelative = 'app/' . str_replace('\\', '/', substr($gateClass, strlen('App\\'))) . '.php';
+
+            $this->assertArrayHasKey($gateRelative, $sources,
+                $entry['gate'] . ' does not live at ' . $gateRelative . ', so this test is not '
+                . 'reading the gate it thinks it is.');
+
+            $gateBody = $this->methodBody($sources[$gateRelative], $gateMethod);
+
+            $this->assertNotSame('', $gateBody,
+                'this test cannot find the body of ' . $entry['gate'] . ', so it cannot establish '
+                . 'that the gate is one.');
+
+            $this->assertMatchesRegularExpression(self::GATE_IS_AUTHORIZATION, $gateBody,
+                $entry['gate'] . ' decides nothing about the principal, so calling it a gate is a '
+                . 'claim rather than a measurement. Asked of the METHOD BODY, with comments '
+                . 'stripped, so prose about authorization cannot satisfy it.');
+
+            $this->assertArrayHasKey($relative, $sources, 'premise: ' . $relative . ' is not in the sweep.');
+
+            foreach ($entry['readers'] as $reader) {
+                $body = $this->methodBody($sources[$relative], $reader);
+
+                $this->assertNotSame('', $body,
+                    $relative . ' declares reader ' . $reader . '(), which this test cannot find. '
+                    . 'An entry naming a method that is gone exempts a file for nothing.');
+
+                $this->assertStringContainsString("'store_id'", $body,
+                    $relative . '::' . $reader . '() no longer narrows by store_id. Historical '
+                    . 'audit rows are all filed under store 1, so a reader without that predicate '
+                    . "can put another tenant's row on a merchant's screen.");
+            }
+
+            $ungatedCallers = [];
+            $callersSeen = 0;
+
+            foreach ($sources as $candidate => $source) {
+                if ($candidate === $relative) {
+                    continue;
+                }
+
+                foreach ($entry['readers'] as $reader) {
+                    if (! str_contains($source, '::' . $reader . '(')) {
+                        continue;
+                    }
+
+                    $callersSeen++;
+
+                    /* The short name matches an import and an inline FQN alike. It cannot be
+                       satisfied by `KycAccessLog::`, whose next characters are `Log`. */
+                    if (! str_contains($source, class_basename($gateClass) . '::')) {
+                        $ungatedCallers[] = $candidate . ' calls ' . $reader . '()';
+                    }
+                }
+            }
+
+            $this->assertSame([], $ungatedCallers,
+                "An audit reader declared as gated by its CALLER is called from a file that does\n"
+                . 'not name ' . $gateClass . ". The reader cannot gate anybody — it is handed a\n"
+                . "subject its caller has already authorised — so a caller without the gate is an\n"
+                . "ungated audit read, and audit rows for operator actions are attributed\n"
+                . "per-store while the historical ones are all under store 1. Found: "
+                . implode(', ', $ungatedCallers));
+
+            $this->assertGreaterThan(0, $callersSeen,
+                'premise: nothing in app/ calls any of ' . $relative . "'s declared readers, so "
+                . 'the caller assertion above is vacuous. Either the reader is dead and the entry '
+                . 'should go, or the search stopped working.');
+        }
+    }
+
+    /**
+     * One method's body, brace-matched, from source whose comments are already gone.
+     *
+     * NOT A PHP PARSER, and the limitation is stated rather than hidden: it finds the FIRST
+     * declaration of that name in the file, which is sufficient here because the subject is one
+     * class per file. It returns `''` rather than guessing, and the caller asserts on that.
+     */
+    private function methodBody(string $source, string $method): string
+    {
+        if (! preg_match('/function\s+' . preg_quote($method, '/') . '\s*\(/', $source, $m, PREG_OFFSET_CAPTURE)) {
+            return '';
+        }
+
+        $open = strpos($source, '{', (int) $m[0][1]);
+
+        if ($open === false) {
+            return '';
+        }
+
+        $depth = 0;
+        $length = strlen($source);
+
+        for ($i = $open; $i < $length; $i++) {
+            $depth += $source[$i] === '{' ? 1 : ($source[$i] === '}' ? -1 : 0);
+
+            if ($depth === 0) {
+                return substr($source, $open, $i - $open + 1);
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Every first-party PHP file under `app/`, as "relative path => CODE".
+     *
+     * COMMENTS ARE STRIPPED, AND THAT IS NOT TIDINESS. CLAUDE.md §3 records this census trap eight
+     * times over: a sweep that reads comments can be satisfied — or broken — by prose about the
+     * thing it measures. Here it was satisfying the WRITE PREMISE. MEASURED over `app/`:
+     * **47 "writes" on raw source, 36 on code — eleven of them in comments, spread over NINE
+     * files** that each describe an `AuditLog` write while explaining an attribution defect they
+     * were repaired of. `app/Support/Audit/AuditAttribution.php` is the clearest: raw 1, code 0, so
+     * every write the sweep saw there was prose.
+     *
+     * THE READER SET IS IDENTICAL EITHER WAY — both answers name the same two `AuditLog::query()`
+     * builders inside `KycAccessLog` — so stripping changes nothing the census reports today. What
+     * it stops is a future file satisfying this premise, or losing its gate token, by writing about
+     * one.
+     *
+     * (`KycAccessLog` declares no `query()` of its own, so naming those builders as that class's
+     * would be a citation of a call the class MAKES rather than a method it HAS.
+     * `tests/Unit/Governance/CitedMethodsExistTest` catches exactly that, and did, on the first
+     * draft of the paragraph above.)
+     *
+     * @return array<string, string>
+     */
+    private function firstPartyPhpSources(): array
+    {
+        static $sources = null;
+
+        if ($sources !== null) {
+            /* The premise is re-asserted on every call rather than only on the one that paid for
+               the tokenising, so a test that reads the cache still states what it is reading. */
+            $this->assertGreaterThan(300, count($sources), 'premise: the sweep found almost no files');
+
+            return $sources;
+        }
+
+        $found = [];
 
         foreach ([base_path('app')] as $root) {
             $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root));
 
             foreach ($it as $file) {
                 if ($file->isFile() && $file->getExtension() === 'php') {
-                    $files[] = $file->getPathname();
+                    $found[ltrim(str_replace(base_path(), '', $file->getPathname()), '/')] = null;
                 }
             }
         }
 
-        $this->assertGreaterThan(300, count($files), 'premise: the sweep found almost no files');
+        $this->assertGreaterThan(300, count($found), 'premise: the sweep found almost no files');
 
-        return $files;
+        ksort($found);
+
+        foreach (array_keys($found) as $relative) {
+            $found[$relative] = $this->sourceWithoutComments($relative);
+        }
+
+        return $sources = $found;
     }
 }

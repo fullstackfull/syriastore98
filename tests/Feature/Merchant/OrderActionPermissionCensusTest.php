@@ -425,6 +425,28 @@ class OrderActionPermissionCensusTest extends SecurityTestCase
             'POST update-order-status/{id}',
             'POST order-return',
             'POST order-return-request',
+            // RET-002's returned-item inspection writer, authorised exactly like the writers
+            // above it: `OrderController::order_return_inspection()` calls
+            // `$this->authorize('updateStatus', $order)`, which is `OrderPolicy::updateStatus()` ->
+            // `OrderPolicy::allow($actor, $order, 'Manage Order')` -- and that helper tests
+            // `isPlatformAdmin()` FIRST, so `isAbleTo()` alone cannot lock the platform operator
+            // out of it. CLAUDE.md's operator-first ordering, already satisfied.
+            //
+            // LISTED HERE RATHER THAN CENSUSED IN `ACTIONS` for the reason `POST order` is also
+            // excluded from that table: the handler answers JSON and a status code cannot tell an
+            // accepted inspection from a refused one -- it 404s a missing order, 422s an
+            // unrecognised verdict and 422s a line that is not on the order, so "did the gate
+            // refuse" is not readable from the status alone.
+            //
+            // NOT AN EXEMPTION. `tests/Feature/Commerce/ReturnConditionInspectionDoorTest` drives
+            // this route in eight cases, including the owning merchant, the platform operator,
+            // ANOTHER STORE'S merchant (refused by the policy) and a missing order -- so both
+            // halves this file asks for are driven, by the file that owns the door.
+            //
+            // FOUND BY THE INTEGRATION AND NOT BY THE BRANCH THAT ADDED THE ROUTE, which is the
+            // same way `GET order-packing-list/{id}` above was missed: that branch extended its own
+            // door test, and this census lives in a file it had no reason to read.
+            'POST order-return-inspection',
             // Storefront/customer surfaces, not merchant order actions. These are the SHOPPER's
             // checkout and order-tracking pages, reached under the store slug by a customer or a
             // guest -- a different principal, a different guard family (the `customers` session
