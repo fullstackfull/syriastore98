@@ -1,0 +1,130 @@
+
+=== light-en  (theme=light dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=off SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification               theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/4 icon-fail=0/0 | .btn-primary=2 .ss-btn--primary=0
+  /platform/approvals                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=7 control-fail=1/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "plan.disable"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "plan.order.refund"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "plan.bank_transfer.approve"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "user.delete"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "store.delete"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "operator.impersonate"
+        ... and 1 more text findings
+        CTRL  3.45:1 (needs 4.5)  rgb(255,58,110) on rgb(255,255,255)  button.btn.btn-sm.btn-outline-danger  "Reject"
+  /platform/incidents                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /platform/operations                 theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+
+=== dark-en  (theme=dark dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=on SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification               theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=2/4 icon-fail=0/0 | .btn-primary=2 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Across the platform"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-primary  "Approve document"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-primary  "Approve verification"
+  /platform/approvals                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=8 control-fail=1/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Across the platform"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "plan.disable"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "plan.order.refund"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "plan.bank_transfer.approve"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "user.delete"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "store.delete"
+        ... and 2 more text findings
+        CTRL  4.12:1 (needs 4.5)  rgb(255,58,110) on rgb(38,43,51)  button.btn.btn-sm.btn-outline-danger  "Reject"
+  /platform/incidents                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Across the platform"
+  /platform/operations                 theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Across the platform"
+
+=== light-ar  (theme=light dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=off SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification               theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/4 icon-fail=0/0 | .btn-primary=2 .ss-btn--primary=0
+  /platform/approvals                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=7 control-fail=1/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "plan.disable"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "plan.order.refund"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "plan.bank_transfer.approve"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "user.delete"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "store.delete"
+        TEXT  3.82:1 (needs 4.5)  rgb(232,62,140) on rgb(255,255,255)  code  "operator.impersonate"
+        ... and 1 more text findings
+        CTRL  3.45:1 (needs 4.5)  rgb(255,58,110) on rgb(255,255,255)  button.btn.btn-sm.btn-outline-danger  "رفض"
+  /platform/incidents                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /platform/operations                 theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+
+=== dark-ar  (theme=dark dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=on SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification               theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=2/4 icon-fail=0/0 | .btn-primary=2 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "على مستوى المنصة"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-primary  "الموافقة على الوثيقة"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-primary  "الموافقة على التوثيق"
+  /platform/approvals                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=8 control-fail=1/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "على مستوى المنصة"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "plan.disable"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "plan.order.refund"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "plan.bank_transfer.approve"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "user.delete"
+        TEXT  3.73:1 (needs 4.5)  rgb(232,62,140) on rgb(38,43,51)  code  "store.delete"
+        ... and 2 more text findings
+        CTRL  4.12:1 (needs 4.5)  rgb(255,58,110) on rgb(38,43,51)  button.btn.btn-sm.btn-outline-danger  "رفض"
+  /platform/incidents                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "على مستوى المنصة"
+  /platform/operations                 theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "على مستوى المنصة"
+
+
+================ GROUPED CENSUS (colour, background, theme) ================
+
+LIGHT TEXT    rgb(232,62,140) on rgb(255,255,255)  3.82:1 (needs 4.5)  x14 on 1 surfaces
+      surfaces: /platform/approvals
+      selectors: code
+      e.g.: "plan.disable" "plan.order.refund" "plan.bank_transfer.approve" "user.delete"
+
+DARK  TEXT    rgb(232,62,140) on rgb(38,43,51)  3.73:1 (needs 4.5)  x14 on 1 surfaces
+      surfaces: /platform/approvals
+      selectors: code
+      e.g.: "plan.disable" "plan.order.refund" "plan.bank_transfer.approve" "user.delete"
+
+DARK  TEXT    rgb(4,34,42) on rgb(51,93,168)  2.58:1 (needs 4.5)  x8 on 4 surfaces
+      surfaces: /platform/verification /platform/approvals /platform/incidents /platform/operations
+      selectors: span.dash-mtext
+      e.g.: "Across the platform" "على مستوى المنصة"
+
+DARK  CONTROL rgb(4,34,42) on rgb(51,93,168)  2.58:1 (needs 4.5)  x4 on 1 surfaces
+      surfaces: /platform/verification
+      selectors: button.btn.btn-primary
+      e.g.: "Approve document" "Approve verification" "الموافقة على الوثيقة" "الموافقة على التوثيق"
+
+LIGHT CONTROL rgb(255,58,110) on rgb(255,255,255)  3.45:1 (needs 4.5)  x2 on 1 surfaces
+      surfaces: /platform/approvals
+      selectors: button.btn.btn-sm.btn-outline-danger
+      e.g.: "Reject" "رفض"
+
+DARK  CONTROL rgb(255,58,110) on rgb(38,43,51)  4.12:1 (needs 4.5)  x2 on 1 surfaces
+      surfaces: /platform/approvals
+      selectors: button.btn.btn-sm.btn-outline-danger
+      e.g.: "Reject" "رفض"
+
+
+================ PER-SURFACE SUMMARY ================
+surface (t=text c=control-label i=icon)light-en       dark-en        light-ar       dark-ar        
+A /platform/verification            0t/0c/0i       1t/2c/0i       0t/0c/0i       1t/2c/0i       
+A /platform/approvals               7t/1c/0i       8t/1c/0i       7t/1c/0i       8t/1c/0i       
+A /platform/incidents               0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+A /platform/operations              0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+
+================ RESULT ================
+surfaces requested      4
+combinations            4 (light-en, dark-en, light-ar, dark-ar)
+measured (surface x combo) 16 of 16
+premise failures        0
+unreachable             0
+contrast findings       44 in 6 groups
+off-origin requests aborted 60
+   ! light-en https://unpkg.com x5 -- ABORTED; a measurement that depended on it is not safe
+   ! light-en https://cdnjs.cloudflare.com x10 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://unpkg.com x5 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://cdnjs.cloudflare.com x10 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://unpkg.com x5 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://cdnjs.cloudflare.com x10 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://unpkg.com x5 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://cdnjs.cloudflare.com x10 -- ABORTED; a measurement that depended on it is not safe
+
+FAIL (0 premise, 44 contrast)

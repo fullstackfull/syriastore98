@@ -134,6 +134,37 @@
                     </p>
 
                     <ul class="list-unstyled mb-0">
+                        {{-- NAV-004. THE TWO WORK QUEUES FIRST, and they are a different kind of
+                             entry from everything under them: these two can be WAITING FOR THE
+                             OPERATOR. A merchant cannot trade until their identity papers are
+                             reviewed, and a dangerous platform action does not take effect until a
+                             second operator approves it, so a queue an operator forgets to visit is
+                             a queue that stalls. Everything below is something to go and read.
+
+                             Both were reachable only by typing the URI until NAV-004: the
+                             verification queue and the approval queue were built by two different
+                             workstreams and neither added a navigation entry, which is what
+                             `OperatorPlatformNavigationTest`'s computed census found. The order
+                             here matches `SuperAdminMenuListener`'s group, so the dashboard and the
+                             sidebar do not disagree about where a screen sits.
+
+                             EACH SENTENCE NAMES WHAT ONLY THAT SCREEN DOES, for the reason the note
+                             above gives about the two money screens: "approvals" beside
+                             "verification" reads as one subject, and they are opposite ones -- one
+                             is a merchant's papers reviewed BY the operator, the other is an
+                             operator's own action reviewed by ANOTHER operator. --}}
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('kyc.queue') }}">{{ __('Verification queue') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('Identity and licence papers merchants have submitted, awaiting a platform decision. A merchant can never approve their own.') }}
+                            </span>
+                        </li>
+                        <li class="mb-3">
+                            <a class="ss-link" href="{{ route('platform.approvals.index') }}">{{ __('Dangerous action approvals') }}</a>
+                            <span class="ss-field__hint d-block">
+                                {{ __('Platform actions one operator has requested and a different operator must approve before they take effect. Nobody can approve their own request.') }}
+                            </span>
+                        </li>
                         <li class="mb-3">
                             <a class="ss-link" href="{{ route('platform.revenue') }}">{{ __('Platform revenue') }}</a>
                             <span class="ss-field__hint d-block">

@@ -132,7 +132,32 @@
                                             <input type="text" id="reason-{{ $approval->id }}" name="reason"
                                                    maxlength="255" class="form-control form-control-sm d-inline w-auto"
                                                    placeholder="{{ __('Reason (optional)') }}" />
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                            {{-- NAV-004. THE DESIGN SYSTEM'S ROW-LEVEL DESTRUCTIVE
+                                                 CONTROL, because the host theme's is not legible.
+                                                 Measured in all four combinations: `btn-sm
+                                                 btn-outline-danger` paints the host's `#ff3a6e`,
+                                                 which is 3.45:1 on the light card and 4.12:1 on
+                                                 the dark one against a 4.5:1 label floor -- so it
+                                                 failed in BOTH themes, and the light reading is
+                                                 the worse of the two, which is the opposite of
+                                                 what a dark-mode-first review would expect.
+
+                                                 `.ss-btn--danger-quiet` is the design system's own
+                                                 prescription for this exact position: "Row-level
+                                                 destructive actions use the quiet variant. A solid
+                                                 red button repeated down every row of a table
+                                                 out-shouts the records themselves." It takes
+                                                 `--ss-danger`, which inverts between themes
+                                                 (#b3261e light, #f3a9a4 dark) and measures 6.25:1
+                                                 and 7.47:1 on these surfaces. No stylesheet
+                                                 changes and no literal appears here.
+
+                                                 The outline goes with it, deliberately: the quiet
+                                                 variant draws its border only on hover, which is
+                                                 the treatment every other row-level destructive
+                                                 action in this product already has. --}}
+                                            <button type="submit"
+                                                    class="ss-btn ss-btn--sm ss-btn--danger-quiet">
                                                 {{ __('Reject') }}
                                             </button>
                                         </form>
@@ -194,11 +219,27 @@
     <div class="col-12">
         <x-ss.card :title="__('What is governed')"
                    :note="__('The wired set, and the actions proposed for the owner to confirm.')">
+            {{-- NAV-004. `.ss-code` AND NOT A BARE `<code>`, MEASURED RATHER THAN PREFERRED, and
+                 this is the same finding `platform_resources.blade.php` records against itself:
+                 Bootstrap paints an unclassed `<code>` in its own `$pink` `#e83e8c`, which the
+                 four-combination harness reads at 3.82:1 on the light card and 3.73:1 on the dark
+                 one, against a 4.5:1 body-text floor. It is invisible in review because it reads
+                 as a deliberate accent; only the pixels say otherwise.
+
+                 FOURTEEN CELLS PER COMBINATION, FIFTY-SIX IN ALL -- the two loops below print one
+                 `<code>` per governed action, and every action key on this screen was painted that
+                 colour. `.ss-code` takes `--ss-fg` on `--ss-surface-sunken`, a designed pair that
+                 re-themes, so no literal appears here and no stylesheet changes: the class already
+                 exists for exactly this and every other operator screen with a `<code>` already
+                 uses it (`platform_operations.blade.php`, `platform_incidents/_table.blade.php`,
+                 `platform_resources.blade.php`). THE SECOND LOOP GETS THE SAME CHANGE IN THE SAME
+                 COMMIT: repairing one of two byte-similar prints and measuring only that one is
+                 how a defect survives its own repair, which this repository has recorded twice. --}}
             <h3 class="h6">{{ __('Wired') }}</h3>
             <ul>
                 @foreach ($wired as $key => $definition)
                     <li>
-                        <code>{{ $key }}</code> &mdash;
+                        <code class="ss-code">{{ $key }}</code> &mdash;
                         {{ __($definition['label'] ?? $key) }}
                     </li>
                 @endforeach
@@ -211,7 +252,7 @@
             <ul>
                 @foreach ($proposed as $key => $definition)
                     <li class="mb-2">
-                        <code>{{ $key }}</code> &mdash; {{ __($definition['label'] ?? $key) }}
+                        <code class="ss-code">{{ $key }}</code> &mdash; {{ __($definition['label'] ?? $key) }}
                         <br /><small class="ss-muted">{{ $definition['not_wired_because'] ?? '' }}</small>
                     </li>
                 @endforeach

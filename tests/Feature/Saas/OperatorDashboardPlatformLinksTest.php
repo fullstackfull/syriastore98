@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Cache;
 use Tests\Feature\Security\SecurityTestCase;
 
 /**
- * THE THREE PLATFORM SCREENS ARE REACHABLE FROM THE OPERATOR'S DASHBOARD.
+ * THE PLATFORM SCREENS ARE REACHABLE FROM THE OPERATOR'S DASHBOARD.
  * =================================================================================================
  *
  * A BUILT SCREEN NOBODY CAN FIND IS NOT DELIVERED, and all three of these were in that state:
@@ -60,6 +60,17 @@ final class OperatorDashboardPlatformLinksTest extends SecurityTestCase
          * incidents" beside four measurement screens would reasonably assume something fills it in.
          */
         'platform.incidents.index' => 'nothing opens an incident by itself',
+        /*
+         * NAV-004. The two WORK QUEUES, and the words that have to be in their sentences are the
+         * ones that tell them from each other rather than from the measurement screens. Read only
+         * as labels, "Verification queue" and "Dangerous action approvals" are one subject; they
+         * are opposite ones. One is a MERCHANT'S papers reviewed BY the operator, the other is an
+         * OPERATOR'S own action reviewed by ANOTHER operator — and the thing both sentences say,
+         * in different words, is that nobody reviews their own, which is the safety invariant each
+         * screen exists to enforce.
+         */
+        'kyc.queue' => 'merchants have submitted',
+        'platform.approvals.index' => 'a different operator must approve',
     ];
 
     private User $operator;
@@ -113,12 +124,12 @@ final class OperatorDashboardPlatformLinksTest extends SecurityTestCase
         return substr($body, $from, $to - $from);
     }
 
-    public function test_the_operator_dashboard_links_to_all_three_platform_screens(): void
+    public function test_the_operator_dashboard_links_to_every_platform_screen_in_the_panel(): void
     {
         $panel = $this->panel();
 
         $this->assertNotSame('', $panel,
-            'the platform-links panel is not on the operator dashboard, so the three screens are '
+            'the platform-links panel is not on the operator dashboard, so these screens are '
             . 'reachable only by typing their URLs');
 
         foreach (array_keys(self::LINKS) as $name) {
@@ -193,6 +204,15 @@ final class OperatorDashboardPlatformLinksTest extends SecurityTestCase
             'the revenue link rendered in English for an Arabic operator');
         $this->assertStringContainsString('موارد المنصة', $panel,
             'the resources link rendered in English for an Arabic operator');
+
+        /* NAV-004's two queue links, in the language an operator reading Arabic sees. Asserted by
+           their own Arabic strings and not by `\p{Arabic}` above them: the panel already
+           contained Arabic before these were added, so the script-class assertion cannot tell
+           whether THESE two labels were translated. */
+        $this->assertStringContainsString('قائمة طلبات التوثيق', $panel,
+            'the verification-queue link rendered in English for an Arabic operator');
+        $this->assertStringContainsString('موافقات الإجراءات الخطرة', $panel,
+            'the approvals link rendered in English for an Arabic operator');
     }
 
     public function test_the_panel_renders_in_english(): void
@@ -201,6 +221,8 @@ final class OperatorDashboardPlatformLinksTest extends SecurityTestCase
 
         $this->assertStringContainsString('Platform revenue', $panel);
         $this->assertStringContainsString('Platform resources', $panel);
+        $this->assertStringContainsString('Verification queue', $panel);
+        $this->assertStringContainsString('Dangerous action approvals', $panel);
         $this->assertDoesNotMatchRegularExpression('/\p{Arabic}/u', $panel,
             'the panel rendered Arabic for an English operator');
     }

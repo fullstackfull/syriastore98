@@ -1,0 +1,119 @@
+
+=== light-en ===
+    state: store=1 cust_darklayout=off SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification @390              overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @390                 overflow= 484px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0   !! DOC OVERFLOW +484px
+  /platform/incidents @390                 overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/operations @390                overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @768              overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @768                 overflow= 118px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0   !! DOC OVERFLOW +118px
+  /platform/incidents @768                 overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/operations @768                overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @1024             overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @1024                overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/incidents @1024                overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=0 unwrapped=0
+  /platform/operations @1024               overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @1440             overflow=   0px  link=reachable (already open)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @1440                overflow=   0px  link=reachable (already open)  tables=1 wide=0 unwrapped=0
+  /platform/incidents @1440                overflow=   0px  link=reachable (already open)  tables=1 wide=0 unwrapped=0
+  /platform/operations @1440               overflow=   0px  link=reachable (already open)  tables=5 wide=5 unwrapped=0
+
+=== light-ar ===
+    state: store=1 cust_darklayout=off SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification @390              overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @390                 overflow= 438px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0   !! DOC OVERFLOW +438px
+  /platform/incidents @390                 overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/operations @390                overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @768              overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @768                 overflow=  72px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0   !! DOC OVERFLOW +72px
+  /platform/incidents @768                 overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/operations @768                overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @1024             overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @1024                overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/incidents @1024                overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=0 unwrapped=0
+  /platform/operations @1024               overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @1440             overflow=   0px  link=reachable (already open)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @1440                overflow=   0px  link=reachable (already open)  tables=1 wide=0 unwrapped=0
+  /platform/incidents @1440                overflow=   0px  link=reachable (already open)  tables=1 wide=0 unwrapped=0
+  /platform/operations @1440               overflow=   0px  link=reachable (already open)  tables=5 wide=4 unwrapped=0
+
+=== dark-en ===
+    state: store=1 cust_darklayout=on SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification @390              overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @390                 overflow= 484px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0   !! DOC OVERFLOW +484px
+  /platform/incidents @390                 overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/operations @390                overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @768              overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @768                 overflow= 118px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0   !! DOC OVERFLOW +118px
+  /platform/incidents @768                 overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/operations @768                overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @1024             overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @1024                overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/incidents @1024                overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=0 unwrapped=0
+  /platform/operations @1024               overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @1440             overflow=   0px  link=reachable (already open)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @1440                overflow=   0px  link=reachable (already open)  tables=1 wide=0 unwrapped=0
+  /platform/incidents @1440                overflow=   0px  link=reachable (already open)  tables=1 wide=0 unwrapped=0
+  /platform/operations @1440               overflow=   0px  link=reachable (already open)  tables=5 wide=5 unwrapped=0
+
+=== dark-ar ===
+    state: store=1 cust_darklayout=on SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification @390              overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @390                 overflow= 438px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0   !! DOC OVERFLOW +438px
+  /platform/incidents @390                 overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/operations @390                overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @768              overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @768                 overflow=  72px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0   !! DOC OVERFLOW +72px
+  /platform/incidents @768                 overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/operations @768                overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @1024             overflow=   0px  link=reachable (sidebar toggled)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @1024                overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=1 unwrapped=0
+  /platform/incidents @1024                overflow=   0px  link=reachable (sidebar toggled)  tables=1 wide=0 unwrapped=0
+  /platform/operations @1024               overflow=   0px  link=reachable (sidebar toggled)  tables=5 wide=5 unwrapped=0
+  /platform/verification @1440             overflow=   0px  link=reachable (already open)  tables=0 wide=0 unwrapped=0
+  /platform/approvals @1440                overflow=   0px  link=reachable (already open)  tables=1 wide=0 unwrapped=0
+  /platform/incidents @1440                overflow=   0px  link=reachable (already open)  tables=1 wide=0 unwrapped=0
+  /platform/operations @1440               overflow=   0px  link=reachable (already open)  tables=5 wide=4 unwrapped=0
+
+
+================ OVERFLOW BY WIDTH ================
+screen                    390px     768px     1024px    1440px      (max over all four combinations)
+/platform/verification    +0px      +0px      +0px      +0px      
+/platform/approvals       +484px    +118px    +0px      +0px      
+/platform/incidents       +0px      +0px      +0px      +0px      
+/platform/operations      +0px      +0px      +0px      +0px      
+
+================ SIDEBAR REACHABILITY ================
+    390px   16 of 16 (screen x combination) reached their own sidebar link
+    768px   16 of 16 (screen x combination) reached their own sidebar link
+   1024px   16 of 16 (screen x combination) reached their own sidebar link
+   1440px   16 of 16 (screen x combination) reached their own sidebar link
+
+================ CAPTURES (deviceScaleFactor 2) ================
+  e57ab91a849ec6bd  sidebar-group__light-en__390.png
+  6db83b87a1cb6945  sidebar-group__light-en__1440.png
+  fb808662a488538a  sidebar-group__light-ar__390.png
+  149b798ccfd30a35  sidebar-group__light-ar__1440.png
+  6a1ef65f47333d6d  sidebar-group__dark-en__390.png
+  e5218c9b234f9132  sidebar-group__dark-en__1440.png
+  0c22ba342c43316e  sidebar-group__dark-ar__390.png
+  ddc39fc8743b5a53  sidebar-group__dark-ar__1440.png
+  8 distinct of 8 -- identical captures are a harness fault, not a finding
+
+================ RESULT ================
+combinations            4
+widths                  390, 768, 1024, 1440
+measured                64 of 64
+premise failures        0
+findings                8
+   ! light-en 390px /platform/approvals: DOC OVERFLOW +484px
+   ! light-en 768px /platform/approvals: DOC OVERFLOW +118px
+   ! light-ar 390px /platform/approvals: DOC OVERFLOW +438px
+   ! light-ar 768px /platform/approvals: DOC OVERFLOW +72px
+   ! dark-en 390px /platform/approvals: DOC OVERFLOW +484px
+   ! dark-en 768px /platform/approvals: DOC OVERFLOW +118px
+   ! dark-ar 390px /platform/approvals: DOC OVERFLOW +438px
+   ! dark-ar 768px /platform/approvals: DOC OVERFLOW +72px
+off-origin aborted      288
+
+FAIL (0 premise, 8 findings)

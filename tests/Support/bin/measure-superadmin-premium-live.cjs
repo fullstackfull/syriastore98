@@ -120,6 +120,26 @@ const TIER_A = [
      how a reachable surface reads as absent. `plan_coupons.id = 1` is the fixture's only coupon. */
   ['/plan-coupon/1', 'resources/views/plan-coupon/show.blade.php'],
   ['/super-admin/lynomia-integration', 'packages/workdo/LynomiaChat (first-party)'],
+  /*
+   * NAV-004. FOUR SURFACES THAT MET THIS LIST'S OWN DERIVATION RULE AND WERE NOT ON IT.
+   *
+   * Every one is a parameterless GET carrying `App\Http\Middleware\PlatformOperatorOnly` that
+   * renders a page -- the exact filter the comment above describes -- so their absence was drift,
+   * not a judgement. The list is a frozen snapshot of a route-table query and the route table
+   * moved: `platform/operations` (OPS-001), `platform/incidents` (OPS-003), `platform/approvals`
+   * and `platform/verification` (the KYC review queue) all shipped after it was taken, and all
+   * four shipped with no navigation entry either, which is what NAV-004 closed.
+   *
+   * `/platform/stores` (Store 360, ADM-002) is the FIFTH of that shape and is deliberately still
+   * absent: it belongs to another workstream's slice and adding it here would take its contrast
+   * baseline without its author. Recorded so the next reader sees a stated gap rather than a
+   * complete-looking list. The same drift will happen again -- this list cannot be derived at
+   * runtime without a booted application, and a harness that boots one is a different tool.
+   */
+  ['/platform/verification', 'resources/views/kyc/queue.blade.php'],
+  ['/platform/approvals', 'resources/views/platform/approvals.blade.php'],
+  ['/platform/incidents', 'resources/views/superadmin/platform_incidents/index.blade.php'],
+  ['/platform/operations', 'resources/views/superadmin/platform_operations.blade.php'],
 ];
 
 const TIER_B = [

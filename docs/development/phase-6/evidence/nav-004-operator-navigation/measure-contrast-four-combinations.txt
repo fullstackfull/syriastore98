@@ -1,0 +1,100 @@
+
+=== light-en  (theme=light dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=off SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification               theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/4 icon-fail=0/0 | .btn-primary=2 .ss-btn--primary=0
+  /platform/approvals                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+  /platform/incidents                  theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /platform/operations                 theme=light bg=rgb(249, 250, 251) dir=ltr | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+
+=== dark-en  (theme=dark dir=ltr lang=en) ===
+    state: store=1 cust_darklayout=on SITE_RTL=off users.language=en (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification               theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=2/4 icon-fail=0/0 | .btn-primary=2 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Across the platform"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-primary  "Approve document"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-primary  "Approve verification"
+  /platform/approvals                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=1/3 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Across the platform"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-sm.btn-primary  "Approve and perform"
+  /platform/incidents                  theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Across the platform"
+  /platform/operations                 theme=dark bg=rgb(34, 36, 44) dir=ltr | text-fail=1 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "Across the platform"
+
+=== light-ar  (theme=light dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=off SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification               theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/4 icon-fail=0/0 | .btn-primary=2 .ss-btn--primary=0
+  /platform/approvals                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/3 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+  /platform/incidents                  theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+  /platform/operations                 theme=light bg=rgb(249, 250, 251) dir=rtl | text-fail=0 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+
+=== dark-ar  (theme=dark dir=rtl lang=ar) ===
+    state: store=1 cust_darklayout=on SITE_RTL=on users.language=ar (operator@example.test, type=super admin, current_store=NULL)
+  /platform/verification               theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=2/4 icon-fail=0/0 | .btn-primary=2 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "على مستوى المنصة"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-primary  "الموافقة على الوثيقة"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-primary  "الموافقة على التوثيق"
+  /platform/approvals                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=1/3 icon-fail=0/0 | .btn-primary=1 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "على مستوى المنصة"
+        CTRL  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  button.btn.btn-sm.btn-primary  "الموافقة والتنفيذ"
+  /platform/incidents                  theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/1 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=1
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "على مستوى المنصة"
+  /platform/operations                 theme=dark bg=rgb(34, 36, 44) dir=rtl | text-fail=1 control-fail=0/0 icon-fail=0/0 | .btn-primary=0 .ss-btn--primary=0
+        TEXT  2.58:1 (needs 4.5)  rgb(4,34,42) on rgb(51,93,168)  span.dash-mtext  "على مستوى المنصة"
+
+
+================ GROUPED CENSUS (colour, background, theme) ================
+
+DARK  TEXT    rgb(4,34,42) on rgb(51,93,168)  2.58:1 (needs 4.5)  x8 on 4 surfaces
+      surfaces: /platform/verification /platform/approvals /platform/incidents /platform/operations
+      selectors: span.dash-mtext
+      e.g.: "Across the platform" "على مستوى المنصة"
+
+DARK  CONTROL rgb(4,34,42) on rgb(51,93,168)  2.58:1 (needs 4.5)  x6 on 2 surfaces
+      surfaces: /platform/verification /platform/approvals
+      selectors: button.btn.btn-primary | button.btn.btn-sm.btn-primary
+      e.g.: "Approve document" "Approve verification" "Approve and perform" "الموافقة على الوثيقة"
+
+
+================ PER-SURFACE SUMMARY ================
+surface (t=text c=control-label i=icon)light-en       dark-en        light-ar       dark-ar        
+A /platform/verification            0t/0c/0i       1t/2c/0i       0t/0c/0i       1t/2c/0i       
+A /platform/approvals               0t/0c/0i       1t/1c/0i       0t/0c/0i       1t/1c/0i       
+A /platform/incidents               0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+A /platform/operations              0t/0c/0i       1t/0c/0i       0t/0c/0i       1t/0c/0i       
+
+================ CAPTURES (sha256 prefix -- four must differ) ================
+  44091039b535bcdd  light-en   /platform/verification
+  5fe1403820055a67  light-en   /platform/approvals
+  65677644a7614a07  light-en   /platform/incidents
+  dbb506b652060d02  light-en   /platform/operations
+  749200c2dd394717  dark-en    /platform/verification
+  30cddd7e38f4e203  dark-en    /platform/approvals
+  b1d54da077e3fc1e  dark-en    /platform/incidents
+  cd57ffa891520983  dark-en    /platform/operations
+  91d3113b32b982d3  light-ar   /platform/verification
+  5cd6b0610d0abea2  light-ar   /platform/approvals
+  e197548afa6bcd33  light-ar   /platform/incidents
+  17f5b2f659e4e00a  light-ar   /platform/operations
+  214b75a09bf6447b  dark-ar    /platform/verification
+  4b1ec8575bb3528b  dark-ar    /platform/approvals
+  380bc84bec47e4ff  dark-ar    /platform/incidents
+  28e110aa6f12fbc2  dark-ar    /platform/operations
+
+================ RESULT ================
+surfaces requested      4
+combinations            4 (light-en, dark-en, light-ar, dark-ar)
+measured (surface x combo) 16 of 16
+premise failures        0
+unreachable             0
+contrast findings       14 in 2 groups
+off-origin requests aborted 60
+   ! light-en https://unpkg.com x5 -- ABORTED; a measurement that depended on it is not safe
+   ! light-en https://cdnjs.cloudflare.com x10 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://unpkg.com x5 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-en https://cdnjs.cloudflare.com x10 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://unpkg.com x5 -- ABORTED; a measurement that depended on it is not safe
+   ! light-ar https://cdnjs.cloudflare.com x10 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://unpkg.com x5 -- ABORTED; a measurement that depended on it is not safe
+   ! dark-ar https://cdnjs.cloudflare.com x10 -- ABORTED; a measurement that depended on it is not safe
+
+FAIL (0 premise, 14 contrast)
