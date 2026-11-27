@@ -33,6 +33,31 @@
             data-bs-placement="top" title="{{ __('Receipt') }}"><i class="ti ti-receipt" aria-hidden="true"></i>
         </a>
         {{--
+            ORD-008 (GAP-185) -- THE PACKING DOCUMENT WAS BUILT AND NOTHING LINKED IT.
+
+            `order-packing-list/{id}` has a route, a handler (`OrderController::order_packing_list`),
+            a view, an `OrderDocumentAccessGuard` entry of its own and `OrderPackingListScreenTest`
+            driving all three of its answers -- and no screen in the application named it, so the
+            only way to open the picking and packing list was to type the uri. Measured by
+            `Tests\Feature\Ui\DeliveredScreenReachabilityTest`, whose census reads route names
+            out of comment-stripped sources precisely so that a sentence like this one cannot
+            satisfy it.
+
+            It goes HERE, beside its two siblings: the shipping label and the invoice are the other
+            two documents 04-C names (`Picking وPacking والباركود والملصقات والفواتير`), both are
+            already on this screen, and all three take the same `Crypt::encrypt($order['id'])`
+            segment and are guarded by the same middleware entry keyed on the uri.
+
+            `target="_blank"` and `rel="noopener noreferrer"` match the shipping label above rather
+            than the receipt: a picking list is printed while the order screen stays open.
+        --}}
+        <a href="{{ route('order.packing_list', \Illuminate\Support\Facades\Crypt::encrypt($order['id'])) }}"
+            target="_blank" rel="noopener noreferrer"
+            class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary" data-bs-toggle="tooltip"
+            aria-label="{{ __('Picking and packing list') }}" data-bs-placement="top"
+            title="{{ __('Picking and packing list') }}"><i class="ti ti-package" aria-hidden="true"></i>
+        </a>
+        {{--
             P2-04-6. THREE THINGS, one of which only breaks in production.
 
             `config('app.url')`, NOT `env('APP_URL')`. `env()` reads `$_ENV`, which

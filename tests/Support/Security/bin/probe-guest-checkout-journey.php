@@ -1,46 +1,50 @@
 <?php
 
 /**
- * P04-P1-05 — the guest checkout journey, as far as it currently goes.
+ * P04-P1-05 / `GAP-345` — THE GUEST CHECKOUT JOURNEY. **RESOLVED 2026-11-27; IT WAS THE HARNESS.**
  * =================================================================================================
  *
- * WHY THIS IS A SCRIPT AND NOT A TEST. The three facts that hold are asserted in
- * `tests/Feature/Commerce/GuestCheckoutJourneyTest`. This file carries the part that does NOT yet
- * complete, and it is deliberately NOT in the suite: adding a declared failure or skip to
- * `.github/known-test-outcomes.json` to keep CI green is the one use of that file its own README
- * forbids, and an unexplained red test is worse. CLAUDE.md's rule for exactly this case is that
- * evidence which cannot live in the suite goes here, as an executable script stating its own
- * preconditions.
+ * WHAT THIS FILE USED TO SAY, and it was honest about not knowing: *"the POST answers 302 to `/`
+ * with the session error `Cart is empty.`, and no `orders` row is written [...] it is NOT
+ * established whether that is the harness or the product."* Three fixture hypotheses about the
+ * `cart` cookie had been tested and refuted.
  *
- * WHAT IS ESTABLISHED (asserted in the Feature test, not here):
- *   - `POST {storeSlug}/process-order` -> `PaymentController::processOrder` is the route a guest
- *     uses, and it carries NO authentication middleware;
- *   - the guest basket is real `carts` rows that `Cart::forGuestCookie` selects;
- *   - a guest can open the checkout page of the store they are buying from.
+ * THERE WERE TWO CAUSES, BOTH HARNESS-SIDE, AND BOTH ARE NOW MEASURED:
  *
- * WHAT DOES NOT COMPLETE, and it is NOT established whether this is the harness or the product:
- * the POST answers 302 to `/` with the session error `Cart is empty.`, and no `orders` row is
- * written. The refusal is `PaymentController::getCartData`, which reads the basket through
- * `Cart::cart_list_cookie($request->all(), $store->id)` -> `Cookie::get('cart')`.
+ *  1. **A FOURTH COOKIE HYPOTHESIS NOBODY HAD TESTED — `CookieValuePrefix`.**
+ *     `Illuminate\Foundation\Testing\Concerns\MakesHttpRequests::prepareCookiesForRequest()`
+ *     encrypts every `withCookie()` value itself, and prepends
+ *     `CookieValuePrefix::create($key, $encrypter->getKey())` before doing so. `EncryptCookies`
+ *     validates that prefix and DISCARDS a cookie without it. The old fixture passed
+ *     `withCookie('cart', encrypt($value, false))` — doubly encrypted, unprefixed, thrown away by
+ *     the middleware, and indistinguishable from an empty basket. `withCookie('cart', $plain)` is
+ *     the correct call. (This also explains why hypothesis 3, "`serialise=false` changes the
+ *     outcome", was right about Laravel's encrypter and irrelevant to the test client.)
  *
- * THREE FIXTURE HYPOTHESES TESTED AND REFUTED, so they need not be repeated:
- *   1. the cookie is named after the column (`cookie_session_id`) — it is NOT; it is `cart`, and
- *      the cookie's VALUE is what matches `carts.cookie_session_id`;
- *   2. an unencrypted cookie reaches the handler — it does not; `cart` is not exempt from
- *      `EncryptCookies`, so the middleware discards it before the handler runs;
- *   3. `encrypt($value, false)` makes it readable — it did not change the outcome.
+ *  2. **The storefront posts `billing_info[...]`, a NESTED ARRAY.**
+ *     `resources/views/front_end/common/checkout/checkout_form.blade.php` opens its form on
+ *     `['payment.process', $store->slug]` and names every address field `billing_info[firstname]`,
+ *     `billing_info[billing_address]`, `billing_info[delivery_city]` and so on. A POST without
+ *     that key reaches `PaymentController::handleCustomerRegistration()`, where `$billing` is null
+ *     and `\Validator::make(null, ...)` is a TypeError — HTTP 500.
  *
- * MEASURED SEPARATELY AND NOT THE CAUSE: `Cookie::get('cart')` reads a request cookie correctly
- * outside the HTTP stack — a probe built a Request with that cookie and the facade returned it.
+ * With both corrected, the journey completes end to end: 302 to `{slug}/order-complete`, one
+ * `orders` row, the billing detail row, the stock decremented and the basket consumed.
  *
- * WHAT WOULD SETTLE IT. Drive the basket the way the storefront itself does — through the cart
- * endpoints (`product_cart`, `change-cart`) rather than by inserting rows — so the cookie is
- * minted by the application instead of by the fixture. If the journey completes that way, the gap
- * was the harness and this script closes. If it still refuses, the guest journey is broken in the
- * product and that is a Phase 04 defect against the phase's own stated premise.
+ * SO THE EVIDENCE NOW LIVES IN THE SUITE, which is where it belongs:
+ * `tests/Feature/Journeys/CommerceJourneyTest` drives the whole sequence over real routes and
+ * asserts the row, and a mutation restoring either cause is CAUGHT (`M9`, `M11`).
  *
- * PRECONDITIONS: a bootable application and a writable test database. Run from the repository root:
+ * THIS SCRIPT IS KEPT, NOT DELETED, for two reasons: the two causes above are the only written
+ * record of why `GAP-345` was hard, and the route premise it asserts is worth being able to check
+ * from a shell on a server where the suite is not set up. It no longer claims anything is
+ * unreproduced.
+ *
+ * PRECONDITIONS: a bootable application. Run from the repository root:
  *     php tests/Support/Security/bin/probe-guest-checkout-journey.php
+ *
+ * It exits 0 when the storefront order route still carries no authentication, which is the premise
+ * the whole journey rests on, and 1 if that has changed.
  */
 
 require __DIR__ . '/../../../../vendor/autoload.php';
@@ -48,7 +52,7 @@ require __DIR__ . '/../../../../vendor/autoload.php';
 $app = require __DIR__ . '/../../../../bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
-echo "P04-P1-05 guest checkout journey probe\n";
+echo "P04-P1-05 / GAP-345 guest checkout journey -- RESOLVED, see this file's docblock\n";
 echo str_repeat('-', 80), "\n";
 
 $route = collect(app('router')->getRoutes())->first(
@@ -71,8 +75,8 @@ printf("middleware       : %s\n", implode(', ', array_map(fn ($m) => is_string($
 printf("auth middleware  : %s\n", $authish === [] ? 'none (a guest can reach it)' : implode(', ', $authish));
 
 echo str_repeat('-', 80), "\n";
-echo "STATE: the completing step is unreproduced. See this file's docblock for the three\n";
-echo "       refuted hypotheses and for what would settle whether it is the harness or the\n";
-echo "       product. This script asserts nothing about the order row on purpose.\n";
+echo "The completing step is reproduced and asserted in\n";
+echo "  tests/Feature/Journeys/CommerceJourneyTest::test_journey_1_a_guest_completes_the_purchase_the_plan_measured\n";
+echo "The two harness causes are recorded in this file's docblock.\n";
 
 exit($authish === [] ? 0 : 1);

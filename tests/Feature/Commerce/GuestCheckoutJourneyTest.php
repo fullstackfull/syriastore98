@@ -114,16 +114,28 @@ class GuestCheckoutJourneyTest extends TestCase
      * cookie name are different things, and the premise tests above could not catch the
      * difference because they query the rows directly rather than through the request.
      *
-     * ENCRYPTED, AND SERIALISE=FALSE. `cart` is not in EncryptCookies' exception list, so an
-     * unencrypted value is DISCARDED by that middleware before the handler sees it — which
-     * reproduces "Cart is empty." exactly and looks identical to a broken checkout. The second
-     * argument matters too: Laravel encrypts cookie values without PHP serialisation, so
-     * `encrypt($v)` alone yields a payload the middleware decrypts to a serialised string the
-     * handler then fails to match on.
+     * ENCRYPTED, AND THE TEST CLIENT DOES IT FOR YOU — WHICH IS WHERE `GAP-345` WENT WRONG.
+     *
+     * `cart` is not in EncryptCookies' exception list, so a value that arrives unencrypted is
+     * DISCARDED by that middleware before the handler sees it. That is true, and it is why this
+     * helper used to call `withCookie('cart', encrypt(self::COOKIE, false))`.
+     *
+     * THAT WAS THE DEFECT IN THE HARNESS. `MakesHttpRequests::prepareCookiesForRequest()` encrypts
+     * every `withCookie()` value ITSELF, and before encrypting it prepends
+     * `CookieValuePrefix::create($key, $encrypter->getKey())`. `EncryptCookies` validates that
+     * prefix and throws the cookie away when it is absent. So encrypting by hand produced a
+     * DOUBLY encrypted, UNPREFIXED value that the middleware discarded — reproducing
+     * "Cart is empty." exactly, and indistinguishable from a broken guest checkout. `GAP-345`
+     * recorded three refuted hypotheses about this cookie; this was the fourth and nobody had
+     * tested it.
+     *
+     * The plain value is correct. Measured: with it the journey completes and writes an `orders`
+     * row — `Tests\Feature\Journeys\CommerceJourneyTest::test_journey_1_...` drives the whole
+     * sequence, and a mutation restoring `encrypt($cart, false)` there is CAUGHT.
      */
     private function asGuest()
     {
-        return $this->withCookie('cart', encrypt(self::COOKIE, false));
+        return $this->withCookie('cart', self::COOKIE);
     }
 
     #[Test]
