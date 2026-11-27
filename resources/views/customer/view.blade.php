@@ -228,5 +228,10 @@
             </div>
         </div>
     </div>
+
+    {{-- MKT-005 / P05-11 -- «سجل حركات», the loyalty point history. In its own file because three
+         ratchets read THIS file as whole-file text and a second table here could satisfy their
+         regexes on the orders table's behalf; the partial's own docblock has the detail. --}}
+    @includeWhen(isset($loyalty), 'customer.loyalty-history')
 @endsection
 
