@@ -333,10 +333,27 @@ Every one was re-run **in isolation** on this worktree and still fails, and **no
 | `StorelessMerchantDashboardTest::test_the_refusal_ends_the_session_itself` | a refusal returns 200 where a redirect is expected |
 | `AuditAttributionTest::test_no_audit_reader_exists_without_an_authorization_gate` | an ungated audit reader |
 
-**The full suite was NOT re-run after these two fixes**, so the honest figure for this branch is
-"14 140 passed / 14 failed, of which 2 are fixed and verified green in isolation and 12 are
-pre-existing". The integrator should expect **12 failures, all pre-existing**, on a clean re-run of
-a complete checkout.
+### RE-RUN AFTER BOTH FIXES, ON THE COMPLETE TREE — the figures to quote
+
+| gate | result |
+|---|---|
+| `--testsuite=Unit` | **7 223 passed, 1 skipped, 0 failed** (70 836 assertions, 245.8 s) |
+| `--testsuite=Contract` | **58 passed, 0 failed** (242 assertions) |
+| `--testsuite=Feature` | **14 142 passed, 12 failed, 1 skipped** (96 384 assertions, 3 135 s) |
+| `assert-known-test-outcomes.php` | **FAILED on exactly those 12**, and on nothing else |
+
+**14 140 → 14 142 is precisely the two failures that were mine**, and
+`SecurityLogInventoryTest` and `StoredFilePathSafetyTest` are absent from the gate's list. The
+remaining 12 are byte-for-byte the pre-existing set tabulated above. **This branch contributes zero
+failures.**
+
+The Unit figure is also **identical to the sparse run's** (7 223 / 1 / 0), which is the evidence that
+the sparse checkout really was inert for Unit — the judgement that chose it was right for that
+suite and wrong for Feature, and both halves are now measured rather than assumed.
+
+Baseline arithmetic: 7 223 − **44** new Unit tests (21 `WarehouseDimensionTest` + 20
+`WarehouseSelectorTest` + 2 added to `InventoryQuantitySourceAndWarehouseTest` + 1 to
+`ShipCod04DFamilyCensusTest`) = **7 179** before this branch.
 
 ---
 
