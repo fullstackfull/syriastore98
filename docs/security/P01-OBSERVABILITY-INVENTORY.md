@@ -441,8 +441,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentVerificationService.php:810` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
 | `app/Services/ProductStockService.php:111` | Stock decrement rejected: insufficient stock |
 | `app/Services/ProductStockService.php:228` | Variant stock decrement rejected: insufficient stock |
-| `app/Services/ProductStockService.php:565` | Could not flush the model cache after a stock change |
-| `app/Services/ProductStockService.php:521` | Warehouse sourcing was not recorded for a stock decrement |
+| `app/Services/ProductStockService.php:568` | Could not flush the model cache after a stock change |
+| `app/Services/ProductStockService.php:524` | Warehouse sourcing was not recorded for a stock decrement |
 | `app/Services/RefundIntegrityService.php:147` | Refund recorded as approved but NOT settled: no gateway refund was made |
 | `app/Services/RefundIntegrityService.php:247` | Refunds awaiting settlement could not be listed. |
 | `app/Services/ShopifyAdminApi.php:137` | a Shopify Admin API address was refused before the request was made |
@@ -468,7 +468,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Support/Modules/ModuleTrust.php:176` | module trust: an uploaded package was not loaded because no approved review decision exists for it |
 | `app/Support/Modules/ModuleTrust.php:207` | module trust: an upload could not be recorded because the review register is not migrated |
 | `app/Support/Modules/ModuleTrust.php:244` | module trust: an upload could not be recorded, so nothing holds this package back from loading |
-| `app/Services/WarehouseInventory.php:626` | Warehouse sourcing could not be recorded |
+| `app/Services/WarehouseInventory.php:659` | Warehouse sourcing could not be recorded |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |

@@ -290,6 +290,56 @@ allocation and would have passed whatever the code did. All five now assert thei
 
 ---
 
+## 7a. The gate run, and the two failures that were mine
+
+`--testsuite=Feature`, 2026-11-27: **14 140 passed, 14 failed, 1 skipped** (3445 s). The declared
+outcome set has 0 accepted failures, so all 14 are reported. **Two were mine and are fixed; twelve
+are pre-existing on `int/checkpoint`.**
+
+### Mine, and both fixed
+
+1. **`SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source` — I broke my own
+   re-point.** I ran `resync-observability-inventory.py --write`, and then made one more edit to
+   `ProductStockService` (six comment lines, the `filter_var` strictness change). Those six lines
+   shifted three log citations below them and the inventory went stale again. **The §6b cascade bit
+   twice in one slice, the second time because the re-point came before the last edit rather than
+   after it.** Re-synced (3 rows re-pointed) and verified.
+2. **`StoredFilePathSafetyTest::test_a_shared_file_at_the_repository_root_…` — an artefact of my
+   worktree, not of the change.** Its premise asserts
+   `packages/workdo/ImportExport/src/resources/assets/img/img.png` exists, and this worktree was
+   created with a **sparse checkout** excluding `packages/workdo/*/src/[Rr]esources/assets/`, because
+   the disk was at 99 % / 1.2 GB and a full checkout had already failed with ENOSPC. The exclusion
+   was chosen as inert for the Unit suite and **it was not inert for the Feature suite** — exactly
+   the "a test fails for a reason that is not the code" trap. Sparse checkout **disabled** once disk
+   reached 12 GB; the tree is now complete at 2.8 GB.
+
+Both verified together afterwards: `SecurityLogInventoryTest` + `StoredFilePathSafetyTest` =
+**94 passed, 0 failed**.
+
+### The other twelve, and how each was shown not to be mine
+
+Every one was re-run **in isolation** on this worktree and still fails, and **not one references
+`ProductStockService`, `WarehouseInventory`, `WarehouseSelector` or the observability inventory**
+(measured: 0 hits per file). Each fails on a different subject:
+
+| test | why it fails, and whose it is |
+|---|---|
+| `HistoricalOrderImportSalesExclusionTest::test_the_metric_layer_is_not_the_only_place_order_money_is_summed` | the `HomeController` line drift in §8.1 |
+| `HostUtilityCensusPopulationTest::test_the_old_population_still_reproduces_the_registers_own_figure` | counts **routes** behind `PlatformOperatorOnly`: `GAP-179` recorded 19, the tree now has **26**. This slice adds **no route at all**. |
+| `OrderActionPermissionCensusTest::test_the_census_covers_every_order_route` | `POST order-return-inspection` is uncensused — **`GAP-363`'s own route**, landed 2026-11-26 |
+| `OperatorPlatformNavigationTest` (2) | `kyc.queue`, `platform.approvals`, `platform.incidents`, `platform.operations` are not in `SuperAdminMenuListener` (`ADM-001`) |
+| `PlanCouponRankingFreshnessTest` (3) | coupon-ranking card premises (`BETACOUPON` / `ALPHACOUPON` not in the lead) |
+| `OperatorDashboardCardLabelsTest` (2) | the same coupon card, and its tie-break |
+| `StorelessMerchantDashboardTest::test_the_refusal_ends_the_session_itself` | a refusal returns 200 where a redirect is expected |
+| `AuditAttributionTest::test_no_audit_reader_exists_without_an_authorization_gate` | an ungated audit reader |
+
+**The full suite was NOT re-run after these two fixes**, so the honest figure for this branch is
+"14 140 passed / 14 failed, of which 2 are fixed and verified green in isolation and 12 are
+pre-existing". The integrator should expect **12 failures, all pre-existing**, on a clean re-run of
+a complete checkout.
+
+---
+
 ## 8. Found, not mine to fix
 
 1. **`HistoricalOrderImportSalesExclusionTest::test_the_metric_layer_is_not_the_only_place_order_money_is_summed`
