@@ -13,7 +13,99 @@ branch name does not narrow it.
 > That was stale from 2026-11-22. The Phase 05 work it described is preserved below and in
 > `docs/development/phase-5/`; nothing has been removed.
 
-> ### NEXT EXECUTABLE ACTION (read this first — account transfer of 2026-11-26)
+> ### NEXT EXECUTABLE ACTION (read this first — account transfer of 2026-11-28)
+>
+> **WHERE THE WORK IS. Everything is pushed; nothing lives only on this machine.**
+>
+> | | |
+> |---|---|
+> | integrated candidate (Laravel) | `claude/magical-bardeen-b04pbh` @ **`4191cda4d`** — also `backup/int-checkpoint` |
+> | Flutter app half of `SUPPORT-002` | `claude/magical-bardeen-b04pbh` in `StoreSyria_app98` @ `1105f86` — **NOT merged into `intf/checkpoint`, so that branch is the only copy** |
+> | Flutter wave 3 | `claude/sleepy-goldberg-nrec0f` @ `5b3c6bb` |
+> | 40 workstream branches | all `ws/*` pushed under the same names, per-workstream history preserved |
+>
+> **No merge to `main` is authorised and none was attempted. No PR exists.**
+>
+> #### THE FIRST THING TO DO, and it is not more implementation
+>
+> **Run the consolidated gates on the candidate — they have NOT been run since the last four merges**
+> (`ws/support2`, `ws/warehouse`, `ws/recover`, `ws/loyalty`). Targeted suites are green
+> (Unit/Tenancy, Unit/Governance, Feature/Tenancy, the log inventory: 554 passed), but
+> `--testsuite=Unit`, `--testsuite=Contract` and the full `--testsuite=Feature` with
+> `assert-known-test-outcomes.php` are owed on this exact tree. Expect the raw-query inventory to
+> need re-measuring **again** — four successive merges each took one side of it wholesale, and the
+> reconciler at `/tmp/.../scratchpad/reconcile.sh` is gone with the container, so re-derive from
+> the test output rather than from any number written here.
+>
+> #### THE ONE SEVERE OPEN DEFECT — `GAP-380`
+>
+> **A sale that empties a product's stock returns HTTP 500 and the stock is already gone.**
+> `PaymentService::getProductStatus()` reads `$settings['notification']` unguarded, on a raw settings
+> pluck with no defaults merge, inside `if (product_stock <= low_stock_threshold)` where that column
+> ships `DEFAULT 0`. Measured: **HTTP 500 · 0 `orders` rows · `product_stock` = 0 · basket intact**,
+> repeatably, for any store with no `notification` row. Payment paths are owner-reserved, so it is
+> **not fixed** — but the minimal remedy is a `??` guard that changes no price, stock rule or money,
+> and the two adjacent lines already guard their own keys that way. **This should be the owner's
+> first decision.** 24 sibling sites in two other files are stated as NOT measured.
+>
+> #### WHAT IS OWED BY A PERSON, not by engineering
+>
+> 1. **48 owner decisions, `J1`–`J48`**, in `docs/development/OWNER-DECISION-PACKAGE.md`. **Read its
+>    INDEX first** — it groups them by *kind* (money · security · commercial · text only the owner
+>    can write · what a figure means · human acceptance · scope), because the sections below it are
+>    in the order they were raised, which is a log and the wrong shape for deciding.
+> 2. **`J48` is live and blocking five tests deliberately.** `GAP-231` narrowed *Popular Coupon* and
+>    *Popular Plan* to settled purchases only, and **no approved text defines either metric**. The
+>    five tests encoding the previous rule are **red on purpose**, not unfinished. `F257` — the
+>    owner's one ruling on a comparable figure — excluded only *cancelled* orders while keeping every
+>    order regardless of `payment_status`, so the shipped rule is **broader** than what was approved.
+> 3. **`J32`** — identity documents are stored under a document root that serves files; the deny
+>    rules are written and inactive.
+> 4. **Human acceptance owed on surfaces built this session and never looked at by a person:** Store
+>    360, the KYC screens, CTRL's three views, operations and incidents. Each is asserted bilingual
+>    with no colour declared and no side pinned; **none** has been through the compositing contrast
+>    harness with `APP_DEBUG` off.
+> 5. **The Flutter app half of `SUPPORT-002` has NEVER been run** — there is no Dart SDK in this
+>    environment. Reading found two real defects (three non-existent `AppColor` entries, and a
+>    `growable: false` list assigned into an `RxList` the controller clears, which throws on the
+>    second open). **Run that suite before relying on the app half.**
+>
+> #### WHAT WAS DELIVERED SINCE THE 2026-11-26 TRANSFER
+>
+> Nine concurrent workstreams, all merged. **Implementation:** multi-warehouse inventory
+> (`P04-P4-02`, engine only — a merchant cannot yet create a warehouse through the product), the
+> loyalty transaction ledger (`P05-11`/`MKT-005`), contextual help and announcements on both clients
+> (`SUPPORT-002`), Arabic search normalisation (`CUST-003`), end-to-end journeys plus a reachability
+> audit (`P04-P9-01`), and the storefront image pipeline (`GAP-274` — a measured 477,716 → 5,864
+> bytes on one card). **Integration:** a lost-hunk sweep over 16 branches that found and restored
+> **six** losses, the `ws/p6-ctrl` integration, the Feature failures, operator navigation with a
+> six-way UX verification, and the Popular Coupon reconciliation.
+>
+> **`GAP-375`…`GAP-382` are the new findings.** The register is at **382 rows**; the matrix at **379
+> requirements / 182 verified / 121 partial / 9 not implemented / 26 verification-incomplete**.
+>
+> #### THE FOUR LESSONS THAT COST THE MOST, so they are not re-learned
+>
+> 1. **"Not started" was read as "not present" six times** — `EX-010`, `GAP-195`…`GAP-199`. Three
+>    inverted the risk: two said a protection was sound when it was not, one advised declining a
+>    feature that *narrows* an existing unconstrained door. **Measure the absence before recording
+>    one.**
+> 2. **Taking one side of a merge conflict loses the other side's contribution, and a passing test
+>    hides it.** Six confirmed losses; one was a view hunk whose controller half survived, leaving a
+>    figure filtered but undisclosed — green in the half that shipped. Another was a comment
+>    accounting for two of eight additions, beside a correct assertion. **Resolve as the union.**
+> 3. **Arithmetic over two diffs cannot see a third branch.** The operator gate took four
+>    independent branches off one base; predictions of 42 and 51 were both wrong against measured 45
+>    and 23. **Run the test and read its number.**
+> 4. **A figure duplicated into a second file is only safe if something checks it.** Caught in
+>    `CLAUDE.md` three times in two days (per-phase pairs, the phase-6 document count, the caching
+>    census), and the caching figure **drifted back into 11 sites after being removed from eleven**,
+>    five of them arriving with later merges. Cite the source, or assert the copy.
+>
+>
+> ---
+>
+> ### NEXT EXECUTABLE ACTION (read this first — account transfer of 2026-11-26 — SUPERSEDED, kept for history)
 >
 > **HEAD of `feature/phase-06-saas-super-admin` = `5be3602b`, pushed and CI-green.** CI #676 and
 > #677 both returned **success on all seven jobs**, merge-base regression gate included. Nothing of
