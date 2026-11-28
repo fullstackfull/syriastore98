@@ -19,8 +19,9 @@ branch name does not narrow it.
 >
 > | | |
 > |---|---|
-> | integrated candidate (Laravel) | `claude/magical-bardeen-b04pbh` @ **`4191cda4d`** — also `backup/int-checkpoint` |
-> | Flutter app half of `SUPPORT-002` | `claude/magical-bardeen-b04pbh` in `StoreSyria_app98` @ `1105f86` — **NOT merged into `intf/checkpoint`, so that branch is the only copy** |
+> | integrated candidate (Laravel) | the tip of **`claude/magical-bardeen-b04pbh`** — `backup/int-checkpoint` is the same commit, and `archive/int-dryrun` holds the discarded dry-run integration |
+> | integrated candidate (Flutter) | `claude/magical-bardeen-b04pbh` in `StoreSyria_app98` @ **`dac6cb6`** — `intf/checkpoint` and `backup/intf-checkpoint` are the same commit |
+> | Flutter `SUPPORT-002` app half | **now IN that candidate.** It was alone on `1105f86` while the candidate held 21 commits that commit lacked; `dac6cb6` is the union merge, both translation maps resolved additively (6 plural keys + 16 SUPPORT-002 keys, no overlap, no duplicate anywhere). **Structural checks only — no Dart SDK here, so nothing was compiled and no Flutter test ran against it.** `flutter analyze` and the localization tests are owed on it |
 > | Flutter wave 3 | `claude/sleepy-goldberg-nrec0f` @ `5b3c6bb` |
 > | 40 workstream branches | all `ws/*` pushed under the same names, per-workstream history preserved |
 >
@@ -65,10 +66,10 @@ branch name does not narrow it.
 >    360, the KYC screens, CTRL's three views, operations and incidents. Each is asserted bilingual
 >    with no colour declared and no side pinned; **none** has been through the compositing contrast
 >    harness with `APP_DEBUG` off.
-> 5. **The Flutter app half of `SUPPORT-002` has NEVER been run** — there is no Dart SDK in this
+> 5. **The Flutter app half of `SUPPORT-002` has NEVER been run, and nor has the union merge that now carries it** — there is no Dart SDK in this
 >    environment. Reading found two real defects (three non-existent `AppColor` entries, and a
 >    `growable: false` list assigned into an `RxList` the controller clears, which throws on the
->    second open). **Run that suite before relying on the app half.**
+>    second open). **Run that suite before relying on the app half.** The same merge measured a **pre-existing** i18n hole: `add_delivery_men` and `price_label` are in `ar.dart` and missing from `en.dart` on both sides and in the merge base, so it predates this session and was recorded rather than quietly closed.
 >
 > #### WHAT WAS DELIVERED SINCE THE 2026-11-26 TRANSFER
 >
